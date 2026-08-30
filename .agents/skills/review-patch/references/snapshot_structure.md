@@ -13,13 +13,17 @@ Its current layout is:
   <opaque-file-id>/
     left   # present only when the captured File has a left side
     right  # present only when the captured File has a right side
+    ...    # private format sidecars may also be present
   <opaque-file-id>/
     ...
 ```
 
 Each immediate child directory represents one changed File pair. Its name is
 an opaque backend-generated File id, not a repository path. `left` and
-`right` contain the exact captured bytes used by dirdiff and the browser.
+`right` contain the exact captured side bytes used by dirdiff and the browser.
+Private link sidecars may sit beside them; they are composition data, not more
+changed Files or valid finding paths. Enumerate and address only exact `left`
+and `right` names.
 
 - Both files present: inspect them as one modified or renamed/copied pair.
 - Only `right` present: inspect it as an added or untracked File.
@@ -27,9 +31,11 @@ an opaque backend-generated File id, not a repository path. `left` and
 - Never assume text, UTF-8, a particular extension, or a repository filename
   from the opaque directory name.
 
-The filesystem tree intentionally contains no manifest, ordering, display
-name, or repository-path mapping. Use API Thread fields when an existing
-Thread supplies file/location context. When creating a finding, pass the exact
+The public File ids and side names contain no manifest, ordering, display name,
+or mapping to the outer repository File. Private link metadata may state its
+captured nested paths, but it is not a general manifest and is not a finding
+path. Use API Thread fields when an existing Thread supplies file/location
+context. When creating a finding, pass the exact
 absolute `left` or `right` path that was inspected; the backend maps that
 captured side to its persisted File identity.
 

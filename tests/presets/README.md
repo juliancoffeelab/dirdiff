@@ -15,7 +15,13 @@ Below a catalog, each group directory holds preset directories of paired files:
 
 - `old.<ext>` is the left side.
 - `new.<ext>` is the right side.
-- Both files in a preset use the same extension.
+- Ordinary pairs use the same extension. A pair that changes between a
+  symbolic link and a regular File may use different extensions because its
+  mode selects link composition.
+
+A symbolic-link preset may also contain plainly named target Files and link
+hops. Only `old.*` and `new.*` are comparison sides; the other entries are the
+repository-local objects those sides reach.
 
 A preset may hold only one side. One with just `new.*` is an addition and one
 with just `old.*` is a deletion, which is how the format catalog covers an added

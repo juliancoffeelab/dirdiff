@@ -518,12 +518,16 @@ operation.
 
 The returned directory has one immediate opaque File-id directory per captured
 File pair. Each pair directory contains an exact `left` file when the left side
-exists and an exact `right` file when the right side exists. File ids are not
-repository paths, and the tree contains no manifest, ordering, display name, or
-repository-path mapping. Agents enumerate every pair, inspect each present side
-with content-appropriate tools, and pass the exact absolute side path to
-`create-finding`. Missing `left` or `right` files represent absent sides; the
-Snapshot tree is immutable and never a worktree.
+exists and an exact `right` file when the right side exists. Link sides may have
+private `*-link.json` and `*-target` composition data beside them; those are not
+changed Files or valid finding paths. File ids are not repository paths, and the
+public ids and side names contain no manifest, ordering, display name, or
+outer-File repository mapping. Private link metadata states its captured nested
+paths but is not a general manifest.
+Agents enumerate every pair, inspect each public side with content-appropriate
+tools, and pass the exact absolute `left` or `right` path to `create-finding`.
+Missing public side files represent absent sides; the Snapshot tree is immutable
+and never a worktree.
 
 The captured bytes also carry the placement coordinate, so no composed content
 crosses the agent boundary. An ordinary text File composes the single
@@ -539,12 +543,13 @@ either: the agent inspects the captured bytes with content-appropriate tools and
 addresses the whole content as the single line `1..1`.
 
 This filesystem contract has separate role-specific operational instructions
-in `.agents/skills/review-patch/references/snapshot_structure.md` and the
+in `.agents/skills/review-patch/references/snapshot_structure.md`,
+`.agents/skills/round-review/references/snapshot_structure.md`, and the
 implementor appendix in
 `.agents/skills/babysit-patch/references/snapshot_structure.md`. Any change to
 Snapshot directory organization, side filenames, path meaning, mutability, or
-the way agents obtain captured bytes must update both skill references and this
-specification in the same change. The reviewer document defines complete
+the way agents obtain captured bytes must update all three skill references and
+this specification in the same change. The reviewer document defines complete
 capture inspection and finding paths; the implementor document defines
 finding-evidence reads, live-worktree changes, recapture, and reviewer handoff.
 

@@ -1,0 +1,2 @@
+Configuration is now local to this project.
+The shared profile is no longer required.

@@ -14,12 +14,16 @@ layout:
   <opaque-file-id>/
     left   # present only when the captured File has a left side
     right  # present only when the captured File has a right side
+    ...    # private format sidecars may also be present
 ```
 
 The immediate directory name is an opaque File id, not a repository path.
-`left` and `right` contain exact captured bytes. Both present means a
+`left` and `right` contain exact captured side bytes. Both present means a
 before/after pair; only `right` means added or untracked; only `left` means
-removed. The tree has no manifest or repository-path mapping.
+removed. Private link sidecars may sit beside them; do not treat those as
+changed Files or pass their paths to review instruments. Public File ids and
+side names have no manifest or outer-File repository mapping. Private link
+metadata may state its captured nested paths, but it is not a general manifest.
 
 ## Follow a finding to its bytes
 

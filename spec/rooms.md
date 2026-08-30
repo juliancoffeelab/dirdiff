@@ -42,7 +42,11 @@ get(
     snapshot_id: UUID,
     left: Optional[Path],
     right: Optional[Path],
-) -> tuple[Optional[Path], Optional[Path], FileMeta]
+) -> tuple[
+    Optional[CapturedFileSide],
+    Optional[CapturedFileSide],
+    FileMeta,
+]
 threads(
     snapshot_id: UUID,
     *,
@@ -64,9 +68,12 @@ returns the already published durable directory of one of this Room's
 Snapshots. RoomLord itself only hands out Rooms.
 
 `manifested` yields repository-relative left/right Paths, including Files whose
-contents could not be captured. `get` accepts one such pair and returns absolute
-Paths to the captured contents. Added and deleted Files use `None` for the absent
-side. For a File with a persisted capture error, `get` returns that exact reason
+contents could not be captured. `get` accepts one such pair and returns each
+present side as a `CapturedRegularFileSide` or `CapturedSymlinkFileSide`.
+Both variants carry the absolute captured Path. The symlink variant requires
+authenticated `CapturedLink` facts and the regular variant cannot carry them.
+Added and deleted Files use `None` for the absent side.
+For a File with a persisted capture error, `get` returns that exact reason
 in `FileMeta.capture_error`; rendering boundaries reject or classify it before
 decoding the generated diagnostic contents.
 
@@ -124,8 +131,15 @@ A replaced or modified line count does not exist before a diff engine aligns
 one File and is never manifest or Snapshot metadata.
 
 The private capture implementation loads every present side through the backend
-content interface and stores it unchanged. Capture does not decode or classify
-files. A backend loading failure is contained to that File: capture retains its
+content interface and stores it unchanged. It records each present side's mode.
+For a symlink mode it also decodes only the raw target spellings needed to walk
+inside the repository, retaining nested link payloads, any terminal diagnosis,
+and exact safely reached final bytes beside the unchanged raw side. Before
+loading a reached non-link File, capture asks the backend for its exact size;
+it checks the returned byte count against the same bound after loading. Targets
+larger than 1 MiB stop with a diagnosis and are not retained. Other File contents
+remain unclassified.
+A backend loading failure is contained to that File: capture retains its
 repository paths and metadata, writes clearly machine-generated diagnostic
 content for each failed side, and persists the actual `DirdiffError` reason.
 The genuine contents of a side that loaded successfully are retained. Unrelated
@@ -135,8 +149,11 @@ operation.
 Snapshot equality includes:
 
 - left and right repository-path presence;
+- each present side's File mode;
 - each present side's identity token: the backend's content-addressed object
   id (a Git blob id) when the side has one, otherwise the captured bytes;
+- each link side's nested link payloads, terminal diagnosis or normalized final
+  path, and final target bytes when resolution succeeded;
 - tracked provenance and backend change classification;
 - explicit lazy override;
 - complete `preset.toml` content when it supplies that override.
@@ -145,17 +162,20 @@ Sides without an object id (worktree, untracked files, preset fixtures) are
 read before the retained check, and a failed read substitutes the established
 error content, keeping eager errors part of identity through the content
 token. Sides with an object id are read only when the Snapshot turns out to
-be new — the id is the identity, so a failed read of an id-addressed side
-aborts the capture instead of persisting an error placeholder under a token
-that names the real bytes (a retry captures cleanly; the object is
-immutable, so the failure is infrastructural). Backend order, human labels, aggregate line
-counts, directory-tree output, and renderer output do not participate in
+be new, except links, whose raw target and reached content are required for
+identity before the retained check. For an ordinary id-addressed side the id is
+the identity, so a failed read aborts capture instead of persisting an error
+placeholder under a token that names the real bytes (a retry captures cleanly;
+the object is immutable, so the failure is infrastructural). Backend order,
+human labels, aggregate line counts, directory-tree output, and renderer output do not participate in
 equality. Canonical filepath sorting is used only while hashing this set; it
 is not persisted presentation order.
 
-SHA-256 over the token set identifies equal captured state inside one Room,
-and per-side SHA-256 content digests validate each captured side when
-`Room.get` returns its Path. Repeating manifest with equal captured state
+SHA-256 over the token set identifies equal captured state inside one Room.
+Per-side SHA-256 content digests validate each raw captured side. A symbolic
+link relation separately authenticates its metadata and optional reached target
+bytes before `Room.get` returns the side and parsed link facts. Repeating
+manifest with equal captured state
 returns the existing `snapshot_id` without re-reading backend contents.
 Incompatible capture changes advance the hash-domain version.
 
@@ -185,6 +205,10 @@ snapshot_file_left
 snapshot_file_right
   file_id, repository_path, content_hash
 
+snapshot_file_symlink
+  file_id, side, absolute metadata_path, metadata_hash,
+  nullable absolute target_capture_path, nullable target_hash
+
 snapshot_file_lazy_reason
   file_id, reason
 
@@ -211,7 +235,12 @@ review_action
 
 The two Snapshot line-count columns are nullable together. A File's capture
 error is nullable because successful capture has no error. Optional File sides,
-lazy reasons, and lazy-reason source content are represented by row absence.
+symbolic-link identity, lazy reasons, and lazy-reason source content are
+represented by row absence. A symbolic-link row belongs to one present
+left/right side. It stores the exact physical sidecar paths and their digests;
+the target path and hash are present together only after a successful walk.
+Chain hops, the terminal diagnosis, and the final repository target path remain
+in the authenticated metadata rather than being duplicated relationally.
 
 The lazy-reason content relation retains the exact preset metadata input that
 participated in identity without adding that content to backend path or Room
@@ -220,7 +249,14 @@ names, rendered rows, or per-File line counts.
 
 ## Publication
 
-Capture writes a process-unique staging directory. Under the database-wide
+Capture writes a process-unique staging directory. Every present side is the
+exact `left` or `right` bytes. A link side additionally has private
+`left-link.json`/`right-link.json` metadata and, after successful resolution,
+private `left-target`/`right-target` bytes beside it. Publication constructs
+their final absolute paths once, hashes their exact bytes, and inserts one
+`snapshot_file_symlink` row for that side. Later reads use those stored paths;
+they do not probe sibling filenames to decide whether a side is a link. Under
+the database-wide
 advisory lock, it checks for equal captured state, renames a new complete directory under
 `snapshots/<snapshot_id>`, and publishes all relational rows in one database
 transaction.
@@ -239,9 +275,10 @@ not select a predecessor or supply Snapshot ancestry.
 Creating a Thread inserts only its origin row and first Comment action in one
 transaction. Ordinary Thread reads never create or repair placement rows.
 
-When equal retained state is reused, capture verifies every referenced content
-digest before returning its key. A missing, moved, or modified retained File
-therefore fails manifest instead of advertising a Snapshot that cannot be read.
+When equal retained state is reused, capture verifies every referenced raw side,
+link metadata, and optional link target against its relational digest before
+returning its key. Missing, moved, or modified retained content therefore fails
+manifest instead of advertising a Snapshot that cannot be read.
 
 The default store is `store` beside the SQLite database; `--store-path` selects
 another root. Database and store paths inside a reviewed repository are rejected
@@ -288,10 +325,9 @@ rule. Persisted capture errors do not prevent either metadata operation.
 `/api/file-diff` accepts `snapshot_id`, engine, and the filepath pair. It calls
 `find_room(snapshot_id)` and then performs one direct
 `get(snapshot_id, left, right)`. The API layer checks the returned capture error,
-then reads the captured Paths, uses the Room's persisted Tab for display naming,
-starts the selected engine and renderer, and constructs the HTTP response.
-Because those consumers require text, this endpoint decodes the selected
-contents and rejects binary or non-UTF-8 input locally. A persisted capture error
+then reads the authenticated captured sides and any parsed link facts, uses the Room's
+persisted Tab for display naming, starts the selected engine and renderer, and
+constructs the HTTP response through format composition. A persisted capture error
 follows the endpoint's existing `DirdiffError` response path. The endpoint does
 not iterate the Room or reload Git, index, worktree, or preset contents. The
 agent API instead returns the existing Snapshot directory already published by
@@ -299,14 +335,17 @@ ordinary capture. It creates no additional File, directory, link, or Snapshot
 representation.
 
 That returned directory is an agent-facing contract: immediate children are
-opaque captured File ids, and each child contains the exact `left` and/or
-`right` side bytes. It is read-only and does not encode repository paths or
-manifest presentation. The reviewer and implementor skills provide distinct
+opaque captured File ids. The exact `left` and/or `right` files are its public
+review sides. A link side may have private `*-link.json` and `*-target` files;
+agents must neither enumerate those as changed Files nor address findings to
+them. The public File ids and side names encode no repository mapping or
+manifest presentation; private link metadata contains only its captured nested
+paths. The tree is read-only. The reviewer and implementor skills provide distinct
 role-specific instructions over this layout in their respective
 `references/snapshot_structure.md` files. Changes to publication
 layout, side naming, byte meaning, or path interpretation must update
-`spec/reviews.md` and both skill references together so capture changes cannot
-silently break the agent workflow.
+`spec/reviews.md` and all three skill references together so capture changes
+cannot silently break the agent workflow.
 
 Repository-mark removal deactivates a Mark instead of deleting its row, leaving
 Room and Snapshot identity intact. Marking the same path again reactivates the

@@ -9,6 +9,10 @@ dropped constraints forbade, it constructs the record that would carry it and
 requires the construction to fail — and, for the shapes review genuinely
 produces, requires it to succeed.
 
+It also exercises the symbolic-link sidecar descriptor whose record and SQL
+checks jointly guard absolute physical paths, digest length, and target-pair
+presence.
+
 Emphasis falls on the shapes SQL admitted only by accident of NULL semantics
 and on the fields that had no Python check at all before the migration,
 `status_after` and `attention_after`, since those two columns were guarded by
@@ -28,6 +32,7 @@ from dirdiff.db import (
     ReviewActionRecord,
     ReviewThreadRecord,
     RoomStore,
+    SnapshotFileSymlinkRecord,
 )
 
 _RANGE = {
@@ -399,4 +404,85 @@ def test_persisted_action_enums_are_validated_on_read(
     ):
         RoomStore._action_record(
             action  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        )
+
+
+@pytest.mark.parametrize(
+    ("target_capture_path", "target_hash"),
+    [
+        pytest.param(None, None, id="stopped-walk"),
+        pytest.param("/capture/right-target", b"t" * 32, id="reached-target"),
+    ],
+)
+def test_valid_snapshot_symlink_descriptor_constructs(
+    target_capture_path: str | None,
+    target_hash: bytes | None,
+) -> None:
+    """Accept both complete shapes of one relational symlink descriptor.
+
+    # Parameters
+
+    - `target_capture_path`: Absolute reached-target path or absence after a
+      stopped walk.
+    - `target_hash`: Exact 32-byte digest with matching presence.
+    """
+    record = SnapshotFileSymlinkRecord(
+        metadata_path="/capture/right-link.json",
+        metadata_hash=b"m" * 32,
+        target_capture_path=target_capture_path,
+        target_hash=target_hash,
+    )
+    assert record.target_capture_path == target_capture_path
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        pytest.param(
+            {"metadata_path": "relative.json"}, id="relative-metadata"
+        ),
+        pytest.param({"metadata_hash": b"short"}, id="short-metadata-hash"),
+        pytest.param(
+            {"target_capture_path": "/capture/right-target"},
+            id="target-path-without-hash",
+        ),
+        pytest.param(
+            {"target_hash": b"t" * 32},
+            id="target-hash-without-path",
+        ),
+        pytest.param(
+            {
+                "target_capture_path": "relative-target",
+                "target_hash": b"t" * 32,
+            },
+            id="relative-target",
+        ),
+        pytest.param(
+            {
+                "target_capture_path": "/capture/right-target",
+                "target_hash": b"short",
+            },
+            id="short-target-hash",
+        ),
+    ],
+)
+def test_invalid_snapshot_symlink_descriptor_is_refused(
+    changes: dict[str, str | bytes | None],
+) -> None:
+    """Reject every malformed path, digest, or target-presence relation.
+
+    # Parameters
+
+    - `changes`: One invalid mutation of an otherwise valid stopped-walk
+      descriptor.
+    """
+    with pytest.raises(AssertionError):
+        SnapshotFileSymlinkRecord(
+            **{
+                "metadata_path": "/capture/right-link.json",
+                "metadata_hash": b"m" * 32,
+                "target_capture_path": None,
+                "target_hash": None,
+                **changes,
+            }  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         )

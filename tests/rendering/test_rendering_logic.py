@@ -38,9 +38,12 @@ def test_preset_highlights_use_declared_syntax_classes() -> None:
 
     assert preset_files != []
     for path in preset_files:
+        # Link sides compose from readlink bytes and final captured content,
+        # never from filesystem-followed bytes under their `.link` suffix.
+        if path.is_symlink():
+            continue
         # The corpus holds image and blob fixtures too. A highlighter has
-        # nothing to say about bytes, so the same rule composition classifies
-        # by decides what this walk can read.
+        # nothing to say about bytes, so text decoding decides what remains.
         text = try_decode_text(path.read_bytes())
         if isinstance(text, TextRejection):
             continue

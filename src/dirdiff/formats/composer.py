@@ -38,7 +38,10 @@ from dirdiff.formats.base import (
 from dirdiff.formats.blob import blob_bays, blob_media_type
 from dirdiff.formats.flatfile import flatfile_bays
 from dirdiff.formats.image import image_bays, image_media_type
-from dirdiff.formats.notebook import notebook_bays
+from dirdiff.formats.notebook import (
+    notebook_bays,
+)
+from dirdiff.formats.symlink import symlink_bays
 
 __all__ = ["Composer"]
 
@@ -117,95 +120,51 @@ class Composer:
         classification. Unexpected parser failures propagate.
         """
 
-        def file_format() -> tuple[FileFormat, str | None, str | None]:
-            """Choose one format for the complete File pair.
+        if context.left_link is not None or context.right_link is not None:
+            yield from symlink_bays(left, right, context)
+            return
 
-            Each present path is claimed independently, then the pair policy
-            selects the builder and retains side media types for image/blob
-            facts. Conflicting strong claims fail rather than trying builders in
-            sequence or silently treating the bytes as text.
-
-            # Usage
-
-            `bays` calls this once before dispatch. The returned media types
-            must travel with their corresponding sides into image or blob
-            builders.
+        # Classification belongs to this one dispatch. Keeping it local makes
+        # the `match` below the only top-level format-selection operation.
+        def path_claim(path: str) -> tuple[FileFormat, str | None]:
+            """Return one path's strongest format claim and media type.
 
             # Returns
 
-            - `First`: The one format builder selected for the complete File pair.
-            - `Second`: The old path's declared image or blob media type.
-            - `Third`: The new path's declared image or blob media type.
-            - `None`: The second or third item is absent when that File side is
-              absent or the selected format carries no declared media type.
-
-            # Failures
-
-            Raises `AssertionError` when neither context path is present.
+            - First, the builder classification claimed by the path.
+            - Second, its declared media type when image/blob needs one.
             """
+            if path.lower().endswith(".ipynb"):
+                return "notebook", None
+            image_type = image_media_type(path)
+            if image_type is not None:
+                return "image", image_type
+            blob_type = blob_media_type(path)
+            if blob_type is not None:
+                return "blob", blob_type
+            return "text", None
 
-            def path_claim(path: str) -> tuple[FileFormat, str | None]:
-                """Return the strongest suffix claim and its declared media type.
-
-                Notebook and image claims take precedence over the opaque blob
-                table. A path with no explicit claim remains presumed text; this
-                function never inspects bytes or retries after decoding damage.
-
-                # Usage
-
-                `file_format` calls this independently for each present side,
-                then applies the two-sided agreement policy.
-
-                # Returns
-
-                - `First`: The strongest suffix claim, with notebook and image
-                  taking precedence over blob and presumed text.
-                - `Second`: The image or blob media type declared by the suffix.
-                - `None`: The second item is absent for notebook and
-                  presumed-text claims; `file_format` must preserve that absence.
-                """
-                if path.lower().endswith(".ipynb"):
-                    return "notebook", None
-                image_type = image_media_type(path)
-                if image_type is not None:
-                    return "image", image_type
-                blob_type = blob_media_type(path)
-                if blob_type is not None:
-                    return "blob", blob_type
-                return "text", None
-
-            left_claim = (
-                None
-                if context.left_path is None
-                else path_claim(context.left_path)
-            )
-            right_claim = (
-                None
-                if context.right_path is None
-                else path_claim(context.right_path)
-            )
-            present_claims = [
-                claim
-                for claim in (left_claim, right_claim)
-                if claim is not None
-            ]
-            assert len(present_claims) > 0, (
-                "a File pair always has at least one path"
-            )
-            name: FileFormat = (
-                present_claims[0][0]
-                if all(
-                    claim[0] == present_claims[0][0] for claim in present_claims
-                )
-                else "text"
-            )
-            return (
-                name,
-                None if left_claim is None else left_claim[1],
-                None if right_claim is None else right_claim[1],
-            )
-
-        format_name, left_media_type, right_media_type = file_format()
+        left_claim = (
+            None if context.left_path is None else path_claim(context.left_path)
+        )
+        right_claim = (
+            None
+            if context.right_path is None
+            else path_claim(context.right_path)
+        )
+        present_claims = [
+            claim for claim in (left_claim, right_claim) if claim is not None
+        ]
+        assert len(present_claims) > 0, (
+            "a File pair always has at least one path"
+        )
+        format_name: FileFormat = (
+            present_claims[0][0]
+            if all(claim[0] == present_claims[0][0] for claim in present_claims)
+            else "text"
+        )
+        left_media_type = None if left_claim is None else left_claim[1]
+        right_media_type = None if right_claim is None else right_claim[1]
         match format_name:
             case "notebook":
                 yield from notebook_bays(left, right, context)

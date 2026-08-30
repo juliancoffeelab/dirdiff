@@ -14,6 +14,7 @@ rendering begin only after a backend has supplied those bytes.
 """
 
 from dirdiff.backend.base import (
+    SYMLINK_MODE,
     BranchSelection,
     BranchSource,
     DefaultBaseSelection,
@@ -46,6 +47,7 @@ from dirdiff.backend.pull_request import (
 )
 
 __all__ = [
+    "SYMLINK_MODE",
     "BranchSelection",
     "BranchSource",
     "DefaultBaseSelection",

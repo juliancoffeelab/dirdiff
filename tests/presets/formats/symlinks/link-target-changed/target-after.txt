@@ -1,0 +1,3 @@
+Release channel: stable
+Refresh interval: 15 seconds
+Audience: all contributors

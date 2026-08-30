@@ -489,30 +489,50 @@ def test_a_file_made_of_bytes_reports_only_its_facts_lines() -> None:
 
 
 def test_real_preset_fixtures_compose_to_their_captured_bytes() -> None:
-    """Every `formats` preset case composes the bays its name promises.
+    """Representative media presets compose the bays their names promise.
 
     These are real downloaded assets, not constructed byte strings, so this is
     what proves the sizes and digests a reviewer will read are the sizes and
-    digests of the files on disk.
+    digests of the files on disk. Link cases have their own mode-selected tests
+    and are deliberately outside this path-only media classification check.
     """
-    basic = Path(__file__).parents[1] / "presets" / "formats" / "basic"
+    formats = Path(__file__).parents[1] / "presets" / "formats"
     expectations = {
-        "image-changed": (IMAGE_BAY_KEY, "old.png", "new.png", "changed"),
-        "image-added": (IMAGE_BAY_KEY, None, "new.png", "added"),
-        "image-removed": (IMAGE_BAY_KEY, "old.png", None, "removed"),
-        "blob-content-changed": (BLOB_BAY_KEY, "old.ogg", "new.ogg", "changed"),
+        ("images", "image-changed"): (
+            IMAGE_BAY_KEY,
+            "old.png",
+            "new.png",
+            "changed",
+        ),
+        ("images", "image-added"): (
+            IMAGE_BAY_KEY,
+            None,
+            "new.png",
+            "added",
+        ),
+        ("images", "image-removed"): (
+            IMAGE_BAY_KEY,
+            "old.png",
+            None,
+            "removed",
+        ),
+        ("unsupported", "blob-content-changed"): (
+            BLOB_BAY_KEY,
+            "old.ogg",
+            "new.ogg",
+            "changed",
+        ),
     }
-    assert sorted(
-        path.name for path in basic.iterdir() if path.is_dir()
-    ) == sorted(expectations)
 
-    for case, (bay_key, old_name, new_name, change) in expectations.items():
-        left = (
-            None if old_name is None else (basic / case / old_name).read_bytes()
-        )
-        right = (
-            None if new_name is None else (basic / case / new_name).read_bytes()
-        )
+    for (group, case), (
+        bay_key,
+        old_name,
+        new_name,
+        change,
+    ) in expectations.items():
+        fixture = formats / group / case
+        left = None if old_name is None else (fixture / old_name).read_bytes()
+        right = None if new_name is None else (fixture / new_name).read_bytes()
         context = ComposeContext.build(
             left_path=None if old_name is None else f"{case}/{old_name}",
             right_path=None if new_name is None else f"{case}/{new_name}",

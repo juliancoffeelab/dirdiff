@@ -34,6 +34,16 @@ that same backend's diff and loading operations.
 A `SideName` is meaningful only to the backend that normalized it. It is not a
 repository path, a display label, or proof that the side exists.
 """
+
+SYMLINK_MODE = "120000"
+"""Git's canonical mode for a symbolic link.
+
+Workspace backends use this value when reporting File-side modes. Snapshot
+capture uses it to decide whether the captured bytes are an ordinary File body
+or the raw target of a link that must be resolved inside the same backend side.
+"""
+
+
 BranchSource = Literal["local", "remote"]
 """Where a branch-review selection is resolved.
 
@@ -468,6 +478,7 @@ refs. Keep this set aligned with the branches in Git loading and diff commands.
 
 __all__ = [
     "BUILTIN_SIDES",
+    "SYMLINK_MODE",
     "BranchSelection",
     "BranchSource",
     "DefaultBaseSelection",
@@ -557,6 +568,21 @@ class RepoDiffPath:
     """Content identity for the right side, when cheaply available.
 
     `None` means capture must read the right bytes to establish identity.
+    """
+
+    left_mode: str | None = None
+    """Git-compatible mode of the left side, or `None` with no left path.
+
+    Concrete backends must supply a mode for every present side. Presentation-
+    only copies of this record may omit it because Snapshot capture never reads
+    those copies.
+    """
+
+    right_mode: str | None = None
+    """Git-compatible mode of the right side, or `None` with no right path.
+
+    `120000` identifies a symbolic link. Snapshot capture asserts that concrete
+    backend results give modes and paths equal presence.
     """
 
 
@@ -1035,6 +1061,47 @@ class WorkspaceBackendProtocol(Protocol):
         """
         ...
 
+    def file_mode(self, path: str, side: SideName) -> str:
+        """Return the Git-compatible mode of one normalized path and side.
+
+        Link-chain capture calls this for paths reached through a symbolic link,
+        including unchanged paths absent from `repo_diff`. Implementations must
+        identify regular files, executable files, and links without following a
+        link in the filesystem.
+
+        # Parameters
+
+        - `path`: Normalized repository path to inspect without following it.
+        - `side`: Backend state in which that exact path must be inspected.
+
+        # Failures
+
+        Raises `DirdiffError` when the path is missing, directory-shaped, outside
+        the backend, or not a File kind dirdiff can capture.
+        """
+        ...
+
+    def file_size(self, path: str, side: SideName) -> int:
+        """Return exact content size without loading one normalized File.
+
+        Link-chain capture uses this operation to reject an oversized final
+        target before its bytes enter memory. Implementations inspect the File
+        itself rather than following symbolic links, and report the raw link
+        payload size when the selected path is a link.
+
+        # Parameters
+
+        - `path`: Normalized repository path to inspect without reading it.
+        - `side`: Backend state containing that exact File.
+
+        # Failures
+
+        Raises `DirdiffError` when the path is missing, directory-shaped,
+        outside the backend, not a File kind dirdiff can capture, or its exact
+        size cannot be obtained.
+        """
+        ...
+
     def load_version(self, path: str, side: SideName) -> bytes:
         """Return the exact contents of one present file.
 
@@ -1050,9 +1117,10 @@ class WorkspaceBackendProtocol(Protocol):
 
         # Usage
 
-        Call only for a present side listed by `repo_diff`, after normalizing
-        its path and side through this backend. The returned bytes go to capture
-        or `dirdiff.formats` without decoding in the backend layer.
+        Call for a present normalized path on this backend side. Snapshot
+        capture normally starts from `repo_diff`, but may also load an unchanged
+        path reached while resolving a captured link. The returned bytes go to
+        capture or `dirdiff.formats` without decoding in the backend layer.
 
         # Failures
 

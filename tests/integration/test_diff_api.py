@@ -1887,6 +1887,272 @@ def test_unreadable_file_lands_its_thread_without_hiding_the_others(
     }
 
 
+def test_symlink_loop_stops_before_loading_a_link_twice(tmp_path: Path) -> None:
+    """Capture one finite synthetic target from a real repository link loop.
+
+    Each visited link must appear exactly once and the repeated path must become
+    the immediate terminal diagnosis. Reaching through the API proves the
+    iterative walk, Snapshot sidecars, and composer agree; a timeout-based test
+    would only prove that an arbitrary limit eventually fired.
+    """
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "old-target.txt").write_text("old target\n", encoding="utf-8")
+    os.symlink("old-target.txt", tmp_path / "portal")
+    run_git(tmp_path, "add", "old-target.txt", "portal")
+    run_git(tmp_path, "commit", "-m", "safe link")
+    (tmp_path / "portal").unlink()
+    os.symlink("hop", tmp_path / "portal")
+    os.symlink("portal", tmp_path / "hop")
+
+    client, project_id = create_repo_client(tmp_path)
+    manifest = client.get(
+        "/api/manifest",
+        params={
+            "project_id": str(project_id),
+            "tab": "refs",
+            "left": "index",
+            "right": "worktree",
+        },
+    )
+    assert manifest.status_code == 200
+    diff = client.get(
+        "/api/file-diff",
+        params={
+            "snapshot_id": manifest.json()["snapshot_id"],
+            "engine": "dirdiff",
+            "left_path": "portal",
+            "right_path": "portal",
+        },
+    )
+
+    assert diff.status_code == 200
+    bays = diff.json()["frames"][0]["bays"]
+    assert [bay["bay_key"] for bay in bays] == [
+        "symlink",
+        "symlink-target",
+    ]
+    link = bays[0]["kind_data"]
+    assert link["kind"] == "text"
+    assert [
+        row["right_text"]
+        for row in link["rows"]
+        if row["right_text"] not in (None, "")
+    ] == ["hop"]
+    target = bays[1]["kind_data"]
+    assert target["kind"] == "text"
+    right_lines = [
+        row["right_text"]
+        for row in target["rows"]
+        if row["right_text"] not in (None, "")
+    ]
+    assert right_lines == [
+        "# %% hop",
+        "portal",
+        "# loop: portal was already visited",
+    ]
+    assert right_lines.count("# %% hop") == 1
+
+
+def test_file_media_serves_captured_symlink_target_images(
+    tmp_path: Path,
+) -> None:
+    """Serve image targets only through relationally named link sidecars.
+
+    The media coordinate belongs to the outer link File, while its response is
+    the exact final target bytes retained during capture. Changing the live
+    targets after the manifest must not alter either answer. Moving the right
+    sidecars away from their publication names and updating only their database
+    paths proves readers use relational authority rather than filename probes.
+    """
+    fixtures = Path(__file__).parents[1] / "presets" / "formats" / "images"
+    old_png = (fixtures / "image-changed" / "old.png").read_bytes()
+    new_png = (fixtures / "image-changed" / "new.png").read_bytes()
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "old.png").write_bytes(old_png)
+    (tmp_path / "new.png").write_bytes(new_png)
+    os.symlink("old.png", tmp_path / "logo")
+    run_git(tmp_path, "add", "old.png", "new.png", "logo")
+    run_git(tmp_path, "commit", "-m", "linked image")
+    (tmp_path / "logo").unlink()
+    os.symlink("new.png", tmp_path / "logo")
+
+    client, project_id = create_repo_client(tmp_path)
+    manifest = client.get(
+        "/api/manifest",
+        params={
+            "project_id": str(project_id),
+            "tab": "refs",
+            "left": "index",
+            "right": "worktree",
+        },
+    )
+    assert manifest.status_code == 200
+    snapshot_id = manifest.json()["snapshot_id"]
+
+    database_path = tmp_path.parent / f".{tmp_path.name}-dirdiff-test.sqlite"
+    database = create_engine(f"sqlite:///{database_path}")
+    schema = MetaData()
+    schema.reflect(bind=database, only=["snapshot_file_symlink"])
+    symlinks = schema.tables["snapshot_file_symlink"]
+    with database.begin() as connection:
+        rows = connection.execute(
+            select(
+                symlinks.c.file_id,
+                symlinks.c.side,
+                symlinks.c.metadata_path,
+                symlinks.c.metadata_hash,
+                symlinks.c.target_capture_path,
+                symlinks.c.target_hash,
+            )
+        ).all()
+        assert {row.side for row in rows} == {"left", "right"}
+        for row in rows:
+            metadata_path = Path(row.metadata_path)
+            assert metadata_path.is_absolute()
+            assert hashlib.sha256(metadata_path.read_bytes()).digest() == (
+                row.metadata_hash
+            )
+            assert b"target_digest" not in metadata_path.read_bytes()
+            assert row.target_capture_path is not None
+            assert row.target_hash is not None
+            target_capture_path = Path(row.target_capture_path)
+            assert target_capture_path.is_absolute()
+            assert hashlib.sha256(
+                target_capture_path.read_bytes()
+            ).digest() == (row.target_hash)
+
+        right_row = next(row for row in rows if row.side == "right")
+        moved_metadata = Path(right_row.metadata_path).with_name(
+            "database-named-metadata"
+        )
+        moved_target = Path(right_row.target_capture_path).with_name(
+            "database-named-target"
+        )
+        Path(right_row.metadata_path).rename(moved_metadata)
+        Path(right_row.target_capture_path).rename(moved_target)
+        connection.execute(
+            symlinks.update()
+            .where(
+                symlinks.c.file_id == right_row.file_id,
+                symlinks.c.side == "right",
+            )
+            .values(
+                metadata_path=str(moved_metadata),
+                target_capture_path=str(moved_target),
+            )
+        )
+    database.dispose()
+
+    diff = client.get(
+        "/api/file-diff",
+        params={
+            "snapshot_id": snapshot_id,
+            "engine": "dirdiff",
+            "left_path": "logo",
+            "right_path": "logo",
+        },
+    )
+    assert diff.status_code == 200
+    target_bay = diff.json()["frames"][0]["bays"][1]
+    assert target_bay["bay_key"] == "symlink-target"
+    assert target_bay["kind_data"]["kind"] == "image"
+
+    (tmp_path / "old.png").write_bytes(b"later old bytes")
+    (tmp_path / "new.png").write_bytes(b"later new bytes")
+    for side, expected in (("left", old_png), ("right", new_png)):
+        served = client.get(
+            "/api/file-media",
+            params={
+                "snapshot_id": snapshot_id,
+                "bay_key": "symlink-target",
+                "side": side,
+                "left_path": "logo",
+                "right_path": "logo",
+            },
+        )
+        assert served.status_code == 200, side
+        assert served.content == expected, side
+        assert served.headers["content-type"] == "image/png", side
+
+    moved_metadata.write_bytes(moved_metadata.read_bytes() + b" ")
+    damaged = client.get(
+        "/api/file-diff",
+        params={
+            "snapshot_id": snapshot_id,
+            "engine": "dirdiff",
+            "left_path": "logo",
+            "right_path": "logo",
+        },
+    )
+    assert damaged.status_code == 500
+
+
+def test_symlink_target_cannot_escape_the_repository(tmp_path: Path) -> None:
+    """Stop a real worktree link before it can read a parent-directory File.
+
+    The outside File deliberately exists and contains recognizable bytes. The
+    composed result must retain only the raw link and explicit jail diagnosis,
+    proving failure came from the repository boundary rather than a missing
+    target that happened to be harmless.
+    """
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-secret.txt"
+    outside.write_text("DO NOT CAPTURE THIS\n", encoding="utf-8")
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "inside.txt").write_text("inside\n", encoding="utf-8")
+    os.symlink("inside.txt", tmp_path / "portal")
+    run_git(tmp_path, "add", "inside.txt", "portal")
+    run_git(tmp_path, "commit", "-m", "inside link")
+    (tmp_path / "portal").unlink()
+    os.symlink(f"../{outside.name}", tmp_path / "portal")
+
+    client, project_id = create_repo_client(tmp_path)
+    manifest = client.get(
+        "/api/manifest",
+        params={
+            "project_id": str(project_id),
+            "tab": "refs",
+            "left": "index",
+            "right": "worktree",
+        },
+    )
+    assert manifest.status_code == 200
+    diff = client.get(
+        "/api/file-diff",
+        params={
+            "snapshot_id": manifest.json()["snapshot_id"],
+            "engine": "dirdiff",
+            "left_path": "portal",
+            "right_path": "portal",
+        },
+    )
+
+    assert diff.status_code == 200
+    bays = diff.json()["frames"][0]["bays"]
+    assert [bay["bay_key"] for bay in bays] == [
+        "symlink",
+        "symlink-target",
+    ]
+    link = bays[0]["kind_data"]
+    assert link["kind"] == "text"
+    right_link_text = "\n".join(
+        row["right_text"]
+        for row in link["rows"]
+        if row["right_text"] not in (None, "")
+    )
+    assert right_link_text == f"../{outside.name}"
+    target = bays[1]["kind_data"]
+    assert target["kind"] == "text"
+    right_target_text = "\n".join(
+        row["right_text"]
+        for row in target["rows"]
+        if row["right_text"] not in (None, "")
+    )
+    assert (
+        right_target_text == "# stopped: Repo path must stay inside the repo."
+    )
+    assert "DO NOT CAPTURE THIS" not in json.dumps(diff.json())
+
+
 def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
     """Serve the captured bytes themselves, and refuse what there are none of.
 
@@ -1897,10 +2163,12 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
     File that composes no media at all must both be errors, because either one
     answered with empty bytes would render as a broken image.
     """
-    fixtures = Path(__file__).parents[1] / "presets" / "formats" / "basic"
-    old_png = (fixtures / "image-changed" / "old.png").read_bytes()
-    new_png = (fixtures / "image-changed" / "new.png").read_bytes()
-    old_ogg = (fixtures / "blob-content-changed" / "old.ogg").read_bytes()
+    formats = Path(__file__).parents[1] / "presets" / "formats"
+    old_png = (formats / "images" / "image-changed" / "old.png").read_bytes()
+    new_png = (formats / "images" / "image-changed" / "new.png").read_bytes()
+    old_ogg = (
+        formats / "unsupported" / "blob-content-changed" / "old.ogg"
+    ).read_bytes()
 
     create_committed_repo(tmp_path, branch="main")
     (tmp_path / "logo.png").write_bytes(old_png)
@@ -2088,7 +2356,7 @@ def test_file_media_selects_a_notebook_image_by_bay_key(
     key distinguishes the correct response. The route also refuses a missing or
     unknown key instead of choosing the first image.
     """
-    fixtures = Path(__file__).parents[1] / "presets" / "formats" / "basic"
+    fixtures = Path(__file__).parents[1] / "presets" / "formats" / "images"
     first_png = (fixtures / "image-changed" / "old.png").read_bytes()
     second_png = (fixtures / "image-changed" / "new.png").read_bytes()
     encoded_first = base64.b64encode(first_png).decode("ascii")
@@ -2252,7 +2520,7 @@ def test_agent_addresses_an_image_bay_by_its_single_pseudo_line(
     from a Snapshot where the File was text would otherwise land silently on
     the digest sentence.
     """
-    fixtures = Path(__file__).parents[1] / "presets" / "formats" / "basic"
+    fixtures = Path(__file__).parents[1] / "presets" / "formats" / "images"
     old_png = (fixtures / "image-changed" / "old.png").read_bytes()
     new_png = (fixtures / "image-changed" / "new.png").read_bytes()
 

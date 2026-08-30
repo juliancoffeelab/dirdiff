@@ -1,10 +1,10 @@
 """Preset fixture structure checks.
 
 Preset directories are source-file fixtures consumed by golden and projector
-tests.  This module verifies fixture shape: exactly one old file, exactly one
-new file, matching extensions, a standard helper Makefile, and cheap parser
-validity where a parser is available.  It does not assert rendered diff output;
-that belongs to the golden and logic test modules.
+tests. This module verifies fixture shape: exactly one old File, exactly one
+new File, a coherent format transition, a standard helper Makefile, and cheap
+parser validity where a parser is available. It does not assert rendered diff
+output; that belongs to the golden and logic test modules.
 """
 
 import subprocess
@@ -73,10 +73,11 @@ def _preset_dirs() -> list[Path]:
 
 
 def test_presets_have_old_and_new_files() -> None:
-    """Every two-sided fixture has one old/new pair of the same format.
+    """Every two-sided fixture has one unambiguous old/new File pair.
 
-    Extra matches or mixed extensions would make format and golden selection
-    ambiguous.
+    Ordinary pairs keep the same extension. A symbolic-link transition may use
+    different suffixes because its captured mode, not its filename, selects the
+    link format. Extra old/new matches remain ambiguous for every format.
     """
     preset_dirs = _preset_dirs()
     assert preset_dirs != []
@@ -86,7 +87,11 @@ def test_presets_have_old_and_new_files() -> None:
 
         assert len(old_files) == 1, preset_dir
         assert len(new_files) == 1, preset_dir
-        assert old_files[0].suffix == new_files[0].suffix
+        assert (
+            old_files[0].suffix == new_files[0].suffix
+            or old_files[0].is_symlink()
+            or new_files[0].is_symlink()
+        ), preset_dir
 
 
 def test_presets_have_standard_makefiles() -> None:

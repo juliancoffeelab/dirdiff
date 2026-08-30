@@ -38,10 +38,12 @@ from dirdiff.db import (
 )
 from dirdiff.formats import (
     BayContext,
+    CapturedLink,
     Composer,
     MediaSide,
     TextBay,
     media_ref,
+    read_captured_link,
 )
 from dirdiff.review.base import (
     CreateThread,
@@ -900,6 +902,32 @@ def _composed_bays(
             f"sha256 {ref['digest']}"
         )
 
+    def side_link(side: Literal["left", "right"]) -> CapturedLink | None:
+        """Read the relationally identified link capture for one File side.
+
+        Side absence and an ordinary captured side both have no symlink row and
+        return `None`. A present row supplies the exact physical paths and
+        digests; malformed or damaged sidecars raise at the format boundary.
+
+        # Returns
+
+        - `CapturedLink`: Authenticated link facts for the selected side.
+        - `None`: The side is absent or is an ordinary File.
+        """
+        record = file.left_symlink if side == "left" else file.right_symlink
+        if record is None:
+            return None
+        return read_captured_link(
+            metadata_path=Path(record.metadata_path),
+            metadata_hash=record.metadata_hash,
+            target_capture_path=(
+                Path(record.target_capture_path)
+                if record.target_capture_path is not None
+                else None
+            ),
+            target_hash=record.target_hash,
+        )
+
     composed = Composer().bays(
         side_bytes("left"),
         side_bytes("right"),
@@ -908,6 +936,8 @@ def _composed_bays(
             right_path=pair.right_path,
             left_label="left",
             right_label="right",
+            left_link=side_link("left"),
+            right_link=side_link("right"),
         ),
     )
     bays = {

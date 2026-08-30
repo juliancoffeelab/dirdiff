@@ -188,9 +188,12 @@ def test_native_engine_and_highlighter_weave_every_preset_pair() -> None:
         if len(new_candidates) != 1:
             continue
         new_path = new_candidates[0]
+        # A link pair uses mode-selected composition over readlink and final
+        # target bytes; following it here would test a different File.
+        if old_path.is_symlink() or new_path.is_symlink():
+            continue
         # The corpus holds image and blob fixtures too, and the text engine
-        # is not what composes those. The same rule composition classifies by
-        # decides which pairs this walk can render.
+        # is not what composes those. Text decoding decides which pairs remain.
         old_text = try_decode_text(old_path.read_bytes())
         new_text = try_decode_text(new_path.read_bytes())
         if isinstance(old_text, TextRejection) or isinstance(

@@ -1,0 +1,3 @@
+Release channel: preview
+Refresh interval: 30 seconds
+Audience: internal reviewers

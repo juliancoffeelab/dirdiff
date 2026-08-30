@@ -21,6 +21,7 @@ from dirdiff.formats.base import (
     IMAGE_FACTS_BAY_KEY,
     IMAGE_METADATA_BAY_KEY,
     BayContext,
+    CapturedLink,
     ComposeContext,
     ComposedFilePayload,
     FramePayload,
@@ -32,6 +33,7 @@ from dirdiff.formats.base import (
     try_decode_text,
 )
 from dirdiff.formats.composer import Composer
+from dirdiff.formats.symlink import read_captured_link, write_captured_link
 
 __all__ = [
     "BLOB_BAY_KEY",
@@ -40,6 +42,7 @@ __all__ = [
     "IMAGE_FACTS_BAY_KEY",
     "IMAGE_METADATA_BAY_KEY",
     "BayContext",
+    "CapturedLink",
     "ComposeContext",
     "ComposedFilePayload",
     "Composer",
@@ -49,5 +52,7 @@ __all__ = [
     "TextBay",
     "TextRejection",
     "media_ref",
+    "read_captured_link",
     "try_decode_text",
+    "write_captured_link",
 ]

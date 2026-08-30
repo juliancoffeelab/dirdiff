@@ -33,6 +33,7 @@ from dirdiff.db.room import (
     RoomStore,
     SnapshotFileRecord,
     SnapshotFileSideRecord,
+    SnapshotFileSymlinkRecord,
     SnapshotMetaRecord,
     SnapshotRecord,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "RoomStore",
     "SnapshotFileRecord",
     "SnapshotFileSideRecord",
+    "SnapshotFileSymlinkRecord",
     "SnapshotMetaRecord",
     "SnapshotRecord",
     "TableBase",

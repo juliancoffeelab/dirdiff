@@ -17,12 +17,16 @@ catalog list between calls.
 
 from __future__ import annotations
 
+import os
+import posixpath
+import stat
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Never, TypeIs, override
 
 from dirdiff.backend.base import (
+    SYMLINK_MODE,
     BranchSelection,
     LazyReason,
     PresetGroup,
@@ -603,6 +607,16 @@ class PresetBackend(WorkspaceBackendProtocol):
                     lazy_reason_override=(
                         lazy_reason[0] if lazy_reason is not None else None
                     ),
+                    left_mode=(
+                        None
+                        if old_path is None
+                        else self.file_mode(f"{prefix}/{old_path.name}", left)
+                    ),
+                    right_mode=(
+                        None
+                        if new_path is None
+                        else self.file_mode(f"{prefix}/{new_path.name}", right)
+                    ),
                 )
             )
         assert not show_untracked, "preset diffs do not support untracked Files"
@@ -614,7 +628,8 @@ class PresetBackend(WorkspaceBackendProtocol):
 
         # Usage
 
-        Pass catalog paths returned by `repo_diff` before direct fixture loading.
+        Pass catalog paths returned by `repo_diff` or formed while following a
+        fixture link before direct loading.
 
         # Failures
 
@@ -630,35 +645,109 @@ class PresetBackend(WorkspaceBackendProtocol):
         candidate = PurePosixPath(raw_path)
         if candidate.is_absolute():
             raise DirdiffError("Use a preset-relative path.")
-        normalized = candidate.as_posix()
+        normalized = posixpath.normpath(candidate.as_posix())
         if normalized.startswith("../") or normalized == "..":
             raise DirdiffError("Preset path must stay inside the presets root.")
-        parts = candidate.parts
+        parts = PurePosixPath(normalized).parts
         if len(parts) != 3:
             raise DirdiffError(
-                "Preset path must look like <group>/<preset>/<old-or-new-file>."
+                "Preset path must look like <group>/<preset>/<file>."
             )
-        preset_dir = self.presets_root / candidate.parent
+        preset_dir = self.presets_root / PurePosixPath(normalized).parent
         if not preset_dir.is_dir():
             raise DirdiffError(f"Unknown preset path: {normalized}")
         return normalized
 
     @override
-    def load_version(self, path: str, side: SideName) -> bytes:
-        """Return exact contents for one present old/new preset fixture file.
+    def file_mode(self, path: str, side: SideName) -> str:
+        """Return one fixture path's Git-compatible File mode without following links.
 
-        A fixture listed by the preset catalog but absent at load time raises
-        `DirdiffError`; absence is represented by an absent manifest side.
+        The normalized path may name the old/new fixture itself or an auxiliary
+        target reached from a fixture link. `side` is retained by the shared
+        backend interface; the preset path already identifies its exact bytes.
 
         # Parameters
 
-        - `path`: Normalized fixture path that already names the exact side file.
+        - `path`: Normalized fixture or auxiliary-target path to inspect.
+        - `side`: Preset side retained for the shared backend interface.
+
+        # Failures
+
+        Raises `DirdiffError` when the path is missing, directory-shaped, or not
+        a regular file or symbolic link inside the selected fixture directory.
+        """
+        normalized = self.normalize_repo_path(path)
+        file_path = self.presets_root / normalized
+        try:
+            mode = file_path.lstat().st_mode
+        except OSError as exc:
+            # TODO(hosting): Redact `exc` at this reviewer-facing boundary;
+            # OSError text exposes the server's absolute preset filesystem path.
+            raise DirdiffError(
+                f"Could not inspect preset file {normalized}: {exc}"
+            ) from exc
+        if stat.S_ISLNK(mode):
+            return SYMLINK_MODE
+        if not stat.S_ISREG(mode):
+            raise DirdiffError(
+                f"Preset path is not a regular file or symbolic link: {normalized}"
+            )
+        return "100755" if mode & stat.S_IXUSR else "100644"
+
+    @override
+    def file_size(self, path: str, side: SideName) -> int:
+        """Return exact fixture content size without loading its bytes.
+
+        The normalized path may name an old/new fixture or an auxiliary target
+        reached from a fixture link. Filesystem inspection does not follow
+        links; link size is the byte length of its raw target payload. `side`
+        remains present only for the shared backend interface.
+
+        # Parameters
+
+        - `path`: Normalized fixture or auxiliary-target path to inspect.
+        - `side`: Preset side retained for the shared backend interface.
+
+        # Failures
+
+        Missing paths, unsupported File kinds, and filesystem inspection
+        failures raise `DirdiffError`.
+        """
+        normalized = self.normalize_repo_path(path)
+        file_path = self.presets_root / normalized
+        try:
+            metadata = file_path.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                return len(os.readlink(os.fsencode(file_path)))
+            if stat.S_ISREG(metadata.st_mode):
+                return metadata.st_size
+        except OSError as exc:
+            # TODO(hosting): Redact `exc` at this reviewer-facing boundary;
+            # OSError text exposes the server's absolute preset filesystem path.
+            raise DirdiffError(
+                f"Could not inspect preset file {normalized}: {exc}"
+            ) from exc
+        raise DirdiffError(
+            f"Preset path is not a regular file or symbolic link: {normalized}"
+        )
+
+    @override
+    def load_version(self, path: str, side: SideName) -> bytes:
+        """Return exact contents for one present preset fixture File.
+
+        The path may name a listed old/new side or an auxiliary File reached by
+        a link. A missing File raises `DirdiffError`; absent manifest sides are
+        represented by absent paths and are never loaded.
+
+        # Parameters
+
+        - `path`: Normalized fixture path that names the exact File to load.
         - `side`: Shared-protocol side name; the path, not this value, selects bytes.
 
         # Usage
 
-        Load a present path returned by this backend. The `side` argument carries
-        the shared interface but does not select a different fixture file.
+        Load a present path returned by this backend or reached through a
+        fixture link. `side` does not select a different fixture File.
 
         # Failures
 
@@ -671,7 +760,7 @@ class PresetBackend(WorkspaceBackendProtocol):
         # fixture pair matching the file name. `side` does not participate:
         # preset manifest paths already name their exact side-specific file.
         file_path = self.presets_root / normalized_path
-        if not file_path.is_file():
+        if not file_path.is_symlink() and not file_path.is_file():
             preset_dir = (
                 self.presets_root / PurePosixPath(normalized_path).parent
             )
@@ -683,6 +772,13 @@ class PresetBackend(WorkspaceBackendProtocol):
                 file_path = new_path
             else:
                 raise DirdiffError(f"Preset file is missing: {normalized_path}")
+        if file_path.is_symlink():
+            try:
+                return os.readlink(os.fsencode(file_path))
+            except OSError as exc:
+                raise DirdiffError(
+                    f"Could not read preset link {normalized_path}: {exc}"
+                ) from exc
         if not file_path.exists():
             raise DirdiffError(f"Preset file is missing: {normalized_path}")
         try:

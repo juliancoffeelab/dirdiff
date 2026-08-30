@@ -16,6 +16,7 @@ from typing import (
     Annotated,
     Literal,
     Optional,
+    assert_never,
 )
 from uuid import UUID
 
@@ -51,6 +52,7 @@ from dirdiff.engines import (
 )
 from dirdiff.formats import (
     BayContext,
+    CapturedLink,
     ComposeContext,
     Composer,
     ImageBay,
@@ -63,6 +65,7 @@ from dirdiff.review import (
 )
 from dirdiff.room_lord import (
     BranchReviewCaptureSelection,
+    CapturedFileSide,
     CaptureSelection,
     FileMeta,
     PresetCaptureSelection,
@@ -1639,8 +1642,8 @@ class DiffRoutes:
         snapshot_id: UUID,
         engine_name: EngineKind,
         pair: FilePair,
-        left_file: Optional[Path],
-        right_file: Optional[Path],
+        left_file: Optional[CapturedFileSide],
+        right_file: Optional[CapturedFileSide],
         file_meta: FileMeta,
     ) -> ComposedDiffResponse:
         """Compose one focused File into its `/api/file-diff` response payload.
@@ -1657,8 +1660,8 @@ class DiffRoutes:
         - `snapshot_id`: Exact Snapshot containing the loaded File.
         - `engine_name`: Requested renderer selected only for text bays.
         - `pair`: Exact nullable repository paths identifying the File.
-        - `left_file`: Absolute captured left side, or `None` when absent.
-        - `right_file`: Absolute captured right side, or `None` when absent.
+        - `left_file`: Authenticated captured left side, or `None` when absent.
+        - `right_file`: Authenticated captured right side under the same rule.
         - `file_meta`: Persisted provenance, change type, lazy policy, and
           capture failure for this pair.
 
@@ -1676,15 +1679,37 @@ class DiffRoutes:
         if file_meta["capture_error"] is not None:
             raise DirdiffError(file_meta["capture_error"])
         snapshot_meta = room.meta(snapshot_id)
-        left_bytes = left_file.read_bytes() if left_file is not None else None
-        right_bytes = (
-            right_file.read_bytes() if right_file is not None else None
+        left_bytes = (
+            left_file.path.read_bytes() if left_file is not None else None
         )
+        right_bytes = (
+            right_file.path.read_bytes() if right_file is not None else None
+        )
+        left_link: CapturedLink | None = None
+        if left_file is not None:
+            match left_file.kind:
+                case "regular":
+                    pass
+                case "symlink":
+                    left_link = left_file.link
+                case invalid_kind:
+                    assert_never(invalid_kind)
+        right_link: CapturedLink | None = None
+        if right_file is not None:
+            match right_file.kind:
+                case "regular":
+                    pass
+                case "symlink":
+                    right_link = right_file.link
+                case invalid_kind:
+                    assert_never(invalid_kind)
         context = ComposeContext.build(
             left_path=pair.left_path,
             right_path=pair.right_path,
             left_label=snapshot_meta["left_label"],
             right_label=snapshot_meta["right_label"],
+            left_link=left_link,
+            right_link=right_link,
             renderer=engine(engine_name),
         )
         composed = Composer().compose(left_bytes, right_bytes, context)
@@ -2155,14 +2180,38 @@ class DiffRoutes:
             if file_meta["capture_error"] is not None:
                 raise DirdiffError(file_meta["capture_error"])
             snapshot_meta = room.meta(snapshot_key)
+            left_link: CapturedLink | None = None
+            if left_file is not None:
+                match left_file.kind:
+                    case "regular":
+                        pass
+                    case "symlink":
+                        left_link = left_file.link
+                    case invalid_kind:
+                        assert_never(invalid_kind)
+            right_link: CapturedLink | None = None
+            if right_file is not None:
+                match right_file.kind:
+                    case "regular":
+                        pass
+                    case "symlink":
+                        right_link = right_file.link
+                    case invalid_kind:
+                        assert_never(invalid_kind)
             for bay in Composer().bays(
-                left_file.read_bytes() if left_file is not None else None,
-                right_file.read_bytes() if right_file is not None else None,
+                left_file.path.read_bytes() if left_file is not None else None,
+                (
+                    right_file.path.read_bytes()
+                    if right_file is not None
+                    else None
+                ),
                 BayContext(
                     left_path=pair.left_path,
                     right_path=pair.right_path,
                     left_label=snapshot_meta["left_label"],
                     right_label=snapshot_meta["right_label"],
+                    left_link=left_link,
+                    right_link=right_link,
                 ),
             ):
                 if bay.bay_key != bay_key:

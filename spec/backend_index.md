@@ -15,8 +15,7 @@ CLI
      ├─ formats
      └─ rendering
 
-formats ──► backend contracts
-        ├─► engines
+formats ──► engines
         └─► rendering
 
 rendering ──► engines
@@ -29,7 +28,8 @@ Dependencies do not point from engines into rendering.
 
 Provides repository and preset data.
 
-It resolves refs, lists changed paths and stable File metadata, reports
+It resolves refs, lists changed paths and stable File metadata including each
+present side's Git-compatible mode, reports
 backend-reported aggregate added/removed line counts when available, loads exact
 file contents without decoding them, and prepares pull requests. Pull Request
 preparation parses the URL, identifies the marked repository and forge remote,
@@ -41,9 +41,12 @@ backend failure reason. Workspace backends do not select Rooms, retain state
 between HTTP requests, classify contents for renderers, or invent
 renderer-dependent line counts.
 
-Loading stops at bytes. What those bytes are — text, a notebook, an image — is
-`dirdiff.formats`' decision, and the definition of what this project calls text
-lives there with the classification that asks it.
+Loading stops at bytes. A link loads as its raw target bytes, and the backend can
+report the mode and exact size without reading, then load any normalized
+repository-local path reached while Snapshot capture walks that link. What
+final bytes are — text, a notebook, an image — is `dirdiff.formats`' decision,
+and the definition of what this project calls text lives there with the
+classification that asks it.
 
 Its public interface is exported from `dirdiff.backend`.
 
@@ -103,9 +106,9 @@ the HTTP boundary attaches (`display_name`, `file_kind`). It assigns no hunk
 numbering: rows keep the bay-local boundaries enrichment gave them, and the
 frontend turns those into the File's navigable sequence. `base.py` holds those
 contracts (contexts, the text-bay renderer, the serialized shapes);
-`composer.py`
-holds the class and the path-only classification; per-format sibling builders live
-beside them.
+`composer.py` holds the class and top-level path-only classification;
+per-format sibling builders live beside it. `symlink.py` owns the link-specific
+two-bay composition and flattening of safely reached target content.
 
 Classification reads paths only and is total. `.ipynb` paths are notebooks,
 the image extension table names images, the blob extension table names formats
@@ -122,6 +125,14 @@ valid base64 `image/png` representation is preferred over `text/plain` and
 becomes an image bay. An image File composes a picture bay, a Pillow-derived
 metadata text bay for dimensions and EXIF, and a byte-facts text bay. Blob Files
 compose one text bay keyed `blob` containing their byte facts.
+
+A File with a captured link side composes before ordinary path classification.
+Its first text bay contains only the outer link payload. A collapsed second bay
+contains safely reached target bytes or a stopped-walk diagnosis: text and blob
+facts stay text, images keep the picture, and notebooks flatten to script-like
+text without outputs. Nested textual links become `# %% path` sections in that
+target document. Link traversal and the repository jail belong to Snapshot
+capture, never the composer.
 
 The facts are the same three lines in both builders — `type:`, `size:`, and
 `sha256:`, one per line — and the ordinary engine diffs them, so a reviewer
@@ -159,8 +170,11 @@ SQLite. Snapshot metadata retains human labels and nullable aggregate
 added/removed counts. A File records its absolute capture-directory path,
 tracked provenance, backend change classification, and an optional capture
 error. Separate non-null side rows record repository paths and content digests;
-optional relations record a lazy override and its complete source metadata when
-present. Review persistence adds one placement row per Thread/Snapshot pair and
+an optional per-side symbolic-link relation records the exact metadata and
+target-capture paths plus their content digests. Its presence, rather than a
+filesystem probe, identifies a link side. Other optional relations record a
+lazy override and its complete source metadata when present. Review persistence
+adds one placement row per Thread/Snapshot pair and
 append-only actions authored through one existing ordinary Profile. The
 shared internal Profile table contract lets Profile and Room persistence
 reference the same identity. Profile usernames are globally unique and select
@@ -183,9 +197,16 @@ iteration, direct captured-file lookup, and Thread access through `threads`,
 writes belong to the returned bound Threads. The agent boundary also uses the
 Room's explicit activity reads, atomic review batch, persisted-Tab
 `capture_context` and `recapture`, and read-only `path_for_snapshot` access to the
-already published Snapshot directory. Capture and
-publication stores remain private. The module calls `dirdiff.db` and does not
-issue SQL.
+already published Snapshot directory. Capture walks symlink sides iteratively,
+stops before a repeated normalized path, refuses targets outside the repository,
+and asks the backend for final-target size before reading it. Targets through
+1 MiB are published beside the raw link side; capture also checks the returned
+byte count so a concurrently changed target cannot escape the bound. Larger
+targets stop with a visible diagnosis. Capture and publication stores remain
+private. `Room.get`
+authenticates the raw side and the exact link sidecars named by persistence,
+returning parsed link facts with the captured path. The module calls
+`dirdiff.db` and does not issue SQL.
 
 The Room and Snapshot lifecycle is described in
 [`rooms.md`](rooms.md).
@@ -260,11 +281,14 @@ the application boundary before the generic internal-error response is sent.
 `/api/file-media` serves one composed image-bay side, addressed by Snapshot id,
 the same nullable File-path pair `/api/file-diff` uses, the required bay key,
 and side. The File pair handles renames; the bay key distinguishes several image
-outputs inside one notebook. It recovers the File through the Room, asks
+outputs inside one notebook and the image target of a symlink. It recovers the
+File through the Room, asks
 `bays()` for that exact image bay, and writes the selected `MediaSide.data` under
 the media type composition concluded. Whole-File images return their captured
 bytes; notebook images return the bytes strictly decoded from the captured MIME
-entry. No engine runs and the boundary forms no second opinion about media type.
+entry; symlink images return the final target bytes retained during Snapshot
+capture. No engine runs and the boundary forms no second opinion about media
+type.
 A missing bay, non-image bay, or absent image side is refused rather than
 answered with empty bytes. Snapshot ids are never reused, so the response is
 declared immutable and cacheable outright.

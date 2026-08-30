@@ -18,6 +18,8 @@ happen after this boundary.
 from __future__ import annotations
 
 import os
+import posixpath
+import stat
 import subprocess
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
@@ -25,6 +27,7 @@ from typing import Literal, TypeIs, override
 
 from dirdiff.backend.base import (
     BUILTIN_SIDES,
+    SYMLINK_MODE,
     BranchSelection,
     DefaultBaseSelection,
     RefChoices,
@@ -910,6 +913,7 @@ class GitBackend(WorkspaceBackendProtocol):
                     change_type="add",
                     lazy_reason_override=None,
                     untracked=True,
+                    right_mode=self.file_mode(path, "worktree"),
                 )
             )
         return entries
@@ -992,7 +996,7 @@ class GitBackend(WorkspaceBackendProtocol):
         tokens = combined_output.split(b"\0")
         raw_index = 0
         name_status_tokens: list[bytes] = []
-        record_object_ids: list[tuple[str | None, str | None]] = []
+        record_side_facts: list[tuple[str, str, str | None, str | None]] = []
         while raw_index < len(tokens) and tokens[raw_index].startswith(b":"):
             raw_fields = tokens[raw_index][1:].split(b" ")
             raw_index += 1
@@ -1003,8 +1007,10 @@ class GitBackend(WorkspaceBackendProtocol):
             raw_paths = tokens[raw_index : raw_index + path_count]
             if len(raw_paths) != path_count or b"" in raw_paths:
                 raise DirdiffError("Git returned a truncated raw diff record.")
-            record_object_ids.append(
+            record_side_facts.append(
                 (
+                    raw_fields[0].decode("ascii"),
+                    raw_fields[1].decode("ascii"),
                     object_id_or_none(raw_fields[2]),
                     object_id_or_none(raw_fields[3]),
                 )
@@ -1017,20 +1023,26 @@ class GitBackend(WorkspaceBackendProtocol):
             b"\0".join([*name_status_tokens, b""])
         )
         # The parser emits exactly one entry per rebuilt record in order, so
-        # the collected side object ids pair positionally; the strict zip
-        # fails loudly if that one-to-one contract ever breaks.
+        # the collected side modes and object ids pair positionally; the strict
+        # zip fails loudly if that one-to-one contract ever breaks.
         entries = [
             replace(
                 entry,
-                left_object_id=object_ids[0]
+                left_mode=side_facts[0]
                 if entry.left_path is not None
                 else None,
-                right_object_id=object_ids[1]
+                right_mode=side_facts[1]
+                if entry.right_path is not None
+                else None,
+                left_object_id=side_facts[2]
+                if entry.left_path is not None
+                else None,
+                right_object_id=side_facts[3]
                 if entry.right_path is not None
                 else None,
             )
-            for entry, object_ids in zip(
-                entries, record_object_ids, strict=True
+            for entry, side_facts in zip(
+                entries, record_side_facts, strict=True
             )
         ]
         numstat_output = b"\0".join(tokens[raw_index:])
@@ -1070,24 +1082,19 @@ class GitBackend(WorkspaceBackendProtocol):
     def normalize_repo_path(self, raw_path: str) -> str:
         """Normalize the relative POSIX spelling used by Git File operations.
 
-        Blank, directory-shaped, absolute, `..`, and paths beginning with `../`
-        raise `DirdiffError`. Other relative spellings are returned unchanged
-        after `PurePosixPath` conversion.
+        Blank, directory-shaped, absolute, and repo-escaping paths raise
+        `DirdiffError`. Inner `.` and `..` components are collapsed so link
+        targets receive one canonical repository identity before loop checks.
 
         # Usage
 
-        Pass paths returned by this backend's Git listing. This method is not a
-        safe boundary for arbitrary user input.
+        Pass paths returned by Git or formed while following a repository link.
+        The returned spelling is safe to use as a literal Git path.
 
         # Failures
 
         Missing repository state and the rejected shapes above raise
-        `DirdiffError`. This implementation does not reject an inner parent segment:
-        `dir/../../escape` currently passes validation. It therefore does not
-        satisfy `WorkspaceBackendProtocol.normalize_repo_path` as a general
-        containment boundary. Callers must pass paths produced by this backend's
-        Git manifest rather than treating this method as validation for arbitrary
-        user input.
+        `DirdiffError`.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
@@ -1100,10 +1107,166 @@ class GitBackend(WorkspaceBackendProtocol):
         if candidate.is_absolute():
             raise DirdiffError("Use a repo-relative path.")
 
-        normalized = candidate.as_posix()
+        normalized = posixpath.normpath(candidate.as_posix())
         if normalized.startswith("../") or normalized == "..":
             raise DirdiffError("Repo path must stay inside the repo.")
+        if normalized == ".":
+            raise DirdiffError("Repo path must point to a file.")
         return normalized
+
+    @override
+    def file_mode(self, path: str, side: SideName) -> str:
+        """Return one normalized path's Git-compatible File mode.
+
+        Worktree inspection uses `lstat`, so a link is classified without
+        following it. Index and tree sides ask Git for the exact literal path;
+        directories, gitlinks, missing paths, and malformed output are refused.
+
+        # Parameters
+
+        - `path`: Normalized repository path to inspect without following it.
+        - `side`: Worktree, index, or Git tree/ref containing the path.
+
+        # Failures
+
+        Raises `DirdiffError` when the path does not identify a regular file,
+        executable file, or symbolic link on the selected side.
+        """
+        if self.repo_root is None:
+            raise DirdiffError("Git-backed diff mode requires a Git repo.")
+        normalized = self.normalize_repo_path(path)
+        if side == "worktree":
+            file_path = self.repo_root / normalized
+            try:
+                mode = file_path.lstat().st_mode
+            except OSError as exc:
+                raise DirdiffError(
+                    f"Could not inspect worktree file {normalized}: {exc}"
+                ) from exc
+            if stat.S_ISLNK(mode):
+                return SYMLINK_MODE
+            if not stat.S_ISREG(mode):
+                raise DirdiffError(
+                    f"{normalized} is not a regular file or symbolic link."
+                )
+            return "100755" if mode & stat.S_IXUSR else "100644"
+
+        literal_pathspec = f":(literal){normalized}"
+        if side == "index":
+            result = self._run_git(
+                ["ls-files", "--stage", "-z", "--", literal_pathspec],
+                check=False,
+            )
+            label = f"index:{normalized}"
+        else:
+            result = self._run_git(
+                ["ls-tree", "-z", side, "--", literal_pathspec],
+                check=False,
+            )
+            label = f"{side}:{normalized}"
+        if result.returncode != 0:
+            details = result.stderr.decode().strip()
+            message = f"Git could not inspect {label}"
+            if details != "":
+                message = f"{message}: {details}"
+            raise DirdiffError(message)
+        records = [record for record in result.stdout.split(b"\0") if record]
+        if len(records) != 1:
+            raise DirdiffError(f"Git could not find File {label}.")
+        fields, separator, returned_path = records[0].partition(b"\t")
+        parts = fields.split(b" ")
+        if separator == b"" or len(parts) < 3:
+            raise DirdiffError(f"Git returned malformed mode data for {label}.")
+        try:
+            git_mode = parts[0].decode("ascii")
+            object_type = (
+                "blob" if side == "index" else parts[1].decode("ascii")
+            )
+            decoded_path = returned_path.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise DirdiffError(
+                f"Git returned invalid mode data for {label}."
+            ) from exc
+        if decoded_path != normalized or object_type != "blob":
+            raise DirdiffError(f"{label} is not a capturable File.")
+        if git_mode not in {"100644", "100755", SYMLINK_MODE}:
+            raise DirdiffError(f"Unsupported File mode {git_mode} for {label}.")
+        return git_mode
+
+    @override
+    def file_size(self, path: str, side: SideName) -> int:
+        """Return exact blob size without loading one normalized Git File.
+
+        Worktree inspection uses `lstat`, so regular-file size does not follow
+        links; link size is the byte length of Git's raw link payload. Index and
+        tree sides ask `cat-file --batch-check` for blob metadata only.
+
+        # Parameters
+
+        - `path`: Normalized repository path to inspect without reading it.
+        - `side`: Worktree, index, or Git tree/ref containing the path.
+
+        # Failures
+
+        Missing repository state, missing paths, unsupported File kinds,
+        non-blob Git objects, and malformed Git output raise `DirdiffError`.
+        """
+        if self.repo_root is None:
+            raise DirdiffError("Git-backed diff mode requires a Git repo.")
+        normalized = self.normalize_repo_path(path)
+        if side == "worktree":
+            file_path = self.repo_root / normalized
+            try:
+                metadata = file_path.lstat()
+                if stat.S_ISLNK(metadata.st_mode):
+                    return len(os.readlink(os.fsencode(file_path)))
+                if stat.S_ISREG(metadata.st_mode):
+                    return metadata.st_size
+            except OSError as exc:
+                raise DirdiffError(
+                    f"Could not inspect worktree file {normalized}: {exc}"
+                ) from exc
+            raise DirdiffError(
+                f"{normalized} is not a regular file or symbolic link."
+            )
+
+        git_target = (
+            f":./{normalized}" if side == "index" else f"{side}:{normalized}"
+        )
+        process = subprocess.run(
+            [
+                git_executable(),
+                "cat-file",
+                "--batch-check=%(objecttype) %(objectsize)",
+                "-z",
+            ],
+            cwd=self.repo_root,
+            check=False,
+            input=git_target.encode() + b"\0",
+            capture_output=True,
+        )
+        if process.returncode != 0:
+            details = process.stderr.decode().strip()
+            message = f"Git could not inspect {git_target}"
+            if details != "":
+                message = f"{message}: {details}"
+            raise DirdiffError(message)
+        fields = process.stdout.removesuffix(b"\n").split(b" ")
+        if len(fields) != 2 or fields[0] != b"blob":
+            raise DirdiffError(
+                f"Git returned malformed size data for {git_target}."
+            )
+        try:
+            size = int(fields[1])
+        except ValueError as exc:
+            raise DirdiffError(
+                f"Git returned invalid size data for {git_target}."
+            ) from exc
+        if size < 0:
+            raise DirdiffError(
+                f"Git returned invalid size data for {git_target}."
+            )
+        return size
 
     @override
     def load_version(self, path: str, side: SideName) -> bytes:
@@ -1114,20 +1277,20 @@ class GitBackend(WorkspaceBackendProtocol):
 
         # Parameters
 
-        - `path`: Normalized repository-relative path reported by `repo_diff`.
+        - `path`: Normalized repository path reported by `repo_diff` or reached
+          through a captured link.
         - `side`: Worktree, index, or Git tree/ref to read from.
 
         # Usage
 
-        Load only a present side from a `RepoDiffPath` returned by this instance.
-        Capture may use `load_versions` instead when several sides are needed.
+        Load a present side path from this backend. Capture may use
+        `load_versions` instead when several outer sides are needed.
 
         # Failures
 
         Missing repository state, missing or directory-shaped ordinary worktree
-        content, unreadable regular-file bytes, and non-blob or absent Git
-        objects raise `DirdiffError`. Reading a worktree symlink may propagate
-        `OSError` directly.
+        content, unreadable regular-file bytes or links, and non-blob or absent
+        Git objects raise `DirdiffError`.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
@@ -1141,7 +1304,12 @@ class GitBackend(WorkspaceBackendProtocol):
             # would be rejected and a broken link would read as missing,
             # while both are ordinary content to Git.
             if file_path.is_symlink():
-                return os.readlink(os.fsencode(file_path))
+                try:
+                    return os.readlink(os.fsencode(file_path))
+                except OSError as exc:
+                    raise DirdiffError(
+                        f"Could not read worktree link {path}: {exc}"
+                    ) from exc
             if not file_path.exists():
                 raise DirdiffError(f"Worktree file is missing: {path}")
             if file_path.is_dir():

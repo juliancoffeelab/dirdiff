@@ -22,6 +22,7 @@ flow.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal, NotRequired, Optional, TypedDict
@@ -65,6 +66,7 @@ __all__ = [
     "RoomStore",
     "SnapshotFileRecord",
     "SnapshotFileSideRecord",
+    "SnapshotFileSymlinkRecord",
     "SnapshotMetaRecord",
     "SnapshotRecord",
 ]
@@ -432,6 +434,104 @@ class SnapshotFileRight(TableBase):
     """SHA-256 digest of the captured right-side bytes.
 
     It identifies immutable captured bytes rather than current worktree contents.
+    """
+
+
+class SnapshotFileSymlink(TableBase):
+    """Persist the authoritative sidecars for one symbolic-link File side.
+
+    Publication inserts one row exactly when a captured left or right side is a
+    symbolic link. Readers use the stored absolute paths directly and verify
+    both byte sequences against their digests before parsing link facts.
+
+    The row does not duplicate the link chain, terminal diagnosis, or final
+    repository target path held by the authenticated metadata sidecar. Absence
+    means the corresponding captured side is an ordinary File.
+    """
+
+    __tablename__ = "snapshot_file_symlink"
+    __table_args__ = (
+        UniqueConstraint(
+            "metadata_path",
+            name="uq_snapshot_file_symlink_metadata_path",
+        ),
+        UniqueConstraint(
+            "target_capture_path",
+            name="uq_snapshot_file_symlink_target_capture_path",
+        ),
+        CheckConstraint(
+            func.substr(column("metadata_path"), 1, 1) == "/",
+            name="ck_snapshot_file_symlink_metadata_path",
+        ),
+        CheckConstraint(
+            func.length(column("metadata_hash")) == 32,
+            name="ck_snapshot_file_symlink_metadata_hash",
+        ),
+        CheckConstraint(
+            column("target_capture_path").is_(None)
+            == column("target_hash").is_(None),
+            name="ck_snapshot_file_symlink_target_presence",
+        ),
+        CheckConstraint(
+            column("target_capture_path").is_(None)
+            | (func.substr(column("target_capture_path"), 1, 1) == "/"),
+            name="ck_snapshot_file_symlink_target_capture_path",
+        ),
+        CheckConstraint(
+            column("target_hash").is_(None)
+            | (func.length(column("target_hash")) == 32),
+            name="ck_snapshot_file_symlink_target_hash",
+        ),
+    )
+
+    file_id: Mapped[str] = mapped_column(
+        ForeignKey("snapshot_file.id"),
+        primary_key=True,
+    )
+    """Captured File containing this link side.
+
+    Together with `side`, it permits at most one authoritative link record for
+    either side while allowing a File whose old and new sides are both links.
+    """
+
+    side: Mapped[str] = mapped_column(String, primary_key=True)
+    """Captured side named `left` or `right`.
+
+    `RoomStore` validates this Python vocabulary on publication and hydration;
+    it is not duplicated as an enumerated SQL check.
+    """
+
+    metadata_path: Mapped[str] = mapped_column(String, nullable=False)
+    """Unique absolute path to the immutable JSON metadata sidecar.
+
+    Readers use this value directly; they never derive it from the raw side.
+    """
+
+    metadata_hash: Mapped[bytes] = mapped_column(
+        LargeBinary(32), nullable=False
+    )
+    """SHA-256 digest of the exact metadata-sidecar bytes.
+
+    Authentication happens before JSON parsing so the database, not a nearby
+    filename, identifies both the capture and its immutable content.
+    """
+
+    target_capture_path: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )
+    """Unique absolute path to reached target bytes, or `None` after damage.
+
+    Its presence must equal `target_hash`; this physical path is distinct from
+    the final repository target path described inside the metadata sidecar.
+    """
+
+    target_hash: Mapped[Optional[bytes]] = mapped_column(
+        LargeBinary(32), nullable=True
+    )
+    """SHA-256 digest of reached target bytes, or `None` after damage.
+
+    The target path and digest form one optional fact and never vary
+    independently.
     """
 
 
@@ -898,6 +998,64 @@ class SnapshotFileSideRecord:
 
 
 @dataclass(frozen=True)
+class SnapshotFileSymlinkRecord:
+    """Expose one symbolic-link side's authenticated physical sidecars.
+
+    `RoomStore` constructs this record for a `SnapshotFileRecord` only when the
+    relational symlink row exists. Callers read exactly these paths and compare
+    exact bytes with these digests; they must not infer sidecar names or link
+    kind from filesystem state.
+
+    The optional target pair represents a stopped walk by total absence. Link
+    chain, diagnosis, and repository target path remain inside authenticated
+    metadata and are not fields of this relational descriptor.
+    """
+
+    metadata_path: str
+    """Absolute path to the immutable JSON metadata sidecar."""
+
+    metadata_hash: bytes
+    """SHA-256 digest of exact metadata bytes at `metadata_path`."""
+
+    target_capture_path: Optional[str]
+    """Absolute path to reached target bytes, or `None` after a stopped walk."""
+
+    target_hash: Optional[bytes]
+    """SHA-256 target digest with the same presence as its physical path."""
+
+    def __post_init__(self) -> None:
+        """Reject descriptors that cannot name one authenticated capture.
+
+        Both database publication and hydration construct this type, so it
+        guards absolute path shape, digest length, and the optional target
+        pair at both boundaries.
+
+        # Failures
+
+        - Raises `AssertionError` for a relative metadata or target path, a
+          digest not exactly 32 bytes long, or unequal target path/hash
+          presence.
+        """
+        assert Path(self.metadata_path).is_absolute(), (
+            "Snapshot link metadata path must be absolute"
+        )
+        assert len(self.metadata_hash) == 32, (
+            "Snapshot link metadata hash must have length 32"
+        )
+        assert (self.target_capture_path is None) == (
+            self.target_hash is None
+        ), "Snapshot link target path and hash must have equal presence"
+        if self.target_capture_path is not None:
+            assert Path(self.target_capture_path).is_absolute(), (
+                "Snapshot link target capture path must be absolute"
+            )
+            assert self.target_hash is not None
+            assert len(self.target_hash) == 32, (
+                "Snapshot link target hash must have length 32"
+            )
+
+
+@dataclass(frozen=True)
 class SnapshotFileRecord:
     """Immutable relational facts for one affected File.
 
@@ -955,6 +1113,12 @@ class SnapshotFileRecord:
 
     Consumers preserve absence instead of substituting the other side or an empty file.
     """
+
+    left_symlink: Optional[SnapshotFileSymlinkRecord]
+    """Authoritative left link sidecars, or `None` for an ordinary/absent side."""
+
+    right_symlink: Optional[SnapshotFileSymlinkRecord]
+    """Authoritative right link sidecars, or `None` for an ordinary/absent side."""
 
 
 @dataclass(frozen=True)
@@ -1840,12 +2004,62 @@ class RoomStore:
         )
 
     @staticmethod
+    def _file_symlink_records(
+        rows: Iterable[SnapshotFileSymlink],
+    ) -> dict[tuple[str, Literal["left", "right"]], SnapshotFileSymlinkRecord]:
+        """Validate selected link rows into authoritative File descriptors.
+
+        File-hydration operations select their rows by the narrowest available
+        relational key, then call this boundary so the side vocabulary and
+        descriptor construction remain shared. Ordinary sides produce no
+        mapping entry; malformed or duplicate relational state raises rather
+        than being ignored.
+
+        # Parameters
+
+        - `rows`: Symlink rows selected for the Files being hydrated.
+
+        # Returns
+
+        - Keys pair a selected File id with its validated `left`/`right` side;
+          ordinary sides have no key.
+        - Values contain the exact physical sidecar paths and stored digests
+          for the corresponding symbolic-link side.
+        """
+        result: dict[
+            tuple[str, Literal["left", "right"]],
+            SnapshotFileSymlinkRecord,
+        ] = {}
+        for row in rows:
+            match row.side:
+                case "left" | "right":
+                    side: Literal["left", "right"] = row.side
+                case _:
+                    raise AssertionError(
+                        f"invalid persisted symlink side: {row.side!r}"
+                    )
+            key = row.file_id, side
+            assert key not in result, (
+                f"duplicate persisted Snapshot link side: {key!r}"
+            )
+            result[key] = SnapshotFileSymlinkRecord(
+                metadata_path=row.metadata_path,
+                metadata_hash=row.metadata_hash,
+                target_capture_path=row.target_capture_path,
+                target_hash=row.target_hash,
+            )
+        return result
+
+    @staticmethod
     def _file_record(
         file: SnapshotFile,
         left_path: str | None,
         left_hash: bytes | None,
         right_path: str | None,
         right_hash: bytes | None,
+        *,
+        left_symlink: SnapshotFileSymlinkRecord | None,
+        right_symlink: SnapshotFileSymlinkRecord | None,
     ) -> SnapshotFileRecord:
         """Validate one joined File/side row into the shared record shape.
 
@@ -1856,9 +2070,13 @@ class RoomStore:
         - `left_hash`: Captured-content digest from the same left-side row.
         - `right_path`: Repository path from its optional right-side row.
         - `right_hash`: Captured-content digest from the same right-side row.
+        - `left_symlink`: Exact relational sidecars when the left side is a
+          symbolic link, otherwise `None`.
+        - `right_symlink`: Exact relational sidecars under the same convention.
 
         Each side's path and digest must have equal presence, and the File must
-        retain at least one side.
+        retain at least one side. A link descriptor requires its matching raw
+        side and remains inside that File's capture directory.
         """
         assert (left_path is None) == (left_hash is None), (
             "persisted left File path and hash must have equal presence"
@@ -1879,6 +2097,26 @@ class RoomStore:
         assert left is not None or right is not None, (
             f"persisted Snapshot File has no sides: {file.id!r}"
         )
+        assert left_symlink is None or left is not None, (
+            "persisted left link has no captured File side"
+        )
+        assert right_symlink is None or right is not None, (
+            "persisted right link has no captured File side"
+        )
+        directory = Path(file.path)
+        for link in (left_symlink, right_symlink):
+            if link is None:
+                continue
+            assert Path(link.metadata_path).parent == directory, (
+                "Snapshot link metadata must share its File capture directory"
+            )
+            if link.target_capture_path is not None:
+                assert Path(link.target_capture_path).parent == directory, (
+                    "Snapshot link target must share its File capture directory"
+                )
+                assert link.target_capture_path != link.metadata_path, (
+                    "Snapshot link metadata and target paths must differ"
+                )
         return SnapshotFileRecord(
             id=file.id,
             snapshot_id=file.snapshot_id,
@@ -1888,6 +2126,8 @@ class RoomStore:
             error=file.error,
             left=left,
             right=right,
+            left_symlink=left_symlink,
+            right_symlink=right_symlink,
         )
 
     def review_profile(self, profile_id: int) -> Optional[UserProfileRecord]:
@@ -2125,6 +2365,7 @@ class RoomStore:
             assert snapshot.meta.removed_lines >= 0
         file_ids: set[str] = set()
         storage_paths: set[str] = set()
+        symlink_storage_paths: set[str] = set()
         repository_paths: set[tuple[Optional[str], Optional[str]]] = set()
         for file in snapshot.files:
             assert file.snapshot_id == snapshot.id, (
@@ -2163,6 +2404,12 @@ class RoomStore:
             assert file.tracked or file.left is None, (
                 "an intruding File cannot have a left side"
             )
+            assert file.left_symlink is None or file.left is not None, (
+                "a left symlink requires a captured left side"
+            )
+            assert file.right_symlink is None or file.right is not None, (
+                "a right symlink requires a captured right side"
+            )
             file_repository_paths = (
                 file.left.repository_path if file.left is not None else None,
                 file.right.repository_path if file.right is not None else None,
@@ -2186,6 +2433,27 @@ class RoomStore:
                     assert len(side.content_hash) == 32, (
                         "Snapshot File content hash must have length 32"
                     )
+            file_directory = Path(file.path)
+            for link in (file.left_symlink, file.right_symlink):
+                if link is None:
+                    continue
+                metadata_path = Path(link.metadata_path)
+                assert metadata_path.parent == file_directory, (
+                    "Snapshot link metadata must share its File capture directory"
+                )
+                assert link.metadata_path not in symlink_storage_paths, (
+                    "duplicate Snapshot link metadata path"
+                )
+                symlink_storage_paths.add(link.metadata_path)
+                if link.target_capture_path is not None:
+                    target_capture_path = Path(link.target_capture_path)
+                    assert target_capture_path.parent == file_directory, (
+                        "Snapshot link target must share its File capture directory"
+                    )
+                    assert (
+                        link.target_capture_path not in symlink_storage_paths
+                    ), "duplicate Snapshot link target path"
+                    symlink_storage_paths.add(link.target_capture_path)
         assert lazy_reasons.keys() <= file_ids, (
             "lazy reasons must identify Files in the published Snapshot"
         )
@@ -2291,6 +2559,24 @@ class RoomStore:
             ]
             if right_rows != []:
                 session.execute(insert(SnapshotFileRight), right_rows)
+            symlink_rows = [
+                {
+                    "file_id": file.id,
+                    "side": side,
+                    "metadata_path": link.metadata_path,
+                    "metadata_hash": link.metadata_hash,
+                    "target_capture_path": link.target_capture_path,
+                    "target_hash": link.target_hash,
+                }
+                for file in snapshot.files
+                for side, link in (
+                    ("left", file.left_symlink),
+                    ("right", file.right_symlink),
+                )
+                if link is not None
+            ]
+            if symlink_rows != []:
+                session.execute(insert(SnapshotFileSymlink), symlink_rows)
             lazy_reason_rows = [
                 {
                     "file_id": file_id,
@@ -2393,8 +2679,25 @@ class RoomStore:
                 )
                 .where(SnapshotFile.snapshot_id == snapshot_id)
             ).all()
+            symlinks = self._file_symlink_records(
+                session.execute(
+                    select(SnapshotFileSymlink)
+                    .join(
+                        SnapshotFile,
+                        SnapshotFile.id == SnapshotFileSymlink.file_id,
+                    )
+                    .where(SnapshotFile.snapshot_id == snapshot_id)
+                ).scalars()
+            )
 
-        files = [self._file_record(*row) for row in file_rows]
+        files = [
+            self._file_record(
+                *row,
+                left_symlink=symlinks.get((row[0].id, "left")),
+                right_symlink=symlinks.get((row[0].id, "right")),
+            )
+            for row in file_rows
+        ]
         return SnapshotRecord(
             id=snapshot_row.id,
             content_hash=snapshot_row.content_hash,
@@ -2556,9 +2859,24 @@ class RoomStore:
                     is not None
                 )
                 return exists, None
+            symlinks = self._file_symlink_records(
+                session.execute(
+                    select(SnapshotFileSymlink).where(
+                        SnapshotFileSymlink.file_id == row[0].id
+                    )
+                ).scalars()
+            )
 
         return True, SnapshotFileLoadRecord(
-            file=self._file_record(row[0], row[1], row[2], row[3], row[4]),
+            file=self._file_record(
+                row[0],
+                row[1],
+                row[2],
+                row[3],
+                row[4],
+                left_symlink=symlinks.get((row[0].id, "left")),
+                right_symlink=symlinks.get((row[0].id, "right")),
+            ),
             lazy_reason=row[5],
         )
 
@@ -2628,7 +2946,25 @@ class RoomStore:
                     mark_clause,
                 )
             ).all()
-        return {row[0].id: self._file_record(*row) for row in rows}
+            symlinks = self._file_symlink_records(
+                session.execute(
+                    select(SnapshotFileSymlink).where(
+                        SnapshotFileSymlink.file_id.in_(
+                            {row[0].id for row in rows}
+                        )
+                    )
+                ).scalars()
+                if rows != []
+                else ()
+            )
+        return {
+            row[0].id: self._file_record(
+                *row,
+                left_symlink=symlinks.get((row[0].id, "left")),
+                right_symlink=symlinks.get((row[0].id, "right")),
+            )
+            for row in rows
+        }
 
     def snapshot_files_by_pairs(
         self,
@@ -2718,9 +3054,24 @@ class RoomStore:
                 if pair_clauses != []
                 else []
             )
+            symlinks = self._file_symlink_records(
+                session.execute(
+                    select(SnapshotFileSymlink).where(
+                        SnapshotFileSymlink.file_id.in_(
+                            {row[0].id for row in rows}
+                        )
+                    )
+                ).scalars()
+                if rows != []
+                else ()
+            )
             found = {}
             for row in rows:
-                record = self._file_record(*row)
+                record = self._file_record(
+                    *row,
+                    left_symlink=symlinks.get((row[0].id, "left")),
+                    right_symlink=symlinks.get((row[0].id, "right")),
+                )
                 left = (
                     record.left.repository_path
                     if record.left is not None
@@ -2852,8 +3203,22 @@ class RoomStore:
                 if located_file_ids != ()
                 else []
             )
+            file_ids = {row[0].id for row in (*origin_rows, *selected_rows)}
+            symlinks = self._file_symlink_records(
+                session.execute(
+                    select(SnapshotFileSymlink).where(
+                        SnapshotFileSymlink.file_id.in_(file_ids)
+                    )
+                ).scalars()
+                if file_ids
+                else ()
+            )
             origin_files = {
-                (row[0].snapshot_id, row[0].id): self._file_record(*row)
+                (row[0].snapshot_id, row[0].id): self._file_record(
+                    *row,
+                    left_symlink=symlinks.get((row[0].id, "left")),
+                    right_symlink=symlinks.get((row[0].id, "right")),
+                )
                 for row in origin_rows
             }
             assert origin_files.keys() == set(origin_refs), (
@@ -2905,7 +3270,14 @@ class RoomStore:
                 )
         return (
             origin_files,
-            {row[0].id: self._file_record(*row) for row in selected_rows},
+            {
+                row[0].id: self._file_record(
+                    *row,
+                    left_symlink=symlinks.get((row[0].id, "left")),
+                    right_symlink=symlinks.get((row[0].id, "right")),
+                )
+                for row in selected_rows
+            },
             conflict_ids,
         )
 
