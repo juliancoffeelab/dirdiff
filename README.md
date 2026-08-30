@@ -9,6 +9,11 @@ I think that I have built something that works better.
 *Caveats: if you want to use difftastic, you'll probably need a few patches.
 Read the end of this document.*
 
+AI disclaimer: this was build over three months with different LLM agents,
+and I have wrote maybe 50 lines or so, but the code was sort of reviewed, after
+all it would be ironic to build the project otherwise.
+This README.md is written by me, though.
+
 ## Features
 
 - Handles large PRs: roughly 30k changed lines and 300 changed files is a
