@@ -6,6 +6,9 @@ much they suck.
 While doing that, I realized that it's not such an easy problem to solve, but
 I think that I have built something that works better.
 
+*Caveats: if you want to use difftastic, you'll probably need a few patches.
+Read the end of this document.*
+
 ## Features
 
 - Handles large PRs: roughly 30k changed lines and 300 changed files is a
@@ -17,36 +20,65 @@ intelligently and not just hide random lines.
 - Works with Git and supports plain diff, custom refs and branch review.
 - As a bonus, works with jupyter notebooks too.
 
-## Dev Install
-
+## How to run in dev mode
 ```bash
-bun install --cwd frontend
-uv tool install -e .
+make dev
+# or, if you prefer explicit command
+uv run dirdiff
 ```
 
-Then run it from a Git repo:
+This would build the project into editable form with `uv` and run it.
+Under the hood this would run `uvicorn` and `vite` both with full hot-reloading.
+If hot-reloading doesn't work, that's a bug.
 
+First time, it may ask you to mark the repo using:
+```bash
+dirdiff mark
+# or in dev mode
+uv run dirdiff mark
+```
+By default it marks the main repo, but this also allows you to mark any
+repository on your PC to review it from dev folder.
+
+## Dev install
+If you want a proper release build without hot-reloading, but with better
+cold starts (which includes page reload via F5), you can do just do a standard
+install.
+```bash
+make install
+# or
+uv tool install .
+```
+
+If you don't have the project cloned, you can install it from github as well:
+```bash
+uv tool install git+https://github.com/juliancoffeelab/dirdiff
+```
+
+Or as one-off command:
+```bash
+uvx --from git+https://github.com/juliancoffeelab/dirdiff dirdiff
+```
+
+Then you can just run it normally:
 ```bash
 dirdiff
 ```
-
-(Also has some CLI options, feel free to explore them.)
-
-We use uvicorn and vite with every dev option enabled, so hot-reloading fully
-works. If it doesn't that's a bug.
-It means that cold-starts might be a bit slower, but that's the price we pay.
+And explore other CLI options using `--help`.
 
 ## Marks
 
-We also support marking feature, so you can mark any repo and have it globally
+We support marking feature, so you can mark any repo and have it globally
 available:
 
 ```bash
 dirdiff mark
 ```
 
-The database is in `$HOME/.local/share/dirdiff`, we don't do support platform
-specific placements like xdg-directories (yet?).
+The database is in `$HOME/.local/share/dirdiff/release`, we don't do support
+platform specific placements like xdg-directories (yet?).
+
+(For editable installs, it's `$HOME/.local/share/dirdiff`).
 
 
 ## Third-party fixes
