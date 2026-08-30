@@ -1,6 +1,6 @@
 ---
 name: round-review
-description: Use when user reviews your patch, or just post "round" without context.
+description: Use when userposts "round" without context, or asks to respond to threads.
 ---
 
 # Answer the user's review
