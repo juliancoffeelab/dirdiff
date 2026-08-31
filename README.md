@@ -14,6 +14,9 @@ and I have wrote maybe 50 lines or so, but the code was sort of reviewed; after
 all it would be ironic to build the project otherwise.
 This README.md is written by me, though.
 
+<img width="1433" height="695" alt="зображення" src="https://github.com/user-attachments/assets/c9ddf268-c587-4fb3-b2c1-75c5f1a4a24e" />
+
+
 ## Features
 
 - Handles large PRs: won't die on 30k changed lines or 300 changed files. Not that you would need that ... until you need that.
