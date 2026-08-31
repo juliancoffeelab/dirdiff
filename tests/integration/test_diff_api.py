@@ -65,6 +65,9 @@ def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
                 / ".agents"
                 / "skills",
                 room_lord=room_lord,
+                presets_root=str(
+                    Path(__file__).parents[2] / "tests" / "presets"
+                ),
             )
         ),
         mark.id,
@@ -351,6 +354,7 @@ def test_historical_file_review_migration_never_reads_captured_text(
             UserProfileStore(current_engine),
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
             room_lord=RoomLord(RoomStore(current_engine), tmp_path / "store"),
+            presets_root=str(Path(__file__).parents[2] / "tests" / "presets"),
         )
     )
     response = client.get(

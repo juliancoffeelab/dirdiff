@@ -22,8 +22,10 @@ import json
 import logging
 import os
 from importlib.metadata import PackageNotFoundError, distribution
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Annotated
+from urllib.parse import urlsplit
+from urllib.request import url2pathname
 
 import typer
 
@@ -74,12 +76,19 @@ def configure_logging() -> None:
     logging.getLogger("uvicorn.access").setLevel(logging.INFO)
 
 
-def _installation_mode() -> InstallationMode:
-    """Classify this installation from its standard direct-URL metadata.
+def _installation() -> tuple[InstallationMode, Path]:
+    """Classify this installation and locate its default Preset corpus.
 
     An editable directory installation is development; wheel, archive, VCS,
     non-editable directory, and index installations are release. Malformed
-    installed metadata raises instead of selecting a mode.
+    installed metadata raises instead of selecting a mode. Development uses the
+    canonical checkout `tests/presets`; release uses package data in the
+    installed distribution.
+
+    # Returns
+
+    - First, the installation mode used for process topology and state paths.
+    - Second, the absolute default Preset root for that installation.
     """
 
     try:
@@ -88,6 +97,7 @@ def _installation_mode() -> InstallationMode:
         raise RuntimeError("dirdiff distribution metadata is missing") from exc
     direct_url_text = installed_distribution.read_text("direct_url.json")
     mode: InstallationMode = "release"
+    editable_project_root: Path | None = None
     if direct_url_text is not None:
         direct_url: JsonValue = json.loads(direct_url_text)
         if not isinstance(direct_url, dict):
@@ -123,6 +133,31 @@ def _installation_mode() -> InstallationMode:
                 )
             if editable is True:
                 mode = "development"
+                parsed_url = urlsplit(url)
+                if (
+                    parsed_url.scheme != "file"
+                    or parsed_url.netloc not in ("", "localhost")
+                    or parsed_url.query != ""
+                    or parsed_url.fragment != ""
+                ):
+                    raise RuntimeError(
+                        "editable dirdiff direct_url.json must contain a local "
+                        "file URL"
+                    )
+                editable_project_root = Path(url2pathname(parsed_url.path))
+                if not editable_project_root.is_absolute():
+                    raise RuntimeError(
+                        "editable dirdiff direct_url.json has no absolute path"
+                    )
+                if subdirectory is not None:
+                    subdirectory_path = PurePosixPath(subdirectory)
+                    if subdirectory_path.is_absolute() or ".." in (
+                        subdirectory_path.parts
+                    ):
+                        raise RuntimeError(
+                            "dirdiff direct_url.json has an invalid subdirectory"
+                        )
+                    editable_project_root /= subdirectory_path
         elif info_key == "vcs_info":
             for field in ("vcs", "commit_id"):
                 value = info.get(field)
@@ -154,7 +189,16 @@ def _installation_mode() -> InstallationMode:
                 raise RuntimeError(
                     "dirdiff direct_url.json has an invalid archive hash"
                 )
-    return mode
+    if mode == "development":
+        assert editable_project_root is not None, (
+            "development installation has no project root"
+        )
+        presets_root = editable_project_root / "tests" / "presets"
+    else:
+        presets_root = Path(
+            str(installed_distribution.locate_file("dirdiff/tests/presets"))
+        )
+    return mode, presets_root.resolve()
 
 
 @cli_app.callback(invoke_without_command=True)
@@ -176,7 +220,7 @@ def start(
     presets_root: Annotated[
         str | None,
         typer.Option(
-            help="Directory of preset catalogs. Defaults to tests/presets.",
+            help="Directory of preset catalogs. Defaults for this installation.",
         ),
     ] = None,
     port: Annotated[
@@ -213,7 +257,7 @@ def start(
     - `ctx`: Current Typer invocation used to share options with a subcommand.
     - `db_path`: Registry database path, or the configured user-level default.
     - `store_path`: Snapshot directory, or `None` for the database sibling.
-    - `presets_root`: Optional preset-catalog root passed unchanged to the server.
+    - `presets_root`: Optional preset-catalog root resolved at this CLI boundary.
     - `port`: Requested backend loopback port.
     - `headless`: Whether startup must skip opening a browser.
     - `frontend_port`: Requested Vite loopback port.
@@ -232,22 +276,30 @@ def start(
 
     # Failures
 
-    Unavailable ports, missing repository marks, database errors, and process
-    startup failures propagate through the CLI boundary and terminate the
-    command.
+    An invalid Preset root, unavailable ports, missing repository marks,
+    database errors, and process startup failures propagate through the CLI
+    boundary and terminate the command.
     """
 
-    # Read the selector once so every command and launch decision agrees.
-    mode = _installation_mode()
+    # Read installation metadata once so every launch decision agrees.
+    mode, default_presets_root = _installation()
 
     resolved_db_path = marker_utils.db_path_or_default(db_path, mode)
     resolved_store_path = (
         store_path.expanduser() if store_path is not None else None
     )
+    resolved_presets_root = (
+        Path(presets_root).expanduser().resolve()
+        if presets_root is not None
+        else default_presets_root
+    )
+    assert resolved_presets_root.is_dir(), (
+        f"Preset root is not a directory: {resolved_presets_root}"
+    )
     ctx.obj = server_launch.AppOptions(
         db_path=resolved_db_path,
         store_path=resolved_store_path,
-        presets_root=presets_root,
+        presets_root=str(resolved_presets_root),
         port=port,
         frontend_port=frontend_port,
         headless=headless,
@@ -264,7 +316,7 @@ def start(
         store_path=str(
             resolved_store_path or resolved_db_path.parent / "store"
         ),
-        presets_root=presets_root,
+        presets_root=str(resolved_presets_root),
     )
     server_launch.run_app(
         config=config,

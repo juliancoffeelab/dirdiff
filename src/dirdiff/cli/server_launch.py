@@ -107,11 +107,11 @@ class AppOptions:
     `None` tells each command handler to use `db_path.parent / "store"`.
     """
 
-    presets_root: str | None
-    """Preset-catalog root spelling forwarded to `RuntimeConfig`.
+    presets_root: str
+    """Absolute Preset-catalog root forwarded to `RuntimeConfig`.
 
-    This CLI layer neither resolves nor validates it. `None` lets the server use
-    its configured default.
+    The root callback resolves either `--presets-root` or the installation's
+    exact default before constructing this shared command state.
     """
 
     port: int

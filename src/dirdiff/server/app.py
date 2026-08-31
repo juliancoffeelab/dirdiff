@@ -391,7 +391,7 @@ def create_app(
     *,
     agent_skills_root: Path,
     room_lord: RoomLord,
-    presets_root: str | None = None,
+    presets_root: str,
 ) -> FastAPI:
     """Create the dirdiff FastAPI app and wire request orchestration.
 
@@ -410,8 +410,7 @@ def create_app(
     - `agent_skills_root`: Exact installed instruction root exposed by agent
       onboarding.
     - `room_lord`: Application boundary for Room selection and Snapshot lookup.
-    - `presets_root`: Optional catalog root; omission uses the project's test
-      presets directory at request time.
+    - `presets_root`: Exact catalog root selected before app construction.
 
     # Usage
 

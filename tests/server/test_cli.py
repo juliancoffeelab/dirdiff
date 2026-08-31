@@ -138,6 +138,9 @@ def test_root_explains_vite_frontend_is_required(
                         Path(__file__).parents[2] / ".agents" / "skills"
                     ),
                     store_path=str(tmp_path / "store"),
+                    presets_root=str(
+                        Path(__file__).parents[2] / "tests" / "presets"
+                    ),
                 )
             )
         ),
@@ -163,6 +166,7 @@ def test_fastapi_docs_are_enabled(tmp_path: Path) -> None:
             store,
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
             room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
+            presets_root=str(Path(__file__).parents[2] / "tests" / "presets"),
         )
     )
 
@@ -190,6 +194,7 @@ def test_repo_list_is_sorted_by_name_and_path(tmp_path: Path) -> None:
             store,
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
             room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
+            presets_root=str(Path(__file__).parents[2] / "tests" / "presets"),
         )
     )
 
@@ -221,6 +226,7 @@ def test_repo_mark_delete_deactivates_registry_state(tmp_path: Path) -> None:
             store,
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
             room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
+            presets_root=str(Path(__file__).parents[2] / "tests" / "presets"),
         )
     )
 
@@ -244,6 +250,7 @@ def test_repo_mark_delete_reports_missing_id(tmp_path: Path) -> None:
             store,
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
             room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
+            presets_root=str(Path(__file__).parents[2] / "tests" / "presets"),
         )
     )
 

@@ -1476,7 +1476,7 @@ class DiffRoutes:
         db: RepoMarkStore,
         *,
         room_lord: RoomLord,
-        presets_root: str | None,
+        presets_root: str,
     ) -> None:
         """Retain the interfaces required by capture and File routes.
 
@@ -1484,7 +1484,7 @@ class DiffRoutes:
 
         - `db`: Repository registry used by Snapshot capture.
         - `room_lord`: Room selection and Snapshot lookup interface.
-        - `presets_root`: Optional root rescanned for preset catalogs.
+        - `presets_root`: Exact root rescanned for preset catalogs.
         """
         self.db = db
         self.room_lord = room_lord

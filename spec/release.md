@@ -61,9 +61,10 @@ Hatch consumes it. It does not read `frontend/dist`, write generated files into
 frontend work.
 
 The source distribution contains the build hook, frontend source and config,
-`package.json`, `bun.lock`, and the three agent workflow skill directories. It
-excludes `node_modules` and compiled HUD output. A wheel built from an extracted
-source distribution uses only those files.
+`package.json`, `bun.lock`, the six preset catalogs under
+`tests/presets`, and the three agent workflow skill directories. It excludes
+`node_modules` and compiled HUD output. A wheel built from an extracted source
+distribution uses only those files.
 
 The wheel also maps the root Alembic configuration and migration history into
 `dirdiff/db`. Development bootstrap uses the canonical files in the editable
@@ -71,6 +72,20 @@ checkout so migration edits take effect immediately. Release bootstrap uses the
 fixed installed resource, so an installed command never needs the original
 checkout to create or upgrade its schema. The validated installation mode
 selects this path before any persistent database is opened.
+
+The CLI resolves one absolute Preset root before constructing runtime
+configuration. An editable installation uses `<checkout>/tests/presets`, where
+the checkout comes from the same standardized direct-URL metadata that selects
+development mode. A release uses the distribution resource at
+`dirdiff/tests/presets`. An explicit `--presets-root` remains authoritative.
+The server receives the chosen path and performs no installation discovery.
+
+Editable installations expose the complete source corpus. Standard wheels omit
+the `formats/symlinks` group and the `formats/invalid/broken-link` and
+`formats/invalid/link-loop` cases because wheel installation cannot preserve
+their required filesystem symlinks. The wheel hook copies every other regular
+project Preset file into `dirdiff/tests/presets`; it creates no symlinks. Those
+files remain available in the installed Preset Tab.
 
 The wheel maps the complete `review-patch`, `round-review`, and `babysit-patch`
 skill directories into `dirdiff/skills`. Editable startup exposes their

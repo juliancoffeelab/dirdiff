@@ -104,6 +104,15 @@ class RuntimeConfig:
     publication lock.
     """
 
+    presets_root: str
+    """
+    Absolute directory holding the Preset catalogs for this server.
+
+    The CLI resolves the installation default or explicit option before this
+    process boundary. The server consumes this exact path and must not discover
+    or substitute Preset resources itself.
+    """
+
     tab: Literal["head", "refs", "branch-review"] = "head"
     """
     Initial Tab encoded into the browser URL.
@@ -142,15 +151,6 @@ class RuntimeConfig:
 
     This is startup navigation state only.  Diff requests still carry their own
     explicit branch-review selections.
-    """
-
-    presets_root: str | None = None
-    """
-    Directory holding preset catalogs, or `None` for `tests/presets` under the
-    working directory.
-
-    Its immediate subdirectories are the catalogs the Preset Tab offers, one
-    per directory. It is not a catalog itself.
     """
 
 
@@ -288,14 +288,15 @@ class ErrorResponse(ApiModel):
 
 
 def preset_catalog_dirs(
-    presets_root: str | None,
+    presets_root: str,
 ) -> tuple[PresetCatalogDir, ...]:
     """List the preset catalogs this server offers right now.
 
     The presets root is rescanned per request rather than captured at
     startup, so a catalog directory added while the server runs appears on
     the next refresh, which is how every other hot-reloadable part of this
-    project behaves.
+    project behaves. The server uses the exact root supplied across its startup
+    boundary and does not perform installation discovery.
 
     # Usage
 
@@ -309,16 +310,11 @@ def preset_catalog_dirs(
     - Items follow catalog-id order. An empty tuple means the current root
       has no catalog directories.
     """
-    root = (
-        Path(presets_root)
-        if presets_root is not None
-        else Path.cwd() / "tests" / "presets"
-    )
-    return preset_catalogs(root)
+    return preset_catalogs(Path(presets_root))
 
 
 def _preset_backend_for_catalog(
-    presets_root: str | None,
+    presets_root: str,
     catalog_id: str,
 ) -> PresetBackend:
     """Construct the backend reading one named preset catalog.
@@ -331,7 +327,7 @@ def _preset_backend_for_catalog(
 
     # Parameters
 
-    - `presets_root`: Optional root whose immediate directories are catalogs.
+    - `presets_root`: Exact root whose immediate directories are catalogs.
     - `catalog_id`: Exact catalog directory id selected by the caller.
 
     # Usage
@@ -379,7 +375,7 @@ def _marked_project_id(project_id: str | None) -> int:
 def capture_snapshot(
     db: RepoMarkStore,
     room_lord: RoomLord,
-    presets_root: str | None,
+    presets_root: str,
     *,
     project_id: str,
     selection: CaptureSelection,
@@ -395,7 +391,7 @@ def capture_snapshot(
 
     - `db`: Repository registry used to resolve repository-backed selections.
     - `room_lord`: Room service that applies correspondence and captures state.
-    - `presets_root`: Optional root used to resolve preset-backed selections.
+    - `presets_root`: Exact root used to resolve preset-backed selections.
     - `project_id`: Active Mark id for repository selections or catalog id
       for a preset selection.
     - `selection`: Complete discriminated Tab input already validated.

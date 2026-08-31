@@ -1457,7 +1457,7 @@ class ExternalAgentRoutes:
         *,
         agent_skills_root: Path,
         room_lord: RoomLord,
-        presets_root: str | None,
+        presets_root: str,
     ) -> None:
         """Retain the exact interfaces used by external-agent handlers.
 
@@ -1468,7 +1468,7 @@ class ExternalAgentRoutes:
         - `agent_skills_root`: Directory containing the three installed agent
           workflow skills exposed by onboarding.
         - `room_lord`: Room selection and Snapshot lookup interface.
-        - `presets_root`: Optional preset catalog root used by review opening.
+        - `presets_root`: Exact Preset catalog root used by review opening.
 
         # Failures
 
