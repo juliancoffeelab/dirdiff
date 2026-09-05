@@ -194,7 +194,13 @@ def tool_json(
     def validate_cached_entry(
         value: JsonValue,
     ) -> DifftasticJson | GumTreeJson:
-        """Return the engine output from a structurally valid cache entry."""
+        """Return the engine output from a structurally valid cache entry.
+
+        # Returns
+
+        - `Difftastic`: Validated alignment, changed spans and tool metadata.
+        - `GumTree`: Validated matches, actions and tool metadata.
+        """
         assert isinstance(value, dict) and set(value) == {
             "left_hash",
             "right_hash",
