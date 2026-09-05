@@ -9,10 +9,9 @@ display enrichment has separate rendering tests.
 from pathlib import Path
 
 import pytest
-from helpers import GoldenJsonSnapshotExtension
+from helpers import GoldenJsonSnapshotExtension, tool_json
 from syrupy.assertion import SnapshotAssertion
 
-from dirdiff.engines.gumtree import GumTreeDiffEngine
 from dirdiff.engines.gumtree.logic import build_gumtree_rows_from_json
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "gumtree"
@@ -89,15 +88,14 @@ def test_gumtree_preset_rows_match_golden(
     assert len(new_files) == 1, preset_dir
     old_path = old_files[0]
     new_path = new_files[0]
-    service = GumTreeDiffEngine()
-    old_text = old_path.read_text()
-    new_text = new_path.read_text()
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
 
-    diff_json = service._run_gumtree_json(
-        left_text=old_text,
-        right_text=new_text,
-        left_path_hint=old_path.name,
-        right_path_hint=new_path.name,
+    diff_json = tool_json(
+        "gumtree",
+        f"presets/{preset_dir.relative_to(PRESETS_ROOT).as_posix()}",
+        left=old_path,
+        right=new_path,
     )
     rows = build_gumtree_rows_from_json(
         diff_json=diff_json,

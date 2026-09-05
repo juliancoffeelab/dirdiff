@@ -1,24 +1,22 @@
 """Check GumTree action ranges and their rendered token status.
 
-Checked-in presets verify action matching, token mapping, and neutral row shape.
-Tests call engine internals only when the public payload cannot expose the tree
-fact under test. User-visible payload cases go through ordinary composition.
+Checked-in presets verify action matching, token mapping, and neutral row shape
+directly at the boundary that maps GumTree JSON onto source text.
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from dirdiff.engines.gumtree import (
-    GumTreeDiffEngine,
-    GumTreeJson,
-)
+from helpers import tool_json
+
+from dirdiff.engines import DiffEngineRow
+from dirdiff.engines.gumtree import GumTreeJson
 from dirdiff.engines.gumtree.logic import (
+    build_gumtree_rows_from_json,
     line_segments,
     range_from_tree,
 )
-from dirdiff.formats import ComposeContext, ComposedFilePayload, Composer
-from dirdiff.rendering import DiffRow
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "gumtree"
 """GumTree behavior fixture catalog for structural range-mapping tests.
@@ -50,28 +48,27 @@ class ExpectedTokenStatus:
     """Describe one expected GumTree token derived from an action tree range.
 
     Tests expand one GumTree tree string across intersected source lines into
-    these values, then compare them with token decorations in composed rows.
+    these values, then compare them with tokens in projected rows.
     """
 
     side: Literal["left", "right"]
     """Source document whose absolute GumTree offsets address text.
 
-    The value also selects the composed row and decorated-part fields used for
-    comparison; it never changes the expected status.
+    The value also selects the row and token fields used for comparison; it
+    never changes the expected status.
     """
 
     status: str
     """Dirdiff inline classification required over the expected source slice.
 
-    The action kind determines it before syntax weaving may split the slice into
-    several adjacent decorated parts.
+    The action kind determines it before row construction partitions the source.
     """
 
     line_no: int
     """One-based source line containing this visible range intersection.
 
     Multi-line GumTree trees produce one expectation per intersected display
-    line, each addressed independently in the composed payload.
+    line, each addressed independently in the projected rows.
     """
 
     start: int
@@ -85,7 +82,7 @@ class ExpectedTokenStatus:
     """Zero-based exclusive character offset within the same display line.
 
     The interval is always non-empty and may be covered by several adjacent
-    actual parts when syntax decoration introduces extra boundaries.
+    actual tokens when GumTree actions introduce adjacent ranges.
     """
 
     text: str
@@ -98,7 +95,7 @@ class ExpectedTokenStatus:
     tree: str
     """Raw GumTree tree spelling from which this expectation originated.
 
-    It is diagnostic provenance only. Actual payload lookup uses `side` and
+    It is diagnostic provenance only. Actual row lookup uses `side` and
     `line_no`, never this external string.
     """
 
@@ -107,20 +104,19 @@ class ExpectedTokenStatus:
 class ActualTokenStatus:
     """Record one rendered changed part in line-local expectation coordinates.
 
-    The extraction helper derives these values from composed decorated parts,
-    then compares them with ranges parsed independently from GumTree actions.
-    The record omits syntax classes and row status because neither determines
-    action-range coverage.
+    The extraction helper derives these values from projected tokens, then
+    compares them with ranges parsed independently from GumTree actions. The
+    record omits row status because it does not determine action-range coverage.
     """
 
     start: int
-    """Inclusive line-local offset accumulated from preceding decorated parts.
+    """Inclusive line-local offset accumulated from preceding tokens.
 
     It refers to rendered source characters, not bytes or GumTree tree text.
     """
 
     end: int
-    """Exclusive line-local offset after this complete decorated part.
+    """Exclusive line-local offset after this complete token.
 
     Neighboring intervals may touch and jointly cover one GumTree expectation.
     """
@@ -133,36 +129,24 @@ class ActualTokenStatus:
     """
 
 
-def _extract_helper_engine() -> GumTreeDiffEngine:
-    """Construct the stateless engine used by the helper-extraction fixture.
-
-    Payload composition and raw JSON inspection call this same constructor so
-    neither path carries hidden engine configuration.
-    """
-    return GumTreeDiffEngine()
-
-
-def _extract_helper_payload() -> ComposedFilePayload:
-    """Compose the helper-extraction fixture through the ordinary File path.
-
-    Assertions consume the same enriched payload the endpoint would return,
-    rather than a test-only copy of token weaving.
+def _extract_helper_rows() -> list[DiffEngineRow]:
+    """Build neutral rows for the helper-extraction fixture.
 
     # Usage
 
-    Range-coverage tests use this payload together with raw JSON from
-    `_extract_helper_engine` so expected and rendered ranges share one fixture.
+    Range-coverage tests use these rows together with the same raw JSON so
+    expected and rendered ranges share one fixture.
     """
-    return Composer().compose(
-        (FIXTURE_ROOT / "old.py").read_bytes(),
-        (FIXTURE_ROOT / "new.py").read_bytes(),
-        ComposeContext.build(
-            left_path=LEFT_PATH,
-            right_path=RIGHT_PATH,
-            left_label="python",
-            right_label="new",
-            renderer=_extract_helper_engine(),
-        ),
+    diff_json = tool_json(
+        "gumtree",
+        "presets/python/extract-python-helper-function",
+        left=FIXTURE_ROOT / "old.py",
+        right=FIXTURE_ROOT / "new.py",
+    )
+    return build_gumtree_rows_from_json(
+        diff_json=diff_json,
+        left_text=(FIXTURE_ROOT / "old.py").read_bytes().decode("utf-8"),
+        right_text=(FIXTURE_ROOT / "new.py").read_bytes().decode("utf-8"),
     )
 
 
@@ -173,7 +157,7 @@ def _source_text(side: str) -> str:
     Callers pass only the closed side values used by this module.
     """
     file_name = "old.py" if side == "left" else "new.py"
-    return (FIXTURE_ROOT / file_name).read_text()
+    return (FIXTURE_ROOT / file_name).read_bytes().decode("utf-8")
 
 
 def _expected_for_tree(
@@ -237,7 +221,7 @@ def _expected_action_statuses(
     # Usage
 
     Pass raw JSON from the helper-extraction fixture, then compare each returned
-    interval against `_actual_status_intervals` from the composed payload.
+    interval against `_actual_status_intervals` from the projected rows.
 
     # Failures
 
@@ -339,18 +323,18 @@ def _expected_action_statuses(
 
 
 def _row_for_line(
-    payload: ComposedFilePayload,
+    rows: list[DiffEngineRow],
     *,
     side: Literal["left", "right"],
     line_no: int,
-) -> DiffRow:
-    """Find the enriched row addressing one exact source line.
+) -> DiffEngineRow:
+    """Find the neutral row addressing one exact source line.
 
     # Parameters
 
-    - `payload`: Flatfile composition expected to contain one text bay.
+    - `rows`: GumTree rows for the helper-extraction fixture.
     - `side`: Side whose line-number field is matched.
-    - `line_no`: One-based source line that must exist in the payload.
+    - `line_no`: One-based source line that must exist in the rows.
 
     # Usage
 
@@ -359,16 +343,9 @@ def _row_for_line(
 
     # Failures
 
-    Raises `AssertionError` when the payload is not one flatfile text bay or the
-    addressed line is absent.
+    Raises `AssertionError` when the addressed line is absent.
     """
-    # A flat Python file composes into exactly one text bay, and its rows are
-    # the rows this module asserts against.
-    (frame,) = payload["frames"]
-    (bay,) = frame["bays"]
-    kind_data = bay["kind_data"]
-    assert kind_data["kind"] == "text"
-    for row in kind_data["rows"]:
+    for row in rows:
         row_line_no = row["left_no"] if side == "left" else row["right_no"]
         if row_line_no == line_no:
             return row
@@ -376,7 +353,7 @@ def _row_for_line(
 
 
 def _actual_status_intervals(
-    payload: ComposedFilePayload,
+    rows: list[DiffEngineRow],
     *,
     side: Literal["left", "right"],
     status: str,
@@ -386,25 +363,25 @@ def _actual_status_intervals(
 
     # Parameters
 
-    - `payload`: Composed helper-extraction diff.
-    - `side`: Source side whose decorated parts are scanned.
-    - `status`: Diff classification selected from those parts.
+    - `rows`: GumTree rows for the helper-extraction fixture.
+    - `side`: Source side whose tokens are scanned.
+    - `status`: Diff classification selected from those tokens.
     - `line_no`: One-based source line addressed by the expectation.
 
     # Usage
 
     Call for one expected line and status, then use `_is_covered` to compare the
-    returned adjacent decorated intervals with the expected range.
+    returned adjacent token intervals with the expected range.
     """
-    row = _row_for_line(payload, side=side, line_no=line_no)
+    row = _row_for_line(rows, side=side, line_no=line_no)
     cursor = 0
     intervals: list[ActualTokenStatus] = []
-    parts = row["left_parts"] if side == "left" else row["right_parts"]
-    for part in parts:
-        token_text = part["text"]
+    tokens = row["left_tokens"] if side == "left" else row["right_tokens"]
+    for token in tokens:
+        token_text = token["text"]
         start = cursor
         end = cursor + len(token_text)
-        if part["diff_status"] == status:
+        if token["status"] == status:
             intervals.append(
                 ActualTokenStatus(
                     start=start,
@@ -448,22 +425,20 @@ def _is_covered(
 def test_gumtree_json_action_ranges_are_projected_to_token_statuses() -> None:
     """Cover every required GumTree action range with matching rendered tokens.
 
-    The assertion permits adjacent parts because syntax weaving may split one
-    diff token, but it permits no gaps in the source range.
+    The assertion permits adjacent tokens but no gaps in the source range.
     """
-    payload = _extract_helper_payload()
-    engine = _extract_helper_engine()
-    diff_json = engine._run_gumtree_json(
-        left_text=_source_text("left"),
-        right_text=_source_text("right"),
-        left_path_hint=LEFT_PATH,
-        right_path_hint=RIGHT_PATH,
+    rows = _extract_helper_rows()
+    diff_json = tool_json(
+        "gumtree",
+        "presets/python/extract-python-helper-function",
+        left=FIXTURE_ROOT / "old.py",
+        right=FIXTURE_ROOT / "new.py",
     )
 
     missing: list[str] = []
     for expected in _expected_action_statuses(diff_json):
         actual_intervals = _actual_status_intervals(
-            payload,
+            rows,
             side=expected.side,
             status=expected.status,
             line_no=expected.line_no,
@@ -484,22 +459,16 @@ def test_gumtree_json_action_ranges_are_projected_to_token_statuses() -> None:
     assert missing == []
 
 
-def test_gumtree_keeps_rows_neutral_and_summarizes_token_ranges() -> None:
-    """Keep GumTree's visual rows neutral while summaries follow token ranges.
+def test_gumtree_keeps_rows_neutral() -> None:
+    """Keep GumTree's rows neutral while token ranges carry the changes.
 
     GumTree decorates independent source lines rather than line-aligning them;
-    row status stays equal and the File summary derives changes from tokens.
+    row status stays equal rather than duplicating token classifications.
     """
-    payload = _extract_helper_payload()
+    rows = _extract_helper_rows()
 
-    assert _row_for_line(payload, side="right", line_no=2)["status"] == "equal"
-    assert _row_for_line(payload, side="right", line_no=6)["status"] == "equal"
-    assert _row_for_line(payload, side="left", line_no=13)["status"] == "equal"
-    assert _row_for_line(payload, side="right", line_no=4)["status"] == "equal"
-    assert _row_for_line(payload, side="left", line_no=1)["status"] == "equal"
-
-    assert payload["summary"]["changed_lines"] == 12
-    assert payload["summary"]["modified_lines"] == 5
-    assert payload["summary"]["added_lines"] == 2
-    assert payload["summary"]["removed_lines"] == 0
-    assert payload["summary"]["moved_lines"] == 5
+    assert _row_for_line(rows, side="right", line_no=2)["status"] == "equal"
+    assert _row_for_line(rows, side="right", line_no=6)["status"] == "equal"
+    assert _row_for_line(rows, side="left", line_no=13)["status"] == "equal"
+    assert _row_for_line(rows, side="right", line_no=4)["status"] == "equal"
+    assert _row_for_line(rows, side="left", line_no=1)["status"] == "equal"

@@ -41,6 +41,55 @@ intended to exploit a local edge case to fight against when fixing the bug.
 
 The naming scheme is `test_*_logic.py`.
 
+# Third-party engine JSON
+
+Executable-backed Difftastic and GumTree engine tests obtain JSON through
+`tool_json()` in `tests/helpers.py`. Pass the engine, a stable cache key, and
+two `ToolSide` inputs. A `Path` supplies exact UTF-8 text and its basename;
+`ToolText(text, name)` supplies inline text and a required filename hint.
+Line endings and whitespace are part of the input.
+
+Local results live under `.test_cache/tool/<engine>/<key>.json`. Each entry
+contains `left_hash`, `right_hash`, and `output`. Side hashes cover text and
+filename hints, never absolute fixture paths. Missing entries run the real
+executable and use atomic replacement to publish JSON. Concurrent misses may
+run the tool independently. Hits validate the cached output without inspecting
+the installed executable. Filesystem errors, malformed entries and tool
+failures propagate.
+
+Keys contain slash-separated lowercase kebab-case segments, with digits
+allowed. Preset checks share `presets/<group>/<case>` across golden, focused,
+and property tests. Inline cases use `focused/<case>`. Normalized replay inputs
+use a separate `/normalized` key because they remove ignored trailing commas.
+
+A hash mismatch is a code error. Investigate conflicting key reuse or changed
+test inputs and fix the calling code. Deleting the entry alone does not fix
+that error. Only changing worktree cases pass `allow_mismatches=True`, which
+reruns the tool and replaces stale input pairs. Even then, malformed entries
+fail instead of being replaced. Worktree keys use the display-name digest so
+filename punctuation cannot produce invalid or colliding slugs. Deliberate
+invalidation after updating the tools remains `rm -rf .test_cache/tool`.
+
+Preset and worktree collectors use separate required-field `TypedDict` cases.
+Both carry `cache_key` and `allow_mismatches`; presets supply source paths,
+while worktree cases supply captured text, parser names and a display name.
+
+Tests of complete rendering or composition use a scoped patch at the engine's
+JSON subprocess boundary, supplying real cached output for that exact source
+pair. Row construction, summaries and display enrichment still run normally.
+The patch ends before the test returns; it never installs a global cache in
+production rendering.
+
+Use existing presets unless exact whitespace or surrounding context is the
+subject of the check. Handwritten external JSON must stay below ten lines.
+Larger inputs require a deliberate synthetic case that the executable would
+not produce, with a nearby `# tool-json: synthetic <reason>` comment.
+
+`make flake-tjc`, also included in `make pyflake`, checks key spelling,
+conflicting literal `ToolText` inputs across test modules, direct uncached JSON
+calls, and large unexplained Difftastic literals. It does not execute source
+or infer dynamic inputs. Runtime hashes check cases the lint cannot establish.
+
 # Other kinds of tests
 
 CLI is tested with Cram presets. The goal of these is to be proper doctests, so

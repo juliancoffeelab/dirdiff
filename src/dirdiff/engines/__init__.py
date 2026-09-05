@@ -29,9 +29,17 @@ from dirdiff.engines.base import (
     InlineTokenStatus,
     git_executable,
 )
-from dirdiff.engines.difftastic import DifftasticDiffEngine
+from dirdiff.engines.difftastic import (
+    DifftasticDiffEngine,
+    DifftasticJson,
+    is_difftastic_json,
+)
 from dirdiff.engines.git import GitDiffEngine
-from dirdiff.engines.gumtree import GumTreeDiffEngine
+from dirdiff.engines.gumtree import (
+    GumTreeDiffEngine,
+    GumTreeJson,
+    is_gumtree_json,
+)
 from dirdiff.engines.textdiff import TextDiffEngine, text_diff_summary
 from dirdiff.engines.tokendiff import TokenDiffEngine
 
@@ -68,15 +76,21 @@ __all__ = [
     "DiffEngineRow",
     "DiffSide",
     "DiffSummary",
+    "DifftasticDiffEngine",
+    "DifftasticJson",
     "DirdiffError",
     "EngineKind",
     "EngineWarning",
     "GitDiffEngine",
+    "GumTreeDiffEngine",
+    "GumTreeJson",
     "InlineToken",
     "InlineTokenStatus",
     "TextDiffEngine",
     "TokenDiffEngine",
     "engine",
     "git_executable",
+    "is_difftastic_json",
+    "is_gumtree_json",
     "text_diff_summary",
 ]

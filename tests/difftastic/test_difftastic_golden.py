@@ -10,10 +10,9 @@ the engine integration boundary.
 from pathlib import Path
 
 import pytest
-from helpers import GoldenJsonSnapshotExtension
+from helpers import GoldenJsonSnapshotExtension, tool_json
 from syrupy.assertion import SnapshotAssertion
 
-from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.difftastic.logic import (
     difftastic_rows_from_json,
 )
@@ -81,8 +80,8 @@ def test_difftastic_preset_rows_match_golden(
 ) -> None:
     """Freeze exact projected rows for every valid two-sided diff preset.
 
-    Each fixture must contain one old and one new file. The test runs real
-    Difftastic JSON generation, projects it against those sources, and keys the
+    Each fixture must contain one old and one new file. The test loads cached real
+    Difftastic JSON, projects it against those sources, and keys the
     snapshot by the human-readable preset path.
 
     # Parameters
@@ -96,15 +95,14 @@ def test_difftastic_preset_rows_match_golden(
     assert len(new_files) == 1, preset_dir
     old_path = old_files[0]
     new_path = new_files[0]
-    service = DifftasticDiffEngine()
-    old_text = old_path.read_text()
-    new_text = new_path.read_text()
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
 
-    diff_json = service._run_difftastic_json(
-        left_text=old_text,
-        right_text=new_text,
-        left_path_hint=old_path.name,
-        right_path_hint=new_path.name,
+    diff_json = tool_json(
+        "difftastic",
+        f"presets/{preset_dir.relative_to(PRESETS_ROOT).as_posix()}",
+        left=old_path,
+        right=new_path,
     )
     rows = difftastic_rows_from_json(
         diff_json,

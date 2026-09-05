@@ -223,9 +223,10 @@ Names that commonly expose bad patterns require architectural scrutiny:
 - Never create helpers in tests.
 - Tests should be fast and adversarial. They should exercise edge cases and
   reproduce plausible bugs rather than merely execute the happy path.
-- Monkey-patching or internal state manipulation is acceptable for finding an
-  edge case. Final confirmation must exercise the real implementation and
-  user-visible behavior.
+- Investigative monkey-patching or internal state manipulation is acceptable
+  for finding an edge case. Final confirmation must exercise the real
+  implementation and user-visible behavior.
+  Permanent python tests *are not allowed* to use patching.
 - `uv --no-cache run pytest` runs the Python suite, including real-git
   integration tests under `tests/integration`.
   Dont run it, use `make pytest`, which runs relatively fast tests.

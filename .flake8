@@ -8,5 +8,7 @@ extension =
     CST = no_casts:NoCastsPlugin
     HLP = helper_topology:HelperTopologyPlugin
     DDD = dirdiffdoc:DirdiffDocPlugin
+    TJC = tool_cache:ToolCachePlugin
+    NMP = no_monkeypatch:NoMonkeypatchPlugin
 paths =
     ./lints

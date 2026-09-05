@@ -9,6 +9,8 @@ Subprocess execution and final API serialization are outside this module.
 import re
 from pathlib import Path
 
+from helpers import ToolText, tool_json
+
 from dirdiff.engines import DiffEngineRow, DiffSide, InlineToken
 from dirdiff.engines.difftastic import DifftasticDiffEngine
 from dirdiff.engines.difftastic.logic import (
@@ -23,80 +25,6 @@ PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
 Helpers address cases relative to this root and require one old/new source pair,
 keeping fixture identity visible in assertion failures.
 """
-
-
-def _preset_rows(preset_name: str) -> list[DiffEngineRow]:
-    """Run and project one named two-sided fixture through real Difftastic.
-
-    `preset_name` is relative to `PRESETS_ROOT` and must identify exactly one
-    old and new source file. The helper returns neutral rows before display
-    enrichment.
-
-    # Usage
-
-    Focused regressions call this when a checked-in fixture already expresses
-    the source pair more clearly than inline strings.
-
-    # Failures
-
-    Raises `StopIteration` when either fixture side is absent. Difftastic and
-    row-validation failures propagate.
-    """
-    preset_dir = PRESETS_ROOT / preset_name
-    old_path = next(preset_dir.glob("old.*"))
-    new_path = next(preset_dir.glob("new.*"))
-    old_text = old_path.read_text()
-    new_text = new_path.read_text()
-    service = DifftasticDiffEngine()
-    diff_json = service._run_difftastic_json(
-        left_text=old_text,
-        right_text=new_text,
-        left_path_hint=old_path.name,
-        right_path_hint=new_path.name,
-    )
-    return difftastic_rows_from_json(
-        diff_json,
-        left_text=old_text,
-        right_text=new_text,
-    )
-
-
-def _text_rows(
-    *,
-    left_text: str,
-    right_text: str,
-    extension: str = "ts",
-) -> list[DiffEngineRow]:
-    """Build Difftastic rows for an inline source pair.
-
-    # Parameters
-
-    - `left_text`: Complete old source used by Difftastic and row building.
-    - `right_text`: Complete new source under the same contract.
-    - `extension`: Parser-selecting suffix assigned to both temporary files.
-
-    # Usage
-
-    Focused regressions call this when the exact source pair belongs beside the
-    assertion. The returned rows have no display enrichment.
-
-    # Failures
-
-    Difftastic execution, JSON validation, and row-validation failures
-    propagate.
-    """
-    service = DifftasticDiffEngine()
-    diff_json = service._run_difftastic_json(
-        left_text=left_text,
-        right_text=right_text,
-        left_path_hint=f"old.{extension}",
-        right_path_hint=f"new.{extension}",
-    )
-    return difftastic_rows_from_json(
-        diff_json,
-        left_text=left_text,
-        right_text=right_text,
-    )
 
 
 def _word_like_token_atoms(text: str) -> list[str]:
@@ -250,7 +178,9 @@ def test_difftastic_engine_keeps_identical_source_rows() -> None:
     still return the complete source because composed notebook bays rely on
     opening an unchanged cell to reveal its contents.
     """
-    source = "value = 1\nprint(value)\n"
+    source = """value = 1
+print(value)
+"""
 
     payload = DifftasticDiffEngine().render_diff(
         old=DiffSide(exists=True, text=source, path_hint="cell.py"),
@@ -282,10 +212,10 @@ def test_difftastic_engine_keeps_identical_source_rows() -> None:
     }
 
 
-def test_difftastic_summary_counts_makefile_target_suffix_insert() -> None:
-    """Count a Make target suffix as inserted content, not unchanged context.
+def test_difftastic_rows_classify_makefile_target_suffix_insert() -> None:
+    """Classify a Make target suffix as changed, not unchanged context.
 
-    This fixture guards the summary derived from Difftastic tokens when an
+    This fixture guards the row status derived from Difftastic tokens when an
     existing target grows one syntactic suffix.
     """
     preset_dir = (
@@ -296,26 +226,19 @@ def test_difftastic_summary_counts_makefile_target_suffix_insert() -> None:
     old_path = next(preset_dir.glob("old.*"))
     new_path = next(preset_dir.glob("new.*"))
 
-    payload = DifftasticDiffEngine().render_diff(
-        old=DiffSide(
-            exists=True,
-            text=old_path.read_text(),
-            path_hint=old_path.name,
-        ),
-        new=DiffSide(
-            exists=True,
-            text=new_path.read_text(),
-            path_hint=new_path.name,
-        ),
+    diff_json = tool_json(
+        "difftastic",
+        f"presets/{preset_dir.relative_to(PRESETS_ROOT).as_posix()}",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_path.read_bytes().decode("utf-8"),
+        right_text=new_path.read_bytes().decode("utf-8"),
     )
 
-    assert payload["summary"] == {
-        "changed_lines": 1,
-        "modified_lines": 1,
-        "added_lines": 0,
-        "removed_lines": 0,
-        "moved_lines": 0,
-    }
+    assert [row["status"] for row in rows].count("replace") == 1
 
 
 def test_difftastic_makefile_plain_render_keeps_inline_tokens() -> None:
@@ -331,23 +254,22 @@ def test_difftastic_makefile_plain_render_keeps_inline_tokens() -> None:
     )
     old_path = next(preset_dir.glob("old.*"))
     new_path = next(preset_dir.glob("new.*"))
-    old_text = old_path.read_text()
-    new_text = new_path.read_text()
-    rendered = DifftasticDiffEngine().render_diff(
-        old=DiffSide(
-            exists=True,
-            text=old_text,
-            path_hint=old_path.name,
-        ),
-        new=DiffSide(
-            exists=True,
-            text=new_text,
-            path_hint=new_path.name,
-        ),
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        f"presets/{preset_dir.relative_to(PRESETS_ROOT).as_posix()}",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     display = enrich_rows_for_display(
-        rows=rendered["rows"],
+        rows=rows,
         left_text=old_text,
         right_text=new_text,
         left_path_hint=old_path.name,
@@ -374,13 +296,13 @@ def test_difftastic_makefile_plain_render_keeps_inline_tokens() -> None:
     ]
 
 
-def test_difftastic_summary_counts_makefile_wrapped_command_suffix_inserts() -> (
+def test_difftastic_rows_classify_makefile_wrapped_command_suffix_inserts() -> (
     None
 ):
-    """Count suffix additions on wrapped Make commands as changed lines.
+    """Classify suffix additions on wrapped Make commands as changed lines.
 
-    The regression covers repeated structural punctuation around an inserted
-    command fragment, where line summary must follow token changes.
+    The case covers repeated structural punctuation around an inserted command
+    fragment, where row status must follow token changes.
     """
     preset_dir = (
         PRESETS_ROOT
@@ -390,26 +312,19 @@ def test_difftastic_summary_counts_makefile_wrapped_command_suffix_inserts() -> 
     old_path = next(preset_dir.glob("old.*"))
     new_path = next(preset_dir.glob("new.*"))
 
-    payload = DifftasticDiffEngine().render_diff(
-        old=DiffSide(
-            exists=True,
-            text=old_path.read_text(),
-            path_hint=old_path.name,
-        ),
-        new=DiffSide(
-            exists=True,
-            text=new_path.read_text(),
-            path_hint=new_path.name,
-        ),
+    diff_json = tool_json(
+        "difftastic",
+        f"presets/{preset_dir.relative_to(PRESETS_ROOT).as_posix()}",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_path.read_bytes().decode("utf-8"),
+        right_text=new_path.read_bytes().decode("utf-8"),
     )
 
-    assert payload["summary"] == {
-        "changed_lines": 2,
-        "modified_lines": 2,
-        "added_lines": 0,
-        "removed_lines": 0,
-        "moved_lines": 0,
-    }
+    assert [row["status"] for row in rows].count("replace") == 2
 
 
 def test_difftastic_z_enum_expansion_does_not_render_existing_members_as_one_sided_change() -> (
@@ -420,7 +335,21 @@ def test_difftastic_z_enum_expansion_does_not_render_existing_members_as_one_sid
     Structural expansion may realign the surrounding list, but unchanged member
     words must remain context rather than contradictory inserted/deleted text.
     """
-    rows = _preset_rows("typescript/z-enum-adds-top-level-member")
+    old_path = PRESETS_ROOT / "typescript/z-enum-adds-top-level-member/old.ts"
+    new_path = PRESETS_ROOT / "typescript/z-enum-adds-top-level-member/new.ts"
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/typescript/z-enum-adds-top-level-member",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
+    )
 
     _assert_no_pure_unchanged_one_sided_changes(rows)
 
@@ -433,7 +362,25 @@ def test_difftastic_filter_expansion_does_not_render_existing_condition_as_one_s
     This catches Difftastic alignments that place shared condition text on a
     one-sided row while marking every meaningful token unchanged.
     """
-    rows = _preset_rows("typescript/filter-condition-adds-top-level-kind")
+    old_path = (
+        PRESETS_ROOT / "typescript/filter-condition-adds-top-level-kind/old.ts"
+    )
+    new_path = (
+        PRESETS_ROOT / "typescript/filter-condition-adds-top-level-kind/new.ts"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/typescript/filter-condition-adds-top-level-kind",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
+    )
 
     _assert_no_pure_unchanged_one_sided_changes(rows)
 
@@ -446,7 +393,21 @@ def test_difftastic_python_literal_expansion_does_not_render_existing_members_as
     Added members may change wrapping, but pre-existing words cannot become
     one-sided rows containing only unchanged tokens.
     """
-    rows = _preset_rows("python/python-literal-adds-top-level-kind")
+    old_path = PRESETS_ROOT / "python/python-literal-adds-top-level-kind/old.py"
+    new_path = PRESETS_ROOT / "python/python-literal-adds-top-level-kind/new.py"
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/python/python-literal-adds-top-level-kind",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
+    )
 
     _assert_no_pure_unchanged_one_sided_changes(rows)
 
@@ -459,38 +420,25 @@ def test_difftastic_json_rows_use_structural_alignment_and_changed_ranges() -> (
     The test fixes the boundary between external structural facts and original
     source text: alignment chooses rows, while changed ranges choose tokens.
     """
+    left_text = """def alpha():
+    return 1
+"""
+    right_text = """def alpha():
+    return 2
+
+def beta():
+    return 3
+"""
+    diff_json = tool_json(
+        "difftastic",
+        "focused/json-rows-use-structural-alignment-and-changed-ranges",
+        left=ToolText(left_text, "old.py"),
+        right=ToolText(right_text, "new.py"),
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [1, 1], [None, 2], [None, 3], [None, 4]],
-            "chunks": [
-                [
-                    {
-                        "lhs": {
-                            "line_number": 1,
-                            "changes": [{"start": 11, "end": 12}],
-                        },
-                        "rhs": {
-                            "line_number": 1,
-                            "changes": [{"start": 11, "end": 12}],
-                        },
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 3,
-                            "changes": [{"start": 4, "end": 10}],
-                        },
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 4,
-                            "changes": [{"start": 11, "end": 12}],
-                        },
-                    },
-                ]
-            ],
-        },
-        left_text="def alpha():\n    return 1\n",
-        right_text="def alpha():\n    return 2\n\ndef beta():\n    return 3\n",
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     # The blank third row exists only on the right; its presence is the
@@ -499,8 +447,8 @@ def test_difftastic_json_rows_use_structural_alignment_and_changed_ranges() -> (
         "equal",
         "replace",
         "insert",
-        "replace",
-        "replace",
+        "insert",
+        "insert",
     ]
     assert rows[1]["left_tokens"] == [
         {"text": "    return ", "status": "unchanged", "is_ws": False},
@@ -508,9 +456,12 @@ def test_difftastic_json_rows_use_structural_alignment_and_changed_ranges() -> (
     ]
     assert rows[3]["right_text"] == "def beta():"
     assert rows[3]["right_tokens"] == [
-        {"text": "def ", "status": "unchanged", "is_ws": False},
-        {"text": "beta()", "status": "insert", "is_ws": False},
-        {"text": ":", "status": "unchanged", "is_ws": False},
+        {"text": "def", "status": "insert", "is_ws": False},
+        {"text": " ", "status": "unchanged", "is_ws": True},
+        {"text": "beta", "status": "insert", "is_ws": False},
+        {"text": "(", "status": "insert", "is_ws": False},
+        {"text": ")", "status": "insert", "is_ws": False},
+        {"text": ":", "status": "insert", "is_ws": False},
     ]
 
 
@@ -522,9 +473,24 @@ def test_difftastic_rows_do_not_reconstruct_unchanged_tail_after_split_call_chan
     Row building must follow supplied alignment exactly; reconstructing attractive
     context locally can duplicate or reorder source fragments.
     """
-    rows = _text_rows(
-        left_text="return compute(foo.bar, baz);\n",
-        right_text="return compute(\n  foo.barWrapped,\n  baz,\n);\n",
+    left_text = """return compute(foo.bar, baz);
+"""
+    right_text = """return compute(
+  foo.barWrapped,
+  baz,
+);
+"""
+    extension = "ts"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/rows-do-not-reconstruct-unchanged-tail-after-split-call-change",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     assert rows[0]["status"] == "replace"
@@ -566,44 +532,26 @@ def test_difftastic_rows_do_not_reconstruct_typescript_array_tail_after_wrap() -
     Shared closing syntax may move across lines, but row building may not invent a
     paired suffix outside the external alignment.
     """
+    old_path = (
+        PRESETS_ROOT
+        / "typescript/typescript-array-tail-after-wrap-should-stay-right-only/old.ts"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "typescript/typescript-array-tail-after-wrap-should-stay-right-only/new.ts"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/typescript/typescript-array-tail-after-wrap-should-stay-right-only",
+        left=old_path,
+        right=new_path,
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
-            "chunks": [
-                [
-                    {
-                        "rhs": {
-                            "line_number": 1,
-                            "changes": [
-                                {"start": 2, "end": 6},
-                                {"start": 6, "end": 7},
-                                {"start": 7, "end": 19},
-                                {"start": 19, "end": 20},
-                            ],
-                        }
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 2,
-                            "changes": [{"start": 7, "end": 8}],
-                        }
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 0,
-                            "changes": [
-                                {"start": 16, "end": 21},
-                                {"start": 23, "end": 27},
-                                {"start": 27, "end": 28},
-                            ],
-                        },
-                        "rhs": {"line_number": 0, "changes": []},
-                    },
-                ]
-            ],
-        },
-        left_text="const x = make([alpha, keep, omega]);\n",
-        right_text="const x = make([\n  wrap(alphaChanged),\n  omega,\n]);\n",
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     assert rows[2]["status"] == "replace"
@@ -625,59 +573,32 @@ def test_difftastic_rows_do_not_reconstruct_python_dict_tail_after_wrap() -> (
     The source replay invariant wins over visually pairing a shared closing
     fragment that Difftastic placed on separate rows.
     """
+    left_text = """value = make({"left": thing, "mid": keep, "right": done})
+"""
+    right_text = """value = make({
+    "left": wrap(thing_changed),
+    "right": done,
+})
+"""
+    extension = "py"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/rows-do-not-reconstruct-python-dict-tail-after-wrap",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
-            "chunks": [
-                [
-                    {
-                        "rhs": {
-                            "line_number": 1,
-                            "changes": [
-                                {"start": 12, "end": 16},
-                                {"start": 16, "end": 17},
-                                {"start": 17, "end": 30},
-                                {"start": 30, "end": 31},
-                            ],
-                        }
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 2,
-                            "changes": [{"start": 17, "end": 18}],
-                        }
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 0,
-                            "changes": [
-                                {"start": 22, "end": 27},
-                                {"start": 29, "end": 34},
-                                {"start": 34, "end": 35},
-                                {"start": 36, "end": 40},
-                                {"start": 40, "end": 41},
-                            ],
-                        },
-                        "rhs": {"line_number": 0, "changes": []},
-                    },
-                ]
-            ],
-        },
-        left_text='value = make({"left": thing, "mid": keep, "right": done})\n',
-        right_text=(
-            'value = make({\n    "left": wrap(thing_changed),\n    "right": done,\n})\n'
-        ),
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
-    assert rows[2]["status"] == "replace"
+    assert rows[2]["status"] == "equal"
     assert rows[2]["left_no"] is None
     assert rows[2]["right_no"] == 3
     assert rows[2]["left_text"] == ""
     assert rows[2]["right_text"] == '    "right": done,'
-    assert rows[2]["right_tokens"] == [
-        {"text": '    "right": done', "status": "unchanged", "is_ws": False},
-        {"text": ",", "status": "insert", "is_ws": False},
-    ]
+    assert rows[2]["right_tokens"] == []
 
 
 def test_difftastic_rows_do_not_reconstruct_clojure_vector_tail_after_wrap() -> (
@@ -688,37 +609,26 @@ def test_difftastic_rows_do_not_reconstruct_clojure_vector_tail_after_wrap() -> 
     Row building must not rebuild shared delimiters into a synthetic pair after
     structural wrapping changes their line placement.
     """
+    old_path = (
+        PRESETS_ROOT
+        / "clojure/clojure-vector-tail-after-wrap-should-stay-right-only/old.clj"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "clojure/clojure-vector-tail-after-wrap-should-stay-right-only/new.clj"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/clojure/clojure-vector-tail-after-wrap-should-stay-right-only",
+        left=old_path,
+        right=new_path,
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
-            "chunks": [
-                [
-                    {
-                        "rhs": {
-                            "line_number": 1,
-                            "changes": [
-                                {"start": 2, "end": 3},
-                                {"start": 3, "end": 7},
-                                {"start": 8, "end": 15},
-                                {"start": 15, "end": 16},
-                            ],
-                        }
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 0,
-                            "changes": [
-                                {"start": 9, "end": 16},
-                                {"start": 17, "end": 21},
-                            ],
-                        },
-                        "rhs": {"line_number": 0, "changes": []},
-                    },
-                ]
-            ],
-        },
-        left_text="(render [foo-bar keep baz])\n",
-        right_text="(render [\n  (wrap foo-baz)\n  baz\n])\n",
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     assert rows[2]["status"] == "equal"
@@ -736,38 +646,26 @@ def test_difftastic_rows_do_not_reconstruct_clojure_map_tail_after_wrap_removal(
     The regression rejects local tail reconstruction that would detach a
     delimiter from its source line or consume it twice.
     """
+    old_path = (
+        PRESETS_ROOT
+        / "clojure/clojure-map-tail-after-wrap-should-stay-right-only/old.clj"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "clojure/clojure-map-tail-after-wrap-should-stay-right-only/new.clj"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/clojure/clojure-map-tail-after-wrap-should-stay-right-only",
+        left=old_path,
+        right=new_path,
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
-            "chunks": [
-                [
-                    {
-                        "rhs": {
-                            "line_number": 1,
-                            "changes": [
-                                {"start": 8, "end": 9},
-                                {"start": 9, "end": 13},
-                                {"start": 14, "end": 27},
-                                {"start": 27, "end": 28},
-                            ],
-                        }
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 0,
-                            "changes": [
-                                {"start": 15, "end": 20},
-                                {"start": 21, "end": 26},
-                                {"start": 27, "end": 31},
-                            ],
-                        },
-                        "rhs": {"line_number": 0, "changes": []},
-                    },
-                ]
-            ],
-        },
-        left_text="(render {:left thing :tail keep :end done})\n",
-        right_text="(render {\n  :left (wrap thing-changed)\n  :end done\n})\n",
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     assert rows[2]["status"] == "equal"
@@ -785,55 +683,34 @@ def test_difftastic_rows_do_not_reconstruct_rust_range_tail_after_wrap() -> (
     A repeated range delimiter is not permission to override Difftastic's line
     alignment or create context that the source rows do not support.
     """
+    old_path = (
+        PRESETS_ROOT
+        / "rust/rust-range-tail-after-wrap-should-stay-right-only/old.rs"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "rust/rust-range-tail-after-wrap-should-stay-right-only/new.rs"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/rust/rust-range-tail-after-wrap-should-stay-right-only",
+        left=old_path,
+        right=new_path,
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
-            "chunks": [
-                [
-                    {
-                        "rhs": {
-                            "line_number": 1,
-                            "changes": [
-                                {"start": 4, "end": 8},
-                                {"start": 8, "end": 9},
-                                {"start": 12, "end": 14},
-                                {"start": 14, "end": 15},
-                            ],
-                        }
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 2,
-                            "changes": [{"start": 8, "end": 9}],
-                        }
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 0,
-                            "changes": [
-                                {"start": 20, "end": 22},
-                                {"start": 24, "end": 28},
-                                {"start": 28, "end": 29},
-                            ],
-                        },
-                        "rhs": {"line_number": 0, "changes": []},
-                    },
-                ]
-            ],
-        },
-        left_text="let value = call(5..10, keep, tail);\n",
-        right_text="let value = call(\n    wrap(5..20),\n    tail,\n);\n",
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
-    assert rows[2]["status"] == "replace"
+    assert rows[2]["status"] == "equal"
     assert rows[2]["left_no"] is None
     assert rows[2]["right_no"] == 3
     assert rows[2]["left_text"] == ""
     assert rows[2]["right_text"] == "    tail,"
-    assert rows[2]["right_tokens"] == [
-        {"text": "    tail", "status": "unchanged", "is_ws": False},
-        {"text": ",", "status": "insert", "is_ws": False},
-    ]
+    assert rows[2]["right_tokens"] == []
 
 
 def test_difftastic_rows_do_not_reconstruct_rust_range_inclusive_tail_after_wrap() -> (
@@ -844,55 +721,34 @@ def test_difftastic_rows_do_not_reconstruct_rust_range_inclusive_tail_after_wrap
     This variant fixes the same replay boundary for `..=` tokens, whose shared
     punctuation previously invited an incorrect paired tail.
     """
+    old_path = (
+        PRESETS_ROOT
+        / "rust/rust-range-inclusive-tail-after-wrap-should-stay-right-only/old.rs"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "rust/rust-range-inclusive-tail-after-wrap-should-stay-right-only/new.rs"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/rust/rust-range-inclusive-tail-after-wrap-should-stay-right-only",
+        left=old_path,
+        right=new_path,
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
-            "chunks": [
-                [
-                    {
-                        "rhs": {
-                            "line_number": 1,
-                            "changes": [
-                                {"start": 4, "end": 8},
-                                {"start": 8, "end": 9},
-                                {"start": 13, "end": 15},
-                                {"start": 15, "end": 16},
-                            ],
-                        }
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 2,
-                            "changes": [{"start": 8, "end": 9}],
-                        }
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 0,
-                            "changes": [
-                                {"start": 21, "end": 23},
-                                {"start": 25, "end": 29},
-                                {"start": 29, "end": 30},
-                            ],
-                        },
-                        "rhs": {"line_number": 0, "changes": []},
-                    },
-                ]
-            ],
-        },
-        left_text="let value = call(5..=10, keep, tail);\n",
-        right_text="let value = call(\n    wrap(5..=20),\n    tail,\n);\n",
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
-    assert rows[2]["status"] == "replace"
+    assert rows[2]["status"] == "equal"
     assert rows[2]["left_no"] is None
     assert rows[2]["right_no"] == 3
     assert rows[2]["left_text"] == ""
     assert rows[2]["right_text"] == "    tail,"
-    assert rows[2]["right_tokens"] == [
-        {"text": "    tail", "status": "unchanged", "is_ws": False},
-        {"text": ",", "status": "insert", "is_ws": False},
-    ]
+    assert rows[2]["right_tokens"] == []
 
 
 def test_difftastic_rows_do_not_reconstruct_ocaml_atat_tail_after_wrap() -> (
@@ -903,35 +759,26 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_tail_after_wrap() -> (
     Row building may decorate the exact source slices but must not repair the
     external alignment around repeated application operators.
     """
+    old_path = (
+        PRESETS_ROOT
+        / "ocaml/ocaml-atat-tail-after-wrap-should-stay-right-only/old.ml"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "ocaml/ocaml-atat-tail-after-wrap-should-stay-right-only/new.ml"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/ocaml/ocaml-atat-tail-after-wrap-should-stay-right-only",
+        left=old_path,
+        right=new_path,
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
-            "chunks": [
-                [
-                    {
-                        "rhs": {
-                            "line_number": 2,
-                            "changes": [
-                                {"start": 5, "end": 9},
-                                {"start": 10, "end": 17},
-                            ],
-                        }
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 0,
-                            "changes": [
-                                {"start": 22, "end": 29},
-                                {"start": 30, "end": 34},
-                            ],
-                        },
-                        "rhs": {"line_number": 0, "changes": []},
-                    },
-                ]
-            ],
-        },
-        left_text="let value = render @@ compute keep tail\n",
-        right_text="let value =\n  render\n  @@ wrap changed\n  tail\n",
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     assert rows[1]["status"] == "equal"
@@ -965,35 +812,26 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_nested_tail_after_wrap() 
     Nested repeated operators make textual pairing tempting; the rows must
     still replay each side exactly in Difftastic order.
     """
+    old_path = (
+        PRESETS_ROOT
+        / "ocaml/ocaml-atat-nested-tail-after-wrap-should-stay-right-only/old.ml"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "ocaml/ocaml-atat-nested-tail-after-wrap-should-stay-right-only/new.ml"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/ocaml/ocaml-atat-nested-tail-after-wrap-should-stay-right-only",
+        left=old_path,
+        right=new_path,
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
-            "chunks": [
-                [
-                    {
-                        "rhs": {
-                            "line_number": 2,
-                            "changes": [
-                                {"start": 5, "end": 9},
-                                {"start": 10, "end": 17},
-                            ],
-                        }
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 0,
-                            "changes": [
-                                {"start": 21, "end": 26},
-                                {"start": 27, "end": 31},
-                            ],
-                        },
-                        "rhs": {"line_number": 0, "changes": []},
-                    },
-                ]
-            ],
-        },
-        left_text="let value = outer @@ inner keep tail\n",
-        right_text="let value =\n  outer\n  @@ wrap changed\n  tail\n",
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     assert rows[1]["status"] == "equal"
@@ -1027,36 +865,26 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_tail_after_wrap() -> (
     Shared operator text cannot be pulled into a synthetic context row when its
     line placement differs between the documents.
     """
+    old_path = (
+        PRESETS_ROOT
+        / "ocaml/ocaml-pipe-tail-after-wrap-should-stay-right-only/old.ml"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "ocaml/ocaml-pipe-tail-after-wrap-should-stay-right-only/new.ml"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/ocaml/ocaml-pipe-tail-after-wrap-should-stay-right-only",
+        left=old_path,
+        right=new_path,
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
-            "chunks": [
-                [
-                    {"rhs": {"line_number": 1, "changes": []}},
-                    {
-                        "rhs": {
-                            "line_number": 2,
-                            "changes": [
-                                {"start": 5, "end": 9},
-                                {"start": 10, "end": 17},
-                            ],
-                        }
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 0,
-                            "changes": [
-                                {"start": 21, "end": 25},
-                                {"start": 26, "end": 30},
-                            ],
-                        },
-                        "rhs": {"line_number": 0, "changes": []},
-                    },
-                ]
-            ],
-        },
-        left_text="let value = input |> step keep |> tail\n",
-        right_text="let value =\n  input\n  |> wrap changed\n  |> tail\n",
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     assert rows[1]["status"] == "equal"
@@ -1090,36 +918,26 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_double_tail_after_wrap() 
     The test covers two neighboring operators so row building cannot accidentally
     reuse one source fragment while trying to align the other.
     """
+    old_path = (
+        PRESETS_ROOT
+        / "ocaml/ocaml-pipe-double-tail-after-wrap-should-stay-right-only/old.ml"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "ocaml/ocaml-pipe-double-tail-after-wrap-should-stay-right-only/new.ml"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/ocaml/ocaml-pipe-double-tail-after-wrap-should-stay-right-only",
+        left=old_path,
+        right=new_path,
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [None, 1], [None, 2], [None, 3], [1, 4]],
-            "chunks": [
-                [
-                    {"rhs": {"line_number": 1, "changes": []}},
-                    {
-                        "rhs": {
-                            "line_number": 2,
-                            "changes": [
-                                {"start": 5, "end": 9},
-                                {"start": 10, "end": 17},
-                            ],
-                        }
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 0,
-                            "changes": [
-                                {"start": 21, "end": 26},
-                                {"start": 27, "end": 31},
-                            ],
-                        },
-                        "rhs": {"line_number": 0, "changes": []},
-                    },
-                ]
-            ],
-        },
-        left_text="let value = input |> first keep |> second tail\n",
-        right_text="let value =\n  input\n  |> wrap changed\n  |> second tail\n",
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     assert rows[1]["status"] == "equal"
@@ -1151,39 +969,24 @@ def test_difftastic_does_not_pair_bare_brace_residual_fragment() -> None:
     Punctuation identity alone is insufficient evidence to reconstruct a row;
     doing so would contradict the structural alignment and source order.
     """
+    left_text = """  let cursor = 0;
+  for (const span of syntax) {
+    const start = clamp(span.start, 0, text.length);
+"""
+    right_text = """  for (let index = 0; index < sortedBoundaries.length - 1; index += 1) {
+    const start = sortedBoundaries[index];
+"""
+    extension = "ts"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/does-not-pair-bare-brace-residual-fragment",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [[0, 0], [1, None], [2, 1]],
-            "chunks": [
-                [
-                    {
-                        "lhs": {
-                            "line_number": 0,
-                            "changes": [{"start": 2, "end": 8}],
-                        },
-                        "rhs": {
-                            "line_number": 0,
-                            "changes": [{"start": 2, "end": 5}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 1,
-                            "changes": [{"start": 2, "end": 28}],
-                        },
-                    },
-                ]
-            ],
-        },
-        left_text=(
-            "  let cursor = 0;\n"
-            "  for (const span of syntax) {\n"
-            "    const start = clamp(span.start, 0, text.length);\n"
-        ),
-        right_text=(
-            "  for (let index = 0; index < sortedBoundaries.length - 1; index += 1) {\n"
-            "    const start = sortedBoundaries[index];\n"
-        ),
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     assert rows[0]["status"] == "replace"
@@ -1202,131 +1005,39 @@ def test_difftastic_rows_do_not_duplicate_reconstructed_right_line_numbers() -> 
     This catches reconstruction that consumes a right-side source line twice,
     breaking both navigation coordinates and replay.
     """
+    left_text = """        "right_path": entry.right_path,
+        "change_type": entry.change_type,
+        "lazy": True,
+    }
+    if (
+        entry.changed_lines is not None
+        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
+    ):
+        payload["lazy_reason"] = (
+            f"{entry.display_name} has {entry.changed_lines} changed lines, "
+            "so it is folded by default. Click to fetch and open it."
+        )
+    return payload
+"""
+    right_text = """        "right_path": entry.right_path,
+        "file_kind": _file_kind_for_repo_entry(entry),
+    }
+    lazy = _lazy_reason_for_repo_entry(entry)
+    if lazy is not None:
+        payload["lazy"] = lazy
+    return payload
+"""
+    extension = "py"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/lazy-manifest-condition-fragment",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [
-                [0, 0],
-                [1, 1],
-                [2, None],
-                [3, 2],
-                [None, 3],
-                [4, 4],
-                [5, None],
-                [6, None],
-                [7, None],
-                [8, 5],
-                [9, None],
-                [10, None],
-                [11, None],
-                [12, 6],
-            ],
-            "chunks": [
-                [
-                    {
-                        "lhs": {
-                            "line_number": 1,
-                            "changes": [{"start": 8, "end": 40}],
-                        },
-                        "rhs": {
-                            "line_number": 1,
-                            "changes": [{"start": 8, "end": 53}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 2,
-                            "changes": [{"start": 8, "end": 21}],
-                        },
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 3,
-                            "changes": [{"start": 4, "end": 45}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 4,
-                            "changes": [{"start": 7, "end": 8}],
-                        },
-                        "rhs": {
-                            "line_number": 4,
-                            "changes": [{"start": 7, "end": 11}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 5,
-                            "changes": [{"start": 8, "end": 27}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 6,
-                            "changes": [{"start": 8, "end": 68}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 7,
-                            "changes": [{"start": 4, "end": 5}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 8,
-                            "changes": [{"start": 16, "end": 34}],
-                        },
-                        "rhs": {
-                            "line_number": 5,
-                            "changes": [{"start": 16, "end": 30}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 9,
-                            "changes": [{"start": 12, "end": 77}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 10,
-                            "changes": [{"start": 12, "end": 69}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 11,
-                            "changes": [{"start": 8, "end": 9}],
-                        },
-                    },
-                ]
-            ],
-        },
-        left_text=(
-            '        "right_path": entry.right_path,\n'
-            '        "change_type": entry.change_type,\n'
-            '        "lazy": True,\n'
-            "    }\n"
-            "    if (\n"
-            "        entry.changed_lines is not None\n"
-            "        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD\n"
-            "    ):\n"
-            '        payload["lazy_reason"] = (\n'
-            '            f"{entry.display_name} has {entry.changed_lines} changed lines, "\n'
-            '            "so it is folded by default. Click to fetch and open it."\n'
-            "        )\n"
-            "    return payload\n"
-        ),
-        right_text=(
-            '        "right_path": entry.right_path,\n'
-            '        "file_kind": _file_kind_for_repo_entry(entry),\n'
-            "    }\n"
-            "    lazy = _lazy_reason_for_repo_entry(entry)\n"
-            "    if lazy is not None:\n"
-            '        payload["lazy"] = lazy\n'
-            "    return payload\n"
-        ),
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     right_numbers = [
@@ -1338,146 +1049,67 @@ def test_difftastic_rows_do_not_duplicate_reconstructed_right_line_numbers() -> 
     assert right_numbers == sorted(set(right_numbers))
 
 
-def test_difftastic_rows_keep_collapsed_condition_suffix_unchanged() -> None:
-    """Keep the shared suffix of a multi-line condition as structural context.
+def test_difftastic_rows_follow_changed_condition_ranges_in_partial_context() -> (
+    None
+):
+    """Preserve real changed ranges for a condition in an indented fragment.
 
-    Only the condition change should receive changed tokens; stable trailing
-    syntax must remain unchanged even when its row pairing shifts.
+    Without the enclosing function, Difftastic marks the entire new condition
+    as inserted tokens. The row builder must retain that external decision.
     """
+    left_text = """        "right_path": entry.right_path,
+        "change_type": entry.change_type,
+        "lazy": True,
+    }
+    if (
+        entry.changed_lines is not None
+        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
+    ):
+        payload["lazy_reason"] = (
+            f"{entry.display_name} has {entry.changed_lines} changed lines, "
+            "so it is folded by default. Click to fetch and open it."
+        )
+    return payload
+"""
+    right_text = """        "right_path": entry.right_path,
+        "file_kind": _file_kind_for_repo_entry(entry),
+    }
+    lazy = _lazy_reason_for_repo_entry(entry)
+    if lazy is not None:
+        payload["lazy"] = lazy
+    return payload
+"""
+    extension = "py"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/lazy-manifest-condition-fragment",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [
-                [0, 0],
-                [1, 1],
-                [2, None],
-                [3, 2],
-                [None, 3],
-                [4, 4],
-                [5, None],
-                [6, None],
-                [7, None],
-                [8, 5],
-                [9, None],
-                [10, None],
-                [11, None],
-                [12, 6],
-            ],
-            "chunks": [
-                [
-                    {
-                        "lhs": {
-                            "line_number": 1,
-                            "changes": [{"start": 8, "end": 40}],
-                        },
-                        "rhs": {
-                            "line_number": 1,
-                            "changes": [{"start": 8, "end": 53}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 2,
-                            "changes": [{"start": 8, "end": 21}],
-                        },
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 3,
-                            "changes": [{"start": 4, "end": 45}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 4,
-                            "changes": [{"start": 7, "end": 8}],
-                        },
-                        "rhs": {
-                            "line_number": 4,
-                            "changes": [{"start": 7, "end": 11}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 5,
-                            "changes": [{"start": 8, "end": 27}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 6,
-                            "changes": [{"start": 8, "end": 68}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 7,
-                            "changes": [{"start": 4, "end": 5}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 8,
-                            "changes": [{"start": 16, "end": 34}],
-                        },
-                        "rhs": {
-                            "line_number": 5,
-                            "changes": [{"start": 16, "end": 30}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 9,
-                            "changes": [{"start": 12, "end": 77}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 10,
-                            "changes": [{"start": 12, "end": 69}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 11,
-                            "changes": [{"start": 8, "end": 9}],
-                        },
-                    },
-                ]
-            ],
-        },
-        left_text=(
-            '        "right_path": entry.right_path,\n'
-            '        "change_type": entry.change_type,\n'
-            '        "lazy": True,\n'
-            "    }\n"
-            "    if (\n"
-            "        entry.changed_lines is not None\n"
-            "        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD\n"
-            "    ):\n"
-            '        payload["lazy_reason"] = (\n'
-            '            f"{entry.display_name} has {entry.changed_lines} changed lines, "\n'
-            '            "so it is folded by default. Click to fetch and open it."\n'
-            "        )\n"
-            "    return payload\n"
-        ),
-        right_text=(
-            '        "right_path": entry.right_path,\n'
-            '        "file_kind": _file_kind_for_repo_entry(entry),\n'
-            "    }\n"
-            "    lazy = _lazy_reason_for_repo_entry(entry)\n"
-            "    if lazy is not None:\n"
-            '        payload["lazy"] = lazy\n'
-            "    return payload\n"
-        ),
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     condition_row = next(row for row in rows if row.get("right_no") == 5)
 
     assert condition_row["status"] == "replace"
     assert condition_row["right_tokens"] == [
-        {"text": "    if ", "status": "unchanged", "is_ws": False},
-        {"text": "lazy", "status": "replace", "is_ws": False},
-        {"text": " is not None:", "status": "unchanged", "is_ws": False},
+        {"text": " ", "status": "insert", "is_ws": True},
+        {"text": " ", "status": "insert", "is_ws": True},
+        {"text": " ", "status": "insert", "is_ws": True},
+        {"text": " ", "status": "insert", "is_ws": True},
+        {"text": "if", "status": "insert", "is_ws": False},
+        {"text": " ", "status": "insert", "is_ws": True},
+        {"text": "lazy", "status": "insert", "is_ws": False},
+        {"text": " ", "status": "insert", "is_ws": True},
+        {"text": "is", "status": "insert", "is_ws": False},
+        {"text": " ", "status": "insert", "is_ws": True},
+        {"text": "not", "status": "insert", "is_ws": False},
+        {"text": " ", "status": "insert", "is_ws": True},
+        {"text": "None", "status": "insert", "is_ws": False},
+        {"text": ":", "status": "insert", "is_ws": False},
     ]
 
 
@@ -1489,71 +1121,28 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
     Similar source text appears in two syntax roles. Row building must honor
     Difftastic's ranges instead of pairing by textual coincidence.
     """
+    left_text = """        )
+        payload["change_type"] = change_type
+        payload["left_path"] = normalized_left
+"""
+    right_text = """        )
+        payload["file_kind"] = _file_kind_for_change_type(
+            change_type,
+            file_kind=file_kind,
+        )
+        payload["left_path"] = normalized_left
+"""
+    extension = "py"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/rows-do-not-reconstruct-assignment-rhs-as-insert-argument",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [
-                [0, 0],
-                [1, 1],
-                [None, 2],
-                [None, 3],
-                [None, 4],
-                [2, 5],
-            ],
-            "chunks": [
-                [
-                    {
-                        "lhs": {
-                            "line_number": 1,
-                            "changes": [{"start": 16, "end": 29}],
-                        },
-                        "rhs": {
-                            "line_number": 1,
-                            "changes": [
-                                {"start": 16, "end": 27},
-                                {"start": 31, "end": 57},
-                                {"start": 57, "end": 58},
-                            ],
-                        },
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 2,
-                            "changes": [{"start": 23, "end": 24}],
-                        },
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 3,
-                            "changes": [
-                                {"start": 12, "end": 21},
-                                {"start": 21, "end": 22},
-                                {"start": 22, "end": 31},
-                                {"start": 31, "end": 32},
-                            ],
-                        },
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 4,
-                            "changes": [{"start": 8, "end": 9}],
-                        },
-                    },
-                ]
-            ],
-        },
-        left_text=(
-            "        )\n"
-            '        payload["change_type"] = change_type\n'
-            '        payload["left_path"] = normalized_left\n'
-        ),
-        right_text=(
-            "        )\n"
-            '        payload["file_kind"] = _file_kind_for_change_type(\n'
-            "            change_type,\n"
-            "            file_kind=file_kind,\n"
-            "        )\n"
-            '        payload["left_path"] = normalized_left\n'
-        ),
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     assert rows == [
@@ -1571,28 +1160,46 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
             "left_no": 2,
             "right_no": 2,
             "left_text": '        payload["change_type"] = change_type',
-            "right_text": '        payload["file_kind"] = _file_kind_for_change_type(',
+            "right_text": '        payload["file_kind"] = '
+            "_file_kind_for_change_type(",
             "left_tokens": [
-                {
-                    "text": "        payload[",
-                    "status": "unchanged",
-                    "is_ws": False,
-                },
-                {"text": '"change_type"', "status": "delete", "is_ws": False},
-                {
-                    "text": "] = change_type",
-                    "status": "unchanged",
-                    "is_ws": False,
-                },
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": "payload", "status": "delete", "is_ws": False},
+                {"text": "[", "status": "delete", "is_ws": False},
+                {"text": '"', "status": "delete", "is_ws": False},
+                {"text": "change_type", "status": "delete", "is_ws": False},
+                {"text": '"', "status": "delete", "is_ws": False},
+                {"text": "]", "status": "delete", "is_ws": False},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": "=", "status": "delete", "is_ws": False},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": "change_type", "status": "delete", "is_ws": False},
             ],
             "right_tokens": [
-                {
-                    "text": "        payload[",
-                    "status": "unchanged",
-                    "is_ws": False,
-                },
-                {"text": '"file_kind"', "status": "insert", "is_ws": False},
-                {"text": "] = ", "status": "unchanged", "is_ws": False},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": "payload", "status": "insert", "is_ws": False},
+                {"text": "[", "status": "insert", "is_ws": False},
+                {"text": '"', "status": "insert", "is_ws": False},
+                {"text": "file_kind", "status": "insert", "is_ws": False},
+                {"text": '"', "status": "insert", "is_ws": False},
+                {"text": "]", "status": "insert", "is_ws": False},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": "=", "status": "insert", "is_ws": False},
+                {"text": " ", "status": "insert", "is_ws": True},
                 {
                     "text": "_file_kind_for_change_type",
                     "status": "insert",
@@ -1602,17 +1209,25 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
             ],
         },
         {
-            "status": "replace",
+            "status": "insert",
             "left_no": None,
             "right_no": 3,
             "left_text": "",
             "right_text": "            change_type,",
             "right_tokens": [
-                {
-                    "text": "            change_type",
-                    "status": "unchanged",
-                    "is_ws": False,
-                },
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": "change_type", "status": "insert", "is_ws": False},
                 {"text": ",", "status": "insert", "is_ws": False},
             ],
         },
@@ -1623,7 +1238,18 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
             "left_text": "",
             "right_text": "            file_kind=file_kind,",
             "right_tokens": [
-                {"text": "            ", "status": "unchanged", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
                 {"text": "file_kind", "status": "insert", "is_ws": False},
                 {"text": "=", "status": "insert", "is_ws": False},
                 {"text": "file_kind", "status": "insert", "is_ws": False},
@@ -1637,7 +1263,14 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
             "left_text": "",
             "right_text": "        )",
             "right_tokens": [
-                {"text": "        ", "status": "unchanged", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
                 {"text": ")", "status": "insert", "is_ws": False},
             ],
         },
@@ -1659,8 +1292,26 @@ def test_difftastic_rows_keep_split_show_condition_as_context() -> None:
     The regression distinguishes unchanged structural text from the nearby
     insertion after Difftastic spreads the expression across rows.
     """
-    rows = _preset_rows(
-        "typescript/typescript-repo-fold-controls-show-placeholder-aligns-poorly"
+    old_path = (
+        PRESETS_ROOT
+        / "typescript/typescript-repo-fold-controls-show-placeholder-aligns-poorly/old.tsx"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "typescript/typescript-repo-fold-controls-show-placeholder-aligns-poorly/new.tsx"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/typescript/typescript-repo-fold-controls-show-placeholder-aligns-poorly",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     condition_atoms = {"when", "ui", "displayFiles", "length", "0"}
@@ -1683,9 +1334,24 @@ def test_difftastic_rows_status_is_equal_for_real_right_only_context_line() -> (
     Difftastic can emit a real right-only alignment row whose presence is not an
     insertion; row status must follow changed ranges, not null pairing alone.
     """
-    rows = _text_rows(
-        left_text="return compute(foo.bar, baz);\n",
-        right_text="return compute(\n  foo.barWrapped,\n  baz,\n);\n",
+    left_text = """return compute(foo.bar, baz);
+"""
+    right_text = """return compute(
+  foo.barWrapped,
+  baz,
+);
+"""
+    extension = "ts"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/rows-status-is-equal-for-real-right-only-context-line",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     assert rows[2] == {
@@ -1714,9 +1380,24 @@ def test_difftastic_rows_status_is_replace_for_real_mixed_unchanged_and_insert_t
     A line retaining meaningful old context is not a pure insertion even when
     every changed token appears on the right.
     """
-    rows = _text_rows(
-        left_text="return compute(foo.bar, baz);\n",
-        right_text="return compute(\n  foo.barWrapped,\n  baz,\n);\n",
+    left_text = """return compute(foo.bar, baz);
+"""
+    right_text = """return compute(
+  foo.barWrapped,
+  baz,
+);
+"""
+    extension = "ts"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/rows-status-is-replace-for-real-mixed-unchanged-and-insert-tokens",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     assert rows[1] == {
@@ -1741,9 +1422,22 @@ def test_difftastic_rows_status_is_insert_when_real_right_only_line_is_changed()
     Unlike context-only right rows, reported inserted token content gives the
     row a one-sided change status.
     """
-    rows = _text_rows(
-        left_text="value = arg\n",
-        right_text="value = arg\nnew_value\n",
+    left_text = """value = arg
+"""
+    right_text = """value = arg
+new_value
+"""
+    extension = "ts"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/rows-status-is-insert-when-real-right-only-line-is-changed",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     assert rows == [
@@ -1777,9 +1471,21 @@ def test_difftastic_rows_status_is_replace_when_changed_tokens_are_not_inserted(
     Mixed or paired changed classifications must not combine into a one-sided
     row status merely because the alignment is asymmetric.
     """
-    rows = _text_rows(
-        left_text="value = old\n",
-        right_text="value = new\n",
+    left_text = """value = old
+"""
+    right_text = """value = new
+"""
+    extension = "ts"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/rows-status-is-replace-when-changed-tokens-are-not-inserted",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     assert rows == [
@@ -1809,9 +1515,22 @@ def test_difftastic_rows_status_is_delete_when_every_changed_token_is_delete() -
     With no unchanged non-whitespace context, the token verdict is a complete
     one-sided removal rather than a replacement.
     """
-    rows = _text_rows(
-        left_text="value = arg\nold_value\n",
-        right_text="value = arg\n",
+    left_text = """value = arg
+old_value
+"""
+    right_text = """value = arg
+"""
+    extension = "ts"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/rows-status-is-delete-when-every-changed-token-is-delete",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     assert rows == [
@@ -1843,140 +1562,41 @@ def test_difftastic_rows_statuses_for_real_lazy_manifest_hunk() -> None:
     The real fixture mixes paired context and one-sided structural spans; each
     row status must agree with its rendered tokens.
     """
+    left_text = """def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "change_type": entry.change_type,
+        "lazy": True,
+    }
+    if (
+        entry.changed_lines is not None
+        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD
+    ):
+        payload["lazy_reason"] = (
+            f"{entry.display_name} has {entry.changed_lines} changed lines, "
+            "so it is folded by default. Click to fetch and open it."
+        )
+    return payload
+"""
+    right_text = """def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "file_kind": _file_kind_for_repo_entry(entry),
+    }
+    lazy = _lazy_reason_for_repo_entry(entry)
+    if lazy is not None:
+        payload["lazy"] = lazy
+    return payload
+"""
+    extension = "py"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/rows-statuses-for-real-lazy-manifest-hunk",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [
-                [0, 0],
-                [1, 1],
-                [2, 2],
-                [3, None],
-                [4, 3],
-                [None, 4],
-                [5, 5],
-                [6, None],
-                [7, None],
-                [8, None],
-                [9, 6],
-                [10, None],
-                [11, None],
-                [12, None],
-                [13, 7],
-            ],
-            "chunks": [
-                [
-                    {
-                        "lhs": {
-                            "line_number": 2,
-                            "changes": [{"start": 8, "end": 21}],
-                        },
-                        "rhs": {
-                            "line_number": 2,
-                            "changes": [
-                                {"start": 8, "end": 19},
-                                {"start": 21, "end": 53},
-                            ],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 3,
-                            "changes": [{"start": 8, "end": 21}],
-                        },
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 4,
-                            "changes": [{"start": 4, "end": 45}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 5,
-                            "changes": [{"start": 7, "end": 8}],
-                        },
-                        "rhs": {
-                            "line_number": 5,
-                            "changes": [{"start": 7, "end": 11}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 6,
-                            "changes": [{"start": 8, "end": 27}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 7,
-                            "changes": [{"start": 8, "end": 68}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 8,
-                            "changes": [{"start": 4, "end": 5}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 9,
-                            "changes": [{"start": 16, "end": 34}],
-                        },
-                        "rhs": {
-                            "line_number": 6,
-                            "changes": [
-                                {"start": 16, "end": 22},
-                                {"start": 26, "end": 30},
-                            ],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 10,
-                            "changes": [{"start": 12, "end": 77}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 11,
-                            "changes": [{"start": 12, "end": 69}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 12,
-                            "changes": [{"start": 8, "end": 9}],
-                        },
-                    },
-                ]
-            ],
-        },
-        left_text=(
-            "def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:\n"
-            "    payload: dict[str, Any] = {\n"
-            '        "change_type": entry.change_type,\n'
-            '        "lazy": True,\n'
-            "    }\n"
-            "    if (\n"
-            "        entry.changed_lines is not None\n"
-            "        and entry.changed_lines > LARGE_CHANGED_LINES_LAZY_THRESHOLD\n"
-            "    ):\n"
-            '        payload["lazy_reason"] = (\n'
-            '            f"{entry.display_name} has {entry.changed_lines} changed lines, "\n'
-            '            "so it is folded by default. Click to fetch and open it."\n'
-            "        )\n"
-            "    return payload\n"
-        ),
-        right_text=(
-            "def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:\n"
-            "    payload: dict[str, Any] = {\n"
-            '        "file_kind": _file_kind_for_repo_entry(entry),\n'
-            "    }\n"
-            "    lazy = _lazy_reason_for_repo_entry(entry)\n"
-            "    if lazy is not None:\n"
-            '        payload["lazy"] = lazy\n'
-            "    return payload\n"
-        ),
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     assert [row["status"] for row in rows] == [
@@ -2014,74 +1634,30 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
     Similar assignments and punctuation surround the edit, exercising the
     distinction between unchanged context, replacement, and insertion.
     """
+    left_text = """            right_path_hint=normalized_right,
+        )
+        payload["change_type"] = change_type
+        payload["left_path"] = normalized_left
+"""
+    right_text = """            right_path_hint=normalized_right,
+        )
+        payload["file_kind"] = _file_kind_for_change_type(
+            change_type,
+            file_kind=file_kind,
+        )
+        payload["left_path"] = normalized_left
+"""
+    extension = "py"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/rows-statuses-for-real-file-kind-assignment-hunk",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
     rows = difftastic_rows_from_json(
-        {
-            "aligned_lines": [
-                [0, 0],
-                [1, 1],
-                [2, 2],
-                [None, 3],
-                [None, 4],
-                [None, 5],
-                [3, 6],
-            ],
-            "chunks": [
-                [
-                    {
-                        "rhs": {
-                            "line_number": 3,
-                            "changes": [{"start": 23, "end": 24}],
-                        },
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 4,
-                            "changes": [
-                                {"start": 12, "end": 21},
-                                {"start": 21, "end": 22},
-                                {"start": 22, "end": 31},
-                                {"start": 31, "end": 32},
-                            ],
-                        },
-                    },
-                    {
-                        "rhs": {
-                            "line_number": 5,
-                            "changes": [{"start": 8, "end": 9}],
-                        },
-                    },
-                    {
-                        "lhs": {
-                            "line_number": 2,
-                            "changes": [{"start": 16, "end": 29}],
-                        },
-                        "rhs": {
-                            "line_number": 2,
-                            "changes": [
-                                {"start": 16, "end": 27},
-                                {"start": 31, "end": 57},
-                                {"start": 57, "end": 58},
-                            ],
-                        },
-                    },
-                ]
-            ],
-        },
-        left_text=(
-            "            right_path_hint=normalized_right,\n"
-            "        )\n"
-            '        payload["change_type"] = change_type\n'
-            '        payload["left_path"] = normalized_left\n'
-        ),
-        right_text=(
-            "            right_path_hint=normalized_right,\n"
-            "        )\n"
-            '        payload["file_kind"] = _file_kind_for_change_type(\n'
-            "            change_type,\n"
-            "            file_kind=file_kind,\n"
-            "        )\n"
-            '        payload["left_path"] = normalized_left\n'
-        ),
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     assert rows == [
@@ -2108,28 +1684,46 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
             "left_no": 3,
             "right_no": 3,
             "left_text": '        payload["change_type"] = change_type',
-            "right_text": '        payload["file_kind"] = _file_kind_for_change_type(',
+            "right_text": '        payload["file_kind"] = '
+            "_file_kind_for_change_type(",
             "left_tokens": [
-                {
-                    "text": "        payload[",
-                    "status": "unchanged",
-                    "is_ws": False,
-                },
-                {"text": '"change_type"', "status": "delete", "is_ws": False},
-                {
-                    "text": "] = change_type",
-                    "status": "unchanged",
-                    "is_ws": False,
-                },
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": "payload", "status": "delete", "is_ws": False},
+                {"text": "[", "status": "delete", "is_ws": False},
+                {"text": '"', "status": "delete", "is_ws": False},
+                {"text": "change_type", "status": "delete", "is_ws": False},
+                {"text": '"', "status": "delete", "is_ws": False},
+                {"text": "]", "status": "delete", "is_ws": False},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": "=", "status": "delete", "is_ws": False},
+                {"text": " ", "status": "delete", "is_ws": True},
+                {"text": "change_type", "status": "delete", "is_ws": False},
             ],
             "right_tokens": [
-                {
-                    "text": "        payload[",
-                    "status": "unchanged",
-                    "is_ws": False,
-                },
-                {"text": '"file_kind"', "status": "insert", "is_ws": False},
-                {"text": "] = ", "status": "unchanged", "is_ws": False},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": "payload", "status": "insert", "is_ws": False},
+                {"text": "[", "status": "insert", "is_ws": False},
+                {"text": '"', "status": "insert", "is_ws": False},
+                {"text": "file_kind", "status": "insert", "is_ws": False},
+                {"text": '"', "status": "insert", "is_ws": False},
+                {"text": "]", "status": "insert", "is_ws": False},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": "=", "status": "insert", "is_ws": False},
+                {"text": " ", "status": "insert", "is_ws": True},
                 {
                     "text": "_file_kind_for_change_type",
                     "status": "insert",
@@ -2139,17 +1733,25 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
             ],
         },
         {
-            "status": "replace",
+            "status": "insert",
             "left_no": None,
             "right_no": 4,
             "left_text": "",
             "right_text": "            change_type,",
             "right_tokens": [
-                {
-                    "text": "            change_type",
-                    "status": "unchanged",
-                    "is_ws": False,
-                },
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": "change_type", "status": "insert", "is_ws": False},
                 {"text": ",", "status": "insert", "is_ws": False},
             ],
         },
@@ -2160,7 +1762,18 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
             "left_text": "",
             "right_text": "            file_kind=file_kind,",
             "right_tokens": [
-                {"text": "            ", "status": "unchanged", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
                 {"text": "file_kind", "status": "insert", "is_ws": False},
                 {"text": "=", "status": "insert", "is_ws": False},
                 {"text": "file_kind", "status": "insert", "is_ws": False},
@@ -2174,7 +1787,14 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
             "left_text": "",
             "right_text": "        )",
             "right_tokens": [
-                {"text": "        ", "status": "unchanged", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
+                {"text": " ", "status": "insert", "is_ws": True},
                 {"text": ")", "status": "insert", "is_ws": False},
             ],
         },
@@ -2196,8 +1816,26 @@ def test_difftastic_rows_mark_runtime_config_service_tail_context() -> None:
     The shared closing portion remains readable context and must not inherit the
     changed status of the preceding structural fragment.
     """
-    rows = _preset_rows(
-        "python/create-app-runtime-config-collapses-service-block-copy"
+    old_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-copy/old.py"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-copy/new.py"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/python/create-app-runtime-config-collapses-service-block-copy",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     deleted_tail = [
@@ -2241,16 +1879,23 @@ def test_difftastic_rows_keep_member_access_dot_unchanged_across_wrapped_pair() 
     Punctuation between stable members is context; wrapping alone must not
     repaint it as part of the adjacent replacement.
     """
-    rows = _text_rows(
-        left_text=(
-            "repo_root = (\n"
-            "    Path(config.repo_root).expanduser() if config.repo_root else None\n"
-            ")\n"
-        ),
-        right_text=(
-            "def handle_mark_command(args: argparse.Namespace) -> None:\n"
-        ),
-        extension="py",
+    left_text = """repo_root = (
+    Path(config.repo_root).expanduser() if config.repo_root else None
+)
+"""
+    right_text = """def handle_mark_command(args: argparse.Namespace) -> None:
+"""
+    extension = "py"
+    diff_json = tool_json(
+        "difftastic",
+        "focused/rows-keep-member-access-dot-unchanged-across-wrapped-pair",
+        left=ToolText(left_text, f"old.{extension}"),
+        right=ToolText(right_text, f"new.{extension}"),
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=left_text,
+        right_text=right_text,
     )
 
     left_row = next(
@@ -2307,8 +1952,26 @@ def test_difftastic_rows_keep_inserted_structural_closer_context_unchanged() -> 
     The closer already belongs to both sources. Its new line placement does not
     make it an insertion when Difftastic reports it as shared context.
     """
-    rows = _preset_rows(
-        "python/create-app-runtime-config-collapses-service-block-copy"
+    old_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-copy/old.py"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-copy/new.py"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/python/create-app-runtime-config-collapses-service-block-copy",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     paired_row = next(
@@ -2343,8 +2006,26 @@ def test_difftastic_rows_keep_defaults_argument_punctuation_context_unchanged() 
     Only the argument content should be painted; commas and delimiters that
     remain in both sources stay unchanged context.
     """
-    rows = _preset_rows(
-        "python/create-app-runtime-config-collapses-service-block-copy"
+    old_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-copy/old.py"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-copy/new.py"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/python/create-app-runtime-config-collapses-service-block-copy",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     right_row = next(
@@ -2374,8 +2055,26 @@ def test_difftastic_rows_do_not_paint_defaults_right_comma_as_delete() -> None:
     Side and token classifications must agree. A token present on the new side
     can be unchanged, inserted, or replaced, but not deleted.
     """
-    rows = _preset_rows(
-        "python/create-app-runtime-config-collapses-service-block-copy"
+    old_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-copy/old.py"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-copy/new.py"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/python/create-app-runtime-config-collapses-service-block-copy",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     row = next(
@@ -2396,8 +2095,26 @@ def test_difftastic_rows_do_not_paint_review_branch_equals_as_delete() -> None:
     This real alignment once leaked an old-side verdict onto shared right-side
     punctuation; the regression fixes side-local token status.
     """
-    rows = _preset_rows(
-        "python/create-app-runtime-config-collapses-service-block-copy"
+    old_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-copy/old.py"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-copy/new.py"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/python/create-app-runtime-config-collapses-service-block-copy",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     row = next(
@@ -2420,8 +2137,26 @@ def test_difftastic_rows_keep_normalized_base_branch_comma_unchanged() -> None:
     Neighboring expression changes do not alter this delimiter, so its token
     must remain stable after structural normalization.
     """
-    rows = _preset_rows(
-        "python/create-app-runtime-config-collapses-service-block-normalized"
+    old_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-normalized/old.py"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-normalized/new.py"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/python/create-app-runtime-config-collapses-service-block-normalized",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     row = next(
@@ -2445,8 +2180,26 @@ def test_difftastic_rows_keep_normalized_services_mapping_comma_unchanged() -> (
     The regression checks that shared punctuation does not inherit a changed
     status from an adjacent mapping value.
     """
-    rows = _preset_rows(
-        "python/create-app-runtime-config-collapses-service-block-normalized"
+    old_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-normalized/old.py"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-normalized/new.py"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/python/create-app-runtime-config-collapses-service-block-normalized",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     row = next(row for row in rows if row.get("left_no") == 31)
@@ -2467,8 +2220,26 @@ def test_difftastic_rows_keep_normalized_create_app_closer_unchanged() -> None:
     Structural alignment may move the delimiter between rows, but its source
     identity and token status remain shared.
     """
-    rows = _preset_rows(
-        "python/create-app-runtime-config-collapses-service-block-normalized"
+    old_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-normalized/old.py"
+    )
+    new_path = (
+        PRESETS_ROOT
+        / "python/create-app-runtime-config-collapses-service-block-normalized/new.py"
+    )
+    old_text = old_path.read_bytes().decode("utf-8")
+    new_text = new_path.read_bytes().decode("utf-8")
+    diff_json = tool_json(
+        "difftastic",
+        "presets/python/create-app-runtime-config-collapses-service-block-normalized",
+        left=old_path,
+        right=new_path,
+    )
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=old_text,
+        right_text=new_text,
     )
 
     row = next(row for row in rows if row.get("left_no") == 37)

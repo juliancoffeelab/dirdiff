@@ -12,9 +12,7 @@ API.
 
 from __future__ import annotations
 
-import json
 import socket
-from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -26,17 +24,13 @@ from dirdiff.db import (
     RepoMarkStore,
     RoomStore,
     open_ephemeral_engine,
-    open_sqlite_engine,
 )
 from dirdiff.engines import engine
 from dirdiff.formats import ComposeContext, Composer
 from dirdiff.room_lord import RoomLord
 from dirdiff.server import (
-    RUNTIME_CONFIG_ENV,
     ComposedDiffResponse,
-    RuntimeConfig,
     create_app,
-    development_uvicorn_entrypoint,
 )
 
 
@@ -106,52 +100,6 @@ def test_choose_port_pair_skips_to_fresh_backend_frontend_pair() -> None:
     assert actual_backend_port - requested_backend_port == (
         actual_frontend_port - requested_frontend_port
     )
-
-
-def test_root_explains_vite_frontend_is_required(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The headless API root reports a missing development HUD as unavailable.
-
-    Its HTML points to the Vite launch mode instead of pretending that the API
-    process contains a generated frontend bundle.
-
-    # Parameters
-
-    - `tmp_path`: Disposable database and Snapshot root for the factory.
-    - `monkeypatch`: Process environment isolation for serialized runtime config.
-    """
-    database_path = tmp_path / "dirdiff.sqlite"
-    migration_config_path = Path(__file__).parents[2] / "alembic.ini"
-    store = RepoMarkStore(
-        open_sqlite_engine(database_path, migration_config_path)
-    )
-    store.new_mark(path=Path("/tmp"), name="repo")
-    monkeypatch.setenv(
-        RUNTIME_CONFIG_ENV,
-        json.dumps(
-            asdict(
-                RuntimeConfig(
-                    db_path=str(database_path),
-                    migration_config_path=str(migration_config_path),
-                    agent_skills_path=str(
-                        Path(__file__).parents[2] / ".agents" / "skills"
-                    ),
-                    store_path=str(tmp_path / "store"),
-                    presets_root=str(
-                        Path(__file__).parents[2] / "tests" / "presets"
-                    ),
-                )
-            )
-        ),
-    )
-    client = TestClient(development_uvicorn_entrypoint())
-
-    response = client.get("/")
-
-    assert response.status_code == 503
-    assert "Vite frontend is not running" in response.text
-    assert "--no-frontend-dev" in response.text
 
 
 def test_fastapi_docs_are_enabled(tmp_path: Path) -> None:

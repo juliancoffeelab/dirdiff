@@ -4,13 +4,28 @@ Tests may use this module to assemble backend, engine, and rendering
 objects without reintroducing retired production service classes.  Helpers here
 must stay thin adapters over public dirdiff contracts, so behavior assertions
 remain in the calling tests and not hidden behind convenience fixtures.
+`tool_json` maintains local raw third-party output files keyed by exact source
+hashes. It caches no rows, assertions, rendered payloads, or production state.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import re
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, NotRequired, TypedDict, override
+from typing import (
+    ClassVar,
+    Literal,
+    NotRequired,
+    TypedDict,
+    assert_never,
+    overload,
+    override,
+)
 
 from syrupy.data import Snapshot, SnapshotCollection
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
@@ -36,8 +51,14 @@ from dirdiff.engines import (
     DiffEngineProtocol,
     DiffSide,
     DiffSummary,
+    DifftasticDiffEngine,
+    DifftasticJson,
     GitDiffEngine,
+    GumTreeDiffEngine,
+    GumTreeJson,
     TextDiffEngine,
+    is_difftastic_json,
+    is_gumtree_json,
 )
 from dirdiff.rendering import (
     DiffRow,
@@ -49,8 +70,234 @@ from dirdiff.util import JsonValue
 __all__ = [
     "GoldenJsonSnapshotExtension",
     "TextDiffService",
+    "ToolText",
     "build_loaded_diff",
+    "tool_json",
 ]
+
+
+@dataclass(frozen=True)
+class ToolText:
+    """Exact inline tool input and its required parser-selecting filename.
+
+    `text` preserves whitespace and line endings. `name` is a filename hint,
+    never a path to read; callers use the same name for the same cache input.
+    """
+
+    text: str
+    """Complete source text, preserving whitespace and line endings."""
+
+    name: str
+    """Nonempty basename used for parser selection, never loaded from disk."""
+
+
+type ToolSide = Path | ToolText
+"""A source file to read exactly, or inline text with a required filename hint.
+
+Paths contribute their basename and UTF-8 contents, so moving a fixture does
+not invalidate its cache entry.
+"""
+
+
+@overload
+def tool_json(
+    engine: Literal["difftastic"],
+    cache_key: str,
+    *,
+    left: ToolSide,
+    right: ToolSide,
+    allow_mismatches: bool = False,
+) -> DifftasticJson:
+    """Return validated Difftastic JSON for one cached source pair.
+
+    # Parameters
+
+    - `engine`: Literal `difftastic`, selecting Difftastic JSON.
+    - `cache_key`: Stable slash-separated kebab-case identity for this pair.
+    - `left`: Old source path or exact inline text with a filename hint.
+    - `right`: New source under the same required input contract.
+    - `allow_mismatches`: Permit replacing changed worktree inputs only.
+    """
+    ...
+
+
+@overload
+def tool_json(
+    engine: Literal["gumtree"],
+    cache_key: str,
+    *,
+    left: ToolSide,
+    right: ToolSide,
+    allow_mismatches: bool = False,
+) -> GumTreeJson:
+    """Return validated GumTree JSON for one cached source pair.
+
+    # Parameters
+
+    - `engine`: Literal `gumtree`, selecting GumTree JSON.
+    - `cache_key`: Stable slash-separated kebab-case identity for this pair.
+    - `left`: Old source path or exact inline text with a filename hint.
+    - `right`: New source under the same required input contract.
+    - `allow_mismatches`: Permit replacing changed worktree inputs only.
+    """
+    ...
+
+
+def tool_json(
+    engine: Literal["difftastic", "gumtree"],
+    cache_key: str,
+    *,
+    left: ToolSide,
+    right: ToolSide,
+    allow_mismatches: bool = False,
+) -> DifftasticJson | GumTreeJson:
+    """Read local tool JSON or run the real executable on a cache miss.
+
+    Keys are slash-separated lowercase kebab-case segments. Each engine/key
+    identifies one exact text and filename pair. Mismatches assert unless the
+    caller explicitly permits replacement for changing worktree inputs.
+    Corrupt entries, subprocess failures, and filesystem errors propagate even
+    when replacement is allowed. Hits never discover or inspect executables.
+
+    Files beneath `.test_cache/tool` contain only side hashes and tool output.
+    Atomic replacement lets concurrent misses run independently without a lock.
+    Remove that directory explicitly to invalidate results after tool updates.
+
+    # Parameters
+
+    - `engine`: External JSON producer, Difftastic or GumTree.
+    - `cache_key`: Stable slash-separated kebab-case identity for this pair.
+    - `left`: Old source Path or exact inline text with a filename hint.
+    - `right`: New source under the same required input contract.
+    - `allow_mismatches`: Permit replacing changed worktree inputs only.
+
+    # Returns
+
+    - `Difftastic`: Validated alignment, changed spans and tool metadata.
+    - `GumTree`: Validated matches, actions and tool metadata.
+    """
+
+    def valid_cache_key(value: str) -> bool:
+        """Report whether the whole key is valid slash-separated segments.
+
+        Every segment is nonempty lowercase ASCII letters or digits, optionally
+        separated by single internal hyphens.
+        """
+        return (
+            re.fullmatch(
+                r"[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)*",
+                value,
+            )
+            is not None
+        )
+
+    def validate_cached_entry(
+        value: JsonValue,
+    ) -> DifftasticJson | GumTreeJson:
+        """Return the engine output from a structurally valid cache entry."""
+        assert isinstance(value, dict) and set(value) == {
+            "left_hash",
+            "right_hash",
+            "output",
+        }, path
+        for field in ("left_hash", "right_hash"):
+            field_value = value[field]
+            assert (
+                isinstance(field_value, str)
+                and re.fullmatch(r"[0-9a-f]{64}", field_value) is not None
+            ), path
+        match engine:
+            case "difftastic":
+                assert is_difftastic_json(value["output"]), path
+                return value["output"]
+            case "gumtree":
+                assert is_gumtree_json(value["output"]), path
+                return value["output"]
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    assert valid_cache_key(cache_key), cache_key
+    inputs: list[ToolText] = []
+    hashes: list[str] = []
+    for side in (left, right):
+        if isinstance(side, Path):
+            # read_text's universal newline conversion would hide CRLF drift.
+            source = ToolText(side.read_bytes().decode("utf-8"), side.name)
+        else:
+            source = side
+        assert source.name != "" and Path(source.name).name == source.name, (
+            source.name
+        )
+        inputs.append(source)
+        hashes.append(
+            hashlib.sha256(
+                json.dumps(
+                    [source.text, source.name], ensure_ascii=False
+                ).encode("utf-8")
+            ).hexdigest()
+        )
+    path = (
+        Path(__file__).parents[1]
+        / ".test_cache"
+        / "tool"
+        / engine
+        / f"{cache_key}.json"
+    )
+    try:
+        serialized = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        # Absence alone is a cache miss; permission and other I/O errors fail.
+        serialized = None
+    if serialized is not None:
+        entry = json.loads(serialized)
+        # Validate before checking hashes: permission to refresh stale inputs
+        # never grants permission to overwrite malformed cached output.
+        output = validate_cached_entry(entry)
+        if [entry["left_hash"], entry["right_hash"]] == hashes:
+            return output
+        assert allow_mismatches, (
+            f"Tool cache input mismatch: {path}. Investigate conflicting key reuse or changed test inputs and fix the calling code."
+        )
+    old, new = inputs
+    match engine:
+        case "difftastic":
+            output = DifftasticDiffEngine()._run_difftastic_json(
+                left_text=old.text,
+                right_text=new.text,
+                left_path_hint=old.name,
+                right_path_hint=new.name,
+            )
+        case "gumtree":
+            output = GumTreeDiffEngine()._run_gumtree_json(
+                left_text=old.text,
+                right_text=new.text,
+                left_path_hint=old.name,
+                right_path_hint=new.name,
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent, delete=False
+    ) as stream:
+        temporary = Path(stream.name)
+        try:
+            json.dump(
+                {
+                    "left_hash": hashes[0],
+                    "right_hash": hashes[1],
+                    "output": output,
+                },
+                stream,
+                ensure_ascii=False,
+            )
+            stream.close()
+            os.replace(temporary, path)
+        finally:
+            # Replacement consumes the temporary path; failed writes leave it.
+            temporary.unlink(missing_ok=True)
+    return output
 
 
 class _LoadedDiffSummary(DiffSummary):

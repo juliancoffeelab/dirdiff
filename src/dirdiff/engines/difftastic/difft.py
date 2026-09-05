@@ -44,6 +44,7 @@ unchanged gaps omitted. The subprocess receives this value through `--context`.
 __all__ = [
     "DifftasticJson",
     "DifftasticJsonSide",
+    "is_difftastic_json",
     "run_difftastic_json",
 ]
 
@@ -284,7 +285,7 @@ class DifftasticJson(TypedDict):
     """
 
 
-def _is_difftastic_json(value: object) -> TypeIs[DifftasticJson]:
+def is_difftastic_json(value: object) -> TypeIs[DifftasticJson]:
     """Validate the subset of Difftastic's top-level JSON that dirdiff reads.
 
     Unknown keys remain harmless integration metadata. Every known key must
@@ -441,9 +442,9 @@ def run_difftastic_json(
         if parsed == []:
             return {"aligned_lines": [], "chunks": []}
         first = parsed[0]
-        if _is_difftastic_json(first):
+        if is_difftastic_json(first):
             return first
-    if _is_difftastic_json(parsed):
+    if is_difftastic_json(parsed):
         return parsed
     raise DirdiffError("Difftastic returned an unexpected JSON payload.")
 

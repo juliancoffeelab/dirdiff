@@ -1,0 +1,2481 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "@pytest.mark.parametrize(",
+    "left_tokens": [],
+    "right_no": 1,
+    "right_text": "@pytest.mark.parametrize(",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "    \"preset_dir\",",
+    "left_tokens": [],
+    "right_no": 2,
+    "right_text": "    \"preset_dir\",",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "    [",
+    "left_tokens": [],
+    "right_no": 3,
+    "right_text": "    [",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "        path",
+    "left_tokens": [],
+    "right_no": 4,
+    "right_text": "        path",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "        for path in sorted(PRESETS_ROOT.glob(\"*/*\"))",
+    "left_tokens": [],
+    "right_no": 5,
+    "right_text": "        for path in sorted(PRESETS_ROOT.glob(\"*/*\"))",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "        if path.is_dir()",
+    "left_tokens": [],
+    "right_no": 6,
+    "right_text": "        if path.is_dir()",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "        and path.relative_to(PRESETS_ROOT).parts[0] not in BROKEN_PRESET_GROUPS",
+    "left_tokens": [],
+    "right_no": 7,
+    "right_text": "        and path.relative_to(PRESETS_ROOT).parts[0] not in BROKEN_PRESET_GROUPS",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "    ],",
+    "left_tokens": [],
+    "right_no": 8,
+    "right_text": "    ],",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "    ids=str,",
+    "left_tokens": [],
+    "right_no": 9,
+    "right_text": "    ids=str,",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": ")",
+    "left_tokens": [],
+    "right_no": 10,
+    "right_text": ")",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 11,
+    "left_text": "def test_difftastic_preset_rows_match_golden(",
+    "left_tokens": [],
+    "right_no": 11,
+    "right_text": "def test_difftastic_preset_rows_match_golden(",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 12,
+    "left_text": "    preset_dir: Path,",
+    "left_tokens": [],
+    "right_no": 12,
+    "right_text": "    preset_dir: Path,",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "    snapshot_json: SnapshotAssertion,",
+    "left_tokens": [],
+    "right_no": 13,
+    "right_text": "    snapshot_json: SnapshotAssertion,",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 14,
+    "left_text": ") -> None:",
+    "left_tokens": [],
+    "right_no": 14,
+    "right_text": ") -> None:",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "    \"\"\"Freeze exact projected rows for every valid two-sided diff preset.",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "Freeze"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "exact"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "projected"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "rows"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "for"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "every"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "valid"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "two"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "sided"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "diff"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "preset"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      }
+    ],
+    "right_no": 15,
+    "right_text": "    \"\"\"Freeze exact projected rows for every valid two-sided diff preset.",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "Freeze"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "exact"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "projected"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "rows"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "for"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "every"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "valid"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "two"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "sided"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "diff"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "preset"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 16,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 16,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 17,
+    "left_text": "    Each fixture must contain one old and one new file. The test runs real",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Each"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "fixture"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "must"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "contain"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "one"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "old"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "and"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "one"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "new"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "The"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "test"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "runs"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "real"
+      }
+    ],
+    "right_no": 17,
+    "right_text": "    Each fixture must contain one old and one new file. The test loads cached real",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Each"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "fixture"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "must"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "contain"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "one"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "old"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "and"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "one"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "new"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "file"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "The"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "test"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "loads"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "cached"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "real"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 18,
+    "left_text": "    Difftastic JSON generation, projects it against those sources, and keys the",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "Difftastic"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "JSON"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "generation"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "projects"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "it"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "against"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "those"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "sources"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "and"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "keys"
+      },
+      {
+        "is_ws": true,
+        "status": "delete",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "the"
+      }
+    ],
+    "right_no": 18,
+    "right_text": "    Difftastic JSON, projects it against those sources, and keys the",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "Difftastic"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "JSON"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "projects"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "it"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "against"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "those"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "sources"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ","
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "and"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "keys"
+      },
+      {
+        "is_ws": true,
+        "status": "insert",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "the"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 19,
+    "left_text": "    snapshot by the human-readable preset path.",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "snapshot"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "by"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "the"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "human"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "readable"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "preset"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "path"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      }
+    ],
+    "right_no": 19,
+    "right_text": "    snapshot by the human-readable preset path.",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "snapshot"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "by"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "the"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "human"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "readable"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "preset"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "path"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 20,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 20,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 21,
+    "left_text": "    # Parameters",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "#"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "Parameters"
+      }
+    ],
+    "right_no": 21,
+    "right_text": "    # Parameters",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "#"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "Parameters"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 22,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 22,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 23,
+    "left_text": "    - `preset_dir`: One parametrized source-pair directory from `PRESETS_ROOT`.",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "preset_dir"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "One"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "parametrized"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "source"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "pair"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "directory"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "from"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "PRESETS_ROOT"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      }
+    ],
+    "right_no": 23,
+    "right_text": "    - `preset_dir`: One parametrized source-pair directory from `PRESETS_ROOT`.",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "preset_dir"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "One"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "parametrized"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "source"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "pair"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "directory"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "from"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "PRESETS_ROOT"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 24,
+    "left_text": "    - `snapshot_json`: Difftastic-configured snapshot assertion.",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "snapshot_json"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "Difftastic"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "configured"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "snapshot"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "assertion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      }
+    ],
+    "right_no": 24,
+    "right_text": "    - `snapshot_json`: Difftastic-configured snapshot assertion.",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "snapshot_json"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "`"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": ":"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "Difftastic"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "-"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "configured"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "snapshot"
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "assertion"
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "."
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 25,
+    "left_text": "    \"\"\"",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      }
+    ],
+    "right_no": 25,
+    "right_text": "    \"\"\"",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": true,
+        "status": "replace",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "\""
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 26,
+    "left_text": "    old_files = sorted(preset_dir.glob(\"old.*\"))",
+    "left_tokens": [],
+    "right_no": 26,
+    "right_text": "    old_files = sorted(preset_dir.glob(\"old.*\"))",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 27,
+    "left_text": "    new_files = sorted(preset_dir.glob(\"new.*\"))",
+    "left_tokens": [],
+    "right_no": 27,
+    "right_text": "    new_files = sorted(preset_dir.glob(\"new.*\"))",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 28,
+    "left_text": "    assert len(old_files) == 1, preset_dir",
+    "left_tokens": [],
+    "right_no": 28,
+    "right_text": "    assert len(old_files) == 1, preset_dir",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 29,
+    "left_text": "    assert len(new_files) == 1, preset_dir",
+    "left_tokens": [],
+    "right_no": 29,
+    "right_text": "    assert len(new_files) == 1, preset_dir",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 30,
+    "left_text": "    old_path = old_files[0]",
+    "left_tokens": [],
+    "right_no": 30,
+    "right_text": "    old_path = old_files[0]",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 31,
+    "left_text": "    new_path = new_files[0]",
+    "left_tokens": [],
+    "right_no": 31,
+    "right_text": "    new_path = new_files[0]",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 32,
+    "left_text": "    service = DifftasticDiffEngine()",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "service"
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": " "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "DifftasticDiffEngine"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": ")"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "status": "delete"
+  },
+  {
+    "left_no": 33,
+    "left_text": "    old_text = old_path.read_text()",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    old_text = old_path."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "read_text"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      }
+    ],
+    "right_no": 32,
+    "right_text": "    old_text = old_path.read_bytes().decode(\"utf-8\")",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    old_text = old_path."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "read_bytes"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "decode"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"utf-8\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 34,
+    "left_text": "    new_text = new_path.read_text()",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    new_text = new_path."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "read_text"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      }
+    ],
+    "right_no": 33,
+    "right_text": "    new_text = new_path.read_bytes().decode(\"utf-8\")",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    new_text = new_path."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "read_bytes"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "()"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "decode"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"utf-8\""
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ")"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 35,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 34,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 36,
+    "left_text": "    diff_json = service._run_difftastic_json(",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    diff_json = "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "service"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "_run_difftastic_json"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "right_no": 35,
+    "right_text": "    diff_json = tool_json(",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    diff_json = "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "tool_json"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "("
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 37,
+    "left_text": "        left_text=old_text,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "left_text"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "old_text"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "right_no": 36,
+    "right_text": "        \"difftastic\",",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "\"difftastic\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 38,
+    "left_text": "        right_text=new_text,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "right_text"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "="
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "new_text"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "right_no": 37,
+    "right_text": "        f\"presets/{preset_dir.relative_to(PRESETS_ROOT).as_posix()}\",",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "f\"presets/{preset_dir.relative_to(PRESETS_ROOT).as_posix()}\""
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 39,
+    "left_text": "        left_path_hint=old_path.name,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "left_path_hint"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=old_path"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "name"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "right_no": 38,
+    "right_text": "        left=old_path,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "left"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=old_path,"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 40,
+    "left_text": "        right_path_hint=new_path.name,",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "right_path_hint"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=new_path"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "."
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "name"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "right_no": 39,
+    "right_text": "        right=new_path,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "        "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "right"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "=new_path,"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 41,
+    "left_text": "    )",
+    "left_tokens": [],
+    "right_no": 40,
+    "right_text": "    )",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 42,
+    "left_text": "    rows = difftastic_rows_from_json(",
+    "left_tokens": [],
+    "right_no": 41,
+    "right_text": "    rows = difftastic_rows_from_json(",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 43,
+    "left_text": "        diff_json,",
+    "left_tokens": [],
+    "right_no": 42,
+    "right_text": "        diff_json,",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 44,
+    "left_text": "        left_text=old_text,",
+    "left_tokens": [],
+    "right_no": 43,
+    "right_text": "        left_text=old_text,",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 45,
+    "left_text": "        right_text=new_text,",
+    "left_tokens": [],
+    "right_no": 44,
+    "right_text": "        right_text=new_text,",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 46,
+    "left_text": "    )",
+    "left_tokens": [],
+    "right_no": 45,
+    "right_text": "    )",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 47,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 46,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 48,
+    "left_text": "    assert (",
+    "left_tokens": [],
+    "right_no": 47,
+    "right_text": "    assert (",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 49,
+    "left_text": "        snapshot_json(name=preset_dir.relative_to(PRESETS_ROOT).as_posix())",
+    "left_tokens": [],
+    "right_no": 48,
+    "right_text": "        snapshot_json(name=preset_dir.relative_to(PRESETS_ROOT).as_posix())",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 50,
+    "left_text": "        == rows",
+    "left_tokens": [],
+    "right_no": 49,
+    "right_text": "        == rows",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 51,
+    "left_text": "    )",
+    "left_tokens": [],
+    "right_no": 50,
+    "right_text": "    )",
+    "right_tokens": [],
+    "status": "equal"
+  }
+]

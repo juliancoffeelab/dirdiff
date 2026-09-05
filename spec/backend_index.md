@@ -79,6 +79,11 @@ their contracts from `base.py`.
 
 Its public interface is exported from `dirdiff.engines`.
 
+The facade also exports `DifftasticJson`, `GumTreeJson` and their
+`is_difftastic_json()` / `is_gumtree_json()` validators for consumers of raw
+tool facts, including the test JSON cache. These validate the consumed JSON
+shape without executable discovery or row construction.
+
 ## `dirdiff.rendering`
 
 Enriches neutral engine rows for display.

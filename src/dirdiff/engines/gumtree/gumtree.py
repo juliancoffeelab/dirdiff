@@ -42,6 +42,7 @@ directory, matching adjacent local GumTree checkouts.
 __all__ = [
     "GumTreeJson",
     "gumtree_executable_for_cwd",
+    "is_gumtree_json",
     "run_gumtree_json",
 ]
 
@@ -186,7 +187,7 @@ class GumTreeJson(TypedDict):
     """
 
 
-def _is_gumtree_json(value: object) -> TypeIs[GumTreeJson]:
+def is_gumtree_json(value: object) -> TypeIs[GumTreeJson]:
     """Validate the supported top-level GumTree JSON fields.
 
     GumTree may omit empty match and action lists. Unknown fields remain opaque,
@@ -357,7 +358,7 @@ def run_gumtree_json(
             raise DirdiffError(" ".join(stderr_lines)) from exc
         raise GumTreeInvalidJsonError("GumTree returned invalid JSON.") from exc
 
-    if _is_gumtree_json(parsed):
+    if is_gumtree_json(parsed):
         return parsed
     raise GumTreeInvalidJsonError(
         "GumTree returned an unexpected JSON payload."
