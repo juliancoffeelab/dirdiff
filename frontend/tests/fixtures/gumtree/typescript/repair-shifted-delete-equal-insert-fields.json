@@ -1,0 +1,991 @@
+[
+  {
+    "status": "equal",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "export type InlineToken = {",
+    "right_text": "export type InlineToken = {",
+    "left_parts": [
+      {
+        "text": "export",
+        "syntax_classes": [
+          "ts-keyword",
+          "ts-keyword-control",
+          "ts-keyword-control-import"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "type",
+        "syntax_classes": [
+          "ts-keyword",
+          "ts-keyword-storage",
+          "ts-keyword-storage-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "InlineToken",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "{",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "export",
+        "syntax_classes": [
+          "ts-keyword",
+          "ts-keyword-control",
+          "ts-keyword-control-import"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "type",
+        "syntax_classes": [
+          "ts-keyword",
+          "ts-keyword-storage",
+          "ts-keyword-storage-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "InlineToken",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "{",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 2,
+    "right_no": 2,
+    "left_text": "  text: string;",
+    "right_text": "  text: string;",
+    "left_parts": [
+      {
+        "text": "  ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "text",
+        "syntax_classes": [
+          "ts-variable",
+          "ts-variable-other",
+          "ts-variable-other-member"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ":",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "string",
+        "syntax_classes": [
+          "ts-type",
+          "ts-type-builtin"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "  ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "text",
+        "syntax_classes": [
+          "ts-variable",
+          "ts-variable-other",
+          "ts-variable-other-member"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ":",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "string",
+        "syntax_classes": [
+          "ts-type",
+          "ts-type-builtin"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "replace",
+    "left_no": 3,
+    "right_no": 3,
+    "left_text": "  changed: boolean;",
+    "right_text": "  is_ws: boolean;",
+    "left_parts": [
+      {
+        "text": "  ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "changed",
+        "syntax_classes": [
+          "ts-variable",
+          "ts-variable-other",
+          "ts-variable-other-member"
+        ],
+        "diff_status": "replace",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": ":",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": "boolean",
+        "syntax_classes": [
+          "ts-type",
+          "ts-type-builtin"
+        ],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 18,
+            "end_line": 3,
+            "end_column": 19
+          },
+          "right": {
+            "start_line": 3,
+            "start_column": 16,
+            "end_line": 3,
+            "end_column": 17
+          }
+        }
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "  ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "is_ws",
+        "syntax_classes": [
+          "ts-variable",
+          "ts-variable-other",
+          "ts-variable-other-member"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ":",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "boolean",
+        "syntax_classes": [
+          "ts-type",
+          "ts-type-builtin"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 18,
+            "end_line": 3,
+            "end_column": 19
+          },
+          "right": {
+            "start_line": 3,
+            "start_column": 16,
+            "end_line": 3,
+            "end_column": 17
+          }
+        }
+      }
+    ],
+    "hunk_index": 0
+  },
+  {
+    "status": "replace",
+    "left_no": 4,
+    "right_no": 4,
+    "left_text": "  is_ws: boolean;",
+    "right_text": "  status: \"unchanged\" | \"replace\" | \"insert\" | \"delete\";",
+    "left_parts": [
+      {
+        "text": "  ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "is_ws",
+        "syntax_classes": [
+          "ts-variable",
+          "ts-variable-other",
+          "ts-variable-other-member"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ":",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "boolean",
+        "syntax_classes": [
+          "ts-type",
+          "ts-type-builtin"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "  ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "status",
+        "syntax_classes": [
+          "ts-variable",
+          "ts-variable-other",
+          "ts-variable-other-member"
+        ],
+        "diff_status": "replace",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": ":",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": "\"unchanged\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": "|",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": "\"replace\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": "|",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": "\"insert\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": "|",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": "\"delete\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 18
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 2,
+            "end_line": 4,
+            "end_column": 55
+          }
+        }
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 5,
+    "right_no": 5,
+    "left_text": "};",
+    "right_text": "};",
+    "left_parts": [
+      {
+        "text": "}",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "}",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  }
+]

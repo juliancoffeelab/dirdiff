@@ -34,8 +34,10 @@ __all__ = [
     "DirdiffError",
     "EngineKind",
     "EngineWarning",
+    "InlineMove",
     "InlineToken",
     "InlineTokenStatus",
+    "MoveSpan",
     "git_executable",
 ]
 
@@ -81,10 +83,10 @@ type DiffEngineRowStatus = Literal[
 ]
 """Row-level relationship between the aligned left and right source lines.
 
-- `equal` pairs unchanged lines.
-- `replace` pairs changed lines.
-- `insert` and `delete` are one-sided rows.
-- `move` pairs source text classified as moved.
+- `equal` describes semantic context, including unpaired wrapped lines.
+- `replace` describes mixed context and changes or multiple change kinds.
+- `insert` and `delete` describe complete insertions and deletions.
+- `move` describes source text classified as moved.
 
 Use this on `DiffEngineRow.status`. Inline spans keep a separate
 `InlineTokenStatus`, and fold placeholders are not engine rows.
@@ -214,6 +216,42 @@ class DiffSummary(TypedDict):
     """
 
 
+class MoveSpan(TypedDict):
+    """Half-open moved source range within one text bay.
+
+    Lines are one-based and columns count zero-based Unicode characters.
+    The end may be column zero of the following line. This is a source
+    coordinate, independent of row alignment and syntax decoration.
+    """
+
+    start_line: int
+    """One-based line containing the first source character of the move."""
+
+    start_column: int
+    """Zero-based Unicode character column where the move begins."""
+
+    end_line: int
+    """One-based line containing the exclusive endpoint, no earlier than start."""
+
+    end_column: int
+    """Zero-based exclusive Unicode column; zero may address the following line."""
+
+
+class InlineMove(TypedDict):
+    """Exact old and new ranges paired by a structural move action.
+
+    Both endpoints belong to the same text bay. Every token inside the move
+    retains these endpoints, including edited descendants. Equal text alone
+    never establishes this relationship.
+    """
+
+    left: MoveSpan
+    """Original range in the old source, independent of its displayed row."""
+
+    right: MoveSpan
+    """Matched destination in the new source, which may also contain edits."""
+
+
 class InlineToken(TypedDict):
     """Inline token emitted for a rendered diff row.
 
@@ -237,6 +275,13 @@ class InlineToken(TypedDict):
 
     The value must equal `text.isspace()`. Display enrichment trusts it when
     distinguishing leading indentation from other changed token content.
+    """
+
+    move: NotRequired[InlineMove]
+    """Present exactly when the engine supplies a containing structural move.
+
+    Nested edits retain their change status and the innermost containing move.
+    Engines without structural move facts omit this field.
     """
 
     status: InlineTokenStatus
@@ -269,15 +314,15 @@ class DiffEngineRow(TypedDict):
     left_no: int | None
     """One-based old-side source line represented by this aligned row.
 
-    It is `None` exactly for an `insert` row; paired equal, replace, and move
-    rows require it, while delete rows retain it with no right-side number.
+    It is `None` when this row has no old-side line. Structural row status
+    describes token semantics independently of that alignment gap.
     """
 
     right_no: int | None
     """One-based new-side source line represented by this aligned row.
 
-    It is `None` exactly for a `delete` row; paired equal, replace, and move
-    rows require it, while insert rows retain it with no left-side number.
+    It is `None` when this row has no new-side line. Structural context and
+    mixed-change rows may be unpaired after source wrapping.
     """
 
     left_text: str
@@ -326,6 +371,7 @@ class EngineWarning(TypedDict):
         "difftastic_graph_limit",
         "difftastic_empty_rows",
         "gumtree_invalid_json",
+        "gumtree_unsupported_language",
         "tokendiff_region_limit",
     ]
     """Stable machine category for the exact degraded mode.

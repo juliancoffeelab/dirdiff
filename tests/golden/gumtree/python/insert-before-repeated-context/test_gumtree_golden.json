@@ -1,0 +1,160 @@
+[
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 1,
+    "right_text": "import logging",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "import logging"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 2,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 1,
+    "left_text": "def report(items):",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "def report(items):"
+      }
+    ],
+    "right_no": 3,
+    "right_text": "def report(items):",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "def report(items):"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 4,
+    "right_text": "    logging.info(\"begin\")",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "logging.info(\"begin\")"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": 2,
+    "left_text": "    values = []",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    values = []"
+      }
+    ],
+    "right_no": 5,
+    "right_text": "    values = []",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    values = []"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "    for item in items:",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    for item in items:"
+      }
+    ],
+    "right_no": 6,
+    "right_text": "    for item in items:",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    for item in items:"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "        values.append(item)",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        values.append(item)"
+      }
+    ],
+    "right_no": 7,
+    "right_text": "        values.append(item)",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        values.append(item)"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 8,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "    return values",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    return values"
+      }
+    ],
+    "right_no": 9,
+    "right_text": "    return values",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    return values"
+      }
+    ],
+    "status": "equal"
+  }
+]

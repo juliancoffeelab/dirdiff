@@ -1,0 +1,146 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "const x = make([alpha, keep, omega]);",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const x = make(["
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 21,
+            "end_line": 1,
+            "start_column": 16,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 7,
+            "end_line": 3,
+            "start_column": 2,
+            "start_line": 3
+          }
+        },
+        "status": "replace",
+        "text": "alpha"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ", "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "keep"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ", "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "omega"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "]);"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "const x = make([",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "const x = make(["
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 2,
+    "right_text": "  wrap(alphaChanged),",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "wrap(alphaChanged)"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 3,
+    "right_text": "  omega,",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 21,
+            "end_line": 1,
+            "start_column": 16,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 7,
+            "end_line": 3,
+            "start_column": 2,
+            "start_line": 3
+          }
+        },
+        "status": "replace",
+        "text": "omega"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": ","
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 4,
+    "right_text": "]);",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "]);"
+      }
+    ],
+    "status": "equal"
+  }
+]

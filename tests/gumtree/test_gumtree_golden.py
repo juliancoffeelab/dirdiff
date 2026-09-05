@@ -1,7 +1,7 @@
 """Snapshot exact GumTree rows for the preset corpus.
 
 Each non-borked preset supplies one old/new source pair and one snapshot named
-by its relative preset path. These tests pin exact neutral rows and action-based
+by its relative preset path. These tests pin exact aligned rows and action-based
 token status. Executable behavior belongs to the engine integration, and
 display enrichment has separate rendering tests.
 """
@@ -12,7 +12,7 @@ import pytest
 from helpers import GoldenJsonSnapshotExtension, tool_json
 from syrupy.assertion import SnapshotAssertion
 
-from dirdiff.engines.gumtree.logic import build_gumtree_rows_from_json
+from dirdiff.engines import build_gumtree_rows_from_json
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "gumtree"
 """GumTree source-pair catalog used by exact row snapshots.
@@ -40,7 +40,7 @@ class GumTreeGoldenSnapshotExtension(GoldenJsonSnapshotExtension):
     """Bind each real diff preset to its checked-in GumTree row JSON.
 
     The extension fixes corpus and snapshot locations for the shared golden
-    harness. Stored values cover GumTree's neutral rows and inline action
+    harness. Stored values cover GumTree's aligned rows and inline action
     token mapping, before display enrichment or File composition.
     """
 
@@ -101,6 +101,8 @@ def test_gumtree_preset_rows_match_golden(
         diff_json=diff_json,
         left_text=old_text,
         right_text=new_text,
+        left_path_hint=old_path.name,
+        right_path_hint=new_path.name,
     )
 
     assert (

@@ -68,6 +68,12 @@ export default defineConfig(
     },
   },
   {
+    // Unit tests inspect renderer internals from the test directory. Production
+    // imports still enter fileCard through its public facade.
+    files: ["tests/**/*.{ts,tsx}"],
+    rules: { "local/file-card-facade": "off" },
+  },
+  {
     files: ["eslint.config.ts", "eslint-rules/**/*.mjs"],
     languageOptions: {
       parser: tseslint.parser,

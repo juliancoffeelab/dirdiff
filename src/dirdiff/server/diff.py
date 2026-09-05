@@ -47,6 +47,7 @@ from dirdiff.db import (
 from dirdiff.engines import (
     DirdiffError,
     EngineKind,
+    InlineMove,
     InlineTokenStatus,
     engine,
 )
@@ -199,8 +200,9 @@ class DecoratedPartResponse(ApiModel):
     HUD concatenates `text` in order and applies the supplied diff, syntax, and
     whitespace decoration directly.
 
-    Parts carry no offsets, line identity, or review coordinates. Their text
-    must not be reordered or independently edited.
+    Parts carry no own offsets or review identity. Optional move endpoints
+    describe their containing structural move. Text must not be reordered or
+    independently edited.
     """
 
     text: str
@@ -215,6 +217,15 @@ class DecoratedPartResponse(ApiModel):
 
     The list may be empty when no syntax category applies. Its order and values
     are presentation metadata, not source-token identity.
+    """
+
+    move: InlineMove | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    """Exact structural move endpoints, omitted when the engine supplies none.
+
+    Both spans use one-based source lines and zero-based Unicode columns.
+    Edited descendants keep their containing move independently of diff status.
     """
 
     diff_status: InlineTokenStatus
@@ -406,8 +417,8 @@ class DiffSummaryResponse(ApiModel):
     moved_lines: int = 0
     """Count of rows the selected engine classified as moved.
 
-    The value excludes inline token movement and defaults to zero for engines
-    that report no line moves. It remains part of `changed_lines` accounting.
+    Structural engines may derive this count from inline move facts. Each
+    aligned position contributes once to `changed_lines` accounting.
     """
 
     left_exists: bool

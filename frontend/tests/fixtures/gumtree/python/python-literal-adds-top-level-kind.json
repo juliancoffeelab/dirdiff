@@ -1,0 +1,362 @@
+[
+  {
+    "status": "equal",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "RegionKind = Literal[\"function_like\", \"class_like\", \"container\", \"section\"]",
+    "right_text": "RegionKind = Literal[",
+    "left_parts": [
+      {
+        "text": "RegionKind",
+        "syntax_classes": [
+          "ts-constructor"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "Literal",
+        "syntax_classes": [
+          "ts-constructor"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"function_like\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"class_like\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"container\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"section\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "]",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "RegionKind",
+        "syntax_classes": [
+          "ts-constructor"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "Literal",
+        "syntax_classes": [
+          "ts-constructor"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 2,
+    "left_text": "",
+    "right_text": "    \"function_like\",",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"function_like\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 3,
+    "left_text": "",
+    "right_text": "    \"class_like\",",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"class_like\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 4,
+    "left_text": "",
+    "right_text": "    \"container\",",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"container\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 5,
+    "left_text": "",
+    "right_text": "    \"section\",",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"section\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 6,
+    "left_text": "",
+    "right_text": "    \"top_level\",",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "\"top_level\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": 0
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 7,
+    "left_text": "",
+    "right_text": "]",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "]",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  }
+]

@@ -1,0 +1,4083 @@
+[
+  {
+    "status": "replace",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "def render_order(order: dict[str, object]) -> str:",
+    "right_text": "def render_order(order: dict[str, object]) -> str:",
+    "left_parts": [
+      {
+        "text": "def",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "render_order",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "replace",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "order",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "dict",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "str",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "object",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "]) ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "->",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "str",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 1,
+            "start_column": 46,
+            "end_line": 1,
+            "end_column": 49
+          },
+          "right": {
+            "start_line": 1,
+            "start_column": 46,
+            "end_line": 1,
+            "end_column": 49
+          }
+        }
+      },
+      {
+        "text": ":",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "def",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "render_order",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "order",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "dict",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "str",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "object",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "]) ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "->",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "str",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 1,
+            "start_column": 46,
+            "end_line": 1,
+            "end_column": 49
+          },
+          "right": {
+            "start_line": 1,
+            "start_column": 46,
+            "end_line": 1,
+            "end_column": 49
+          }
+        }
+      },
+      {
+        "text": ":",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": 0
+  },
+  {
+    "status": "insert",
+    "left_no": null,
+    "right_no": 2,
+    "left_text": "",
+    "right_text": "    normalized_items = normalize_items(order)",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "normalized_items",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "normalize_items",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "order",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ")",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 3,
+    "left_text": "",
+    "right_text": "",
+    "left_parts": [],
+    "right_parts": [],
+    "hunk_index": null
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 4,
+    "left_text": "",
+    "right_text": "    lines: list[str] = []",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "lines",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": "list",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": "str",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": "] ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": " []",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      }
+    ],
+    "hunk_index": 1
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 5,
+    "left_text": "",
+    "right_text": "    for item in normalized_items:",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "for",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "in",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "normalized_items",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": ":",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "move",
+    "left_no": null,
+    "right_no": 6,
+    "left_text": "",
+    "right_text": "        lines.append(f\"{item['quantity']}x {item['name']}\")",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "lines",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": ".",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "append",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-method"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "f\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "{",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-special"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "[",
+        "syntax_classes": [
+          "ts-embedded"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "'quantity'",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "]",
+        "syntax_classes": [
+          "ts-embedded"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "}",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-special"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "x ",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "{",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-special"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "[",
+        "syntax_classes": [
+          "ts-embedded"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "'name'",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "]",
+        "syntax_classes": [
+          "ts-embedded"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "}",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-special"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": ")",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 7,
+    "left_text": "",
+    "right_text": "    return \"\\n\".join(lines)",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "return",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "\\n",
+        "syntax_classes": [
+          "ts-escape"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": ".",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "join",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-method"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "lines",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": ")",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 8,
+    "left_text": "",
+    "right_text": "",
+    "left_parts": [],
+    "right_parts": [],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 9,
+    "left_text": "",
+    "right_text": "",
+    "left_parts": [],
+    "right_parts": [],
+    "hunk_index": null
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 10,
+    "left_text": "",
+    "right_text": "def normalize_items(order: dict[str, object]) -> list[dict[str, object]]:",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "def",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "normalize_items",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "replace",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "order",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "dict",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "str",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "object",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "]) ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "->",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "list",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "dict",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "str",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "object",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "]]",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ":",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": 2
+  },
+  {
+    "status": "equal",
+    "left_no": 2,
+    "right_no": 11,
+    "left_text": "    normalized_items: list[dict[str, object]] = []",
+    "right_text": "    normalized_items: list[dict[str, object]] = []",
+    "left_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "normalized_items",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "list",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "dict",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "str",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "object",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "]] ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " []",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "normalized_items",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "list",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "dict",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "str",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "object",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "]] ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " []",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 3,
+    "right_no": 12,
+    "left_text": "    for item in order[\"items\"]:",
+    "right_text": "    for item in order[\"items\"]:",
+    "left_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "for",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "in",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "order",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"items\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "]:",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "for",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "in",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "order",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"items\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "]:",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 4,
+    "right_no": 13,
+    "left_text": "        name = item[\"name\"].strip()",
+    "right_text": "        name = item[\"name\"].strip()",
+    "left_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "name",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"name\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "].",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "strip",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-method"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "()",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "name",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"name\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "].",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "strip",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-method"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "()",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 5,
+    "right_no": 14,
+    "left_text": "        quantity = int(item.get(\"quantity\", 1))",
+    "right_text": "        quantity = int(item.get(\"quantity\", 1))",
+    "left_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "quantity",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "int",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-builtin"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ".",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "get",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-method"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"quantity\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "1",
+        "syntax_classes": [
+          "ts-number"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "))",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "quantity",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "int",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-builtin"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ".",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "get",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-method"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"quantity\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "1",
+        "syntax_classes": [
+          "ts-number"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "))",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 6,
+    "right_no": 15,
+    "left_text": "        normalized_items.append(",
+    "right_text": "        normalized_items.append(",
+    "left_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "normalized_items",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ".",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "append",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-method"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "normalized_items",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ".",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "append",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-method"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 7,
+    "right_no": 16,
+    "left_text": "            {",
+    "right_text": "            {",
+    "left_parts": [
+      {
+        "text": "            {",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "            {",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 8,
+    "right_no": 17,
+    "left_text": "                \"name\": name,",
+    "right_text": "                \"name\": name,",
+    "left_parts": [
+      {
+        "text": "                ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"name\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "name",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "                ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"name\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "name",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 9,
+    "right_no": 18,
+    "left_text": "                \"quantity\": quantity,",
+    "right_text": "                \"quantity\": quantity,",
+    "left_parts": [
+      {
+        "text": "                ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"quantity\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "quantity",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "                ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"quantity\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "quantity",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 10,
+    "right_no": 19,
+    "left_text": "            }",
+    "right_text": "            }",
+    "left_parts": [
+      {
+        "text": "            }",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "            }",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 11,
+    "right_no": 20,
+    "left_text": "        )",
+    "right_text": "        )",
+    "left_parts": [
+      {
+        "text": "        )",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "        )",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "insert",
+    "left_no": 12,
+    "right_no": 21,
+    "left_text": "",
+    "right_text": "    return normalized_items",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "return",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "normalized_items",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": 3
+  },
+  {
+    "status": "move",
+    "left_no": 13,
+    "right_no": null,
+    "left_text": "    lines: list[str] = []",
+    "right_text": "",
+    "left_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "lines",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": "list",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": "[",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": "str",
+        "syntax_classes": [
+          "ts-type"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": "] ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      },
+      {
+        "text": " []",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 13,
+            "start_column": 4,
+            "end_line": 13,
+            "end_column": 25
+          },
+          "right": {
+            "start_line": 4,
+            "start_column": 4,
+            "end_line": 4,
+            "end_column": 25
+          }
+        }
+      }
+    ],
+    "right_parts": [],
+    "hunk_index": null
+  },
+  {
+    "status": "move",
+    "left_no": 14,
+    "right_no": null,
+    "left_text": "    for item in normalized_items:",
+    "right_text": "",
+    "left_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "for",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "in",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "normalized_items",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": ":",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      }
+    ],
+    "right_parts": [],
+    "hunk_index": null
+  },
+  {
+    "status": "move",
+    "left_no": 15,
+    "right_no": null,
+    "left_text": "        lines.append(f\"{item['quantity']}x {item['name']}\")",
+    "right_text": "",
+    "left_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "lines",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": ".",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "append",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-method"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "f\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "{",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-special"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "[",
+        "syntax_classes": [
+          "ts-embedded"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "'quantity'",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "]",
+        "syntax_classes": [
+          "ts-embedded"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "}",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-special"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "x ",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "{",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-special"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "item",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "[",
+        "syntax_classes": [
+          "ts-embedded"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "'name'",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "]",
+        "syntax_classes": [
+          "ts-embedded"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "}",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-special"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": "\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      },
+      {
+        "text": ")",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 14,
+            "start_column": 4,
+            "end_line": 15,
+            "end_column": 59
+          },
+          "right": {
+            "start_line": 5,
+            "start_column": 4,
+            "end_line": 6,
+            "end_column": 59
+          }
+        }
+      }
+    ],
+    "right_parts": [],
+    "hunk_index": null
+  },
+  {
+    "status": "move",
+    "left_no": 16,
+    "right_no": null,
+    "left_text": "    return \"\\n\".join(lines)",
+    "right_text": "",
+    "left_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "return",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "\\n",
+        "syntax_classes": [
+          "ts-escape"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": ".",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "join",
+        "syntax_classes": [
+          "ts-function",
+          "ts-function-method"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": "lines",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      },
+      {
+        "text": ")",
+        "syntax_classes": [],
+        "diff_status": "move",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 16,
+            "start_column": 4,
+            "end_line": 16,
+            "end_column": 27
+          },
+          "right": {
+            "start_line": 7,
+            "start_column": 4,
+            "end_line": 7,
+            "end_column": 27
+          }
+        }
+      }
+    ],
+    "right_parts": [],
+    "hunk_index": null
+  }
+]

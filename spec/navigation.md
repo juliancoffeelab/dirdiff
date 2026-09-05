@@ -347,7 +347,7 @@ It passes that complete target to `toggleUrlState()`, removes the previous
 row when the result is pinned.
 
 Fold-edge rows are not pinnable and retain their fold interaction. No direct
-click invokes Navigation or file loading because the clicked row is already
+line-number click invokes Navigation or file loading because the clicked row is already
 rendered.
 
 A media bay widget does the same for its single pseudo-line: clicking a captured

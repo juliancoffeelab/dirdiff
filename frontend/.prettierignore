@@ -1,2 +1,5 @@
 dist
 node_modules
+
+# Python-generated fixtures retain the generator's deterministic JSON format.
+tests/fixtures/**/*.json

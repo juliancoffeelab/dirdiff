@@ -713,11 +713,20 @@ Inputs:
 - nullable ordinary-line-one side reporting, present for ordinary File grids.
 
 `TextDiffGrid` renders decorated text parts, line numbers, fold rows, hunk targets,
-and line-pin coordinates.
+and line-pin coordinates. Its grid-scoped pointer listeners highlight matching
+the existing move outlines on both sides while either is hovered, without
+changing their coverage. Persistent outlines follow move relationships on
+decorated parts, refreshing geometry after row changes and grid resizing.
+Move clicks use Navigation to reach the counterpart start without changing pins
+or hunk selection; the grid cancels its unfinished jump on a newer move click or disposal.
 
 It uses `folds.ts` to construct visible rows and uses `LinePins` to read or change line-pin URL state.
 
 ### `hud/fileCard/grids/text/rowDom.ts`
+
+Renders backend move endpoints as directional hover details on subtly enclosed source
+parts. Move metadata survives syntax splitting and edited descendants; the
+renderer neither infers endpoints nor adds navigation behavior.
 
 Exports:
 

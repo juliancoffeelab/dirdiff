@@ -1,0 +1,926 @@
+[
+  {
+    "status": "equal",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "def create_app(service, defaults, *, services):",
+    "right_text": "def create_app(service, defaults, *, services):",
+    "left_parts": [
+      {
+        "text": "def",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "create_app",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "defaults",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "*",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "services",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "):",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "def",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "create_app",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "defaults",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "*",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "services",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "):",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 2,
+    "right_no": 2,
+    "left_text": "    return service, defaults, services",
+    "right_text": "    return service, defaults, services",
+    "left_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "return",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "defaults",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "services",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "return",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "defaults",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "services",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 3,
+    "right_no": 3,
+    "left_text": "",
+    "right_text": "",
+    "left_parts": [],
+    "right_parts": [],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": 4,
+    "right_no": 4,
+    "left_text": "",
+    "right_text": "",
+    "left_parts": [],
+    "right_parts": [],
+    "hunk_index": null
+  },
+  {
+    "status": "replace",
+    "left_no": 5,
+    "right_no": 5,
+    "left_text": "def preset(service, defaults, git_service):",
+    "right_text": "def preset(service, defaults, git_service, difftastic_service):",
+    "left_parts": [
+      {
+        "text": "def",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "preset",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "defaults",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "git_service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "):",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "def",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "preset",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "defaults",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "git_service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "difftastic_service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "):",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": 0
+  },
+  {
+    "status": "equal",
+    "left_no": 6,
+    "right_no": 6,
+    "left_text": "    return create_app(service, defaults, services={\"git\": git_service})",
+    "right_text": "    return create_app(",
+    "left_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "return",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "create_app",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "defaults",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "services",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "{",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"git\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "git_service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "})",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "return",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "create_app",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 7,
+    "left_text": "",
+    "right_text": "        service,",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 8,
+    "left_text": "",
+    "right_text": "        defaults,",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "defaults",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 9,
+    "left_text": "",
+    "right_text": "        services={\"git\": git_service, \"difftastic\": difftastic_service},",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "services",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "{",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"git\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "git_service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"difftastic\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "difftastic_service",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "},",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": 1
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 10,
+    "left_text": "",
+    "right_text": "    )",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    )",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  }
+]

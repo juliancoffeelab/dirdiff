@@ -13,11 +13,16 @@ it as a valid comparison. Workspace loading and format choice happen before the
 engine runs; display folds and syntax happen after it returns.
 """
 
-from dirdiff.engines.gumtree.gumtree import GumTreeJson, is_gumtree_json
-from dirdiff.engines.gumtree.logic import GumTreeDiffEngine
+from dirdiff.engines.gumtree.logic import (
+    GumTreeDiffEngine,
+    GumTreeJson,
+    build_gumtree_rows_from_json,
+    is_gumtree_json,
+)
 
 __all__ = [
     "GumTreeDiffEngine",
     "GumTreeJson",
+    "build_gumtree_rows_from_json",
     "is_gumtree_json",
 ]

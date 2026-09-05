@@ -29,6 +29,7 @@ from tree_sitter import Language, Parser, Query, QueryCursor
 
 from dirdiff.engines import (
     DiffEngineRow,
+    InlineMove,
     InlineToken,
     InlineTokenStatus,
 )
@@ -182,7 +183,8 @@ class DecoratedPart(TypedDict):
     the HUD renders them in order without intersecting ranges itself.
 
     Parts preserve every source character. Adjacent parts differ in syntax,
-    diff status, or whitespace role. They do not carry offsets or line identity.
+    diff status, whitespace role, or containing move. They carry no own offsets
+    or line identity; optional move metadata describes its paired source spans.
     """
 
     text: str
@@ -197,6 +199,13 @@ class DecoratedPart(TypedDict):
 
     An empty list means no configured capture covers the slice. Consumers apply
     these classes directly and must not infer additional syntax from neighbors.
+    """
+
+    move: NotRequired[InlineMove]
+    """Structural move endpoints copied intact from the containing engine token.
+
+    Syntax splitting preserves this metadata even on edited move descendants;
+    absence means the engine supplied no move relationship for this slice.
     """
 
     diff_status: InlineTokenStatus
@@ -362,6 +371,7 @@ def weave_decorated_parts(
         diff_status = (
             "unchanged" if active_token is None else active_token["status"]
         )
+        move = None if active_token is None else active_token.get("move")
         is_whitespace = (
             part_text.isspace()
             if active_token is None
@@ -376,6 +386,7 @@ def weave_decorated_parts(
         if (
             previous is not None
             and previous["diff_status"] == diff_status
+            and previous.get("move") == move
             and previous["is_whitespace"] == is_whitespace
             and previous["is_leading_whitespace"] == is_leading_whitespace
             and previous["syntax_classes"]
@@ -396,6 +407,8 @@ def weave_decorated_parts(
                     "is_leading_whitespace": is_leading_whitespace,
                 }
             )
+            if move is not None:
+                parts[-1]["move"] = move
     return parts
 
 
@@ -412,14 +425,14 @@ class DiffRow(TypedDict):
     status: Literal["equal", "replace", "insert", "delete", "move"]
     """Engine-supplied relationship of the aligned source sides.
 
-    Enrichment preserves it unchanged. `insert` lacks a left line, `delete`
-    lacks a right line, and equal, replace, and move rows carry both coordinates.
+    Enrichment preserves semantic classification unchanged. Source coordinates
+    independently describe alignment; structural context may be unpaired.
     """
 
     left_no: int | None
     """One-based old-side source coordinate preserved from the engine row.
 
-    It is `None` for right-only insertion and present for every other status.
+    It is `None` whenever the aligned row has no old-side line.
     Syntax lookup subtracts one from a present value; rendered row position is
     not a substitute for this coordinate.
     """
@@ -427,7 +440,7 @@ class DiffRow(TypedDict):
     right_no: int | None
     """One-based new-side source coordinate preserved from the engine row.
 
-    It is `None` for left-only deletion and present for every other status.
+    It is `None` whenever the aligned row has no new-side line.
     Syntax and fold discovery use this source identity independently of row order.
     """
 

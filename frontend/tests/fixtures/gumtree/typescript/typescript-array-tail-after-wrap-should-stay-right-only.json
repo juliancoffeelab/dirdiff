@@ -1,0 +1,395 @@
+[
+  {
+    "status": "replace",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "const x = make([alpha, keep, omega]);",
+    "right_text": "const x = make([",
+    "left_parts": [
+      {
+        "text": "const",
+        "syntax_classes": [
+          "ts-keyword",
+          "ts-keyword-storage",
+          "ts-keyword-storage-modifier"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "x",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "make",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "([",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "alpha",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "replace",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 1,
+            "start_column": 16,
+            "end_line": 1,
+            "end_column": 21
+          },
+          "right": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 7
+          }
+        }
+      },
+      {
+        "text": ",",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "keep",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "omega",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "])",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "const",
+        "syntax_classes": [
+          "ts-keyword",
+          "ts-keyword-storage",
+          "ts-keyword-storage-modifier"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "x",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "make",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "([",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": 0
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 2,
+    "left_text": "",
+    "right_text": "  wrap(alphaChanged),",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "  ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "wrap",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "alphaChanged",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ")",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 3,
+    "left_text": "",
+    "right_text": "  omega,",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "  ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "omega",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "replace",
+        "is_whitespace": false,
+        "is_leading_whitespace": false,
+        "move": {
+          "left": {
+            "start_line": 1,
+            "start_column": 16,
+            "end_line": 1,
+            "end_column": 21
+          },
+          "right": {
+            "start_line": 3,
+            "start_column": 2,
+            "end_line": 3,
+            "end_column": 7
+          }
+        }
+      },
+      {
+        "text": ",",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 4,
+    "left_text": "",
+    "right_text": "]);",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "])",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  }
+]

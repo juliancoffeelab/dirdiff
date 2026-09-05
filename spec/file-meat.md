@@ -133,7 +133,22 @@ identity remains attached to the backend boundary that produced it.
 The rendering layer combines each engine token partition with the syntax spans
 for the same row side. The resulting ordered parts preserve every source
 character and carry `syntax_classes`, `diff_status`, whitespace status, and
-leading-whitespace status. Invalid engine tokens or syntax spans fail at this
+leading-whitespace status. Structural tokens also carry their containing move's
+old and new source spans. Syntax splitting preserves those endpoints and never
+merges different move relationships. Moved tokens carry the purple move
+background. Persistent SVG outlines enclose the text carrying each move
+relationship, including inserted and edited descendants. Text with another
+move identity or no move identity forms a hole. The same move endpoints supply
+the directional hover details. Hover strengthens the existing text and outlines for the selected move and
+its descendants on both sides. Descendants are determined by range containment
+on the hovered side; their origins may be outside the parent on the other side.
+It never adds enclosure coverage or fills holes. Geometry is rebuilt after
+row replacement and when the mounted grid resizes; its ResizeObserver and
+pointer listeners end with the grid. Edited tokens retain their change color.
+Clicking a move navigates to its counterpart start through the shared line
+action. Text selection suppresses the click. A newer move click or grid disposal
+cancels an unfinished jump. Move navigation changes no line pins or hunk selection.
+Invalid engine tokens or syntax spans fail at this
 backend boundary. `TextDiffGrid` renders these parts directly; it does not intersect
 parallel token and syntax ranges or slice source text by backend offsets.
 

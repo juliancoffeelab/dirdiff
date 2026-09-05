@@ -1,0 +1,188 @@
+[
+  {
+    "status": "replace",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "const message = \"plain\";",
+    "right_text": "const message = \"“beware unicode quotes, they screw up byte/character offsets”\";",
+    "left_parts": [
+      {
+        "text": "const",
+        "syntax_classes": [
+          "ts-keyword",
+          "ts-keyword-storage",
+          "ts-keyword-storage-modifier"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "message",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "plain",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "replace",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "const",
+        "syntax_classes": [
+          "ts-keyword",
+          "ts-keyword-storage",
+          "ts-keyword-storage-modifier"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "message",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "“beware unicode quotes, they screw up byte/character offsets”",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "replace",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": 0
+  }
+]

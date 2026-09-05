@@ -1,0 +1,383 @@
+[
+  {
+    "status": "replace",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "value = make({\"left\": thing, \"mid\": keep, \"right\": done})",
+    "right_text": "value = make(",
+    "left_parts": [
+      {
+        "text": "value",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "make",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "({",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"left\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "thing",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"mid\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "keep",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ", ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"right\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "done",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "})",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "value",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "=",
+        "syntax_classes": [
+          "ts-operator"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "make",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": 0
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 2,
+    "left_text": "",
+    "right_text": "    {",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    {",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 3,
+    "left_text": "",
+    "right_text": "        \"left\": wrap(thing_changed),",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "\"left\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "wrap",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "thing_changed",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ")",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": 1
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 4,
+    "left_text": "",
+    "right_text": "        \"right\": done,",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "        ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "\"right\"",
+        "syntax_classes": [
+          "ts-string"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ": ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "done",
+        "syntax_classes": [
+          "ts-variable"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 5,
+    "left_text": "",
+    "right_text": "    }",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    }",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 6,
+    "left_text": "",
+    "right_text": ")",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": ")",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  }
+]

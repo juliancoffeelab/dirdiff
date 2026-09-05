@@ -1,0 +1,315 @@
+[
+  {
+    "status": "replace",
+    "left_no": 1,
+    "right_no": 1,
+    "left_text": "let value = call(5..10, keep, tail);",
+    "right_text": "let value = call(",
+    "left_parts": [
+      {
+        "text": "let",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " value = ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "call",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "5",
+        "syntax_classes": [
+          "ts-constant",
+          "ts-constant-builtin"
+        ],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "..",
+        "syntax_classes": [],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "10",
+        "syntax_classes": [
+          "ts-constant",
+          "ts-constant-builtin"
+        ],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "keep",
+        "syntax_classes": [],
+        "diff_status": "delete",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " tail",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ")",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "right_parts": [
+      {
+        "text": "let",
+        "syntax_classes": [
+          "ts-keyword"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": " value = ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "call",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": 0
+  },
+  {
+    "status": "replace",
+    "left_no": null,
+    "right_no": 2,
+    "left_text": "",
+    "right_text": "    wrap(5..20),",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    ",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": true,
+        "is_leading_whitespace": true
+      },
+      {
+        "text": "wrap",
+        "syntax_classes": [
+          "ts-function"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "(",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "5",
+        "syntax_classes": [
+          "ts-constant",
+          "ts-constant-builtin"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "..",
+        "syntax_classes": [],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": "20",
+        "syntax_classes": [
+          "ts-constant",
+          "ts-constant-builtin"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ")",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "insert",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 3,
+    "left_text": "",
+    "right_text": "    tail,",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": "    tail",
+        "syntax_classes": [],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ",",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  },
+  {
+    "status": "equal",
+    "left_no": null,
+    "right_no": 4,
+    "left_text": "",
+    "right_text": ");",
+    "left_parts": [],
+    "right_parts": [
+      {
+        "text": ")",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-bracket"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      },
+      {
+        "text": ";",
+        "syntax_classes": [
+          "ts-punctuation",
+          "ts-punctuation-delimiter"
+        ],
+        "diff_status": "unchanged",
+        "is_whitespace": false,
+        "is_leading_whitespace": false
+      }
+    ],
+    "hunk_index": null
+  }
+]

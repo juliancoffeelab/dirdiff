@@ -3809,7 +3809,43 @@ h1 {
 }
 
 .token-changed.token-move {
-  background: #e3b8f1;
+  background: #f6e5ff;
+  padding: 0;
+}
+
+.token-moved {
+  cursor: pointer;
+}
+
+.diff-lines {
+  position: relative;
+}
+
+.move-outlines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.move-outlines g {
+  opacity: 0.65;
+}
+
+.move-outlines g.move-highlighted {
+  opacity: 1;
+  filter: var(--move-outline-filter) drop-shadow(0 0 1px #8c42ac);
+}
+
+.token-moved.move-highlighted {
+  background: #dbb9ee;
+}
+
+.token-moved.move-highlighted .token-move {
+  background: #dbb9ee;
 }
 
 .token-changed.whitespace-leading,

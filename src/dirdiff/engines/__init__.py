@@ -25,6 +25,7 @@ from dirdiff.engines.base import (
     DirdiffError,
     EngineKind,
     EngineWarning,
+    InlineMove,
     InlineToken,
     InlineTokenStatus,
     git_executable,
@@ -38,6 +39,7 @@ from dirdiff.engines.git import GitDiffEngine
 from dirdiff.engines.gumtree import (
     GumTreeDiffEngine,
     GumTreeJson,
+    build_gumtree_rows_from_json,
     is_gumtree_json,
 )
 from dirdiff.engines.textdiff import TextDiffEngine, text_diff_summary
@@ -84,10 +86,12 @@ __all__ = [
     "GitDiffEngine",
     "GumTreeDiffEngine",
     "GumTreeJson",
+    "InlineMove",
     "InlineToken",
     "InlineTokenStatus",
     "TextDiffEngine",
     "TokenDiffEngine",
+    "build_gumtree_rows_from_json",
     "engine",
     "git_executable",
     "is_difftastic_json",

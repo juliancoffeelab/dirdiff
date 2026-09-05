@@ -1,0 +1,346 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "def first():",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 12,
+            "end_line": 3,
+            "start_column": 0,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 13,
+            "end_line": 10,
+            "start_column": 0,
+            "start_line": 8
+          }
+        },
+        "status": "move",
+        "text": "def first():"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 2,
+    "left_text": "    print(\"starting\")",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 12,
+            "end_line": 3,
+            "start_column": 0,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 13,
+            "end_line": 10,
+            "start_column": 0,
+            "start_line": 8
+          }
+        },
+        "status": "move",
+        "text": "    print(\"starting\")"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 3,
+    "left_text": "    return 1",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 12,
+            "end_line": 3,
+            "start_column": 0,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 13,
+            "end_line": 10,
+            "start_column": 0,
+            "start_line": 8
+          }
+        },
+        "status": "move",
+        "text": "    return "
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 12,
+            "end_line": 3,
+            "start_column": 0,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 13,
+            "end_line": 10,
+            "start_column": 0,
+            "start_line": 8
+          }
+        },
+        "status": "replace",
+        "text": "1"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "replace"
+  },
+  {
+    "left_no": 4,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "def second():",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "def second():"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "def second():",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "def second():"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "    print(\"running\")",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    print(\"running\")"
+      }
+    ],
+    "right_no": 2,
+    "right_text": "    print(\"running\")",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    print(\"running\")"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "    return 2",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    return 2"
+      }
+    ],
+    "right_no": 3,
+    "right_text": "    return 2",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    return 2"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 4,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "def third():",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "def third():"
+      }
+    ],
+    "right_no": 5,
+    "right_text": "def third():",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "def third():"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "    return 3",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    return 3"
+      }
+    ],
+    "right_no": 6,
+    "right_text": "    return 3",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    return 3"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 7,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 8,
+    "right_text": "def first():",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 12,
+            "end_line": 3,
+            "start_column": 0,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 13,
+            "end_line": 10,
+            "start_column": 0,
+            "start_line": 8
+          }
+        },
+        "status": "move",
+        "text": "def first():"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 9,
+    "right_text": "    print(\"starting\")",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 12,
+            "end_line": 3,
+            "start_column": 0,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 13,
+            "end_line": 10,
+            "start_column": 0,
+            "start_line": 8
+          }
+        },
+        "status": "move",
+        "text": "    print(\"starting\")"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 10,
+    "right_text": "    return 10",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 12,
+            "end_line": 3,
+            "start_column": 0,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 13,
+            "end_line": 10,
+            "start_column": 0,
+            "start_line": 8
+          }
+        },
+        "status": "move",
+        "text": "    return "
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 12,
+            "end_line": 3,
+            "start_column": 0,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 13,
+            "end_line": 10,
+            "start_column": 0,
+            "start_line": 8
+          }
+        },
+        "status": "replace",
+        "text": "10"
+      }
+    ],
+    "status": "replace"
+  }
+]

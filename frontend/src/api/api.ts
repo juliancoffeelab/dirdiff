@@ -1011,7 +1011,7 @@ const TextFileSummarySchema = z.strictObject({
   added_lines: z.number().int(),
   /** Rendered rows containing only a left source line. */
   removed_lines: z.number().int(),
-  /** Rows classified as moved by the selected engine, excluding token movement. */
+  /** Engine-classified moved line positions, which structural engines derive from inline facts. */
   moved_lines: z.number().int(),
   /** Whether capture retained a left side, including a present empty File. */
   left_exists: z.boolean(),
@@ -1055,6 +1055,25 @@ const RowStatusSchema = z.enum([
 export type RowStatus = z.infer<typeof RowStatusSchema>;
 
 /**
+ * Validates a half-open source range in one side of a text bay.
+ * Lines are one-based; columns count zero-based Unicode characters.
+ */
+const MoveSpanSchema = z
+  .strictObject({
+    start_line: z.number().int().positive(),
+    start_column: z.number().int().nonnegative(),
+    end_line: z.number().int().positive(),
+    end_column: z.number().int().nonnegative(),
+  })
+  .refine(
+    (span) =>
+      span.end_line > span.start_line ||
+      (span.end_line === span.start_line &&
+        span.end_column > span.start_column),
+    "A move must contain a nonempty source range.",
+  );
+
+/**
  * Validates one lossless display slice produced by rendering enrichment.
  *
  * Text, syntax, diff, and whitespace facts arrive together so the browser need
@@ -1067,6 +1086,10 @@ const DecoratedPartSchema = z.strictObject({
   syntax_classes: z.array(z.string()),
   /** Token-level diff classification, distinct from the containing row status. */
   diff_status: z.enum(["unchanged", "replace", "insert", "delete", "move"]),
+  /** Exact paired endpoints of the innermost structural move, including edited descendants. */
+  move: z
+    .strictObject({ left: MoveSpanSchema, right: MoveSpanSchema })
+    .optional(),
   /** Whether every character in `text` is whitespace. */
   is_whitespace: z.boolean(),
   /** Whether this whitespace slice precedes the side's first non-whitespace text. */
@@ -1187,7 +1210,7 @@ const BayStatsSchema = z.strictObject({
   added_lines: z.number().int(),
   /** Bay rows containing only a left source line. */
   removed_lines: z.number().int(),
-  /** Rows this bay's engine classified as moved, excluding token movement. */
+  /** Engine-classified moved line positions, including positions identified by structural tokens. */
   moved_lines: z.number().int(),
 });
 

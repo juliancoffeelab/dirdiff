@@ -1065,15 +1065,22 @@ function renderInlineDiffRowDom(props: {
     element.dataset.hunkBay = identity.bay;
     element.dataset.hunkIndex = String(identity.hunkIndex);
   }
+  const code = createInlineLineCodeDom(
+    props.marker,
+    props.text,
+    props.parts,
+    props.parts === props.sourceRow.left_parts ? "left" : "right",
+    props.tokenRowStatus === null ? props.status : props.tokenRowStatus,
+  );
+  const sourceSide =
+    props.parts === props.sourceRow.left_parts ? "left" : "right";
+  code.dataset.sourceSide = sourceSide;
+  const sourceLine = sourceSide === "left" ? props.leftNo : props.rightNo;
+  if (sourceLine !== null) code.dataset.sourceLine = String(sourceLine);
   element.append(
     createLineNumberDom(displayedLeftNo, "left"),
     createLineNumberDom(displayedRightNo, "right"),
-    createInlineLineCodeDom(
-      props.marker,
-      props.text,
-      props.parts,
-      props.tokenRowStatus === null ? props.status : props.tokenRowStatus,
-    ),
+    code,
   );
   return element;
 }
@@ -1168,7 +1175,9 @@ function createDiffSideDom(row: DiffRow, side: Side): HTMLElement {
   }`;
   const codeElement = document.createElement("code");
   codeElement.className = "line-code";
-  appendDecoratedText(codeElement, text, parts, row.status);
+  codeElement.dataset.sourceSide = side;
+  if (lineNo !== null) codeElement.dataset.sourceLine = String(lineNo);
+  appendDecoratedText(codeElement, text, parts, side, row.status);
   element.append(createLineNumberDom(lineNo, side), codeElement);
   return element;
 }
@@ -1297,12 +1306,14 @@ function createFoldToggleButtonDom(foldToggle: FoldToggle): HTMLButtonElement {
  * @param marker Visible change prefix for this emitted inline side.
  * @param text Complete code text that `parts` must reconstruct.
  * @param parts Ordered backend decoration spans for `text`.
+ * @param side Source side supplying the displayed parts and move direction.
  * @param rowStatus Status controlling token-change suppression and classes.
  */
 function createInlineLineCodeDom(
   marker: InlineMarker,
   text: string,
   parts: DecoratedPart[],
+  side: Side,
   rowStatus: InlineRowStatus,
 ): HTMLElement {
   const element = document.createElement("code");
@@ -1314,7 +1325,7 @@ function createInlineLineCodeDom(
   element.append(markerElement);
   const inlineTokenRowStatus =
     rowStatus === "insert" || rowStatus === "delete" ? "replace" : rowStatus;
-  appendDecoratedText(element, text, parts, inlineTokenRowStatus);
+  appendDecoratedText(element, text, parts, side, inlineTokenRowStatus);
   return element;
 }
 
@@ -1327,12 +1338,14 @@ function createInlineLineCodeDom(
  * @param element Newly created code element that receives text and spans.
  * @param text Complete backend text expected from all `parts`.
  * @param parts Ordered backend decoration spans to append.
+ * @param side Source side used for directional move descriptions.
  * @param rowStatus Row treatment used to avoid redundant token coloring.
  */
 function appendDecoratedText(
   element: HTMLElement,
   text: string,
   parts: DecoratedPart[],
+  side: Side,
   rowStatus: RowStatus,
 ) {
   /**
@@ -1364,10 +1377,39 @@ function appendDecoratedText(
     parts.map((part) => part.text).join("") === text,
     "Decorated parts must reconstruct their complete row text.",
   );
+  // A line-local enclosure groups syntax fragments with the same move. It
+  // belongs to this code cell; no DOM or move state survives row replacement.
+  let enclosure: HTMLSpanElement | null = null;
   for (const part of parts) {
+    if (part.move === undefined) {
+      enclosure = null;
+    } else {
+      const { left, right } = part.move;
+      const key = [left, right]
+        .flatMap((span) => [
+          span.start_line,
+          span.start_column,
+          span.end_line,
+          span.end_column,
+        ])
+        .join(":");
+      if (enclosure?.dataset.moveKey !== key) {
+        enclosure = document.createElement("span");
+        enclosure.className = "token-moved";
+        enclosure.dataset.moveKey = key;
+        enclosure.dataset.moveSide = side;
+        const target = side === "left" ? right : left;
+        enclosure.title = `Moved ${side === "left" ? "to" : "from"} ${target.start_line === target.end_line ? `line ${target.start_line}` : `lines ${target.start_line}–${target.end_line}`} (old ${left.start_line}:${left.start_column + 1}–${left.end_line}:${left.end_column + 1} → new ${right.start_line}:${right.start_column + 1}–${right.end_line}:${right.end_column + 1}; ends exclusive)`;
+        element.append(enclosure);
+      }
+    }
     const tokenChanged = part.diff_status !== "unchanged";
     const syntaxClasses = visibleSyntaxClasses(part.syntax_classes);
-    if (syntaxClasses.length === 0 && !tokenChanged) {
+    if (
+      syntaxClasses.length === 0 &&
+      !tokenChanged &&
+      part.move === undefined
+    ) {
       element.append(part.text);
       continue;
     }
@@ -1389,11 +1431,11 @@ function appendDecoratedText(
       classes.push("whitespace-leading");
     }
     span.className = classes.join(" ");
-    if (showTokenChange && part.is_whitespace) {
+    if (showTokenChange && part.is_whitespace && part.move === undefined) {
       span.title = "Whitespace changed";
     }
     span.textContent = part.text;
-    element.append(span);
+    (enclosure ?? element).append(span);
   }
 }
 

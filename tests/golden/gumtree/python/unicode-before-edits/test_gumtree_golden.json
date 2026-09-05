@@ -1,0 +1,54 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "label = \"\u0457\ud83d\ude00\"",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label = \"\u0457\ud83d\ude00\""
+      }
+    ],
+    "right_no": 1,
+    "right_text": "label = \"\u0457\ud83d\ude00\"",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "label = \"\u0457\ud83d\ude00\""
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "next_value = 3",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "next_value = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "3"
+      }
+    ],
+    "right_no": 2,
+    "right_text": "next_value = 4",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "next_value = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "4"
+      }
+    ],
+    "status": "replace"
+  }
+]

@@ -20,6 +20,20 @@
       },
       {
         "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 49,
+            "end_line": 1,
+            "start_column": 46,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 49,
+            "end_line": 1,
+            "start_column": 46,
+            "start_line": 1
+          }
+        },
         "status": "move",
         "text": "str"
       },
@@ -39,6 +53,20 @@
       },
       {
         "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 49,
+            "end_line": 1,
+            "start_column": 46,
+            "start_line": 1
+          },
+          "right": {
+            "end_column": 49,
+            "end_line": 1,
+            "start_column": 46,
+            "start_line": 1
+          }
+        },
         "status": "move",
         "text": "str"
       },
@@ -48,18 +76,12 @@
         "text": ":"
       }
     ],
-    "status": "equal"
+    "status": "replace"
   },
   {
-    "left_no": 2,
-    "left_text": "    normalized_items: list[dict[str, object]] = []",
-    "left_tokens": [
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "    normalized_items: list[dict[str, object]] = []"
-      }
-    ],
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
     "right_no": 2,
     "right_text": "    normalized_items = normalize_items(order)",
     "right_tokens": [
@@ -69,33 +91,21 @@
         "text": "    normalized_items = normalize_items(order)"
       }
     ],
-    "status": "equal"
+    "status": "insert"
   },
   {
-    "left_no": 3,
-    "left_text": "    for item in order[\"items\"]:",
-    "left_tokens": [
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "    for item in order[\"items\"]:"
-      }
-    ],
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
     "right_no": 3,
     "right_text": "",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 4,
-    "left_text": "        name = item[\"name\"].strip()",
-    "left_tokens": [
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "        name = item[\"name\"].strip()"
-      }
-    ],
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
     "right_no": 4,
     "right_text": "    lines: list[str] = []",
     "right_tokens": [
@@ -106,22 +116,30 @@
       },
       {
         "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 25,
+            "end_line": 13,
+            "start_column": 4,
+            "start_line": 13
+          },
+          "right": {
+            "end_column": 25,
+            "end_line": 4,
+            "start_column": 4,
+            "start_line": 4
+          }
+        },
         "status": "move",
         "text": "lines: list[str] = []"
       }
     ],
-    "status": "equal"
+    "status": "replace"
   },
   {
-    "left_no": 5,
-    "left_text": "        quantity = int(item.get(\"quantity\", 1))",
-    "left_tokens": [
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "        quantity = int(item.get(\"quantity\", 1))"
-      }
-    ],
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
     "right_no": 5,
     "right_text": "    for item in normalized_items:",
     "right_tokens": [
@@ -132,43 +150,59 @@
       },
       {
         "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 59,
+            "end_line": 15,
+            "start_column": 4,
+            "start_line": 14
+          },
+          "right": {
+            "end_column": 59,
+            "end_line": 6,
+            "start_column": 4,
+            "start_line": 5
+          }
+        },
         "status": "move",
         "text": "for item in normalized_items:"
       }
     ],
-    "status": "equal"
+    "status": "replace"
   },
   {
-    "left_no": 6,
-    "left_text": "        normalized_items.append(",
-    "left_tokens": [
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "        normalized_items.append("
-      }
-    ],
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
     "right_no": 6,
     "right_text": "        lines.append(f\"{item['quantity']}x {item['name']}\")",
     "right_tokens": [
       {
         "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 59,
+            "end_line": 15,
+            "start_column": 4,
+            "start_line": 14
+          },
+          "right": {
+            "end_column": 59,
+            "end_line": 6,
+            "start_column": 4,
+            "start_line": 5
+          }
+        },
         "status": "move",
         "text": "        lines.append(f\"{item['quantity']}x {item['name']}\")"
       }
     ],
-    "status": "equal"
+    "status": "move"
   },
   {
-    "left_no": 7,
-    "left_text": "            {",
-    "left_tokens": [
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "            {"
-      }
-    ],
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
     "right_no": 7,
     "right_text": "    return \"\\n\".join(lines)",
     "right_tokens": [
@@ -179,52 +213,48 @@
       },
       {
         "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 27,
+            "end_line": 16,
+            "start_column": 4,
+            "start_line": 16
+          },
+          "right": {
+            "end_column": 27,
+            "end_line": 7,
+            "start_column": 4,
+            "start_line": 7
+          }
+        },
         "status": "move",
         "text": "return \"\\n\".join(lines)"
       }
     ],
-    "status": "equal"
+    "status": "replace"
   },
   {
-    "left_no": 8,
-    "left_text": "                \"name\": name,",
-    "left_tokens": [
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "                \"name\": name,"
-      }
-    ],
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
     "right_no": 8,
     "right_text": "",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 9,
-    "left_text": "                \"quantity\": quantity,",
-    "left_tokens": [
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "                \"quantity\": quantity,"
-      }
-    ],
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
     "right_no": 9,
     "right_text": "",
     "right_tokens": [],
     "status": "equal"
   },
   {
-    "left_no": 10,
-    "left_text": "            }",
-    "left_tokens": [
-      {
-        "is_ws": false,
-        "status": "unchanged",
-        "text": "            }"
-      }
-    ],
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
     "right_no": 10,
     "right_text": "def normalize_items(order: dict[str, object]) -> list[dict[str, object]]:",
     "right_tokens": [
@@ -254,16 +284,16 @@
         "text": ":"
       }
     ],
-    "status": "equal"
+    "status": "replace"
   },
   {
-    "left_no": 11,
-    "left_text": "        )",
+    "left_no": 2,
+    "left_text": "    normalized_items: list[dict[str, object]] = []",
     "left_tokens": [
       {
         "is_ws": false,
         "status": "unchanged",
-        "text": "        )"
+        "text": "    normalized_items: list[dict[str, object]] = []"
       }
     ],
     "right_no": 11,
@@ -278,9 +308,15 @@
     "status": "equal"
   },
   {
-    "left_no": 12,
-    "left_text": "",
-    "left_tokens": [],
+    "left_no": 3,
+    "left_text": "    for item in order[\"items\"]:",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    for item in order[\"items\"]:"
+      }
+    ],
     "right_no": 12,
     "right_text": "    for item in order[\"items\"]:",
     "right_tokens": [
@@ -293,18 +329,13 @@
     "status": "equal"
   },
   {
-    "left_no": 13,
-    "left_text": "    lines: list[str] = []",
+    "left_no": 4,
+    "left_text": "        name = item[\"name\"].strip()",
     "left_tokens": [
       {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "    "
-      },
-      {
         "is_ws": false,
-        "status": "move",
-        "text": "lines: list[str] = []"
+        "status": "unchanged",
+        "text": "        name = item[\"name\"].strip()"
       }
     ],
     "right_no": 13,
@@ -319,18 +350,13 @@
     "status": "equal"
   },
   {
-    "left_no": 14,
-    "left_text": "    for item in normalized_items:",
+    "left_no": 5,
+    "left_text": "        quantity = int(item.get(\"quantity\", 1))",
     "left_tokens": [
       {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "    "
-      },
-      {
         "is_ws": false,
-        "status": "move",
-        "text": "for item in normalized_items:"
+        "status": "unchanged",
+        "text": "        quantity = int(item.get(\"quantity\", 1))"
       }
     ],
     "right_no": 14,
@@ -345,13 +371,13 @@
     "status": "equal"
   },
   {
-    "left_no": 15,
-    "left_text": "        lines.append(f\"{item['quantity']}x {item['name']}\")",
+    "left_no": 6,
+    "left_text": "        normalized_items.append(",
     "left_tokens": [
       {
         "is_ws": false,
-        "status": "move",
-        "text": "        lines.append(f\"{item['quantity']}x {item['name']}\")"
+        "status": "unchanged",
+        "text": "        normalized_items.append("
       }
     ],
     "right_no": 15,
@@ -366,18 +392,13 @@
     "status": "equal"
   },
   {
-    "left_no": 16,
-    "left_text": "    return \"\\n\".join(lines)",
+    "left_no": 7,
+    "left_text": "            {",
     "left_tokens": [
       {
-        "is_ws": true,
-        "status": "unchanged",
-        "text": "    "
-      },
-      {
         "is_ws": false,
-        "status": "move",
-        "text": "return \"\\n\".join(lines)"
+        "status": "unchanged",
+        "text": "            {"
       }
     ],
     "right_no": 16,
@@ -392,9 +413,15 @@
     "status": "equal"
   },
   {
-    "left_no": null,
-    "left_text": "",
-    "left_tokens": [],
+    "left_no": 8,
+    "left_text": "                \"name\": name,",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "                \"name\": name,"
+      }
+    ],
     "right_no": 17,
     "right_text": "                \"name\": name,",
     "right_tokens": [
@@ -407,9 +434,15 @@
     "status": "equal"
   },
   {
-    "left_no": null,
-    "left_text": "",
-    "left_tokens": [],
+    "left_no": 9,
+    "left_text": "                \"quantity\": quantity,",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "                \"quantity\": quantity,"
+      }
+    ],
     "right_no": 18,
     "right_text": "                \"quantity\": quantity,",
     "right_tokens": [
@@ -422,9 +455,15 @@
     "status": "equal"
   },
   {
-    "left_no": null,
-    "left_text": "",
-    "left_tokens": [],
+    "left_no": 10,
+    "left_text": "            }",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "            }"
+      }
+    ],
     "right_no": 19,
     "right_text": "            }",
     "right_tokens": [
@@ -437,9 +476,15 @@
     "status": "equal"
   },
   {
-    "left_no": null,
-    "left_text": "",
-    "left_tokens": [],
+    "left_no": 11,
+    "left_text": "        )",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        )"
+      }
+    ],
     "right_no": 20,
     "right_text": "        )",
     "right_tokens": [
@@ -452,7 +497,7 @@
     "status": "equal"
   },
   {
-    "left_no": null,
+    "left_no": 12,
     "left_text": "",
     "left_tokens": [],
     "right_no": 21,
@@ -469,6 +514,137 @@
         "text": "return normalized_items"
       }
     ],
-    "status": "equal"
+    "status": "insert"
+  },
+  {
+    "left_no": 13,
+    "left_text": "    lines: list[str] = []",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 25,
+            "end_line": 13,
+            "start_column": 4,
+            "start_line": 13
+          },
+          "right": {
+            "end_column": 25,
+            "end_line": 4,
+            "start_column": 4,
+            "start_line": 4
+          }
+        },
+        "status": "move",
+        "text": "lines: list[str] = []"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 14,
+    "left_text": "    for item in normalized_items:",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 59,
+            "end_line": 15,
+            "start_column": 4,
+            "start_line": 14
+          },
+          "right": {
+            "end_column": 59,
+            "end_line": 6,
+            "start_column": 4,
+            "start_line": 5
+          }
+        },
+        "status": "move",
+        "text": "for item in normalized_items:"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 15,
+    "left_text": "        lines.append(f\"{item['quantity']}x {item['name']}\")",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 59,
+            "end_line": 15,
+            "start_column": 4,
+            "start_line": 14
+          },
+          "right": {
+            "end_column": 59,
+            "end_line": 6,
+            "start_column": 4,
+            "start_line": 5
+          }
+        },
+        "status": "move",
+        "text": "        lines.append(f\"{item['quantity']}x {item['name']}\")"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 16,
+    "left_text": "    return \"\\n\".join(lines)",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "    "
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 27,
+            "end_line": 16,
+            "start_column": 4,
+            "start_line": 16
+          },
+          "right": {
+            "end_column": 27,
+            "end_line": 7,
+            "start_column": 4,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "return \"\\n\".join(lines)"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
   }
 ]

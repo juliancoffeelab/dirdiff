@@ -1,0 +1,2250 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "function PresetControls(props) {",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "function PresetControls(props) {"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "function PresetControls(props) {",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "function PresetControls(props) {"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 2,
+    "right_text": "  const renderPresetTabs = () => {",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "  "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "const renderPresetTabs = "
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "move",
+        "text": "() => "
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "insert",
+        "text": "{"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 3,
+    "right_text": "    const catalogs = props.presetCatalogs;",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "insert",
+        "text": "    const catalogs = "
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 38,
+            "end_line": 20,
+            "start_column": 18,
+            "start_line": 20
+          },
+          "right": {
+            "end_column": 41,
+            "end_line": 3,
+            "start_column": 21,
+            "start_line": 3
+          }
+        },
+        "status": "move",
+        "text": "props.presetCatalogs"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 4,
+    "right_text": "    if (catalogs === null) {",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "insert",
+        "text": "    if (catalogs === null) {"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 5,
+    "right_text": "      return null;",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "insert",
+        "text": "      return null;"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 6,
+    "right_text": "    }",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "insert",
+        "text": "    }"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 7,
+    "right_text": "    return (",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "insert",
+        "text": "    return "
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "("
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 8,
+    "right_text": "      <fieldset class=\"mode-tabs preset-tabs\">",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "      <fieldset class=\"mode-tabs preset-tabs\">"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 9,
+    "right_text": "        <legend>Presets</legend>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "        <legend>Presets</legend>"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 10,
+    "right_text": "        <For each={catalogs[draft().presetType].groups}>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "        <For each={"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "insert",
+        "text": "catalogs"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "[draft().presetType].groups}>"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 11,
+    "right_text": "          {(group) => (",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "          {(group) => ("
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 12,
+    "right_text": "            <button",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "            <button"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 13,
+    "right_text": "              type=\"button\"",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "              type=\"button\""
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 14,
+    "right_text": "              onClick={() => {",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "              onClick={() => {"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 15,
+    "right_text": "                const nextDraft = { ...draft(), preset: group.name };",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                const nextDraft = { ...draft(), preset: group.name };"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 16,
+    "right_text": "                setDraft(nextDraft);",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                setDraft(nextDraft);"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 17,
+    "right_text": "                loadDraft(nextDraft);",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                loadDraft(nextDraft);"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 18,
+    "right_text": "              }}",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "              }}"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 19,
+    "right_text": "              classList={{ \"is-active\": draft().preset === group.name }}",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "              classList={{ \"is-active\": draft().preset === group.name }}"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 20,
+    "right_text": "              aria-pressed={draft().preset === group.name}",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "              aria-pressed={draft().preset === group.name}"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 21,
+    "right_text": "            >",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "            >"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 22,
+    "right_text": "              {group.display_name}",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "              {group.display_name}"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 23,
+    "right_text": "            </button>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "            </button>"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 24,
+    "right_text": "          )}",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "          )}"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 25,
+    "right_text": "        </For>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "        </For>"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 26,
+    "right_text": "      </fieldset>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "      </fieldset>"
+      }
+    ],
+    "status": "move"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 27,
+    "right_text": "    );",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "    )"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 28,
+    "right_text": "  };",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "insert",
+        "text": "  }"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": ";"
+      }
+    ],
+    "status": "insert"
+  },
+  {
+    "left_no": null,
+    "left_text": "",
+    "left_tokens": [],
+    "right_no": 29,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "equal"
+  },
+  {
+    "left_no": 2,
+    "left_text": "  return (",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  return ("
+      }
+    ],
+    "right_no": 30,
+    "right_text": "  return (",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  return ("
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 3,
+    "left_text": "    <Show when={draft().mode === \"preset\"}>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    <Show when={draft().mode === \"preset\"}>"
+      }
+    ],
+    "right_no": 31,
+    "right_text": "    <Show when={draft().mode === \"preset\"}>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    <Show when={draft().mode === \"preset\"}>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 4,
+    "left_text": "      <Show when={props.presetCatalogsPending}>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      <Show when={props.presetCatalogsPending}>"
+      }
+    ],
+    "right_no": 32,
+    "right_text": "      <Show when={props.presetCatalogsPending}>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      <Show when={props.presetCatalogsPending}>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 5,
+    "left_text": "        <p class=\"status\">Loading presets...</p>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        <p class=\"status\">Loading presets...</p>"
+      }
+    ],
+    "right_no": 33,
+    "right_text": "        <p class=\"status\">Loading presets...</p>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        <p class=\"status\">Loading presets...</p>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 6,
+    "left_text": "      </Show>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      </Show>"
+      }
+    ],
+    "right_no": 34,
+    "right_text": "      </Show>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      </Show>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 7,
+    "left_text": "      <Show when={props.presetCatalogsError !== null}>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      <Show when={props.presetCatalogsError !== null}>"
+      }
+    ],
+    "right_no": 35,
+    "right_text": "      <Show when={props.presetCatalogsError !== null}>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      <Show when={props.presetCatalogsError !== null}>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 8,
+    "left_text": "        <section class=\"notice error\">",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        <section class=\"notice error\">"
+      }
+    ],
+    "right_no": 36,
+    "right_text": "        <section class=\"notice error\">",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        <section class=\"notice error\">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 9,
+    "left_text": "          Failed to load presets: {String(props.presetCatalogsError)}",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "          Failed to load presets: {String(props.presetCatalogsError)}"
+      }
+    ],
+    "right_no": 37,
+    "right_text": "          Failed to load presets: {String(props.presetCatalogsError)}",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "          Failed to load presets: {String(props.presetCatalogsError)}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 10,
+    "left_text": "        </section>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        </section>"
+      }
+    ],
+    "right_no": 38,
+    "right_text": "        </section>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        </section>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 11,
+    "left_text": "      </Show>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      </Show>"
+      }
+    ],
+    "right_no": 39,
+    "right_text": "      </Show>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      </Show>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 12,
+    "left_text": "      <fieldset class=\"mode-tabs preset-tabs\">",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      <fieldset class=\"mode-tabs preset-tabs\">"
+      }
+    ],
+    "right_no": 40,
+    "right_text": "      <fieldset class=\"mode-tabs preset-tabs\">",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      <fieldset class=\"mode-tabs preset-tabs\">"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 13,
+    "left_text": "        <legend>Preset type</legend>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        <legend>Preset type</legend>"
+      }
+    ],
+    "right_no": 41,
+    "right_text": "        <legend>Preset type</legend>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        <legend>Preset type</legend>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 14,
+    "left_text": "        <For each={presetTypes}>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        <For each={presetTypes}>"
+      }
+    ],
+    "right_no": 42,
+    "right_text": "        <For each={presetTypes}>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        <For each={presetTypes}>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 15,
+    "left_text": "          {(presetType) => (",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "          {(presetType) => ("
+      }
+    ],
+    "right_no": 43,
+    "right_text": "          {(presetType) => (",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "          {(presetType) => ("
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 16,
+    "left_text": "            <button type=\"button\">{presetTypeLabels[presetType]}</button>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "            <button type=\"button\">{presetTypeLabels[presetType]}</button>"
+      }
+    ],
+    "right_no": 44,
+    "right_text": "            <button type=\"button\">{presetTypeLabels[presetType]}</button>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "            <button type=\"button\">{presetTypeLabels[presetType]}</button>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 17,
+    "left_text": "          )}",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "          )}"
+      }
+    ],
+    "right_no": 45,
+    "right_text": "          )}",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "          )}"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 18,
+    "left_text": "        </For>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        </For>"
+      }
+    ],
+    "right_no": 46,
+    "right_text": "        </For>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "        </For>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 19,
+    "left_text": "      </fieldset>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      </fieldset>"
+      }
+    ],
+    "right_no": 47,
+    "right_text": "      </fieldset>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "      </fieldset>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 20,
+    "left_text": "      <Show when={props.presetCatalogs}>",
+    "left_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "<Show when={"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 38,
+            "end_line": 20,
+            "start_column": 18,
+            "start_line": 20
+          },
+          "right": {
+            "end_column": 41,
+            "end_line": 3,
+            "start_column": 21,
+            "start_line": 3
+          }
+        },
+        "status": "move",
+        "text": "props.presetCatalogs"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}>"
+      }
+    ],
+    "right_no": 48,
+    "right_text": "      {renderPresetTabs()}",
+    "right_tokens": [
+      {
+        "is_ws": true,
+        "status": "unchanged",
+        "text": "      "
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "{"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 33,
+            "end_line": 24,
+            "start_column": 23,
+            "start_line": 24
+          },
+          "right": {
+            "end_column": 25,
+            "end_line": 48,
+            "start_column": 7,
+            "start_line": 48
+          }
+        },
+        "status": "replace",
+        "text": "renderPresetTabs"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 33,
+            "end_line": 24,
+            "start_column": 23,
+            "start_line": 24
+          },
+          "right": {
+            "end_column": 25,
+            "end_line": 48,
+            "start_column": 7,
+            "start_line": 48
+          }
+        },
+        "status": "move",
+        "text": "()"
+      },
+      {
+        "is_ws": false,
+        "status": "insert",
+        "text": "}"
+      }
+    ],
+    "status": "replace"
+  },
+  {
+    "left_no": 21,
+    "left_text": "        {(catalogs) => (",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "        {"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "move",
+        "text": "("
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "delete",
+        "text": "catalogs"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 9,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 3,
+            "end_line": 28,
+            "start_column": 27,
+            "start_line": 2
+          }
+        },
+        "status": "move",
+        "text": ") => "
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "("
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "replace"
+  },
+  {
+    "left_no": 22,
+    "left_text": "          <fieldset class=\"mode-tabs preset-tabs\">",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "          <fieldset class=\"mode-tabs preset-tabs\">"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 23,
+    "left_text": "            <legend>Presets</legend>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "            <legend>Presets</legend>"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 24,
+    "left_text": "            <For each={catalogs()[draft().presetType].groups}>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "            <For each={"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 33,
+            "end_line": 24,
+            "start_column": 23,
+            "start_line": 24
+          },
+          "right": {
+            "end_column": 25,
+            "end_line": 48,
+            "start_column": 7,
+            "start_line": 48
+          }
+        },
+        "status": "replace",
+        "text": "catalogs"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 33,
+            "end_line": 24,
+            "start_column": 23,
+            "start_line": 24
+          },
+          "right": {
+            "end_column": 25,
+            "end_line": 48,
+            "start_column": 7,
+            "start_line": 48
+          }
+        },
+        "status": "move",
+        "text": "()"
+      },
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "[draft().presetType].groups}>"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "replace"
+  },
+  {
+    "left_no": 25,
+    "left_text": "              {(group) => (",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "              {(group) => ("
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 26,
+    "left_text": "                <button",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                <button"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 27,
+    "left_text": "                  type=\"button\"",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                  type=\"button\""
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 28,
+    "left_text": "                  onClick={() => {",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                  onClick={() => {"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 29,
+    "left_text": "                    const nextDraft = { ...draft(), preset: group.name };",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                    const nextDraft = { ...draft(), preset: group.name };"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 30,
+    "left_text": "                    setDraft(nextDraft);",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                    setDraft(nextDraft);"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 31,
+    "left_text": "                    loadDraft(nextDraft);",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                    loadDraft(nextDraft);"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 32,
+    "left_text": "                  }}",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                  }}"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 33,
+    "left_text": "                  classList={{ \"is-active\": draft().preset === group.name }}",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                  classList={{ \"is-active\": draft().preset === group.name }}"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 34,
+    "left_text": "                  aria-pressed={draft().preset === group.name}",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                  aria-pressed={draft().preset === group.name}"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 35,
+    "left_text": "                >",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                >"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 36,
+    "left_text": "                  {group.display_name}",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                  {group.display_name}"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 37,
+    "left_text": "                </button>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "                </button>"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 38,
+    "left_text": "              )}",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "              )}"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 39,
+    "left_text": "            </For>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "            </For>"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 40,
+    "left_text": "          </fieldset>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "          </fieldset>"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "move"
+  },
+  {
+    "left_no": 41,
+    "left_text": "        )}",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "move": {
+          "left": {
+            "end_column": 9,
+            "end_line": 41,
+            "start_column": 23,
+            "start_line": 21
+          },
+          "right": {
+            "end_column": 5,
+            "end_line": 27,
+            "start_column": 11,
+            "start_line": 7
+          }
+        },
+        "status": "move",
+        "text": "        )"
+      },
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "}"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "replace"
+  },
+  {
+    "left_no": 42,
+    "left_text": "      </Show>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "delete",
+        "text": "      </Show>"
+      }
+    ],
+    "right_no": null,
+    "right_text": "",
+    "right_tokens": [],
+    "status": "delete"
+  },
+  {
+    "left_no": 43,
+    "left_text": "    </Show>",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    </Show>"
+      }
+    ],
+    "right_no": 49,
+    "right_text": "    </Show>",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "    </Show>"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 44,
+    "left_text": "  );",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  );"
+      }
+    ],
+    "right_no": 50,
+    "right_text": "  );",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "  );"
+      }
+    ],
+    "status": "equal"
+  },
+  {
+    "left_no": 45,
+    "left_text": "}",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "right_no": 51,
+    "right_text": "}",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "}"
+      }
+    ],
+    "status": "equal"
+  }
+]

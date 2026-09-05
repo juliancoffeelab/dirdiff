@@ -1,0 +1,43 @@
+[
+  {
+    "left_no": 1,
+    "left_text": "class A { String s = \"\u0457\ud83d\ude00\"; int value = 1; }",
+    "left_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class A { String s = \"\u0457\ud83d\ude00\"; int value = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "1"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "; }"
+      }
+    ],
+    "right_no": 1,
+    "right_text": "class A { String s = \"\u0457\ud83d\ude00\"; int value = 2; }",
+    "right_tokens": [
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "class A { String s = \"\u0457\ud83d\ude00\"; int value = "
+      },
+      {
+        "is_ws": false,
+        "status": "replace",
+        "text": "2"
+      },
+      {
+        "is_ws": false,
+        "status": "unchanged",
+        "text": "; }"
+      }
+    ],
+    "status": "replace"
+  }
+]

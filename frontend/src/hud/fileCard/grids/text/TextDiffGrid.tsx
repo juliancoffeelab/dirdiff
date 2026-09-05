@@ -15,6 +15,7 @@ import {
   Show,
   createEffect,
   createSignal,
+  createUniqueId,
   onCleanup,
   onMount,
   type JSX,
@@ -28,7 +29,8 @@ import type { DiffViewMode } from "../../../App";
 import { addFoldRows, isFoldRow } from "./folds";
 import type { LinePins, LinePinTarget, PreparedLine } from "../../../linePins";
 import { assert, expect } from "../../../../utils";
-import { presentError } from "../../../../comp/Toasts";
+import { useNavigation } from "../../../navigation";
+import { presentError, useToasts } from "../../../../comp/Toasts";
 import {
   LineMarkerKeySchema,
   useReview,
@@ -328,6 +330,12 @@ function ImperativeDiffLines(props: {
     file: props.reviewFile,
     bay: { bay_key: props.bayKey },
   };
+  const navigation = useNavigation();
+  const toast = useToasts();
+  // A newer move click cancels an unfinished jump. Grid disposal also cancels
+  // preparation so it cannot scroll after its source DOM has gone away.
+  let moveNavigationAbort: AbortController | undefined;
+  onCleanup(() => moveNavigationAbort?.abort());
   const expandedFolds = new Set<number>();
   let previousDisplayName: string | undefined;
   let previousRows: DiffRow[] | undefined;
@@ -445,11 +453,57 @@ function ImperativeDiffLines(props: {
    * trigger toggles its exact code-aligned Solid floater; another trigger
    * switches that single floater to its line. Neither action changes the URL.
    * Other pinnable line-number clicks retain the exact existing pin behavior;
-   * no path scrolls, loads a file, or selects a hunk.
+   * move clicks navigate to the counterpart without changing pins or hunks.
    */
   function handleLineActivation(event: MouseEvent): void {
     const clicked = event.target;
     if (!(clicked instanceof HTMLElement)) {
+      return;
+    }
+    const move = clicked.closest<HTMLElement>(".token-moved");
+    if (move !== null && root.contains(move)) {
+      // A drag or multi-click selects source text instead of navigating.
+      if (event.detail > 1 || window.getSelection()?.isCollapsed === false) {
+        return;
+      }
+      event.stopPropagation();
+      const side = move.dataset.moveSide;
+      assert(side === "left" || side === "right", "Move has an invalid side.");
+      const coordinates = expect(move.dataset.moveKey, "Move has no endpoints.")
+        .split(":")
+        .map(Number);
+      assert(
+        coordinates.length === 8 && coordinates.every(Number.isInteger),
+        "Move has invalid endpoints.",
+      );
+      const line = expect(
+        coordinates[side === "left" ? 4 : 0],
+        "Move has no counterpart start.",
+      );
+      assert(line > 0, "Move counterpart line must be positive.");
+      moveNavigationAbort?.abort();
+      moveNavigationAbort = new AbortController();
+      void navigation
+        .navigate({
+          kind: "line",
+          fileIndex: props.fileIndex,
+          target: {
+            file: props.reviewFile,
+            bay: { bay_key: props.bayKey },
+            side: side === "left" ? "right" : "left",
+            line: String(line),
+          },
+          abortSignal: moveNavigationAbort.signal,
+        })
+        .then((result) => {
+          assert(
+            result.state !== "missing",
+            "Move counterpart is absent from its source bay.",
+          );
+        })
+        .catch((error: unknown) =>
+          toast.showError("Move navigation failed", error),
+        );
       return;
     }
     const lineNumber = clicked.closest<HTMLElement>(
@@ -849,6 +903,81 @@ function ImperativeDiffLines(props: {
     }
   }
 
+  // This grid's SVG filter combines touching moved-text rectangles into one
+  // outline, retaining holes occupied by different move relationships or unassociated text.
+  const moveOutlineId = `move-outline-${createUniqueId().replaceAll(":", "")}`;
+  /** Rebuilds persistent move outlines from the current mounted text geometry. */
+  function paintMoveOutlines(): void {
+    root.querySelector(".move-outlines")?.remove();
+    const moved = root.querySelectorAll<HTMLElement>(".token-moved");
+    if (moved.length === 0) return;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.classList.add("move-outlines");
+    svg.setAttribute("aria-hidden", "true");
+    // Static filter markup: dilation minus the source produces only the outer
+    // edge of each group's union, so touching lines have no internal borders.
+    svg.innerHTML = `<defs><filter id="${moveOutlineId}" x="-5%" y="-5%" width="110%" height="110%"><feMorphology in="SourceAlpha" operator="dilate" radius="1" result="expanded"/><feComposite in="expanded" in2="SourceAlpha" operator="out" result="edge"/><feFlood flood-color="#a56abd"/><feComposite in2="edge" operator="in"/></filter></defs>`;
+    const origin = root.getBoundingClientRect();
+    const groups = new Map<string, SVGGElement>();
+    for (const token of moved) {
+      const move = expect(
+        token.closest<HTMLElement>("[data-move-key]"),
+        "Move enclosures require the same endpoints as their hover details.",
+      );
+      const key = `${move.dataset.moveSide}:${move.dataset.moveKey}`;
+      let group = groups.get(key);
+      if (group === undefined) {
+        group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        group.dataset.moveSide = expect(
+          move.dataset.moveSide,
+          "Move side is required.",
+        );
+        group.dataset.moveKey = expect(
+          move.dataset.moveKey,
+          "Move endpoints are required.",
+        );
+        group.setAttribute("filter", `url(#${moveOutlineId})`);
+        group.style.setProperty(
+          "--move-outline-filter",
+          `url(#${moveOutlineId})`,
+        );
+        group.classList.toggle(
+          "move-highlighted",
+          move.classList.contains("move-highlighted"),
+        );
+        groups.set(key, group);
+        svg.append(group);
+      }
+      const code = expect(
+        token.closest<HTMLElement>(".line-code"),
+        "Move tokens require a source code cell.",
+      );
+      const cell = code.getBoundingClientRect();
+      const lineHeight = Number.parseFloat(getComputedStyle(code).lineHeight);
+      for (const bounds of token.getClientRects()) {
+        const rect = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "rect",
+        );
+        rect.setAttribute("x", String(bounds.left - origin.left));
+        rect.setAttribute(
+          "y",
+          String(
+            (cell.height < lineHeight * 2 ? cell.top : bounds.top - 2) -
+              origin.top,
+          ),
+        );
+        rect.setAttribute("width", String(bounds.width));
+        rect.setAttribute(
+          "height",
+          String(cell.height < lineHeight * 2 ? cell.height : lineHeight),
+        );
+        group.append(rect);
+      }
+    }
+    root.append(svg);
+  }
+
   /**
    * Restores transient marker and URL state after a renderer-owned row change.
    *
@@ -857,6 +986,7 @@ function ImperativeDiffLines(props: {
    * reads review state without making the complete renderer reactive.
    */
   function afterRowsChanged(): void {
+    paintMoveOutlines();
     setRowRevision((current) => current + 1);
     if (reviewMarkersFailed) {
       disableReviewMarkers();
@@ -940,9 +1070,90 @@ function ImperativeDiffLines(props: {
   onMount(() => {
     root.prepareLine_impl = prepareLine_impl;
     root.addEventListener("click", handleLineActivation);
+    /** Emphasizes a move subtree, using containment on the hovered source side. */
+    function highlightMove(event: PointerEvent) {
+      const [entered, exited] = [event.target, event.relatedTarget].map(
+        (target) => {
+          const span =
+            target instanceof Element
+              ? target.closest<HTMLElement>(".token-moved")
+              : null;
+          return span !== null && root.contains(span) ? span : null;
+        },
+      );
+      if (
+        entered?.dataset.moveKey === exited?.dataset.moveKey &&
+        entered?.dataset.moveSide === exited?.dataset.moveSide
+      )
+        return;
+      const hovered = event.type === "pointerout" ? exited : entered;
+      const selected = new Set<string>();
+      if (hovered !== null) {
+        const key = expect(
+          hovered.dataset.moveKey,
+          "Move hover requires endpoints.",
+        );
+        const side = expect(
+          hovered.dataset.moveSide,
+          "Move hover requires a source side.",
+        );
+        const offset = side === "left" ? 0 : 4;
+        const [startLine, startColumn, endLine, endColumn] = key
+          .split(":")
+          .map(Number)
+          .slice(offset, offset + 4);
+        // Origins can lie outside the parent's origin. Containment is evaluated
+        // only on the side being hovered, then paired identities cross sides.
+        for (const span of root.querySelectorAll<HTMLElement>(
+          `.token-moved[data-move-side="${side}"]`,
+        )) {
+          const candidate = expect(
+            span.dataset.moveKey,
+            "Move hover requires endpoints.",
+          );
+          const [firstLine, firstColumn, lastLine, lastColumn] = candidate
+            .split(":")
+            .map(Number)
+            .slice(offset, offset + 4);
+          if (
+            (firstLine > startLine ||
+              (firstLine === startLine && firstColumn >= startColumn)) &&
+            (lastLine < endLine ||
+              (lastLine === endLine && lastColumn <= endColumn))
+          )
+            selected.add(candidate);
+        }
+      }
+      // Coverage never changes: hover emphasizes existing text and outlines for
+      // the selected move and descendants, including their opposite-side pieces.
+      for (const element of root.querySelectorAll<HTMLElement | SVGGElement>(
+        ".token-moved, .move-outlines g",
+      )) {
+        element.classList.toggle(
+          "move-highlighted",
+          selected.has(
+            expect(element.dataset.moveKey, "Move paint requires endpoints."),
+          ),
+        );
+      }
+    }
+    // The observer lives with the mounted grid and repaints after wrapping or
+    // font/layout changes. SVG is absolutely positioned and cannot resize it.
+    const moveResize = new ResizeObserver(() => {
+      paintMoveOutlines();
+    });
+    moveResize.observe(root);
+    paintMoveOutlines();
+    // Delegation covers fold replacements without per-token listeners. Pair
+    // identity stays in mounted DOM; disposal removes both pointer listeners.
+    root.addEventListener("pointerover", highlightMove);
+    root.addEventListener("pointerout", highlightMove);
     onCleanup(() => {
       review.closeAnchoredUi(root);
       root.removeEventListener("click", handleLineActivation);
+      root.removeEventListener("pointerover", highlightMove);
+      root.removeEventListener("pointerout", highlightMove);
+      moveResize.disconnect();
       Reflect.deleteProperty(root, "prepareLine_impl");
     });
   });

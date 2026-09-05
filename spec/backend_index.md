@@ -57,8 +57,8 @@ Compares two already-loaded text sides.
 The package defines `DirdiffError`, the shared failure contract used when
 dirdiff cannot safely produce a requested result.
 
-An engine produces neutral aligned rows, inline diff tokens, summary counts,
-and an engine warning when applicable. It does not load files or attach syntax
+An engine produces aligned rows, inline diff tokens with any structural move
+endpoints, summary counts, and an engine warning when applicable. It does not load files or attach syntax
 highlighting, folds, or hunk indexes. Difftastic keeps its degraded textual
 diff construction inside its own implementation.
 
@@ -71,6 +71,27 @@ diffed, and oversized regions degrade to one-sided rows with an explicit
 `tokendiff_region_limit` warning. Its row guarantees are asserted by the
 corpus property tests in `tests/tokendiff/`.
 
+GumTree aligns the sequences of unchanged complete lines and pairs changed
+intervening lines in source order. It preserves every line exactly once per
+side. GumTree actions classify inline changes, and row statuses summarize
+those token semantics independently of alignment gaps. Context-only rows are
+equal; pure insertions, deletions, and moves retain their kind only without
+unchanged non-whitespace context. Mixed rows are replacements. Summary counts
+follow these row classifications.
+Narrower actions win overlapping status; edits beat equally wide moves.
+The innermost containing move supplies
+both old and new source spans even when a descendant is edited. Move spans use
+one-based lines and zero-based Unicode columns, with an exclusive end.
+
+The adapter converts each generator's external coordinate convention against
+the exact supplied source, including tree-sitter-ng's mixed UTF-16 line starts
+and UTF-8 columns and its normalized line breaks. Ambiguous Unicode offsets,
+invalid ranges, unknown actions, and contradictory matches fail explicitly.
+A missing language generator builds local `difflib.unified_diff` rows with a visible
+`gumtree_unsupported_language` warning. Parser errors, missing executables,
+and malformed JSON remain failures. GumTree's logic module contains both subprocess validation and row construction;
+its package facade re-exports the engine and raw-fact interface.
+
 The package also owns engine selection. `EngineKind` is the complete set of
 engine names, and `engine()` maps one to its renderer; both are exported from
 the package root. `engine()` is defined in `__init__.py` rather than `base.py`
@@ -81,7 +102,9 @@ Its public interface is exported from `dirdiff.engines`.
 
 The facade also exports `DifftasticJson`, `GumTreeJson` and their
 `is_difftastic_json()` / `is_gumtree_json()` validators for consumers of raw
-tool facts, including the test JSON cache. These validate the consumed JSON
+tool facts, including the test JSON cache. `build_gumtree_rows_from_json()`
+accepts cached facts together with exact source texts and filename hints for
+alignment without running the executable. The validators check the consumed JSON
 shape without executable discovery or row construction.
 
 ## `dirdiff.rendering`
