@@ -38,7 +38,7 @@ import { finishForcedChunkLayout, forceChunkLayout } from "./grids/text/rowDom";
 import { ImageBayView } from "./grids/image/ImageBayView";
 import { TextDiffGrid } from "./grids/text/TextDiffGrid";
 import type { LinePins } from "../linePins";
-import type { RealHunkIdentity } from "../navigation";
+import { useNavigation, type RealHunkIdentity } from "../navigation";
 import { assert, expect } from "../../utils";
 
 /**
@@ -523,6 +523,7 @@ function TextBayView(props: {
   // Held as HTMLElement: the enrichment attachment below converts it to the
   // EnrichableBay DOM interface, which is declared on the element base type.
   let wrapper!: HTMLElement;
+  const navigation = useNavigation();
   const bayKey = props.bay.bay_key;
   // Registration spans the component lifetime, not onMount's: the mode is
   // read by the JSX below before mount, so the key must already exist.
@@ -644,11 +645,12 @@ function TextBayView(props: {
    * Mount is the first point at which `wrapper` is connected and can supply
    * viewport geometry. The two observers use the current row cost and viewport
    * height to enter rich rendering near the viewport and return distant bays to
-   * virtual rendering. A resize replaces both observers so their fixed root
-   * margins continue to describe the current viewport.
+   * virtual rendering. Exit callbacks cannot virtualize during navigation.
+   * A resize or navigation becoming idle replaces both observers to evaluate
+   * current geometry, including exit events skipped while navigation ran.
    *
-   * The operations, observers, and resize listener live only as long as this
-   * wrapper. Cleanup disconnects both observers, removes the listener, and
+   * The operations, observers, and listeners live only as long as this
+   * wrapper. Cleanup disconnects both observers, removes the listeners, and
    * removes the published DOM operations so navigation cannot call a detached
    * bay.
    */
@@ -664,7 +666,7 @@ function TextBayView(props: {
     /**
      * Rebuilds both cost-zone observers from the current viewport height.
      *
-     * The mount lifecycle calls this initially and after each window resize.
+     * Called at mount, on window resize, and when navigation becomes idle.
      * Existing observers are disconnected before their replacements attach.
      */
     function observeCurrentZones(): void {
@@ -700,7 +702,10 @@ function TextBayView(props: {
             entries[entries.length - 1],
             "Virtual-zone observer omitted its bay entry.",
           );
-          if (!currentEntry.isIntersecting) {
+          if (
+            !currentEntry.isIntersecting &&
+            navigation.activeOperations === 0
+          ) {
             changeRenderMode("virtual");
           }
         },
@@ -714,6 +719,10 @@ function TextBayView(props: {
 
     observeCurrentZones();
     window.addEventListener("resize", observeCurrentZones);
+    // Navigation emits on this shell root only after its last command settles.
+    // Reusing zone setup delivers fresh entries for bays whose exit was skipped.
+    const navigationRoot = navigation.root();
+    navigationRoot.addEventListener("navigation-idle", observeCurrentZones);
     onCleanup(() => {
       if (enterObserver !== null) {
         enterObserver.disconnect();
@@ -722,6 +731,10 @@ function TextBayView(props: {
         exitObserver.disconnect();
       }
       window.removeEventListener("resize", observeCurrentZones);
+      navigationRoot.removeEventListener(
+        "navigation-idle",
+        observeCurrentZones,
+      );
       Reflect.deleteProperty(wrapper, "intersectsRichEntryZone");
       Reflect.deleteProperty(wrapper, "waitToEnrich_impl");
     });

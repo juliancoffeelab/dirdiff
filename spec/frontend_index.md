@@ -1048,6 +1048,7 @@ HunkIdentity
 ```ts
 navigate(command): Promise<NavigationResult>;
 root: Accessor<HTMLElement>;
+readonly activeOperations: number;
 ```
 
 `root` returns the mounted ChangeSet root the instance serves, so consumers
@@ -1060,8 +1061,13 @@ Its scoped lint requires exactly five direct callers of the module-local
 `selectHunk`: initialization, Next, Previous, scroll-follow, and file
 navigation. FileTree components never call selection themselves.
 
+`activeOperations` is a nonreactive count of unfinished commands. Text bays
+read it before virtualizing and listen for `navigation-idle` on `root` to
+refresh their zone observers after the final command settles.
+
 Its direct consumers are:
 
+- TextBayView virtualization;
 - ChangeSet hotkeys and HintHud;
 - FileTree navigation;
 - line-pin restoration;

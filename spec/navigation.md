@@ -6,6 +6,15 @@ Navigation is scoped to one mounted `ChangeSet` root. Renderers write file and
 hunk identity into that DOM; navigation reads the current DOM when an operation
 occurs. It does not retain a parallel hunk registry or selected-hunk store.
 
+Each Navigation instance counts unfinished explicit commands. Text bays read
+that count through the existing context and suppress rich-to-virtual exits while
+it is positive. The count spans preparation and final scrolling, and is released
+in `finally` on completion, cancellation, or failure. Overlapping commands keep
+exits paused until all settle; their competing scrolls are not serialized.
+When the count reaches zero, the live shell root emits `navigation-idle`.
+Mounted text bays rebuild their zone observers to evaluate current geometry,
+including exits skipped while commands ran. Disposed Providers emit nothing.
+
 Every hunk identity contains:
 
 - the manifest `fileIndex`;

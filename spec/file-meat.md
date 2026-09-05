@@ -205,15 +205,19 @@ intersects the bay's cost-band entry zone. Render admission mounts card
 bodies top-down, so the cards above already occupy their real height when
 each body makes this choice. A bay inside the viewport therefore paints rich
 on its very first frame instead of flashing its plain text until an entry
-observer fires. After that one choice the bay's IntersectionObservers are
-the only transition mechanism.
+observer fires. Navigation can also explicitly enrich a bay. The bay's exit
+observer suppresses virtualization while the Navigation instance has unfinished
+commands, preserving rich grids through preparation and scrolling.
 
 Both zones are expressed in viewport multiples, so a window resize invalidates
 the margins the observers were built with. Each mounted bay listens for
 `resize` and rebuilds both of its observers from the new viewport height,
 disconnecting the old pair first. The listener is per bay rather than per card
 because the entry and exit distances are the bay's own cost band; one card can
-hold bays in different bands.
+hold bays in different bands. Each bay also listens for `navigation-idle` on
+its Navigation root and rebuilds both observers when the final command settles.
+Fresh entries apply current geometry even if an exit was skipped during
+navigation. Both listeners are removed when the bay unmounts.
 
 When a rich bay
 later becomes virtual, it is measured first and the virtual body uses that

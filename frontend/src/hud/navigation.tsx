@@ -195,6 +195,13 @@ export type Navigation = {
    * past disposal or used to query another mounted ChangeSet.
    */
   root: Accessor<HTMLElement>;
+  /**
+   * Reads the number of unfinished commands without subscribing to changes.
+   * Bays must not virtualize while this is positive. When the last command
+   * settles, the mounted root emits `navigation-idle` so bays can observe their
+   * current zones again. This count does not serialize competing scrolls.
+   */
+  readonly activeOperations: number;
 };
 
 /**
@@ -556,6 +563,10 @@ export function NavigationProvider(
 ): JSX.Element {
   const toast = useToasts();
   let alive = true;
+  // This Provider owns the count across each command's preparation and scroll.
+  // Each accepted call releases its increment in finally, even after disposal;
+  // overlapping calls keep virtualization paused until the last one settles.
+  let activeOperations = 0;
 
   /**
    * Records whether recognized user input currently permits scroll-follow.
@@ -1420,6 +1431,10 @@ export function NavigationProvider(
 
   const navigation: Navigation = {
     root: props.root,
+    /** Reads the live command count for bay observer callbacks, without reactivity. */
+    get activeOperations(): number {
+      return activeOperations;
+    },
     /**
      * Executes one explicit operation against the current ChangeSet DOM.
      *
@@ -1431,33 +1446,43 @@ export function NavigationProvider(
       if (!alive) {
         return { state: "stopped" };
       }
-      if (command.kind !== "line") {
-        scrollGuard.stop();
-      }
-      switch (command.kind) {
-        case "next-hunk":
-          await nextHunk();
-          return { state: "complete" };
-        case "previous-hunk":
-          await prevHunk();
-          return { state: "complete" };
-        case "file":
-          await navigateToFile(command.fileIndex);
-          return alive ? { state: "complete" } : { state: "stopped" };
-        case "line":
-          return await navigateToLine(
-            command.fileIndex,
-            command.target,
-            command.abortSignal,
-          );
-        case "top":
-          window.scrollTo({ top: 0, behavior: "instant" });
-          return { state: "complete" };
-        default: {
-          const unexpectedCommand: never = command;
-          throw new Error(
-            `Navigation received an unsupported command: ${JSON.stringify(unexpectedCommand)}`,
-          );
+      activeOperations += 1;
+      try {
+        if (command.kind !== "line") {
+          scrollGuard.stop();
+        }
+        switch (command.kind) {
+          case "next-hunk":
+            await nextHunk();
+            return { state: "complete" };
+          case "previous-hunk":
+            await prevHunk();
+            return { state: "complete" };
+          case "file":
+            await navigateToFile(command.fileIndex);
+            return alive ? { state: "complete" } : { state: "stopped" };
+          case "line":
+            return await navigateToLine(
+              command.fileIndex,
+              command.target,
+              command.abortSignal,
+            );
+          case "top":
+            window.scrollTo({ top: 0, behavior: "instant" });
+            return { state: "complete" };
+          default: {
+            const unexpectedCommand: never = command;
+            throw new Error(
+              `Navigation received an unsupported command: ${JSON.stringify(unexpectedCommand)}`,
+            );
+          }
+        }
+      } finally {
+        activeOperations -= 1;
+        if (activeOperations === 0 && alive) {
+          // Exit events skipped during navigation will not necessarily fire
+          // again. Tell mounted bays to observe current geometry once idle.
+          props.root().dispatchEvent(new Event("navigation-idle"));
         }
       }
     },
