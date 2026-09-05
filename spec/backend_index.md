@@ -86,8 +86,9 @@ one-based lines and zero-based Unicode columns, with an exclusive end.
 
 The adapter converts each generator's external coordinate convention against
 the exact supplied source, including tree-sitter-ng's mixed UTF-16 line starts
-and UTF-8 columns and its normalized line breaks. Ambiguous Unicode offsets,
-invalid ranges, unknown actions, and contradictory matches fail explicitly.
+and UTF-8 columns and its normalized line breaks. Ambiguous Unicode offsets produce local unified-diff rows with a
+`gumtree_ambiguous_offsets` warning explaining why structural rendering failed.
+Invalid ranges, unknown actions, and contradictory matches fail explicitly.
 A missing language generator builds local `difflib.unified_diff` rows with a visible
 `gumtree_unsupported_language` warning. Parser errors, missing executables,
 and malformed JSON remain failures. GumTree's logic module contains both subprocess validation and row construction;

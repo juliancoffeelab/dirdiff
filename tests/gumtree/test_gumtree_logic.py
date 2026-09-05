@@ -128,7 +128,7 @@ def test_unicode_offsets_address_the_changed_literal(
 
 
 def test_ambiguous_unicode_offsets_are_not_guessed() -> None:
-    """Different source positions sharing an external offset must fail explicitly."""
+    """Reject ambiguous structural ranges, then render an explicitly warned unified diff."""
     left = 'label = "ї😀"; value = 1\nnext_value = 3\n'
     right = 'label = "ї😀"; value = 2\nnext_value = 4\n'
     facts = tool_json(
@@ -145,6 +145,30 @@ def test_ambiguous_unicode_offsets_are_not_guessed() -> None:
             left_path_hint="old.py",
             right_path_hint="new.py",
         )
+
+    result = GumTreeDiffEngine().render_diff(
+        old=DiffSide(exists=True, text=left, path_hint="old.py"),
+        new=DiffSide(exists=True, text=right, path_hint="new.py"),
+    )
+    assert result["engine_warning"]["type"] == "gumtree_ambiguous_offsets"
+    assert "ambiguous Unicode offsets" in result["engine_warning"]["message"]
+    assert "Showing unified diff instead" in result["engine_warning"]["message"]
+    assert [
+        (
+            row["status"],
+            row["left_no"],
+            row["right_no"],
+            row["left_text"],
+            row["right_text"],
+        )
+        for row in result["rows"]
+    ] == [
+        ("delete", 1, None, left.splitlines()[0], ""),
+        ("delete", 2, None, left.splitlines()[1], ""),
+        ("insert", None, 1, "", right.splitlines()[0]),
+        ("insert", None, 2, "", right.splitlines()[1]),
+    ]
+    assert result["summary"]["changed_lines"] == 4
 
 
 @pytest.mark.parametrize("deleted", [False, True])

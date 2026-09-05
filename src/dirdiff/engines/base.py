@@ -372,6 +372,7 @@ class EngineWarning(TypedDict):
         "difftastic_empty_rows",
         "gumtree_invalid_json",
         "gumtree_unsupported_language",
+        "gumtree_ambiguous_offsets",
         "tokendiff_region_limit",
     ]
     """Stable machine category for the exact degraded mode.

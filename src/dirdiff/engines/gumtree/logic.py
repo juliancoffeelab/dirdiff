@@ -244,9 +244,9 @@ def build_gumtree_rows_from_json(
             f"GumTree range is outside source or splits a character: {tree}"
         )
         if len(starts) != 1 or len(ends) != 1:
-            raise DirdiffError(
+            raise GumTreeAmbiguousOffsetsError(
                 "GumTree returned ambiguous Unicode offsets; this source range "
-                f"cannot be located reliably: {tree}"
+                f"cannot be located reliably: {tree}. Showing unified diff instead."
             )
         start, end = starts[0], ends[0]
         assert 0 <= start <= end <= len(text), (tree, len(text))
@@ -504,7 +504,8 @@ class GumTreeDiffEngine(DiffEngineProtocol):
     The engine compares already-loaded source texts. Path hints select the
     parser and its offset convention; they never authorize a source read.
     Missing sides produce complete insertion or deletion rows. Unsupported
-    languages use a local unified diff with a visible engine warning.
+    languages and ambiguous source offsets use a local unified diff with a
+    visible engine warning.
 
     The engine holds no state.  It locates the GumTree executable itself when a
     render needs one, so callers do not supply an executable path.
@@ -668,7 +669,14 @@ class GumTreeDiffEngine(DiffEngineProtocol):
                 left_path_hint=left_label,
                 right_path_hint=right_label,
             )
-        except GumTreeUnsupportedError as error:
+            rows = build_gumtree_rows_from_json(
+                diff_json=diff_json,
+                left_text=old.text,
+                right_text=new.text,
+                left_path_hint="" if old.path_hint is None else old.path_hint,
+                right_path_hint="" if new.path_hint is None else new.path_hint,
+            )
+        except (GumTreeUnsupportedError, GumTreeAmbiguousOffsetsError) as error:
             rows = _unified_diff_rows(
                 left_text=left_text,
                 right_text=right_text,
@@ -679,17 +687,14 @@ class GumTreeDiffEngine(DiffEngineProtocol):
                 "rows": rows,
                 "summary": _summary(rows),
                 "engine_warning": {
-                    "type": "gumtree_unsupported_language",
+                    "type": (
+                        "gumtree_ambiguous_offsets"
+                        if isinstance(error, GumTreeAmbiguousOffsetsError)
+                        else "gumtree_unsupported_language"
+                    ),
                     "message": str(error),
                 },
             }
-        rows = build_gumtree_rows_from_json(
-            diff_json=diff_json,
-            left_text=old.text,
-            right_text=new.text,
-            left_path_hint="" if old.path_hint is None else old.path_hint,
-            right_path_hint="" if new.path_hint is None else new.path_hint,
-        )
 
         return {
             "summary": _summary(rows),
@@ -772,11 +777,19 @@ directory, matching adjacent local GumTree checkouts.
 """
 
 
+class GumTreeAmbiguousOffsetsError(DirdiffError):
+    """A consumed GumTree range maps to multiple Unicode source positions.
+
+    Raw row construction rejects these coordinates. The engine catches this
+    specific failure and returns unified-diff rows with an explanatory warning.
+    Other invalid source facts are not represented by this exception.
+    """
+
+
 class GumTreeUnsupportedError(DirdiffError):
     """GumTree has no generator for a supplied source filename.
 
-    Only this known unsupported-language diagnosis authorizes the GumTree
-    adapter to return locally built unified-diff rows with an explicit warning. Process,
+    This diagnosis permits locally built unified-diff rows with a warning. Process,
     syntax, and malformed-output failures retain their original error path.
     """
 
