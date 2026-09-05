@@ -398,7 +398,7 @@ def test_difftastic_preset_tokens_stay_in_source_order(
 
     rows, old_text, new_text = _difftastic_rows_for_preset(case)
     # Difftastic can report no structured rows for changed files; the service
-    # layer handles that by falling back to git-style rows, so parser-level
+    # layer handles that by falling back to unified-diff rows, so parser-level
     # row/token invariants have nothing to check here.
     if rows == []:
         return

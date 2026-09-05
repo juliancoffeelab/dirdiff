@@ -1,4 +1,4 @@
-"""Compare text with dirdiff's native line-first algorithm.
+"""Compare text with dirdiff's legacy line-first prototype.
 
 ## Public interface
 
@@ -97,7 +97,7 @@ def _text_summary(rows: list[DiffEngineRow]) -> DiffSummary:
 
     The TextDiff algorithm does not report moved lines. GumTree performs move
     detection, so this summary keeps `moved_lines` at zero while counting
-    replace/insert/delete rows exactly as the native text renderer produced
+    replace/insert/delete rows exactly as the legacy prototype produced
     them.
     """
     # A paired row carries changed inline tokens exactly when its raw texts
@@ -124,7 +124,7 @@ def _text_summary(rows: list[DiffEngineRow]) -> DiffSummary:
 
 @final
 class TextDiffEngine(DiffEngineProtocol):
-    """Compare supplied text with dirdiff's line-first native algorithm.
+    """Compare supplied text with dirdiff's legacy line-first prototype.
 
     Lines are aligned before changed line pairs receive inline tokenization.
     Missing text is compared as an empty document. The engine has no external

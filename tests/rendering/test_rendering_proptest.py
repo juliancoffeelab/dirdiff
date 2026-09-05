@@ -1,7 +1,7 @@
 """Check lossless display-enrichment properties over generated partitions.
 
 Generated diff-token and syntax-span partitions must reproduce the source while
-retaining both classifications. The preset corpus checks that native engine
+retaining both classifications. The preset corpus checks that legacy textdiff
 rows remain compatible with real syntax highlighters and that summary-only
 counts match full rendering.
 """

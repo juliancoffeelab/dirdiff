@@ -62,9 +62,10 @@ endpoints, summary counts, and an engine warning when applicable. It does not lo
 highlighting, folds, or hunk indexes. Difftastic keeps its degraded textual
 diff construction inside its own implementation.
 
-The concrete engines are difftastic, Git no-index, GumTree, the native
-line-first text engine (`textdiff`, engine param `dirdiff`), and the
-token-first text engine (`tokendiff`, engine param `tokendiff`). Tokendiff
+The concrete engines are difftastic, Git no-index, GumTree, the legacy
+line-first prototype (`textdiff`, engine param `dirdiff`), and the
+next-generation token-first prototype (`tokendiff`, engine param `tokendiff`).
+Tokendiff
 diffs whole token streams anchored on lstrip-equal lines, so content moving
 across line boundaries diffs at word granularity, whitespace is always
 diffed, and oversized regions degrade to one-sided rows with an explicit

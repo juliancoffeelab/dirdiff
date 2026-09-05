@@ -1,4 +1,4 @@
-"""Check native text rows after display enrichment.
+"""Check legacy textdiff rows after display enrichment.
 
 The tests use `helpers.build_loaded_diff` to assert row status, inline token
 boundaries, summaries, syntax classes, fold hints, and bay-local hunk indexes.

@@ -428,11 +428,11 @@ class DiffEngineResult(TypedDict):
 EngineKind = Literal["dirdiff", "git", "difftastic", "gumtree", "tokendiff"]
 """Which diff engine a caller selects.
 
-- `dirdiff` selects the native line-first engine.
+- `dirdiff` selects the legacy line-first prototype.
 - `git` selects `git diff --no-index`.
 - `difftastic` selects structural Difftastic comparison.
 - `gumtree` selects GumTree range-based comparison.
-- `tokendiff` selects the native token-first engine.
+- `tokendiff` selects the next-generation token-first prototype.
 
 Pass a validated value to `dirdiff.engines.engine`. It names an implementation,
 not a format, executable path, or per-engine option set.

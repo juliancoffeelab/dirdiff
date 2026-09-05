@@ -498,13 +498,13 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
     assert manifest["summary"]["removed_lines"] == 0
 
 
-def test_git_diff_service_uses_git_style_delete_insert_rows(
+def test_git_diff_service_uses_git_delete_insert_rows(
     tmp_path: Path,
 ) -> None:
     """Selecting the Git engine changes modified alignment to delete and insert.
 
-    The same captured sides retain ordinary textual alignment under the native
-    engine, and swapping them reverses the Git-style replacement contents.
+    The same captured sides retain ordinary textual alignment under the legacy
+    prototype, and swapping them reverses the Git no-index replacement contents.
     """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
@@ -544,8 +544,8 @@ def test_git_diff_service_uses_git_style_delete_insert_rows(
     assert isinstance(head_content, bytes)
     assert isinstance(worktree_content, bytes)
 
-    # The same two byte sides, composed three times: the ordinary text engine,
-    # the Git-style engine, and the Git-style engine with the sides swapped.
+    # The same two byte sides, composed three times: the legacy textdiff
+    # prototype, the Git no-index engine, and Git no-index with the sides swapped.
     rich_composed = Composer().compose(
         head_content,
         worktree_content,

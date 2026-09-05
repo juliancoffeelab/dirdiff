@@ -416,9 +416,10 @@ class DiffEngineProtocol(Protocol):
     reaches this protocol, it has already loaded the two sides and decided that
     they should be treated as ordinary text for this engine.
 
-    This boundary is what keeps GumTree, difftastic, git-style rendering, and
-    native text rendering comparable: each receives the same logical inputs and
-    returns the same dirdiff rendered result shape. Engines may use path hints
+    This boundary is what keeps GumTree, difftastic, Git no-index rendering, the
+    legacy textdiff prototype, and the next-generation tokendiff prototype
+    comparable: each receives the same logical inputs and returns the same
+    dirdiff rendered result shape. Engines may use path hints
     for language detection or temporary file names, but the text arguments are
     the content source of truth.
     """
@@ -464,8 +465,8 @@ class DifftasticDiffEngine(DiffEngineProtocol):
         passed to difftastic for language/parser selection, but this method does
         not load those paths.
 
-        If difftastic cannot produce usable rows, the renderer falls back to a
-        Git-style textual alignment so the API still returns a renderable file
+        If difftastic cannot produce usable rows, the renderer builds a local
+        unified diff so the API still returns a renderable file
         diff. Notebook detection is intentionally outside this method and
         happens in server orchestration before an engine is selected.
         """

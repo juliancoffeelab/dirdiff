@@ -729,7 +729,7 @@ class WorkspaceDiffServiceAdapter:
 
 
 class TextDiffService(WorkspaceDiffServiceAdapter):
-    """Retain the native text renderer in the legacy adapter slot.
+    """Retain `TextDiffEngine` in the legacy adapter slot.
 
     Repository operations remain delegated to the supplied production backend.
     Adapter methods do not render, but older tests still inspect or expect this
@@ -737,7 +737,7 @@ class TextDiffService(WorkspaceDiffServiceAdapter):
     """
 
     def __init__(self, backend: WorkspaceBackendProtocol) -> None:
-        """Bind the legacy adapter to a workspace and native text rendering.
+        """Bind the legacy adapter to a workspace and `TextDiffEngine`.
 
         `backend` remains the sole source for manifest and branch operations.
         The engine value only preserves the construction shape expected by old

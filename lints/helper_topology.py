@@ -6,7 +6,9 @@ Flake8 loads `HelperTopologyPlugin`. It emits HLP001 for one-use private
 helpers, HLP002 when all references sit below one outer function, and HLP003
 when a local `TypeIs` predicate is separated from its narrowed type. HLP004,
 HLP005, and HLP006 require `__all__` to match the repository-observed module
-interface exactly and forbid private-looking exports. Source and lint modules
+interface exactly and forbid private-looking exports. HLP007 restricts
+production package imports: package-internal code imports only `base.py`, while
+external code imports only through the package facade. Source and lint modules
 must declare that interface; pytest modules participate without boilerplate.
 
 ## Purpose and boundaries
@@ -54,6 +56,8 @@ UNUSED_EXPORT_CODE = "HLP005"
 """Diagnostic for an exported name with no repo-observed external use."""
 PRIVATE_EXPORT_CODE = "HLP006"
 """Diagnostic for an underscore-prefixed name listed in `__all__`."""
+PACKAGE_IMPORT_CODE = "HLP007"
+"""Diagnostic for bypassing a package's `base.py` or public facade."""
 
 type _InterfaceDiagnostic = tuple[int, int, str]
 """One line, column, and complete HLP interface diagnostic for one file."""
@@ -359,6 +363,81 @@ def _project_interface_diagnostics(
                     "private prefix",
                 )
             )
+
+    # Facades publish their implementations, and tests may inspect them. Other
+    # production imports stay within a package through base.py or enter through
+    # that package's facade.
+    for importer_path, tree in trees.items():
+        if importer_path.is_relative_to(project_root / "tests"):
+            continue
+        if importer_path.name == "__init__.py":
+            continue
+        importer_parts = module_by_path[importer_path].split(".")
+        for node in ast.walk(tree):
+            target_modules: list[str] = []
+            if isinstance(node, ast.ImportFrom):
+                if node.level > 0:
+                    package_parts = importer_parts[:-1]
+                    parent = package_parts[
+                        : len(package_parts) - (node.level - 1)
+                    ]
+                    target_module = ".".join(
+                        (
+                            *parent,
+                            *(
+                                (node.module or "").split(".")
+                                if node.module
+                                else ()
+                            ),
+                        )
+                    )
+                else:
+                    target_module = node.module or ""
+                target_modules.append(target_module)
+                target_modules.extend(
+                    f"{target_module}.{alias.name}"
+                    for alias in node.names
+                    if f"{target_module}.{alias.name}" in path_by_module
+                )
+            elif isinstance(node, ast.Import):
+                target_modules.extend(alias.name for alias in node.names)
+            else:
+                continue
+
+            import_violates_boundary = False
+            for target_module in dict.fromkeys(target_modules):
+                target_path = path_by_module.get(target_module)
+                if target_path is None:
+                    continue
+                target_parts = target_module.split(".")
+                importer_package = tuple(importer_parts[:2])
+                target_package = tuple(target_parts[:2])
+                shares_package = (
+                    len(importer_package) == 2
+                    and importer_package == target_package
+                )
+                allowed_internal_base = (
+                    shares_package
+                    and target_path.name == "base.py"
+                    and len(target_parts) == 3
+                )
+                allowed_external_facade = (
+                    not shares_package and target_path.name == "__init__.py"
+                )
+                if allowed_internal_base or allowed_external_facade:
+                    continue
+                import_violates_boundary = True
+                break
+            if import_violates_boundary:
+                diagnostics[importer_path].append(
+                    (
+                        node.lineno,
+                        node.col_offset,
+                        f"{PACKAGE_IMPORT_CODE} production imports inside a "
+                        "package must target its base.py; imports from outside "
+                        "must target its __init__.py facade",
+                    )
+                )
     return {path: tuple(sorted(items)) for path, items in diagnostics.items()}
 
 
@@ -368,7 +447,7 @@ class HelperTopologyPlugin:
     Flake8 supplies a parsed module and the path to the identical source. The
     plugin retains those inputs until `run()` reads the source for lexical
     symbol resolution. The first plugin instance also builds the cached
-    repository interface index used by HLP004 through HLP006.
+    repository interface index used by HLP004 through HLP007.
 
     # Usage
 
