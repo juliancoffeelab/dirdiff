@@ -198,7 +198,7 @@ class PullRequestPrepareRequest(ApiModel):
     """Request preparation of one supported Pull Request URL.
 
     The route matches the URL to a marked repository and asks the forge-specific
-    backend preparation code to fetch required refs.
+    backend preparation code to fetch the forge-recorded commit objects.
 
     The request cannot supply repository identity or commit overrides.
     """
@@ -217,7 +217,8 @@ class PullRequestPrepareResponse(ApiModel):
     Manifest requests send back the canonical URL, repository id, merge-base
     commit, and review commit exactly as prepared.
 
-    The response does not contain mutable branch names or rendered diff data.
+    Branch names describe the prepared revision for the HUD. They do not
+    participate in capture or Room correspondence.
     """
 
     project_id: int
@@ -237,16 +238,22 @@ class PullRequestPrepareResponse(ApiModel):
     left_commit: str
     """Immutable merge-base object selected for the left capture side.
 
-    Preparation computes it from fetched refs. Callers must send it unchanged
+    Preparation computes it from forge-recorded SHAs. Callers must send it unchanged
     rather than resolving the base branch again.
     """
 
     right_commit: str
     """Immutable Pull Request head object selected for the right capture side.
 
-    Preparation obtains it from the supported forge refs. It forms one prepared
+    Preparation obtains it from the forge's recorded head SHA. It forms one prepared
     unit with `left_commit`, `project_id`, and `pull_request_url`.
     """
+
+    base_branch: str
+    """Target branch name observed during preparation, used only for display."""
+
+    head_branch: str
+    """Source branch name observed during preparation, used only for display."""
 
 
 def _pull_request_prepare_response(
@@ -254,9 +261,9 @@ def _pull_request_prepare_response(
 ) -> PullRequestPrepareResponse:
     """Validate a backend preparation result as the public HTTP response.
 
-    The conversion copies the matched repository id, canonical URL, merge base,
-    and review head without resolving or normalizing them again. Pydantic rejects
-    any value that violates the response shape.
+    The conversion copies the matched repository id, URL, immutable commits,
+    and branch display names without resolving or normalizing them again.
+    Pydantic rejects any value that violates the response shape.
 
     # Usage
 
@@ -275,6 +282,8 @@ def _pull_request_prepare_response(
             "pull_request_url": prepared.pull_request_url,
             "left_commit": prepared.left_commit,
             "right_commit": prepared.right_commit,
+            "base_branch": prepared.base_branch,
+            "head_branch": prepared.head_branch,
         }
     )
 
@@ -537,8 +546,8 @@ class RepoRoutes:
         """Prepare canonical Pull Request commits before manifest capture.
 
         `request` supplies the forge URL. Preparation matches it to one active
-        Mark, fetches required refs, and returns the canonical URL, merge base,
-        and head commit. Manifest does not repeat this work.
+        Mark, fetches the forge-recorded objects, and returns the URL, merge base,
+        head commit, and observed branch details. Manifest does not repeat this work.
 
         # Failures
 

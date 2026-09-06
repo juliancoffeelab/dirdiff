@@ -289,9 +289,16 @@ Snapshots.
 ## HTTP flow
 
 `/api/pull-request/prepare` is the complete Pull Request preparation boundary. It
-parses the URL, finds the marked repository and forge remote, fetches the required
-refs, and returns the repository id, canonical Pull Request URL, merge-base commit,
-and Pull Request head commit. No part of that operation belongs to manifest.
+parses the URL, finds the marked repository and forge remote, fetches the
+forge-recorded target and head objects directly by SHA, and computes their
+merge base locally. It returns the repository id, Pull Request URL, merge-base
+commit, and Pull Request head commit, plus observed source/target branch names.
+Preparation retains each observed target/head under `refs/dirdiff/prepared/<sha>`
+in the marked repository's shared Git directory, keeping the capture sides and
+their history reachable after refreshes and Git garbage collection. These refs
+have no automatic expiry and are independent of Room and Snapshot identity.
+Fetching never selects a newer revision by reading updated tracking refs.
+No part of that operation belongs to manifest.
 
 `/api/manifest` accepts one complete Tab parameter value in order to show the
 specified repository state and provide keys for later `/api/file-diff` operations.

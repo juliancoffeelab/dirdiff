@@ -9,7 +9,10 @@ the matching mark, the trimmed URL, and immutable commits for capture.
 ## Purpose and boundaries
 
 Preparation is separate from manifest loading because it may call a forge API
-and fetch refs. It updates remote-tracking refs but never checks out a branch.
+and fetch Git objects. It fetches the recorded SHAs into content-addressed local
+refs without moving tracking refs or checking out a branch. These refs retain
+every prepared revision for later capture, including after Git garbage collection.
+A forge that cannot supply those objects fails explicitly.
 The server chooses when to run it; Snapshot capture and diff rendering consume
 the result without repeating forge work.
 """
@@ -38,6 +41,13 @@ __all__ = [
     "repo_key",
     "repo_key_from_git_url",
 ]
+
+COMMIT_ID_RE = re.compile(r"[0-9a-f]{40}")
+"""Match complete SHA-1 commit ids in the forge metadata consumed here.
+
+Both forge loaders validate these values before passing them to Git as refspecs.
+Abbreviations and other object-id formats are outside this preparation contract.
+"""
 
 GITHUB_PULL_REQUEST_RE = re.compile(
     r"^https://github\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>\d+)(?:[/?#].*)?$"
@@ -109,8 +119,8 @@ class PreparedPullRequest:
     the repository and the two commit ids become the immutable capture sides;
     the URL remains the Pull Request correspondence value.
 
-    The value contains no Branch Review selections, mutable refs, or rendered
-    state.
+    Branch names describe the forge observation for the HUD, never capture
+    inputs or Room identity. The value contains no Branch Review selections.
     """
 
     project_id: int
@@ -127,16 +137,28 @@ class PreparedPullRequest:
     """
 
     left_commit: str
-    """Complete merge-base object id frozen after both remote refs are fetched.
+    """Complete merge-base object id computed from the forge-observed commits.
 
     Snapshot capture verifies and loads this commit instead of resolving a mutable
     target branch again.
     """
 
     right_commit: str
-    """Complete fetched review-head object id used as the right capture side.
+    """Complete forge-observed review-head object id for the right capture side.
 
     It freezes the prepared state even if the forge ref advances afterward.
+    """
+
+    base_branch: str
+    """Nonempty target branch name observed alongside the prepared revision.
+
+    This display value must never be resolved to select capture contents.
+    """
+
+    head_branch: str
+    """Nonempty source branch name observed alongside the prepared revision.
+
+    The branch may since have moved or been deleted; the head commit is exact.
     """
 
 
@@ -171,14 +193,13 @@ class _GitHubPullRequest:
     number: int
     """Decimal repository-local id parsed from the URL.
 
-    Preparation uses it for both the API lookup and `pull/<number>/head` refspec.
+    It identifies the API observation; fetching uses its recorded object ids.
     """
 
     base_branch: str
     """Non-empty target branch reported by GitHub's base payload.
 
-    Preparation fetches it into the matching remote namespace before merge-base
-    calculation.
+    It is display metadata; preparation fetches the recorded target SHA.
     """
 
     base_repo_key: str
@@ -186,6 +207,15 @@ class _GitHubPullRequest:
 
     Local remote URL spellings are normalized to the same form for matching.
     """
+
+    head_branch: str
+    """Source branch name from the same API response, retained for display."""
+
+    base_commit: str
+    """Complete target SHA recorded by the PR, never a fetched tracking ref."""
+
+    head_commit: str
+    """Complete source SHA recorded by the same PR API observation."""
 
 
 @dataclass(frozen=True)
@@ -225,14 +255,23 @@ class _GitLabMergeRequest:
     iid: int
     """Decimal project-local id parsed from the Merge Request URL.
 
-    Preparation uses it in the API path and `merge-requests/<iid>/head` refspec.
+    It identifies the API observation; fetching uses the diff version's SHAs.
     """
 
     target_branch: str
     """Non-empty target branch reported by the GitLab API.
 
-    It is fetched into the matching remote namespace before merge-base calculation.
+    It is display metadata; the diff version's start SHA supplies the Git input.
     """
+
+    head_branch: str
+    """Source branch name reported by the MR, retained only for display."""
+
+    base_commit: str
+    """Target SHA at creation of the API's selected diff version, its start_sha."""
+
+    head_commit: str
+    """Source SHA from that same diff_refs version, never the current branch tip."""
 
     target_repo_key: str
     """Case-normalized host and target project path used for remote matching.
@@ -272,7 +311,8 @@ def prepare_pull_request(
     missing expected response fields, absent matching remotes, failed fetches,
     and commit resolution failures raise `DirdiffError` with the concrete
     reason. Malformed JSON and response fields of the wrong container type
-    propagate their parsing or type exception.
+    propagate their parsing or type exception. Malformed source names and SHAs
+    fail assertions at the forge response boundary before Git is invoked.
     """
     value = url.strip()
     if GITHUB_PULL_REQUEST_RE.match(value) is not None:
@@ -302,9 +342,9 @@ def _prepare_github_pull_request(
     - `url`: Already recognized GitHub Pull Request URL.
     - `repo_marks`: Repository marks searched in iteration order.
 
-    The first mark with a matching remote receives updated base and Pull Request
-    remote-tracking refs. The function does not check out a branch. API, fetch,
-    matching, and commit-resolution failures raise `DirdiffError`.
+    The first mark with a matching remote receives the two recorded commit
+    objects, even if the branches were deleted. API, fetch, matching, and
+    commit-resolution failures raise `DirdiffError`; tracking refs are untouched.
     """
     pull_request = _load_github_pull_request(url)
     for mark in repo_marks:
@@ -315,46 +355,29 @@ def _prepare_github_pull_request(
         )
         if remote is None:
             continue
-        review_branch = f"pull/{pull_request.number}"
-        _fetch_refs(
+        _fetch_commits(
             repo_path=repo_path,
             remote=remote,
-            refspecs=(
-                (
-                    pull_request.base_branch,
-                    f"refs/remotes/{remote}/{pull_request.base_branch}",
-                ),
-                (
-                    f"pull/{pull_request.number}/head",
-                    f"refs/remotes/{remote}/{review_branch}",
-                ),
-            ),
+            commits=(pull_request.base_commit, pull_request.head_commit),
         )
-        base_ref = f"refs/remotes/{remote}/{pull_request.base_branch}"
-        review_ref = f"refs/remotes/{remote}/{review_branch}"
+        # Fetch retains objects; only the API observation chooses the revision.
         merge_base = _run_git_text(
             repo_path,
-            ["merge-base", base_ref, review_ref],
+            ["merge-base", pull_request.base_commit, pull_request.head_commit],
             check=False,
         )
         if merge_base.returncode != 0 or merge_base.stdout.strip() == "":
             raise DirdiffError(
-                "Could not find a merge base for the prepared pull request."
-            )
-        review_commit = _run_git_text(
-            repo_path,
-            ["rev-parse", "--verify", f"{review_ref}^{{commit}}"],
-            check=False,
-        )
-        if review_commit.returncode != 0 or review_commit.stdout.strip() == "":
-            raise DirdiffError(
-                "Could not read the prepared pull request head commit."
+                "Could not find a merge base for the prepared pull request. "
+                + merge_base.stderr.strip()
             )
         return PreparedPullRequest(
             project_id=mark.id,
             pull_request_url=pull_request.url,
             left_commit=merge_base.stdout.strip(),
-            right_commit=review_commit.stdout.strip(),
+            right_commit=pull_request.head_commit,
+            base_branch=pull_request.base_branch,
+            head_branch=pull_request.head_branch,
         )
     raise DirdiffError(
         "No marked repository has a remote for this pull request."
@@ -373,9 +396,9 @@ def _prepare_gitlab_merge_request(
     - `url`: Already recognized GitLab Merge Request URL.
     - `repo_marks`: Repository marks searched in iteration order.
 
-    The first matching remote receives updated target and Merge Request
-    remote-tracking refs. The checked-out branch is untouched. API, fetch,
-    matching, and commit-resolution failures raise `DirdiffError`.
+    The first matching remote supplies the recorded diff version's target and
+    head objects without moving tracking refs. API, fetch, matching, and
+    commit-resolution failures raise `DirdiffError`.
     """
     merge_request = _load_gitlab_merge_request(url)
     for mark in repo_marks:
@@ -386,46 +409,33 @@ def _prepare_gitlab_merge_request(
         )
         if remote is None:
             continue
-        review_branch = f"merge-requests/{merge_request.iid}"
-        _fetch_refs(
+        _fetch_commits(
             repo_path=repo_path,
             remote=remote,
-            refspecs=(
-                (
-                    merge_request.target_branch,
-                    f"refs/remotes/{remote}/{merge_request.target_branch}",
-                ),
-                (
-                    f"merge-requests/{merge_request.iid}/head",
-                    f"refs/remotes/{remote}/{review_branch}",
-                ),
-            ),
+            commits=(merge_request.base_commit, merge_request.head_commit),
         )
-        base_ref = f"refs/remotes/{remote}/{merge_request.target_branch}"
-        review_ref = f"refs/remotes/{remote}/{review_branch}"
+        # Keep both inputs from one diff version even after merging or a push.
         merge_base = _run_git_text(
             repo_path,
-            ["merge-base", base_ref, review_ref],
+            [
+                "merge-base",
+                merge_request.base_commit,
+                merge_request.head_commit,
+            ],
             check=False,
         )
         if merge_base.returncode != 0 or merge_base.stdout.strip() == "":
             raise DirdiffError(
-                "Could not find a merge base for the prepared merge request."
-            )
-        review_commit = _run_git_text(
-            repo_path,
-            ["rev-parse", "--verify", f"{review_ref}^{{commit}}"],
-            check=False,
-        )
-        if review_commit.returncode != 0 or review_commit.stdout.strip() == "":
-            raise DirdiffError(
-                "Could not read the prepared merge request head commit."
+                "Could not find a merge base for the prepared merge request. "
+                + merge_base.stderr.strip()
             )
         return PreparedPullRequest(
             project_id=mark.id,
             pull_request_url=merge_request.url,
             left_commit=merge_base.stdout.strip(),
-            right_commit=review_commit.stdout.strip(),
+            right_commit=merge_request.head_commit,
+            base_branch=merge_request.target_branch,
+            head_branch=merge_request.head_branch,
         )
     raise DirdiffError(
         "No marked repository has a remote for this merge request."
@@ -436,14 +446,15 @@ def _load_github_pull_request(url: str) -> _GitHubPullRequest:
     """Load and validate the GitHub facts needed for preparation.
 
     The parsed URL selects GitHub's Pull Request API endpoint. The call has a
-    20-second timeout and requires non-empty base branch and repository URL
-    fields.
+    20-second timeout and requires both branch names, the base repository URL,
+    and complete base/head SHAs from the same response.
 
     # Failures
 
     HTTP and URL errors, missing expected keys, and empty required strings
     become `DirdiffError`. Malformed JSON and response values of an unexpected
-    container type propagate their parsing or type exception.
+    container type propagate their parsing or type exception. Invalid SHA
+    syntax or source branch values fail assertions before Git sees them.
     """
     parsed = parse_github_pull_request_url(url)
     owner, repo, number = parsed
@@ -471,9 +482,12 @@ def _load_github_pull_request(url: str) -> _GitHubPullRequest:
         base_repo = base["repo"]
         base_branch = base["ref"]
         base_repo_url = base_repo["html_url"]
+        base_commit = base["sha"]
+        head_branch = payload["head"]["ref"]
+        head_commit = payload["head"]["sha"]
     except KeyError as exc:
         raise DirdiffError(
-            "GitHub pull request response is missing base data."
+            "GitHub pull request response is missing base or head data."
         ) from exc
     if not isinstance(base_branch, str) or base_branch.strip() == "":
         raise DirdiffError(
@@ -483,6 +497,14 @@ def _load_github_pull_request(url: str) -> _GitHubPullRequest:
         raise DirdiffError(
             "GitHub pull request response has an empty base repo URL."
         )
+    assert isinstance(head_branch, str) and head_branch.strip() != "", (
+        "GitHub pull request response requires a nonempty head branch."
+    )
+    for name, commit in (("base", base_commit), ("head", head_commit)):
+        assert (
+            isinstance(commit, str)
+            and COMMIT_ID_RE.fullmatch(commit) is not None
+        ), f"GitHub pull request {name} must be a complete commit SHA."
     return _GitHubPullRequest(
         url=url.strip(),
         owner=owner,
@@ -490,6 +512,9 @@ def _load_github_pull_request(url: str) -> _GitHubPullRequest:
         number=number,
         base_branch=base_branch,
         base_repo_key=repo_key_from_git_url(base_repo_url),
+        head_branch=head_branch,
+        base_commit=base_commit,
+        head_commit=head_commit,
     )
 
 
@@ -519,13 +544,15 @@ def _load_gitlab_merge_request(url: str) -> _GitLabMergeRequest:
     """Load and validate the GitLab facts needed for preparation.
 
     The URL supplies the host and project-local Merge Request id for a 20-second
-    API call. The response must contain a non-empty target branch.
+    API call. Both branch names and one available diff_refs object are required;
+    its start/head SHAs jointly select the revision, including after merging.
 
     # Failures
 
     HTTP and URL errors, a missing target branch, and an empty target branch
     become `DirdiffError`. Malformed JSON and response values of an unexpected
-    container type propagate their parsing or type exception.
+    container type propagate their parsing or type exception. Malformed SHAs
+    and source branch values fail assertions before Git sees them.
     """
     parsed = parse_gitlab_merge_request_url(url)
     scheme, host, project_path, iid = parsed
@@ -551,10 +578,32 @@ def _load_gitlab_merge_request(url: str) -> _GitLabMergeRequest:
 
     try:
         target_branch = payload["target_branch"]
+        head_branch = payload["source_branch"]
+        diff_refs = payload["diff_refs"]
     except KeyError as exc:
         raise DirdiffError(
-            "GitLab merge request response is missing target branch data."
+            "GitLab merge request response is missing branch or diff data."
         ) from exc
+    if diff_refs is None or diff_refs == {}:
+        raise DirdiffError(
+            "GitLab merge request diff metadata is not available yet. Retry preparation explicitly."
+        )
+    assert isinstance(diff_refs, dict), "GitLab diff_refs must be an object."
+    try:
+        base_commit = diff_refs["start_sha"]
+        head_commit = diff_refs["head_sha"]
+    except KeyError as exc:
+        raise DirdiffError(
+            "GitLab diff metadata is missing a start or head SHA."
+        ) from exc
+    assert isinstance(head_branch, str) and head_branch.strip() != "", (
+        "GitLab merge request response requires a nonempty source branch."
+    )
+    for name, commit in (("start", base_commit), ("head", head_commit)):
+        assert (
+            isinstance(commit, str)
+            and COMMIT_ID_RE.fullmatch(commit) is not None
+        ), f"GitLab merge request diff {name} must be a complete commit SHA."
     if not isinstance(target_branch, str) or target_branch.strip() == "":
         raise DirdiffError(
             "GitLab merge request response has an empty target branch."
@@ -566,6 +615,9 @@ def _load_gitlab_merge_request(url: str) -> _GitLabMergeRequest:
         project_path=project_path,
         iid=iid,
         target_branch=target_branch,
+        head_branch=head_branch,
+        base_commit=base_commit,
+        head_commit=head_commit,
         target_repo_key=repo_key(host=host, path=project_path),
     )
 
@@ -656,35 +708,48 @@ def _remote_urls(repo_path: Path) -> dict[str, str]:
     return urls
 
 
-def _fetch_refs(
+def _fetch_commits(
     *,
     repo_path: Path,
     remote: str,
-    refspecs: tuple[tuple[str, str], ...],
+    commits: tuple[str, str],
 ) -> None:
-    """Fetch every (source, target) refspec in one Git invocation.
+    """Fetch and retain the recorded target and head in one Git invocation.
 
-    One fetch negotiates the connection and pack once for all requested
-    refs; preparation previously ran a separate unbounded network fetch per
-    ref.
+    Both SHAs must already be validated complete object ids from one forge
+    observation. Fetching by id also permits PRs whose branches were deleted.
 
     # Parameters
 
-    - `repo_path`: Marked repository in which Git updates refs.
+    - `repo_path`: Marked repository that receives the objects.
     - `remote`: Configured remote name used as the fetch source.
-    - `refspecs`: Non-empty source and local-target ref pairs fetched forcibly.
+    - `commits`: Exact target and source SHAs; neither is a local ref name.
 
-    Git failure raises `DirdiffError` with stderr, stdout, or the exit status.
+    Each distinct SHA is retained under `refs/dirdiff/prepared/<sha>` in the
+    repository's shared Git directory. Refresh never replaces older revisions;
+    these refs and their reachable history persist until explicitly removed.
+    They protect restored review URLs from Git garbage collection independently
+    of the database and store. No automatic cleanup is performed.
+
+    Tracking refs are untouched. Ref updates are atomic and automatic pruning
+    is disabled for this fetch. FETCH_HEAD is never read to choose capture sides.
+    Git failure, including server refusal to supply an object, raises
+    `DirdiffError`; there is no alternate fetch path.
     """
-    assert refspecs != (), (
-        "an empty refspec set would degrade to an unbounded default fetch"
-    )
     result = _run_git_text(
         repo_path,
         [
             "fetch",
+            "--atomic",
+            "--no-tags",
+            "--no-prune",
+            "--refmap=",
             remote,
-            *(f"+{source}:{target}" for source, target in refspecs),
+            # Identical target/head commits must update their shared ref once.
+            *(
+                f"{commit}:refs/dirdiff/prepared/{commit}"
+                for commit in dict.fromkeys(commits)
+            ),
         ],
         check=False,
     )

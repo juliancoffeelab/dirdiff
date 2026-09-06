@@ -20,7 +20,6 @@ import {
   type PreparedPullRequest,
   type PresetType,
   type ProjectId,
-  type PullRequestDiffParams,
 } from "../api/api";
 import { assert, expect } from "../utils";
 import { AppHeader, type AppHeaderOutlets } from "./AppHeader";
@@ -697,11 +696,13 @@ function Workspace(props: WorkspaceProps): JSX.Element {
    * Preparation remains the only operation allowed to change repo or commits.
    * This command merely serializes the retained complete result into a clean URL.
    */
-  function selectPreparedPullRequest(selection: PullRequestDiffParams): void {
+  function selectPreparedPullRequest(selection: PreparedPullRequest): void {
     const search = selectionSearch("pull-request");
     search.set("pull_request_url", selection.pull_request_url);
     search.set("left_commit", selection.left_commit);
     search.set("right_commit", selection.right_commit);
+    search.set("pr_base_branch", selection.base_branch);
+    search.set("pr_head_branch", selection.head_branch);
     replaceSelectionSearch(search);
   }
 
@@ -724,6 +725,8 @@ function Workspace(props: WorkspaceProps): JSX.Element {
     search.set("pull_request_url", prepared.pull_request_url);
     search.set("left_commit", prepared.left_commit);
     search.set("right_commit", prepared.right_commit);
+    search.set("pr_base_branch", prepared.base_branch);
+    search.set("pr_head_branch", prepared.head_branch);
     props.onReset(search);
   }
 

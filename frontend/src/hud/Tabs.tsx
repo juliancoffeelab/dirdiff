@@ -39,6 +39,7 @@ import {
   type PresetType,
   type ProjectId,
   type PullRequestDiffParams,
+  PreparedPullRequestSchema,
   type RefChoices,
   type RefsDiffParams,
   type RepoMark,
@@ -293,7 +294,7 @@ type TabsProps = {
    * replace URL state but must not reinterpret the values; the Tab retains its
    * selection and requires no controlled handback.
    */
-  onPullRequestSelected: (selection: PullRequestDiffParams) => void;
+  onPullRequestSelected: (selection: PreparedPullRequest) => void;
   /**
    * Applies the authoritative backend result after Pull Request preparation succeeds.
    *
@@ -2231,7 +2232,7 @@ function PullRequestTab(
      * state but must preserve these values; the Tab keeps its selection and needs
      * no controlled handback or subsequent action.
      */
-    onSelected: (selection: PullRequestDiffParams) => void;
+    onSelected: (selection: PreparedPullRequest) => void;
     /**
      * Applies the exact backend preparation result after the mutation succeeds.
      *
@@ -2249,7 +2250,8 @@ function PullRequestTab(
   let pullRequestInput!: HTMLInputElement;
   const initialUrl = props.active ? (search.get("pull_request_url") ?? "") : "";
   const [url, setUrl] = createSignal(initialUrl);
-  let initialSelection: PullRequestDiffParams | null = null;
+  let initialSelection: (PullRequestDiffParams & PreparedPullRequest) | null =
+    null;
   if (props.active) {
     try {
       const leftCommit = search.get("left_commit");
@@ -2273,10 +2275,14 @@ function PullRequestTab(
         );
         initialSelection = {
           tab: "pull-request",
-          project_id: props.repoId,
-          pull_request_url: initialUrl,
-          left_commit: leftCommit,
-          right_commit: rightCommit,
+          ...PreparedPullRequestSchema.parse({
+            project_id: props.repoId,
+            pull_request_url: initialUrl,
+            left_commit: leftCommit,
+            right_commit: rightCommit,
+            base_branch: search.get("pr_base_branch"),
+            head_branch: search.get("pr_head_branch"),
+          }),
         };
       }
     } catch (error) {
@@ -2288,9 +2294,9 @@ function PullRequestTab(
       });
     }
   }
-  const [selected] = createSignal<PullRequestDiffParams | null>(
-    initialSelection,
-  );
+  const [selected] = createSignal<
+    (PullRequestDiffParams & PreparedPullRequest) | null
+  >(initialSelection);
   const prepare = createMutation(() => ({
     ...api.pullRequest.prepare(),
     /**
@@ -2351,6 +2357,36 @@ function PullRequestTab(
             onInput={(event) => setUrl(event.currentTarget.value)}
           />
         </label>
+        <Show when={selected()} keyed>
+          {(selection) => (
+            <dl class="pull-request-details" aria-label="Prepared pull request">
+              <div class="summary-group">
+                <dt>Base branch</dt>
+                <dd title={selection.base_branch}>{selection.base_branch}</dd>
+              </div>
+              <div class="summary-group">
+                <dt>Branch to review</dt>
+                <dd title={selection.head_branch}>{selection.head_branch}</dd>
+              </div>
+              <div class="summary-group">
+                <dt>Head</dt>
+                <dd>
+                  <code title={selection.right_commit}>
+                    {selection.right_commit.slice(0, 10)}
+                  </code>
+                </dd>
+              </div>
+              <div class="summary-group">
+                <dt>Merge base</dt>
+                <dd>
+                  <code title={selection.left_commit}>
+                    {selection.left_commit.slice(0, 10)}
+                  </code>
+                </dd>
+              </div>
+            </dl>
+          )}
+        </Show>
         <Show when={prepare.error} keyed>
           {(error) => (
             <ErrorPopover
@@ -2364,7 +2400,11 @@ function PullRequestTab(
           )}
         </Show>
         <button class="load-button" type="submit" disabled={prepare.isPending}>
-          {prepare.isPending ? "Loading..." : "Load"}
+          {prepare.isPending
+            ? "Loading..."
+            : selected()?.pull_request_url === url().trim()
+              ? "Refresh PR"
+              : "Load"}
         </button>
       </form>
       <MetadataStatusPortal

@@ -443,6 +443,23 @@ The Pull Request value contains its URL and the two commits returned by
 preparation; it contains no Branch Review selections. Engine is independent of
 the selected value and is supplied separately for file rendering.
 
+Pull Request preparation also supplies the observed base/source branch names.
+The Tab retains these with the exact capture sides in its prepared selection.
+Browser URLs require `pr_base_branch` and `pr_head_branch` alongside the existing
+prepared commit parameters; restoration validates the whole preparation tuple.
+Reactivation preserves that tuple without
+contacting the forge. These display facts do not participate in Room or Snapshot
+identity and are not sent to manifest.
+
+Before preparation the PR form shows only the URL and Load action. After success,
+one compact row of bordered groups beneath the URL shows the base/source branch
+names and abbreviated head/merge-base commits. Full values remain in titles;
+the forge's target SHA is only an internal merge-base input, not display state.
+For the loaded URL the action reads Refresh PR and repeats preparation explicitly.
+Editing the URL changes the action back to Load; the existing prepared details
+and ChangeSet remain until another preparation succeeds. Failure retains both and
+offers an explicit retry. ChangeSet reload continues using the selected commits.
+
 Compare Refs and Branch Review seed their controls from URL and repository
 metadata but create no selected value or `ChangeSet` until explicit Load. Once
 loaded, their selected value and `ChangeSet` remain mounted across Tab switches.

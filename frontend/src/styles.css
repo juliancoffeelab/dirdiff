@@ -615,6 +615,40 @@ h1 {
   grid-column: 1 / -1;
 }
 
+/* Prepared facts share the header's compact bordered groups, not input rows. */
+.pull-request-details {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  gap: 12px;
+  margin: 0;
+}
+
+.pull-request-details .summary-group {
+  min-width: 0;
+  gap: 8px;
+}
+
+.pull-request-details dt {
+  flex-shrink: 0;
+  color: #6a665d;
+  font-size: 13px;
+}
+
+.pull-request-details dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.pull-request-details code {
+  font-size: 13px;
+  font-weight: 400;
+}
+
 .field,
 .summary-group {
   display: flex;

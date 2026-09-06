@@ -357,7 +357,7 @@ export type RepoMainBranch = z.infer<typeof RepoMainBranchSchema>;
  * Every string must be present because the resulting repository identity, URL,
  * and two commits jointly form the selected Pull Request Tab value.
  */
-const PreparedPullRequestSchema = z.strictObject({
+export const PreparedPullRequestSchema = z.strictObject({
   /** Repository prepared or registered for the resulting Pull Request Tab. */
   project_id: z.number().int().positive(),
   /** Backend-authoritative URL used as the Pull Request correspondence identity. */
@@ -366,6 +366,10 @@ const PreparedPullRequestSchema = z.strictObject({
   left_commit: z.string().min(1),
   /** Prepared review commit passed to manifest capture as the right side. */
   right_commit: z.string().min(1),
+  /** Target branch name from the same preparation, used only for display. */
+  base_branch: z.string().trim().min(1),
+  /** Source branch name from the same preparation, used only for display. */
+  head_branch: z.string().trim().min(1),
 });
 
 /**
