@@ -3,22 +3,25 @@
 ## Public interface
 
 `GitBackend` discovers a worktree, resolves sides, lists changed Files, and
-loads exact bytes. `ref_choices` and `preferred_review_selection` turn one ref
-metadata read into the values used by the Branch Review controls.
+loads materialized file bytes. `ref_choices` and `preferred_review_selection`
+turn one ref metadata read into the values used by the Branch Review controls.
 
 ## Purpose and boundaries
 
 This is the only backend module that runs ordinary Git workspace commands.
 It returns repository paths, ref facts, and bytes through
 `WorkspaceBackendProtocol`; Snapshot capture decides when to retain those
-facts. Content decoding, format selection, rendering, and HTTP validation
-happen after this boundary.
+facts. Git LFS storage encoding is handled here: canonical pointers load local
+payloads checked against their declared size. Format decoding, rendering, and HTTP
+validation happen after this boundary. No LFS download or filter is executed.
 """
 
 from __future__ import annotations
 
 import os
 import posixpath
+import re
+import shlex
 import stat
 import subprocess
 from dataclasses import replace
@@ -53,6 +56,20 @@ _LARGE_CHANGED_LINES_LAZY_THRESHOLD = 5000
 
 `repo_diff` compares each tracked File's numstat additions plus removals against
 this strict threshold. Binary Files have no numeric count and are unaffected.
+"""
+
+_LFS_POINTER_RE = re.compile(
+    rb"version (https://(?:git-lfs|hawser)\.github\.com/spec/v[0-9]+)\n"
+    rb"((?:ext-[0-9]+-[a-z0-9.-]+ sha256:[0-9a-f]{64}\n)*)"
+    rb"oid sha256:([0-9a-f]{64})\nsize (0|[1-9][0-9]*)\n"
+)
+"""Recognize complete SHA-256 pointers before deciding whether to expand them.
+
+Groups hold the version URL, extension lines, object id, and declared size.
+Only canonical v1 without extensions is expanded; other recognized versions
+and transformations fail explicitly. Nonmatching bytes remain ordinary content,
+including text that merely starts with an LFS version line. Callers limit
+pointer inspection to files smaller than 1024 bytes and preserve raw links.
 """
 
 
@@ -182,7 +199,7 @@ class GitBackend(WorkspaceBackendProtocol):
     `resolve_branch_diff_sides` before that comparison flow.
 
     The instance stores its repository and command directories. It does not
-    cache Git state, change refs, publish Snapshots, or interpret loaded bytes.
+    cache Git state, change refs, publish Snapshots, or classify file formats.
     """
 
     def __init__(
@@ -1195,11 +1212,13 @@ class GitBackend(WorkspaceBackendProtocol):
 
     @override
     def file_size(self, path: str, side: SideName) -> int:
-        """Return exact blob size without loading one normalized Git File.
+        """Return materialized size without loading a File's LFS payload.
 
         Worktree inspection uses `lstat`, so regular-file size does not follow
         links; link size is the byte length of Git's raw link payload. Index and
-        tree sides ask `cat-file --batch-check` for blob metadata only.
+        tree sides ask `cat-file --batch-check` for blob metadata. Small regular
+        blobs are inspected for an LFS pointer; its declared size is verified
+        against the actual payload when content is loaded. Links stay raw.
 
         # Parameters
 
@@ -1221,6 +1240,22 @@ class GitBackend(WorkspaceBackendProtocol):
                 if stat.S_ISLNK(metadata.st_mode):
                     return len(os.readlink(os.fsencode(file_path)))
                 if stat.S_ISREG(metadata.st_mode):
+                    if metadata.st_size < 1024:
+                        # Size inspection must stay bounded even if another
+                        # process grows the worktree file after lstat.
+                        with file_path.open("rb") as stream:
+                            content = stream.read(1024)
+                        pointer = _LFS_POINTER_RE.fullmatch(content)
+                        if pointer is not None:
+                            if (
+                                pointer[1]
+                                != b"https://git-lfs.github.com/spec/v1"
+                                or pointer[2] != b""
+                            ):
+                                raise DirdiffError(
+                                    f"Unsupported Git LFS pointer version or extensions: worktree:{normalized}"
+                                )
+                            return int(pointer[4])
                     return metadata.st_size
             except OSError as exc:
                 raise DirdiffError(
@@ -1266,14 +1301,35 @@ class GitBackend(WorkspaceBackendProtocol):
             raise DirdiffError(
                 f"Git returned invalid size data for {git_target}."
             )
+        if size < 1024:
+            blob = self._run_git(["cat-file", "blob", git_target], check=False)
+            if blob.returncode != 0:
+                raise DirdiffError(
+                    f"Git could not inspect {git_target}: {blob.stderr.decode().strip()}"
+                )
+            pointer = _LFS_POINTER_RE.fullmatch(blob.stdout)
+            if (
+                pointer is not None
+                and self.file_mode(normalized, side) != SYMLINK_MODE
+            ):
+                if (
+                    pointer[1] != b"https://git-lfs.github.com/spec/v1"
+                    or pointer[2] != b""
+                ):
+                    raise DirdiffError(
+                        f"Unsupported Git LFS pointer version or extensions: {git_target}"
+                    )
+                return int(pointer[4])
         return size
 
     @override
     def load_version(self, path: str, side: SideName) -> bytes:
-        """Return exact contents from the worktree, index, or a Git tree.
+        """Return materialized contents from the worktree, index, or a Git tree.
 
         On every side, a symlink loads as Git records it, a blob holding the raw
-        link target.
+        link target. Regular LFS pointers load their size-checked local objects.
+        This delegates to the batch operation so both entry points share the
+        same storage and failure rules.
 
         # Parameters
 
@@ -1292,51 +1348,10 @@ class GitBackend(WorkspaceBackendProtocol):
         content, unreadable regular-file bytes or links, and non-blob or absent
         Git objects raise `DirdiffError`.
         """
-        if self.repo_root is None:
-            raise DirdiffError("Git-backed diff mode requires a Git repo.")
-
-        if side == "worktree":
-            file_path = self.repo_root / path
-            # Git stores a symlink as a blob holding its target string, and
-            # the tree/index sides already load exactly that through
-            # cat-file. Read the link itself before any following check:
-            # exists() and is_dir() follow the link, so a directory target
-            # would be rejected and a broken link would read as missing,
-            # while both are ordinary content to Git.
-            if file_path.is_symlink():
-                try:
-                    return os.readlink(os.fsencode(file_path))
-                except OSError as exc:
-                    raise DirdiffError(
-                        f"Could not read worktree link {path}: {exc}"
-                    ) from exc
-            if not file_path.exists():
-                raise DirdiffError(f"Worktree file is missing: {path}")
-            if file_path.is_dir():
-                raise DirdiffError(f"{path} is a directory, not a file.")
-            try:
-                return file_path.read_bytes()
-            except OSError as exc:
-                raise DirdiffError(
-                    f"Could not read worktree file {path}: {exc}"
-                ) from exc
-
-        git_target = f":./{path}" if side == "index" else f"{side}:{path}"
-        # cat-file blob returns exact object bytes and rejects non-blob
-        # targets (a gitlink resolves to a commit, which `git show` would
-        # render as a formatted log instead of File content), matching the
-        # batch loader's blob-only contract.
-        result = self._run_git(["cat-file", "blob", git_target], check=False)
-        if result.returncode != 0:
-            details = result.stderr.decode().strip()
-            message = (
-                f"Git could not load {git_target} "
-                f"(exit code {result.returncode})"
-            )
-            if details != "":
-                message = f"{message}: {details}"
-            raise DirdiffError(message)
-        return result.stdout
+        result = self.load_versions(((path, side),))[0]
+        if isinstance(result, DirdiffError):
+            raise result
+        return result
 
     @override
     def load_versions(
@@ -1346,7 +1361,11 @@ class GitBackend(WorkspaceBackendProtocol):
 
         Worktree bytes are read directly. Immutable tree and index paths are
         sent as NUL-terminated object expressions to one `cat-file --batch`
-        invocation, so exact File names never become pathspecs or argv entries.
+        invocation. LFS candidates also receive batched mode inspection through
+        literal pathspecs so pointer-shaped symbolic links remain raw.
+        Regular LFS pointers load local objects after bounded size checks.
+        Storage configuration is read once per batch containing LFS content;
+        no downloading, filters, or worktree writes occur.
 
         # Usage
 
@@ -1370,13 +1389,28 @@ class GitBackend(WorkspaceBackendProtocol):
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         results: list[bytes | DirdiffError | None] = [None] * len(requests)
+        symlink_indexes: set[int] = set()
         object_requests: list[tuple[int, bytes, str]] = []
         for index, (path, side) in enumerate(requests):
             if side == "worktree":
+                file_path = self.repo_root / path
                 try:
-                    results[index] = self.load_version(path, side)
-                except DirdiffError as exc:
-                    results[index] = exc
+                    # Inspect the link itself: even a broken or directory link
+                    # is valid raw content, never a candidate LFS pointer.
+                    mode = file_path.lstat().st_mode
+                    if stat.S_ISLNK(mode):
+                        results[index] = os.readlink(os.fsencode(file_path))
+                        symlink_indexes.add(index)
+                    elif stat.S_ISREG(mode):
+                        results[index] = file_path.read_bytes()
+                    else:
+                        results[index] = DirdiffError(
+                            f"{path} is not a regular file or symbolic link."
+                        )
+                except OSError as exc:
+                    results[index] = DirdiffError(
+                        f"Could not read worktree file {path}: {exc}"
+                    )
             else:
                 target_label = (
                     f":./{path}" if side == "index" else f"{side}:{path}"
@@ -1439,6 +1473,157 @@ class GitBackend(WorkspaceBackendProtocol):
                 raise DirdiffError(
                     "Git returned unexpected trailing object data."
                 )
+
+        # Tree/index blob reads do not carry modes. Inspect only complete pointer
+        # candidates, grouped by side, so preserving symlinks adds no per-file
+        # Git subprocess and ordinary batches need no additional commands.
+        candidates: dict[str, list[int]] = {}
+        for index, content in enumerate(results):
+            if (
+                isinstance(content, bytes)
+                and len(content) < 1024
+                and _LFS_POINTER_RE.fullmatch(content) is not None
+                and index not in symlink_indexes
+            ):
+                candidates.setdefault(requests[index][1], []).append(index)
+        for side, indexes in candidates.items():
+            if side == "worktree":
+                continue
+            paths = {requests[index][0] for index in indexes}
+            mode_result = self._run_git(
+                [
+                    *(
+                        ["ls-files", "--stage", "-z"]
+                        if side == "index"
+                        else ["ls-tree", "-z", side]
+                    ),
+                    "--",
+                    *(f":(literal){path}" for path in sorted(paths)),
+                ],
+                check=False,
+            )
+            if mode_result.returncode != 0:
+                for index in indexes:
+                    results[index] = DirdiffError(
+                        f"Git could not inspect {side}:{requests[index][0]}: "
+                        f"{mode_result.stderr.decode().strip()}"
+                    )
+                continue
+            modes: dict[str, bytes] = {}
+            for record in mode_result.stdout.split(b"\0"):
+                if record == b"":
+                    continue
+                metadata, separator, raw_path = record.partition(b"\t")
+                assert separator == b"\t", "Git mode record requires a path"
+                modes[raw_path.decode()] = metadata.split(b" ")[0]
+            for index in indexes:
+                path = requests[index][0]
+                if path not in modes:
+                    results[index] = DirdiffError(
+                        f"Git could not inspect {side}:{path}."
+                    )
+                elif modes[path] == b"120000":
+                    symlink_indexes.add(index)
+
+        lfs_objects: dict[int, tuple[str, int]] = {}
+        for indexes in candidates.values():
+            for index in indexes:
+                content = results[index]
+                if not isinstance(content, bytes) or index in symlink_indexes:
+                    continue
+                pointer = _LFS_POINTER_RE.fullmatch(content)
+                assert pointer is not None, (
+                    "LFS candidates must be complete pointers"
+                )
+                if (
+                    pointer[1] != b"https://git-lfs.github.com/spec/v1"
+                    or pointer[2] != b""
+                ):
+                    path, side = requests[index]
+                    results[index] = DirdiffError(
+                        f"Unsupported Git LFS pointer version or extensions: {side}:{path}"
+                    )
+                else:
+                    lfs_objects[index] = (
+                        pointer[3].decode("ascii"),
+                        int(pointer[4]),
+                    )
+
+        if lfs_objects != {}:
+            # Git LFS storage is relative to the shared Git directory, not a
+            # linked worktree's private directory. Configuration is an input
+            # to this load only; no cache survives the operation.
+            try:
+                config = self._run_git(
+                    ["config", "--null", "--get", "lfs.storage"], check=False
+                )
+                if config.returncode == 1:
+                    storage = Path("lfs")
+                elif config.returncode == 0:
+                    value = os.fsdecode(config.stdout.removesuffix(b"\0"))
+                    storage = Path(value) if value != "" else Path("lfs")
+                else:
+                    raise DirdiffError(
+                        f"Could not read Git LFS storage: {config.stderr.decode().strip()}"
+                    )
+                if not storage.is_absolute():
+                    common = self._run_git(
+                        [
+                            "rev-parse",
+                            "--path-format=absolute",
+                            "--git-common-dir",
+                        ],
+                        check=False,
+                    )
+                    if common.returncode != 0:
+                        raise DirdiffError(
+                            f"Could not locate Git LFS storage: {common.stderr.decode().strip()}"
+                        )
+                    storage = (
+                        Path(os.fsdecode(common.stdout.removesuffix(b"\n")))
+                        / storage
+                    )
+            except DirdiffError as exc:
+                for index, (oid, _size) in lfs_objects.items():
+                    path, side = requests[index]
+                    results[index] = DirdiffError(
+                        f"Could not load Git LFS object {oid} for {side}:{path}: {exc}"
+                    )
+            else:
+                for index, (oid, size) in lfs_objects.items():
+                    path, side = requests[index]
+                    object_path = storage / "objects" / oid[:2] / oid[2:4] / oid
+                    try:
+                        # Bound reads by the declared size even when the cached
+                        # object has the wrong length. Trust Git LFS's object
+                        # digest rather than hashing every payload again.
+                        with object_path.open("rb") as stream:
+                            if os.fstat(stream.fileno()).st_size != size:
+                                raise DirdiffError(
+                                    f"size mismatch, expected {size} bytes"
+                                )
+                            content = stream.read(size + 1)
+                        if len(content) != size:
+                            raise DirdiffError(
+                                f"size mismatch, expected {size} bytes, read {len(content)}"
+                            )
+                    except FileNotFoundError:
+                        fetch = (
+                            "git lfs fetch <remote>"
+                            if side in {"index", "worktree"}
+                            else f"git lfs fetch <remote> {shlex.quote(side)}"
+                        )
+                        results[index] = DirdiffError(
+                            f"{side}:{path} points to Git LFS object {oid} "
+                            f"({size} bytes), which is missing from local storage. "
+                            f"Fetch it with `{fetch}`."
+                        )
+                    except (OSError, DirdiffError) as exc:
+                        results[index] = DirdiffError(
+                            f"Could not load Git LFS object {oid} for {side}:{path}: {exc}"
+                        )
+                    else:
+                        results[index] = content
 
         assert all(result is not None for result in results)
         return tuple(result for result in results if result is not None)

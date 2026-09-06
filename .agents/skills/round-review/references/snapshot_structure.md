@@ -25,6 +25,10 @@ their paths to review instruments. Public File ids and side names carry no
 manifest or outer-File repository mapping. Private link metadata may state its
 captured nested paths, but it is not a general manifest.
 
+Git LFS sides contain materialized payload bytes, not pointer text. A capture
+failure retains diagnostic text and a File error; do not review that text as
+repository content.
+
 ## Follow a finding to its bytes
 
 An author-inbox Thread supplies its captured absolute `file` path while the File

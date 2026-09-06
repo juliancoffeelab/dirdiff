@@ -899,7 +899,8 @@ class WorkspaceBackendProtocol(Protocol):
     that instance, call `repo_diff`, then load the listed File sides through the
     same instance. Branch Review resolves symbolic selections before that flow.
 
-    Implementations return repository-relative paths and complete bytes.
+    Implementations return repository-relative paths and complete materialized
+    file bytes, handling their own storage encodings behind this interface.
     Expected loading failures use `DirdiffError` with the backend's actual
     reason.
 
@@ -1082,7 +1083,7 @@ class WorkspaceBackendProtocol(Protocol):
         ...
 
     def file_size(self, path: str, side: SideName) -> int:
-        """Return exact content size without loading one normalized File.
+        """Return materialized content size without loading the full File.
 
         Link-chain capture uses this operation to reject an oversized final
         target before its bytes enter memory. Implementations inspect the File
@@ -1103,11 +1104,12 @@ class WorkspaceBackendProtocol(Protocol):
         ...
 
     def load_version(self, path: str, side: SideName) -> bytes:
-        """Return the exact contents of one present file.
+        """Return the exact materialized contents of one present file.
 
         The path and side must already be normalized for this backend. Loading
-        must not decode or classify the contents; consumers apply any textual
-        restrictions required by their operation. A listed file that cannot be
+        must not decode or classify file formats; backend storage encodings
+        are handled here. Consumers apply textual restrictions required by
+        their operation. A listed file that cannot be
         loaded raises `DirdiffError` with the backend's actual failure reason.
 
         # Parameters

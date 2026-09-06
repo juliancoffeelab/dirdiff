@@ -25,6 +25,10 @@ Private link sidecars may sit beside them; they are composition data, not more
 changed Files or valid finding paths. Enumerate and address only exact `left`
 and `right` names.
 
+Git LFS sides contain materialized payload bytes, not pointer text. A capture
+failure retains diagnostic text and a File error; do not review that text as
+repository content.
+
 - Both files present: inspect them as one modified or renamed/copied pair.
 - Only `right` present: inspect it as an added or untracked File.
 - Only `left` present: inspect it as a removed File.

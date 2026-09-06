@@ -268,7 +268,7 @@ for a Room. No variant contains Snapshot identity, renderer selection, or HTTP
 presentation state.
 """
 
-_SNAPSHOT_HASH_DOMAIN = b"dirdiff-snapshot-v9"
+_SNAPSHOT_HASH_DOMAIN = b"dirdiff-snapshot-v10"
 """Versioned prefix that keeps Snapshot equality tied to its token format.
 
 Changing which capture facts participate in identity requires a new value so
@@ -2020,10 +2020,9 @@ class _SnapshotStore:
         # Ordinary sides carrying a backend object id participate in Snapshot
         # identity by that id, so their bytes are read only for a new Snapshot.
         # Object-id-less sides and all links are read before the retained check:
-        # a link's walk and final target are additional identity facts. A failed
-        # eager read substitutes the established error content; a deferred
-        # side's later read failure aborts rather than creating error content
-        # under an identity that names the real immutable bytes.
+        # a link's walk and final target are additional identity facts. Loading
+        # failures use the established error content. A deferred failure must
+        # replace its object-id token with those bytes before publication.
         eager_requests: list[tuple[str, str]] = []
         for (
             left_path,
@@ -2347,76 +2346,90 @@ class _SnapshotStore:
         # one, otherwise its captured bytes (which already embed any eager
         # read failure).
         interim.sort(key=lambda item: (item[0] or "", item[4] or ""))
-        digest = hashlib.sha256()
-        digest.update(_SNAPSHOT_HASH_DOMAIN)
-        for (
-            left_path,
-            left_mode,
-            left_content,
-            left_object_id,
-            right_path,
-            right_mode,
-            right_content,
-            right_object_id,
-            tracked,
-            change_type,
-            lazy_reason,
-            metadata_content,
-            _errors,
-            left_link,
-            right_link,
-        ) in interim:
 
-            def side_token(
-                content: Optional[bytes], object_id: Optional[str]
-            ) -> Optional[bytes]:
-                """Encode one side's identity token, or `None` when absent.
+        def captured_state_hash() -> bytes:
+            """Hash the observed sides using object ids or captured contents.
 
-                # Parameters
+            Successful deferred sides keep the cheap object-id path. A failed
+            load replaces only that side with the established diagnostic bytes
+            before hashing again, just like an eager loading failure.
+            """
+            digest = hashlib.sha256()
+            digest.update(_SNAPSHOT_HASH_DOMAIN)
+            for (
+                left_path,
+                left_mode,
+                left_content,
+                left_object_id,
+                right_path,
+                right_mode,
+                right_content,
+                right_object_id,
+                tracked,
+                change_type,
+                lazy_reason,
+                metadata_content,
+                _errors,
+                left_link,
+                right_link,
+            ) in interim:
 
-                - `content`: Eager bytes for an object-id-less side or link.
-                - `object_id`: Backend content identity for a deferred side.
+                def side_token(
+                    content: Optional[bytes], object_id: Optional[str]
+                ) -> Optional[bytes]:
+                    """Encode one side's identity token, or `None` when absent.
 
-                An eager link backed by a Git object carries both; the object id
-                remains the raw side token and its walk joins identity separately.
+                    # Parameters
 
-                # Returns
+                    - `content`: Eager bytes for an object-id-less side or link.
+                    - `object_id`: Backend content identity for a deferred side.
 
-                - A tagged byte token. `O` prefixes a backend object id and `C`
-                  prefixes eager captured contents, keeping the two identity
-                  sources distinct in the Snapshot digest.
-                - `None`: Both inputs are absent, so this Snapshot File has no
-                  side in this position and contributes the absent marker.
-                """
-                if object_id is not None:
-                    return b"O" + object_id.encode("ascii")
-                if content is not None:
-                    return b"C" + content
-                return None
+                    An eager link backed by a Git object carries both; the object id
+                    remains the raw side token and its walk joins identity separately.
 
-            for value in (
-                left_path.encode() if left_path is not None else None,
-                left_mode.encode() if left_mode is not None else None,
-                side_token(left_content, left_object_id),
-                left_link.identity_bytes() if left_link is not None else None,
-                right_path.encode() if right_path is not None else None,
-                right_mode.encode() if right_mode is not None else None,
-                side_token(right_content, right_object_id),
-                right_link.identity_bytes() if right_link is not None else None,
-                b"1" if tracked else b"0",
-                change_type.encode(),
-                lazy_reason.encode() if lazy_reason is not None else None,
-                metadata_content.encode()
-                if metadata_content is not None
-                else None,
-            ):
-                if value is None:
-                    digest.update(b"\x00")
-                else:
-                    digest.update(b"\x01")
-                    digest.update(len(value).to_bytes(8, "big"))
-                    digest.update(value)
-        snapshot_hash = digest.digest()
+                    # Returns
+
+                    - A tagged byte token. `O` prefixes a backend object id and `C`
+                      prefixes eager captured contents, keeping the two identity
+                      sources distinct in the Snapshot digest.
+                    - `None`: Both inputs are absent, so this Snapshot File has no
+                      side in this position and contributes the absent marker.
+                    """
+                    if object_id is not None:
+                        return b"O" + object_id.encode("ascii")
+                    if content is not None:
+                        return b"C" + content
+                    return None
+
+                for value in (
+                    left_path.encode() if left_path is not None else None,
+                    left_mode.encode() if left_mode is not None else None,
+                    side_token(left_content, left_object_id),
+                    left_link.identity_bytes()
+                    if left_link is not None
+                    else None,
+                    right_path.encode() if right_path is not None else None,
+                    right_mode.encode() if right_mode is not None else None,
+                    side_token(right_content, right_object_id),
+                    right_link.identity_bytes()
+                    if right_link is not None
+                    else None,
+                    b"1" if tracked else b"0",
+                    change_type.encode(),
+                    lazy_reason.encode() if lazy_reason is not None else None,
+                    metadata_content.encode()
+                    if metadata_content is not None
+                    else None,
+                ):
+                    if value is None:
+                        digest.update(b"\x00")
+                    else:
+                        digest.update(b"\x01")
+                        digest.update(len(value).to_bytes(8, "big"))
+                        digest.update(value)
+            return digest.digest()
+
+        snapshot_hash = captured_state_hash()
 
         def verified_retained_snapshot(snapshot_id: str) -> UUID:
             """Authenticate all physical sides before reusing an equal Snapshot.
@@ -2520,42 +2533,10 @@ class _SnapshotStore:
             ]
         ] = []
 
-        def deferred_side(
-            loaded: bytes | DirdiffError,
-            side_path: str,
-            side_name: str,
-            side_label: str,
-        ) -> bytes:
-            """Return one object-id side's bytes, failing the capture on error.
-
-            The side's object id already joined the Snapshot's identity, so a
-            failed read must abort the capture: substituting error content
-            here would persist an error placeholder under an identity token
-            that names the real bytes, and every later capture of the same
-            state would reuse the poisoned Snapshot without re-reading the
-            backend. The id-addressed object is immutable, so the failure is
-            infrastructural and a retry captures cleanly.
-
-            # Parameters
-
-            - `loaded`: Exact immutable-object bytes or its loading failure.
-            - `side_path`: Repository path included in a failure message.
-            - `side_name`: Capture slot, `left` or `right`.
-            - `side_label`: Backend state label paired with the path.
-
-            # Failures
-
-            - Raises `DirdiffError` when the backend could not load the immutable
-              object. The complete capture stops.
-            """
-            if isinstance(loaded, DirdiffError):
-                raise DirdiffError(
-                    f"Could not capture {side_name} side "
-                    f"{side_label}:{side_path}: {loaded}"
-                )
-            return loaded
-
-        for (
+        # Deferred errors use the same contents, persistence, and display path
+        # as eager errors. Recompute equality only if a deferred load failed.
+        deferred_failed = False
+        for index, (
             left_path,
             left_mode,
             left_content,
@@ -2571,24 +2552,57 @@ class _SnapshotStore:
             errors,
             left_link,
             right_link,
-        ) in interim:
+        ) in enumerate(interim):
             full_left = left_content
+            captured_left_id = left_object_id
+            captured_right_id = right_object_id
             if (
                 left_path is not None
                 and left_object_id is not None
                 and left_mode != SYMLINK_MODE
             ):
-                full_left = deferred_side(
-                    next(deferred_versions), left_path, "left", left_side
+                loaded = next(deferred_versions)
+                full_left = substituted_side(
+                    loaded, left_path, "left", left_side, errors
                 )
+                if isinstance(loaded, DirdiffError):
+                    captured_left_id = None
+                    deferred_failed = True
             full_right = right_content
             if (
                 right_path is not None
                 and right_object_id is not None
                 and right_mode != SYMLINK_MODE
             ):
-                full_right = deferred_side(
-                    next(deferred_versions), right_path, "right", right_side
+                loaded = next(deferred_versions)
+                full_right = substituted_side(
+                    loaded, right_path, "right", right_side, errors
+                )
+                if isinstance(loaded, DirdiffError):
+                    captured_right_id = None
+                    deferred_failed = True
+            if (
+                captured_left_id != left_object_id
+                or captured_right_id != right_object_id
+            ):
+                # The successful sibling keeps its object identity. Only the
+                # failed side contributes diagnostic content instead.
+                interim[index] = (
+                    left_path,
+                    left_mode,
+                    full_left,
+                    captured_left_id,
+                    right_path,
+                    right_mode,
+                    full_right,
+                    captured_right_id,
+                    tracked,
+                    change_type,
+                    lazy_reason_override,
+                    metadata_content,
+                    errors,
+                    left_link,
+                    right_link,
                 )
             assert (left_path is None) == (full_left is None), (
                 "left repository path and captured contents must have equal presence"
@@ -2620,6 +2634,14 @@ class _SnapshotStore:
             pass
         else:
             raise AssertionError("backend returned excess captured sides")
+
+        if deferred_failed:
+            snapshot_hash = captured_state_hash()
+            retained_id = self._database.snapshot_id_for_content(
+                self._identity, snapshot_hash
+            )
+            if retained_id is not None:
+                return verified_retained_snapshot(retained_id)
 
         snapshot_id = uuid4()
         staging_path = Path(

@@ -535,6 +535,9 @@ changed Files or valid finding paths. File ids are not repository paths, and the
 public ids and side names contain no manifest, ordering, display name, or
 outer-File repository mapping. Private link metadata states its captured nested
 paths but is not a general manifest.
+Public sides contain materialized file content: Git LFS sides hold the verified
+payload, not the repository's pointer. Loading failures use the existing
+captured diagnostic bytes and File error; they are not source content.
 Agents enumerate every pair, inspect each public side with content-appropriate
 tools, and pass the exact absolute `left` or `right` path to `create-finding`.
 Missing public side files represent absent sides; the Snapshot tree is immutable

@@ -31,7 +31,7 @@ Provides repository and preset data.
 It resolves refs, lists changed paths and stable File metadata including each
 present side's Git-compatible mode, reports
 backend-reported aggregate added/removed line counts when available, loads exact
-file contents without decoding them, and prepares pull requests. Pull Request
+materialized file contents without decoding their format, and prepares pull requests. Pull Request
 preparation parses the URL, identifies the marked repository and forge remote,
 retains the forge's recorded target and head SHAs, and fetches those object ids
 directly without moving tracking refs. Content-addressed local refs retain every
@@ -46,8 +46,18 @@ backend failure reason. Workspace backends do not select Rooms, retain state
 between HTTP requests, classify contents for renderers, or invent
 renderer-dependent line counts.
 
+Git loading expands canonical LFS v1 SHA-256 pointers from local storage,
+including shared worktree storage and configured `lfs.storage`. It bounds reads
+and verifies payload size, trusting the local LFS store's content-addressed
+objects without recomputing their digest. Missing or wrong-sized objects and
+recognized unsupported versions or transformation extensions use the ordinary
+backend loading error. Nonmatching pointer-like text stays ordinary content.
+Missing objects include a manual fetch hint. No download or filter runs.
+Single and batch loading share this behavior. Size inspection reads small
+candidate pointers to report payload size without loading that payload.
+
 Loading stops at bytes. A link loads as its raw target bytes, and the backend can
-report the mode and exact size without reading, then load any normalized
+report the mode and materialized size, then load any normalized
 repository-local path reached while Snapshot capture walks that link. What
 final bytes are — text, a notebook, an image — is `dirdiff.formats`' decision,
 and the definition of what this project calls text lives there with the

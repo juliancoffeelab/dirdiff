@@ -131,7 +131,9 @@ A replaced or modified line count does not exist before a diff engine aligns
 one File and is never manifest or Snapshot metadata.
 
 The private capture implementation loads every present side through the backend
-content interface and stores it unchanged. It records each present side's mode.
+content interface and stores it unchanged. Backend storage encodings have
+already been materialized: a Git LFS File captures its local payload, not
+its pointer. Capture has no LFS-specific state. It records each present side's mode.
 For a symlink mode it also decodes only the raw target spellings needed to walk
 inside the repository, retaining nested link payloads, any terminal diagnosis,
 and exact safely reached final bytes beside the unchanged raw side. Before
@@ -163,10 +165,13 @@ read before the retained check, and a failed read substitutes the established
 error content, keeping eager errors part of identity through the content
 token. Sides with an object id are read only when the Snapshot turns out to
 be new, except links, whose raw target and reached content are required for
-identity before the retained check. For an ordinary id-addressed side the id is
-the identity, so a failed read aborts capture instead of persisting an error
-placeholder under a token that names the real bytes (a retry captures cleanly;
-the object is immutable, so the failure is infrastructural). Backend order,
+identity before the retained check. A deferred loading failure records the same
+File error and diagnostic content as an eager failure. Its side token becomes
+that diagnostic content instead of the unavailable object's id, and capture
+recomputes equality before publication. Successful siblings retain their bytes
+and object identities. A subsequent capture loads the failed side again through
+the ordinary content lookup; an already captured successful Snapshot remains
+independent of backend availability. Backend order,
 human labels, aggregate line counts, directory-tree output, and renderer output do not participate in
 equality. Canonical filepath sorting is used only while hashing this set; it
 is not persisted presentation order.
