@@ -144,6 +144,12 @@ export function TextDiffGrid(props: {
           rightLabel={props.rightLabel}
         />
       )}
+      {/* An empty text bay (an added or removed empty File, an empty cell)
+          has no rows to show, so this strip says so where they would be. The
+          row host below still mounts: line-pin preparation looks it up. */}
+      <Show when={props.rows.length === 0}>
+        <div class="diff-empty-strip">(empty)</div>
+      </Show>
       <ImperativeDiffLines
         reviewFile={props.reviewFile}
         fileIndex={props.fileIndex}

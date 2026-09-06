@@ -73,7 +73,10 @@ headers explicitly close only review UI anchored inside their outgoing DOM when
 a File state replacement disposes them.
 
 A zero-hunk `FullFile` exposes one pseudo-hunk with `kind: "zero"` and
-`hunkIndex: 0`. A nonzero expanded `FullFile` exposes its real backend hunk
+`hunkIndex: 0`. An empty added or removed text File is such a file: its
+single bay has no rows and carries no stop, so the header is its one target.
+Its grid keeps the side headers and shows one muted `(empty)` strip where the
+rows would be. A nonzero expanded `FullFile` exposes its real backend hunk
 coordinates. When collapsed, each real coordinate remains in DOM as an
 invisible `kind: "skip"` target with the same file and hunk indexes.
 

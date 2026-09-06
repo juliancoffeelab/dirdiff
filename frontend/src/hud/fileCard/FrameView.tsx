@@ -75,6 +75,8 @@ export type BayHunks = {
  * Text rows that begin changed runs contribute their published bay-local
  * indexes. A bay whose change is not `unchanged` and has no row stop contributes
  * index zero itself, which keeps image-only and other non-row changes reachable.
+ * A text bay with an empty row list contributes nothing: an empty File side
+ * has no hunk, and a File made only of such bays is a zero-hunk file.
  * The returned map has exactly one entry for every composed bay and `total` is
  * the number of stops Next and Previous may visit; the operation never
  * renumbers or mutates input.
@@ -106,14 +108,23 @@ export function composedHunks(diff: FileDiff): {
       const stops: number[] = [];
       // Don't special case a kind here: whether a bay carries its own stops is
       // decided by whether it has rows with hunks in them.
-      const rows = "rows" in bay.kind_data ? bay.kind_data.rows : [];
-      for (const row of rows) {
+      const rows = "rows" in bay.kind_data ? bay.kind_data.rows : null;
+      for (const row of rows ?? []) {
         if (row.hunk_index !== null) {
           stops.push(row.hunk_index);
         }
       }
       const carrier = stops.length > 0 ? "rows" : "bay";
-      if (carrier === "bay" && bay.change.kind !== "unchanged") {
+      // A text bay with an empty row list is an empty File side: nothing
+      // changed inside it, so it has no hunk. Leaving it without a stop makes a
+      // lone empty File a zero-hunk file, whose header carries the `zero`
+      // pseudo-hunk instead. Rowless kinds (image, blob) and text bays whose
+      // rows carry no stop (a move) keep their bay-carried stop.
+      if (
+        carrier === "bay" &&
+        bay.change.kind !== "unchanged" &&
+        !(rows !== null && rows.length === 0)
+      ) {
         stops.push(0);
       }
       total += stops.length;

@@ -34,6 +34,12 @@ what differs is only which element carries the target. Chrome stays mounted in
 every representation, so such a stop is always landable, which is what makes
 every change reachable by Next and Previous.
 
+An empty text bay — one whose row list is empty, as for an added or removed
+empty File — carries no stop at all: nothing inside it changed, so it has no
+hunk. A File made only of such bays is a zero-hunk file and exposes the
+`zero` pseudo-hunk on its header. That is the pseudo-hunk's purpose: to give
+a File without any real hunk one stop that Next and Previous still visit.
+
 Real hunks use `kind: "real"`. File-state pseudo-hunks use `"husk"`, `"lazy"`,
 or `"zero"` with `hunkIndex: 0` and no bay. Collapsed real hunks use
 `"skip"` while preserving their original bay and hunk index.
@@ -464,7 +470,9 @@ behavior, and never selects a hunk. Unlocated Threads have no go-to action.
   pseudo-hunks carry the file index and index zero without a bay.
 - A changed bay that contributes no changed row carries its single stop at
   index zero on its own always-mounted chrome, so no change is unreachable
-  by traversal merely because its bay has no rows.
+  by traversal merely because its bay has no rows. An empty text bay is the
+  exception: it carries no stop, and a File made only of such bays exposes
+  the `zero` pseudo-hunk instead.
 - The scoped frontend lint requires exactly five direct `selectHunk()` callers:
   `nextHunk()`, `prevHunk()`, `scrollFollow()`, `navigateToFile()`, and the
   initialization-only `writeInitialHunkSelection()`.

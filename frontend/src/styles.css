@@ -3016,6 +3016,15 @@ h1 {
   border-left: 1px solid #ded8cc;
 }
 
+/* Placeholder row of a text bay with no rows; muted like the pane headers. */
+.diff-empty-strip {
+  padding: 10px 12px;
+  color: #6a665d;
+  font-size: 13px;
+  font-style: italic;
+  text-align: center;
+}
+
 /* Off-viewport row chunks skip style, layout, and paint entirely; `auto`
    intrinsic sizing keeps each chunk's real height once rendered, and 1100px
    approximates 50 unrendered 22px row elements (the chunk appender counts
