@@ -157,9 +157,9 @@ class DiffSide:
     """
     Optional path metadata for parser and temporary-file selection.
 
-    Difftastic and GumTree need file-like names to pick a language parser, and
-    display rendering uses the hint for syntax/fold detection.  This is not
-    permission for an engine to read from that path.
+    Difftastic, GumTree, and Diffsitter need file-like names to pick a
+    language parser, and display rendering uses the hint for syntax/fold
+    detection.  This is not permission for an engine to read from that path.
     """
 
 
@@ -373,6 +373,8 @@ class EngineWarning(TypedDict):
         "gumtree_invalid_json",
         "gumtree_unsupported_language",
         "gumtree_ambiguous_offsets",
+        "diffsitter_unsupported_language",
+        "diffsitter_empty_result",
         "tokendiff_region_limit",
     ]
     """Stable machine category for the exact degraded mode.
@@ -426,13 +428,16 @@ class DiffEngineResult(TypedDict):
     """
 
 
-EngineKind = Literal["dirdiff", "git", "difftastic", "gumtree", "tokendiff"]
+EngineKind = Literal[
+    "dirdiff", "git", "difftastic", "gumtree", "diffsitter", "tokendiff"
+]
 """Which diff engine a caller selects.
 
 - `dirdiff` selects the legacy line-first prototype.
 - `git` selects `git diff --no-index`.
 - `difftastic` selects structural Difftastic comparison.
 - `gumtree` selects GumTree range-based comparison.
+- `diffsitter` selects Diffsitter grapheme-level comparison.
 - `tokendiff` selects the next-generation token-first prototype.
 
 Pass a validated value to `dirdiff.engines.engine`. It names an implementation,

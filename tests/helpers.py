@@ -50,6 +50,8 @@ from dirdiff.backend import (
 from dirdiff.engines import (
     DiffEngineProtocol,
     DiffSide,
+    DiffsitterDiffEngine,
+    DiffsitterJson,
     DiffSummary,
     DifftasticDiffEngine,
     DifftasticJson,
@@ -57,6 +59,7 @@ from dirdiff.engines import (
     GumTreeDiffEngine,
     GumTreeJson,
     TextDiffEngine,
+    is_diffsitter_json,
     is_difftastic_json,
     is_gumtree_json,
 )
@@ -143,14 +146,36 @@ def tool_json(
     ...
 
 
+@overload
 def tool_json(
-    engine: Literal["difftastic", "gumtree"],
+    engine: Literal["diffsitter"],
     cache_key: str,
     *,
     left: ToolSide,
     right: ToolSide,
     allow_mismatches: bool = False,
-) -> DifftasticJson | GumTreeJson:
+) -> DiffsitterJson:
+    """Return validated Diffsitter JSON for one cached source pair.
+
+    # Parameters
+
+    - `engine`: Literal `diffsitter`, selecting Diffsitter JSON.
+    - `cache_key`: Stable slash-separated kebab-case identity for this pair.
+    - `left`: Old source path or exact inline text with a filename hint.
+    - `right`: New source under the same required input contract.
+    - `allow_mismatches`: Permit replacing changed worktree inputs only.
+    """
+    ...
+
+
+def tool_json(
+    engine: Literal["difftastic", "gumtree", "diffsitter"],
+    cache_key: str,
+    *,
+    left: ToolSide,
+    right: ToolSide,
+    allow_mismatches: bool = False,
+) -> DifftasticJson | GumTreeJson | DiffsitterJson:
     """Read local tool JSON or run the real executable on a cache miss.
 
     Keys are slash-separated lowercase kebab-case segments. Each engine/key
@@ -165,7 +190,7 @@ def tool_json(
 
     # Parameters
 
-    - `engine`: External JSON producer, Difftastic or GumTree.
+    - `engine`: External JSON producer: Difftastic, GumTree, or Diffsitter.
     - `cache_key`: Stable slash-separated kebab-case identity for this pair.
     - `left`: Old source Path or exact inline text with a filename hint.
     - `right`: New source under the same required input contract.
@@ -175,6 +200,7 @@ def tool_json(
 
     - `Difftastic`: Validated alignment, changed spans and tool metadata.
     - `GumTree`: Validated matches, actions and tool metadata.
+    - `Diffsitter`: Validated hunks of grapheme entries and echoed documents.
     """
 
     def valid_cache_key(value: str) -> bool:
@@ -193,13 +219,14 @@ def tool_json(
 
     def validate_cached_entry(
         value: JsonValue,
-    ) -> DifftasticJson | GumTreeJson:
+    ) -> DifftasticJson | GumTreeJson | DiffsitterJson:
         """Return the engine output from a structurally valid cache entry.
 
         # Returns
 
         - `Difftastic`: Validated alignment, changed spans and tool metadata.
         - `GumTree`: Validated matches, actions and tool metadata.
+        - `Diffsitter`: Validated hunks of grapheme entries and echoed documents.
         """
         assert isinstance(value, dict) and set(value) == {
             "left_hash",
@@ -218,6 +245,9 @@ def tool_json(
                 return value["output"]
             case "gumtree":
                 assert is_gumtree_json(value["output"]), path
+                return value["output"]
+            case "diffsitter":
+                assert is_diffsitter_json(value["output"]), path
                 return value["output"]
             case _ as unreachable:
                 assert_never(unreachable)
@@ -275,6 +305,13 @@ def tool_json(
             )
         case "gumtree":
             output = GumTreeDiffEngine()._run_gumtree_json(
+                left_text=old.text,
+                right_text=new.text,
+                left_path_hint=old.name,
+                right_path_hint=new.name,
+            )
+        case "diffsitter":
+            output = DiffsitterDiffEngine()._run_diffsitter_json(
                 left_text=old.text,
                 right_text=new.text,
                 left_path_hint=old.name,

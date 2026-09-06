@@ -20,7 +20,7 @@ import { assert } from "../utils";
  * `DiffEngine` is inferred from this validator so query keys, URL state, and
  * file parameters cannot acquire an engine name the backend does not expose.
  */
-const DiffEngineSchema = z.enum([
+export const DiffEngineSchema = z.enum([
   /** Dirdiff's syntax-aware text renderer. */
   "dirdiff",
   /** Git's line-oriented diff renderer. */
@@ -29,6 +29,8 @@ const DiffEngineSchema = z.enum([
   "difftastic",
   /** GumTree's syntax-tree renderer. */
   "gumtree",
+  /** Diffsitter's grapheme-level external renderer. */
+  "diffsitter",
   /** Dirdiff's document-wide token renderer. */
   "tokendiff",
 ]);

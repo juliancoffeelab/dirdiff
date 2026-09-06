@@ -30,6 +30,12 @@ from dirdiff.engines.base import (
     InlineTokenStatus,
     git_executable,
 )
+from dirdiff.engines.diffsitter import (
+    DiffsitterDiffEngine,
+    DiffsitterJson,
+    build_diffsitter_rows_from_json,
+    is_diffsitter_json,
+)
 from dirdiff.engines.difftastic import (
     DifftasticDiffEngine,
     DifftasticJson,
@@ -67,6 +73,8 @@ def engine(name: EngineKind) -> DiffEngineProtocol:
         return DifftasticDiffEngine()
     if name == "gumtree":
         return GumTreeDiffEngine()
+    if name == "diffsitter":
+        return DiffsitterDiffEngine()
     if name == "tokendiff":
         return TokenDiffEngine()
     assert_never(name)
@@ -78,6 +86,8 @@ __all__ = [
     "DiffEngineRow",
     "DiffSide",
     "DiffSummary",
+    "DiffsitterDiffEngine",
+    "DiffsitterJson",
     "DifftasticDiffEngine",
     "DifftasticJson",
     "DirdiffError",
@@ -91,9 +101,11 @@ __all__ = [
     "InlineTokenStatus",
     "TextDiffEngine",
     "TokenDiffEngine",
+    "build_diffsitter_rows_from_json",
     "build_gumtree_rows_from_json",
     "engine",
     "git_executable",
+    "is_diffsitter_json",
     "is_difftastic_json",
     "is_gumtree_json",
     "text_diff_summary",

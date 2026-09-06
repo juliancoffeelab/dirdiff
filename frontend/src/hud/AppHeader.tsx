@@ -19,6 +19,7 @@ import { Trash2 } from "lucide-solid";
 import {
   api,
   type DiffEngine,
+  DiffEngineSchema,
   type ProjectId,
   type RepoMark,
 } from "../api/api";
@@ -35,11 +36,12 @@ import type { DiffViewMode } from "./App";
  * present it; values remain presentation and never enter API parameters.
  */
 const engineLabels: Record<DiffEngine, string> = {
-  dirdiff: "Dirdiff",
   git: "Git",
   difftastic: "Difftastic",
   gumtree: "GumTree",
   tokendiff: "Tokendiff",
+  dirdiff: "Dirdiff",
+  diffsitter: "Diffsitter",
 };
 
 /**
@@ -387,15 +389,7 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
               disabled={false}
               onOpen={null}
               onChange={(value) => {
-                assert(
-                  value === "dirdiff" ||
-                    value === "git" ||
-                    value === "difftastic" ||
-                    value === "gumtree" ||
-                    value === "tokendiff",
-                  `Unsupported diff engine: ${value}.`,
-                );
-                props.onEngineSelected(value);
+                props.onEngineSelected(DiffEngineSchema.parse(value));
               }}
               optionAction={null}
             />

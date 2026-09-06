@@ -43,11 +43,11 @@ The naming scheme is `test_*_logic.py`.
 
 # Third-party engine JSON
 
-Executable-backed Difftastic and GumTree engine tests obtain JSON through
-`tool_json()` in `tests/helpers.py`. Pass the engine, a stable cache key, and
-two `ToolSide` inputs. A `Path` supplies exact UTF-8 text and its basename;
-`ToolText(text, name)` supplies inline text and a required filename hint.
-Line endings and whitespace are part of the input.
+Executable-backed Difftastic, GumTree, and Diffsitter engine tests obtain
+JSON through `tool_json()` in `tests/helpers.py`. Pass the engine, a stable
+cache key, and two `ToolSide` inputs. A `Path` supplies exact UTF-8 text and
+its basename; `ToolText(text, name)` supplies inline text and a required
+filename hint. Line endings and whitespace are part of the input.
 
 Local results live under `.test_cache/tool/<engine>/<key>.json`. Each entry
 contains `left_hash`, `right_hash`, and `output`. Side hashes cover text and

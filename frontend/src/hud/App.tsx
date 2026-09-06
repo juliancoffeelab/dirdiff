@@ -16,6 +16,7 @@ import {
   api,
   type BranchSelection,
   type DiffEngine,
+  DiffEngineSchema,
   type PreparedPullRequest,
   type PresetType,
   type ProjectId,
@@ -205,15 +206,7 @@ function initialEngine(search: URLSearchParams): DiffEngine {
     assert(search.size === 0, "A nonempty workspace URL requires engine.");
     return "tokendiff";
   }
-  assert(
-    engine === "dirdiff" ||
-      engine === "git" ||
-      engine === "difftastic" ||
-      engine === "gumtree" ||
-      engine === "tokendiff",
-    `Unsupported URL diff engine: ${engine}.`,
-  );
-  return engine;
+  return DiffEngineSchema.parse(engine);
 }
 
 /**

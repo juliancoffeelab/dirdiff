@@ -247,8 +247,10 @@ class ToolCachePlugin:
             if (
                 name
                 in {
+                    "_run_diffsitter_json",
                     "_run_difftastic_json",
                     "_run_gumtree_json",
+                    "run_diffsitter_json",
                     "run_difftastic_json",
                     "run_gumtree_json",
                 }

@@ -62,8 +62,8 @@ endpoints, summary counts, and an engine warning when applicable. It does not lo
 highlighting, folds, or hunk indexes. Difftastic keeps its degraded textual
 diff construction inside its own implementation.
 
-The concrete engines are difftastic, Git no-index, GumTree, the legacy
-line-first prototype (`textdiff`, engine param `dirdiff`), and the
+The concrete engines are difftastic, Git no-index, GumTree, Diffsitter, the
+legacy line-first prototype (`textdiff`, engine param `dirdiff`), and the
 next-generation token-first prototype (`tokendiff`, engine param `tokendiff`).
 Tokendiff
 diffs whole token streams anchored on lstrip-equal lines, so content moving
@@ -95,6 +95,38 @@ and malformed JSON remain failures. GumTree's logic module contains row
 construction and is the sole consumer of its private `_logic` driver package.
 The package facade re-exports the engine and raw-fact interface.
 
+Diffsitter runs the `diffsitter` executable with `--no-config --renderer
+json` over temporary files named after the path hints, which pass through
+unchanged, mixed or absent. `DIRDIFF_DIFFSITTER_BIN` selects an exact
+executable and a missing configured file is an error; otherwise `diffsitter`
+comes from `PATH`. Diffsitter reports only the graphemes of each side without
+a match on the other side; it reports no alignment, pairing, replacement, or
+move. The adapter therefore maps every `Old` entry to one `delete` token and
+every `New` entry to one `insert` token in reported order, fills the gaps on
+mentioned lines with unchanged tokens, and never merges graphemes, infers a
+replacement, or reads syntax kinds. Whitespace never appears in a report
+because Diffsitter strips it. Physical rows come from a local
+`difflib.unified_diff` over `\n`-split lines inside the Diffsitter
+implementation, so every line of both sides appears exactly once in order and
+differing lines are one-sided rows. Row status follows the Difftastic rule
+over the row's tokens: no changed non-whitespace token means equal, a single
+kind of change without unchanged non-whitespace context keeps that kind, and
+any other mix is a replacement. A one-sided line Diffsitter never mentioned
+carries no tokens and stays equal, except a blank line, whose presence is the
+change and which takes its side's status. Summary counts follow row statuses.
+Column coordinates are UTF-8 byte offsets; the adapter validates every line
+index, row, column, and entry text against the exact supplied source and
+rejects the echoed documents when they differ from dirdiff's inputs.
+Identical texts render as equal rows and an empty or absent side renders as
+one-sided rows, both without running the executable or warning. An
+unsupported file type builds unified-diff rows with the
+`diffsitter_unsupported_language` warning; differing texts without any
+reported entry build them with `diffsitter_empty_result`. Missing executables,
+other process failures, malformed JSON, and unsatisfiable coordinates are
+`DirdiffError`s. Diffsitter's logic module contains row construction and is
+the sole consumer of its private `_logic` driver, which contains executable
+discovery, temporary files, and raw JSON validation.
+
 The package also owns engine selection. `EngineKind` is the complete set of
 engine names, and `engine()` maps one to its renderer; both are exported from
 the package root. `engine()` is defined in `__init__.py` rather than `base.py`
@@ -103,12 +135,15 @@ their contracts from `base.py`.
 
 Its public interface is exported from `dirdiff.engines`.
 
-The facade also exports `DifftasticJson`, `GumTreeJson` and their
-`is_difftastic_json()` / `is_gumtree_json()` validators for consumers of raw
-tool facts, including the test JSON cache. `build_gumtree_rows_from_json()`
-accepts cached facts together with exact source texts and filename hints for
-alignment without running the executable. The validators check the consumed JSON
-shape without executable discovery or row construction.
+The facade also exports `DifftasticJson`, `GumTreeJson`, `DiffsitterJson`
+and their `is_difftastic_json()` / `is_gumtree_json()` /
+`is_diffsitter_json()` validators for consumers of raw tool facts, including
+the test JSON cache. `build_gumtree_rows_from_json()` accepts cached facts
+together with exact source texts and filename hints for alignment without
+running the executable; `build_diffsitter_rows_from_json()` accepts cached
+facts and the exact source texts alone, because Diffsitter's alignment is
+local and needs no hints. The validators check the consumed JSON shape without
+executable discovery or row construction.
 
 ## `dirdiff.rendering`
 
