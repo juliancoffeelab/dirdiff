@@ -2800,3 +2800,187 @@ def test_agent_addresses_an_image_bay_by_its_single_pseudo_line(
     )
     assert stale.status_code == 400
     assert "Unknown rendered bay." in stale.text
+
+
+def test_gitlinks_review_as_commit_ids_through_the_head_tab(
+    tmp_path: Path,
+) -> None:
+    """A moved submodule and an untracked embedded repository review as text.
+
+    The HEAD Tab captures the tracked submodule eagerly and the untracked
+    embedded repository lazily on its first diff. Each side must compose as
+    the single line holding the commit id Git records for it, and no file from
+    inside either repository may reach the review. Nothing outside the Git
+    backend knows these entries are gitlinks.
+    """
+    inner = tmp_path / "inner"
+    outer = tmp_path / "outer"
+    inner.mkdir()
+    outer.mkdir()
+    create_committed_repo(inner, branch="main")
+    (inner / "alpha.txt").write_text("two\n", encoding="utf-8")
+    run_git(inner, "commit", "-qam", "second")
+    create_committed_repo(outer, branch="main")
+    # The nested clone ignores the outer repository configuration, so the file
+    # transport must be allowed on the command itself.
+    run_git(
+        outer,
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "-q",
+        str(inner),
+        "sub",
+    )
+    run_git(outer, "commit", "-qm", "submodule")
+    run_git(outer / "sub", "checkout", "-q", "HEAD~1")
+    (outer / "embedded").mkdir()
+    create_committed_repo(outer / "embedded", branch="main")
+    old, new, embedded = (
+        subprocess.run(
+            ["git", "rev-parse", ref],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+        )
+        .stdout.decode()
+        .strip()
+        for cwd, ref in (
+            (inner, "HEAD"),
+            (inner, "HEAD~1"),
+            (outer / "embedded", "HEAD"),
+        )
+    )
+
+    client, _project_id = create_repo_client(outer)
+    with client:
+        joined = client.post(
+            "/api/agent/join_review",
+            json={
+                "agent_uuid": "e" * 32,
+                "name": "Gitlink reviewer",
+                "tab": {"kind": "head", "repo_path": str(outer)},
+            },
+        )
+        assert joined.status_code == 200, joined.text
+        snapshot_id = joined.json()["snapshot_id"]
+
+        moved = client.get(
+            "/api/file-diff",
+            params={
+                "snapshot_id": snapshot_id,
+                "engine": "dirdiff",
+                "left_path": "sub",
+                "right_path": "sub",
+            },
+        )
+        assert moved.status_code == 200, moved.text
+        assert "alpha" not in moved.text
+        (frame,) = moved.json()["frames"]
+        (bay,) = frame["bays"]
+        assert bay["bay_key"] == "flatfile"
+        assert bay["kind_data"]["kind"] == "text"
+        rows = bay["kind_data"]["rows"]
+        assert [row["left_text"] for row in rows if row["left_no"]] == [old]
+        assert [row["right_text"] for row in rows if row["right_no"]] == [new]
+
+        added = client.get(
+            "/api/file-diff",
+            params={
+                "snapshot_id": snapshot_id,
+                "engine": "dirdiff",
+                "right_path": "embedded",
+            },
+        )
+        assert added.status_code == 200, added.text
+        assert "alpha" not in added.text
+        assert added.json()["file_kind"] == {"type": "untracked"}
+        (frame,) = added.json()["frames"]
+        (bay,) = frame["bays"]
+        assert bay["kind_data"]["kind"] == "text"
+        assert [
+            (row["status"], row["right_text"])
+            for row in bay["kind_data"]["rows"]
+        ] == [("insert", embedded)]
+
+
+def test_symlink_to_a_submodule_captures_its_commit_id(tmp_path: Path) -> None:
+    """A link whose target is a submodule resolves to the commit id line.
+
+    The capture walk asks the backend for the target's mode and size before
+    loading it, so a gitlink target must pass size inspection on a committed
+    tree side and in the worktree, where the submodule directory is real.
+    """
+    inner = tmp_path / "inner"
+    outer = tmp_path / "outer"
+    inner.mkdir()
+    outer.mkdir()
+    create_committed_repo(inner, branch="main")
+    create_committed_repo(outer, branch="main")
+    run_git(
+        outer,
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "-q",
+        str(inner),
+        "sub",
+    )
+    os.symlink("sub", outer / "portal")
+    run_git(outer, "add", "portal")
+    run_git(outer, "commit", "-qm", "submodule and link")
+    (outer / "portal").unlink()
+    os.symlink("hop", outer / "portal")
+    os.symlink("sub", outer / "hop")
+    inner_id = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=inner,
+            check=True,
+            capture_output=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+
+    client, project_id = create_repo_client(outer)
+    with client:
+        manifest = client.get(
+            "/api/manifest",
+            params={
+                "project_id": str(project_id),
+                "tab": "refs",
+                "left": "HEAD",
+                "right": "worktree",
+            },
+        )
+        assert manifest.status_code == 200, manifest.text
+        diff = client.get(
+            "/api/file-diff",
+            params={
+                "snapshot_id": manifest.json()["snapshot_id"],
+                "engine": "dirdiff",
+                "left_path": "portal",
+                "right_path": "portal",
+            },
+        )
+        assert diff.status_code == 200, diff.text
+        bays = diff.json()["frames"][0]["bays"]
+        assert [bay["bay_key"] for bay in bays] == [
+            "symlink",
+            "symlink-target",
+        ]
+        target = bays[1]["kind_data"]
+        assert target["kind"] == "text"
+        assert [
+            row["left_text"]
+            for row in target["rows"]
+            if row["left_text"] not in (None, "")
+        ] == [inner_id]
+        assert [
+            row["right_text"]
+            for row in target["rows"]
+            if row["right_text"] not in (None, "")
+        ] == ["# %% hop", "sub", "# %% sub", inner_id]

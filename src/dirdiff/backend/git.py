@@ -58,6 +58,14 @@ _LARGE_CHANGED_LINES_LAZY_THRESHOLD = 5000
 this strict threshold. Binary Files have no numeric count and are unaffected.
 """
 
+GITLINK_MODE = "160000"
+"""Git's tree mode for a gitlink: a submodule or embedded repository entry.
+
+A gitlink names one commit of another repository and has no blob. This backend
+loads such a side as that commit id, so the mode never leaves `GitBackend`
+except as the opaque Git-compatible mode string every side already carries.
+"""
+
 _LFS_POINTER_RE = re.compile(
     rb"version (https://(?:git-lfs|hawser)\.github\.com/spec/v[0-9]+)\n"
     rb"((?:ext-[0-9]+-[a-z0-9.-]+ sha256:[0-9a-f]{64}\n)*)"
@@ -904,8 +912,10 @@ class GitBackend(WorkspaceBackendProtocol):
     def _list_untracked_worktree_paths(self) -> list[RepoDiffPath]:
         """List untracked, non-ignored worktree Files as right-only additions.
 
-        Git's NUL-delimited path order is preserved. A missing repository or Git
-        command failure propagates instead of returning an incomplete list.
+        Git's NUL-delimited path order is preserved. An untracked embedded
+        repository is listed like any other entry, with gitlink mode. A missing
+        repository or Git command failure propagates instead of returning an
+        incomplete list.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
@@ -919,7 +929,9 @@ class GitBackend(WorkspaceBackendProtocol):
 
         entries: list[RepoDiffPath] = []
         for token in tokens:
-            path = token.decode("utf-8")
+            # Git marks an untracked embedded repository with a trailing '/'.
+            # The entry itself is the gitlink path, so drop the marker.
+            path = token.decode("utf-8").removesuffix("/")
             if path == "":
                 continue
             entries.append(
@@ -974,7 +986,17 @@ class GitBackend(WorkspaceBackendProtocol):
 
         # --no-abbrev keeps the raw records' object ids full-length so they
         # can serve as exact per-side content identity during capture.
-        diff_args = ["diff", "--raw", "--no-abbrev", "--numstat", "-z", "-M"]
+        # A gitlink side is its referenced commit id; a submodule's own
+        # uncommitted state is not part of the outer repository's diff.
+        diff_args = [
+            "diff",
+            "--raw",
+            "--no-abbrev",
+            "--numstat",
+            "-z",
+            "-M",
+            "--ignore-submodules=dirty",
+        ]
         if "worktree" in {left, right}:
             other = right if left == "worktree" else left
             if other != "index":
@@ -1136,8 +1158,11 @@ class GitBackend(WorkspaceBackendProtocol):
         """Return one normalized path's Git-compatible File mode.
 
         Worktree inspection uses `lstat`, so a link is classified without
-        following it. Index and tree sides ask Git for the exact literal path;
-        directories, gitlinks, missing paths, and malformed output are refused.
+        following it. A worktree directory holding a `.git` entry is an
+        embedded repository and reports gitlink mode `160000`. Index and tree
+        sides ask Git for the exact literal path and report its recorded mode,
+        including a gitlink; plain directories, missing paths, and malformed
+        output are refused.
 
         # Parameters
 
@@ -1147,7 +1172,7 @@ class GitBackend(WorkspaceBackendProtocol):
         # Failures
 
         Raises `DirdiffError` when the path does not identify a regular file,
-        executable file, or symbolic link on the selected side.
+        executable file, symbolic link, or gitlink on the selected side.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
@@ -1162,9 +1187,12 @@ class GitBackend(WorkspaceBackendProtocol):
                 ) from exc
             if stat.S_ISLNK(mode):
                 return SYMLINK_MODE
+            if stat.S_ISDIR(mode) and (file_path / ".git").exists():
+                return GITLINK_MODE
             if not stat.S_ISREG(mode):
                 raise DirdiffError(
-                    f"{normalized} is not a regular file or symbolic link."
+                    f"{normalized} is not a regular file, symbolic link, "
+                    "or embedded repository."
                 )
             return "100755" if mode & stat.S_IXUSR else "100644"
 
@@ -1196,17 +1224,22 @@ class GitBackend(WorkspaceBackendProtocol):
             raise DirdiffError(f"Git returned malformed mode data for {label}.")
         try:
             git_mode = parts[0].decode("ascii")
+            # `ls-files --stage` records carry no object type; the index mode
+            # alone distinguishes a gitlink from a blob.
             object_type = (
-                "blob" if side == "index" else parts[1].decode("ascii")
+                ("commit" if git_mode == GITLINK_MODE else "blob")
+                if side == "index"
+                else parts[1].decode("ascii")
             )
             decoded_path = returned_path.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise DirdiffError(
                 f"Git returned invalid mode data for {label}."
             ) from exc
-        if decoded_path != normalized or object_type != "blob":
+        expected_type = "commit" if git_mode == GITLINK_MODE else "blob"
+        if decoded_path != normalized or object_type != expected_type:
             raise DirdiffError(f"{label} is not a capturable File.")
-        if git_mode not in {"100644", "100755", SYMLINK_MODE}:
+        if git_mode not in {"100644", "100755", SYMLINK_MODE, GITLINK_MODE}:
             raise DirdiffError(f"Unsupported File mode {git_mode} for {label}.")
         return git_mode
 
@@ -1218,7 +1251,8 @@ class GitBackend(WorkspaceBackendProtocol):
         links; link size is the byte length of Git's raw link payload. Index and
         tree sides ask `cat-file --batch-check` for blob metadata. Small regular
         blobs are inspected for an LFS pointer; its declared size is verified
-        against the actual payload when content is loaded. Links stay raw.
+        against the actual payload when content is loaded. Links stay raw. A
+        gitlink reports the length of its commit id line on every side.
 
         # Parameters
 
@@ -1257,12 +1291,19 @@ class GitBackend(WorkspaceBackendProtocol):
                                 )
                             return int(pointer[4])
                     return metadata.st_size
+                if (
+                    stat.S_ISDIR(metadata.st_mode)
+                    and (file_path / ".git").exists()
+                ):
+                    # A gitlink materializes as its commit id line; reading
+                    # that is bounded, so its size is the loaded length.
+                    return len(self.load_version(normalized, side))
             except OSError as exc:
                 raise DirdiffError(
                     f"Could not inspect worktree file {normalized}: {exc}"
                 ) from exc
             raise DirdiffError(
-                f"{normalized} is not a regular file or symbolic link."
+                f"{normalized} is not a regular file, symbolic link, or embedded repository."
             )
 
         git_target = (
@@ -1288,6 +1329,11 @@ class GitBackend(WorkspaceBackendProtocol):
             raise DirdiffError(message)
         fields = process.stdout.removesuffix(b"\n").split(b" ")
         if len(fields) != 2 or fields[0] != b"blob":
+            # A gitlink names a commit the outer repository usually lacks, so
+            # cat-file reports it missing; when it is present it is a commit.
+            # Either way its size is the materialized commit id line.
+            if self.file_mode(normalized, side) == GITLINK_MODE:
+                return len(self.load_version(normalized, side))
             raise DirdiffError(
                 f"Git returned malformed size data for {git_target}."
             )
@@ -1327,7 +1373,8 @@ class GitBackend(WorkspaceBackendProtocol):
         """Return materialized contents from the worktree, index, or a Git tree.
 
         On every side, a symlink loads as Git records it, a blob holding the raw
-        link target. Regular LFS pointers load their size-checked local objects.
+        link target. A gitlink loads as its referenced commit id, one text
+        line. Regular LFS pointers load their size-checked local objects.
         This delegates to the batch operation so both entry points share the
         same storage and failure rules.
 
@@ -1344,9 +1391,10 @@ class GitBackend(WorkspaceBackendProtocol):
 
         # Failures
 
-        Missing repository state, missing or directory-shaped ordinary worktree
-        content, unreadable regular-file bytes or links, and non-blob or absent
-        Git objects raise `DirdiffError`.
+        Missing repository state, missing or plain-directory worktree
+        content, unreadable regular-file bytes or links, an embedded repository
+        without a HEAD commit, and non-blob, non-gitlink or absent Git objects
+        raise `DirdiffError`.
         """
         result = self.load_versions(((path, side),))[0]
         if isinstance(result, DirdiffError):
@@ -1366,6 +1414,13 @@ class GitBackend(WorkspaceBackendProtocol):
         Regular LFS pointers load local objects after bounded size checks.
         Storage configuration is read once per batch containing LFS content;
         no downloading, filters, or worktree writes occur.
+
+        A gitlink side loads as its referenced commit id followed by a newline,
+        the exact content Git records for that entry. A worktree embedded
+        repository reads its own HEAD through its explicit Git directory; a
+        tree or index gitlink takes the id from the tree record, because the
+        referenced commit is usually absent from this repository's objects.
+        Nothing inside the referenced repository is read.
 
         # Usage
 
@@ -1403,9 +1458,34 @@ class GitBackend(WorkspaceBackendProtocol):
                         symlink_indexes.add(index)
                     elif stat.S_ISREG(mode):
                         results[index] = file_path.read_bytes()
+                    elif stat.S_ISDIR(mode) and (file_path / ".git").exists():
+                        # NOTE: this commit id becomes the side's whole
+                        # content. Formats classify it by the outer path, so a
+                        # repository named like a notebook or image composes
+                        # as one; the id stays readable there, just oddly
+                        # framed. Passing the Git directory explicitly keeps
+                        # Git from discovering the outer repository instead.
+                        head = self._run_git(
+                            [
+                                "--git-dir",
+                                str(file_path / ".git"),
+                                "rev-parse",
+                                "--verify",
+                                "HEAD^{commit}",
+                            ],
+                            check=False,
+                        )
+                        if head.returncode != 0:
+                            results[index] = DirdiffError(
+                                f"Embedded repository {path} has no HEAD "
+                                f"commit: {head.stderr.decode().strip()}"
+                            )
+                        else:
+                            results[index] = head.stdout
                     else:
                         results[index] = DirdiffError(
-                            f"{path} is not a regular file or symbolic link."
+                            f"{path} is not a regular file, symbolic link, "
+                            "or embedded repository."
                         )
                 except OSError as exc:
                     results[index] = DirdiffError(
@@ -1433,13 +1513,15 @@ class GitBackend(WorkspaceBackendProtocol):
             if process.returncode != 0:
                 details = process.stderr.decode().strip()
                 raise DirdiffError(f"Git object batch failed: {details}")
+            # A gitlink whose commit is absent from this repository's objects
+            # is reported missing exactly like an absent path. Those indexes
+            # are told apart below by the tree record's mode.
+            missing_entries: list[tuple[int, str]] = []
             offset = 0
             for index, target, label in object_requests:
                 missing = target + b" missing\n"
                 if process.stdout.startswith(missing, offset):
-                    results[index] = DirdiffError(
-                        f"Git could not load {label}: File is missing."
-                    )
+                    missing_entries.append((index, label))
                     offset += len(missing)
                     continue
                 header_end = process.stdout.find(b"\n", offset)
@@ -1450,7 +1532,7 @@ class GitBackend(WorkspaceBackendProtocol):
                     raise DirdiffError(
                         "Git returned malformed object metadata."
                     )
-                _object_id, object_type, raw_size = fields
+                object_id, object_type, raw_size = fields
                 try:
                     size = int(raw_size)
                 except ValueError as exc:
@@ -1463,6 +1545,11 @@ class GitBackend(WorkspaceBackendProtocol):
                     raise DirdiffError("Git returned a truncated object body.")
                 if object_type == b"blob":
                     results[index] = process.stdout[content_start:content_end]
+                elif object_type == b"commit":
+                    # A tree path only resolves to a commit through a gitlink.
+                    # Its content is that commit id; the commit body is the
+                    # referenced repository's, not this side's.
+                    results[index] = object_id + b"\n"
                 else:
                     results[index] = DirdiffError(
                         f"Git could not load {label}: expected a File blob, "
@@ -1473,6 +1560,53 @@ class GitBackend(WorkspaceBackendProtocol):
                 raise DirdiffError(
                     "Git returned unexpected trailing object data."
                 )
+
+            missing_by_side: dict[str, list[tuple[int, str]]] = {}
+            for index, label in missing_entries:
+                missing_by_side.setdefault(requests[index][1], []).append(
+                    (index, label)
+                )
+            for side, entries in missing_by_side.items():
+                paths = {requests[index][0] for index, _label in entries}
+                record_result = self._run_git(
+                    [
+                        *(
+                            ["ls-files", "--stage", "-z"]
+                            if side == "index"
+                            else ["ls-tree", "-z", side]
+                        ),
+                        "--",
+                        *(f":(literal){path}" for path in sorted(paths)),
+                    ],
+                    check=False,
+                )
+                if record_result.returncode != 0:
+                    raise DirdiffError(
+                        f"Git could not inspect {side} entries: "
+                        f"{record_result.stderr.decode().strip()}"
+                    )
+                # `ls-tree` records are "mode type id", `ls-files --stage`
+                # records are "mode id stage"; the id sits after the type only
+                # in the former.
+                gitlink_ids: dict[str, bytes] = {}
+                for record in record_result.stdout.split(b"\0"):
+                    if record == b"":
+                        continue
+                    metadata, separator, raw_path = record.partition(b"\t")
+                    assert separator == b"\t", "Git record requires a path"
+                    fields = metadata.split(b" ")
+                    if fields[0] == GITLINK_MODE.encode():
+                        gitlink_ids[raw_path.decode()] = fields[
+                            1 if side == "index" else 2
+                        ]
+                for index, label in entries:
+                    path = requests[index][0]
+                    if path in gitlink_ids:
+                        results[index] = gitlink_ids[path] + b"\n"
+                    else:
+                        results[index] = DirdiffError(
+                            f"Git could not load {label}: File is missing."
+                        )
 
         # Tree/index blob reads do not carry modes. Inspect only complete pointer
         # candidates, grouped by side, so preserving symlinks adds no per-file

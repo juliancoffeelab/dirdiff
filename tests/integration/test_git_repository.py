@@ -398,11 +398,11 @@ def test_batch_loads_literal_paths_without_argv_pathspecs(
     assert repository.load_version(stage_name, "index") == (
         b"literal stage-shaped name\n"
     )
-    # The single-File loader must reject non-blob objects exactly like the
-    # batch: a gitlink resolves to a commit whose `git show` output would
-    # otherwise masquerade as File content.
-    with pytest.raises(DirdiffError):
-        repository.load_version("linked", "index")
+    # A gitlink has no blob; both loaders return the referenced commit id as
+    # the side's content, here for a commit that is present locally.
+    assert repository.load_version("linked", "index") == (
+        f"{commit_id}\n".encode()
+    )
     loaded = repository.load_versions(
         (
             (magic_name, "HEAD"),
@@ -420,10 +420,7 @@ def test_batch_loads_literal_paths_without_argv_pathspecs(
         b"staged magic\n",
         b"literal stage-shaped name\n",
     )
-    assert isinstance(loaded[4], DirdiffError)
-    assert str(loaded[4]) == (
-        "Git could not load :./linked: expected a File blob, got commit."
-    )
+    assert loaded[4] == f"{commit_id}\n".encode()
     assert isinstance(loaded[5], DirdiffError)
     assert str(loaded[5]) == (
         "Git could not load HEAD:missing\npath: File is missing."
@@ -750,3 +747,239 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
         capture_output=True,
     )
     assert linked_backend.load_version("held.png", "HEAD") == held
+
+
+def test_submodule_sides_load_as_their_commit_ids(tmp_path: Path) -> None:
+    """A submodule lists with mode 160000 and each side loads one commit id.
+
+    The submodule's commits live only under `.git/modules`, so tree and index
+    sides cannot be read as objects of the outer repository. Moving the
+    submodule to another commit changes the worktree side; staging that move
+    changes the index side; content changes inside the submodule alone are not
+    an outer change.
+    """
+    inner = tmp_path / "inner"
+    outer = tmp_path / "outer"
+    inner.mkdir()
+    outer.mkdir()
+    for cwd, args in (
+        (inner, ["init", "-q"]),
+        (inner, ["config", "user.name", "Test User"]),
+        (inner, ["config", "user.email", "test@example.com"]),
+        (inner, ["commit", "-q", "--allow-empty", "-m", "first"]),
+        (inner, ["commit", "-q", "--allow-empty", "-m", "second"]),
+        (outer, ["init", "-q"]),
+        (outer, ["config", "user.name", "Test User"]),
+        (outer, ["config", "user.email", "test@example.com"]),
+        # The nested clone ignores the outer repository configuration, so the
+        # file transport must be allowed on the command itself.
+        (
+            outer,
+            [
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                "-q",
+                str(inner),
+                "sub",
+            ],
+        ),
+        (outer, ["commit", "-q", "-m", "submodule"]),
+        (outer / "sub", ["checkout", "-q", "HEAD~1"]),
+    ):
+        subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+    first, second = (
+        subprocess.run(
+            ["git", "rev-parse", ref],
+            cwd=inner,
+            check=True,
+            capture_output=True,
+        )
+        .stdout.decode()
+        .strip()
+        for ref in ("HEAD~1", "HEAD")
+    )
+    (outer / "sub" / "scratch.txt").write_text("dirty\n", encoding="utf-8")
+
+    backend = GitBackend.discover(cwd=outer)
+    (moved,) = backend.repo_diff(
+        left="HEAD", right="worktree", show_untracked=True
+    ).paths
+    assert (moved.left_path, moved.right_path) == ("sub", "sub")
+    assert moved.change_type == "modify"
+    assert (moved.left_mode, moved.right_mode) == ("160000", "160000")
+    assert moved.left_object_id == second
+    for side in ("HEAD", "index", "worktree"):
+        assert backend.file_mode("sub", side) == "160000"
+    assert backend.load_versions(
+        (("sub", "HEAD"), ("sub", "index"), ("sub", "worktree"))
+    ) == (
+        f"{second}\n".encode(),
+        f"{second}\n".encode(),
+        f"{first}\n".encode(),
+    )
+    assert backend.load_version("sub", "worktree") == f"{first}\n".encode()
+    # Size inspection precedes link-target loading, so a gitlink must report
+    # its materialized size, the commit id line, on every side.
+    for side in ("HEAD", "index", "worktree"):
+        assert backend.file_size("sub", side) == len(second) + 1
+
+    subprocess.run(
+        ["git", "add", "sub"], cwd=outer, check=True, capture_output=True
+    )
+    (staged,) = backend.repo_diff(left="HEAD", right="index").paths
+    assert (staged.left_object_id, staged.right_object_id) == (second, first)
+    assert backend.load_version("sub", "index") == f"{first}\n".encode()
+    assert backend.repo_diff(left="index", right="worktree").paths == ()
+
+    # Back on the committed revision, the leftover file inside the submodule
+    # still makes it dirty, which is not an outer change.
+    subprocess.run(
+        ["git", "checkout", "-q", second],
+        cwd=outer / "sub",
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "add", "sub"], cwd=outer, check=True, capture_output=True
+    )
+    assert (outer / "sub" / "scratch.txt").exists()
+    assert (
+        backend.repo_diff(
+            left="HEAD", right="worktree", show_untracked=True
+        ).paths
+        == ()
+    )
+
+
+def test_submodule_replaced_by_a_regular_file_loads_both_sides(
+    tmp_path: Path,
+) -> None:
+    """A path that was a submodule and became a file changes mode and content.
+
+    The tree side is a gitlink whose commit the outer repository does not have,
+    the worktree side is an ordinary file, and both load through one batch.
+    """
+    inner = tmp_path / "inner"
+    outer = tmp_path / "outer"
+    inner.mkdir()
+    outer.mkdir()
+    for cwd, args in (
+        (inner, ["init", "-q"]),
+        (inner, ["config", "user.name", "Test User"]),
+        (inner, ["config", "user.email", "test@example.com"]),
+        (inner, ["commit", "-q", "--allow-empty", "-m", "only"]),
+        (outer, ["init", "-q"]),
+        (outer, ["config", "user.name", "Test User"]),
+        (outer, ["config", "user.email", "test@example.com"]),
+        (
+            outer,
+            [
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                "-q",
+                str(inner),
+                "gone",
+            ],
+        ),
+        (outer, ["commit", "-q", "-m", "submodule"]),
+        (outer, ["rm", "-q", "-f", "gone"]),
+        (outer, ["reset", "-q", "HEAD", "gone"]),
+    ):
+        subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+    inner_id = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=inner,
+            check=True,
+            capture_output=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    (outer / "gone").write_text("plain file now\n", encoding="utf-8")
+
+    backend = GitBackend.discover(cwd=outer)
+    entries = {
+        entry.right_path: entry
+        for entry in backend.repo_diff(left="HEAD", right="worktree").paths
+    }
+    # Removing the submodule also rewrote `.gitmodules`.
+    assert set(entries) == {"gone", ".gitmodules"}
+    replaced = entries["gone"]
+    assert replaced.left_path == "gone"
+    assert (replaced.left_mode, replaced.right_mode) == ("160000", "100644")
+    assert backend.file_mode("gone", "HEAD") == "160000"
+    assert backend.file_mode("gone", "worktree") == "100644"
+    assert backend.load_versions((("gone", "HEAD"), ("gone", "worktree"))) == (
+        f"{inner_id}\n".encode(),
+        b"plain file now\n",
+    )
+
+
+def test_untracked_embedded_repositories_list_as_gitlinks(
+    tmp_path: Path,
+) -> None:
+    """Untracked directories holding a repository are one gitlink entry each.
+
+    Git lists them with a trailing slash instead of descending into them. Such
+    an entry loads as the embedded HEAD commit id, and an embedded repository
+    without any commit fails to load, exactly as `git add` refuses it. An
+    ordinary untracked directory still lists by its files.
+    """
+    for cwd, args in (
+        (tmp_path, ["init", "-q"]),
+        (tmp_path, ["config", "user.name", "Test User"]),
+        (tmp_path, ["config", "user.email", "test@example.com"]),
+        (tmp_path, ["commit", "-q", "--allow-empty", "-m", "root"]),
+        (tmp_path, ["init", "-q", "embedded"]),
+        (tmp_path / "embedded", ["config", "user.name", "Test User"]),
+        (tmp_path / "embedded", ["config", "user.email", "test@example.com"]),
+        (tmp_path / "embedded", ["commit", "-q", "--allow-empty", "-m", "e"]),
+        (tmp_path, ["init", "-q", "hollow"]),
+    ):
+        subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+    embedded_id = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=tmp_path / "embedded",
+            check=True,
+            capture_output=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    (tmp_path / "plain-dir").mkdir()
+    (tmp_path / "plain-dir" / "note.txt").write_text("n\n", encoding="utf-8")
+
+    backend = GitBackend.discover(cwd=tmp_path)
+    entries = {
+        entry.right_path: entry
+        for entry in backend.repo_diff(
+            left="HEAD", right="worktree", show_untracked=True
+        ).paths
+    }
+    assert set(entries) == {"embedded", "hollow", "plain-dir/note.txt"}
+    assert all(entry.untracked for entry in entries.values())
+    assert entries["embedded"].right_mode == "160000"
+    assert entries["hollow"].right_mode == "160000"
+    assert entries["plain-dir/note.txt"].right_mode == "100644"
+    assert backend.file_mode("embedded", "worktree") == "160000"
+    with pytest.raises(DirdiffError):
+        backend.file_mode("plain-dir", "worktree")
+
+    embedded, hollow, plain = backend.load_versions(
+        (
+            ("embedded", "worktree"),
+            ("hollow", "worktree"),
+            ("plain-dir", "worktree"),
+        )
+    )
+    assert embedded == f"{embedded_id}\n".encode()
+    assert isinstance(hollow, DirdiffError)
+    assert "hollow" in str(hollow) and "HEAD" in str(hollow)
+    assert isinstance(plain, DirdiffError)
+    assert backend.load_version("embedded", "worktree") == embedded

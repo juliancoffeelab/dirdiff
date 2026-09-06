@@ -95,6 +95,12 @@ The subsystem decides what a File means. It parses notebooks, chooses output
 representations, extracts image and byte facts, and flattens linked targets.
 The frontend does none of that work.
 
+Classification reads the File path and the captured bytes, never the
+repository entry behind them. A backend may hand over a side whose bytes stand
+for something that is not a file, such as a repository reference materialized
+as its commit id; a path named like a notebook or image then composes as that
+format.
+
 The backend does not decide layout, fetch timing, scroll behavior, or how a
 picture is painted. Once composition has produced a bay payload, those concerns
 belong to the HUD.
