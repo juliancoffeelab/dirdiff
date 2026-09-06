@@ -2174,6 +2174,149 @@ def test_symlink_target_cannot_escape_the_repository(tmp_path: Path) -> None:
     assert "DO NOT CAPTURE THIS" not in json.dumps(diff.json())
 
 
+@pytest.mark.parametrize("failed_side", ["left", "right"])
+@pytest.mark.parametrize("damage", ["missing", "wrong-size"])
+def test_lfs_capture_contains_errors_and_recovers(
+    tmp_path: Path, failed_side: str, damage: str
+) -> None:
+    """Store deferred LFS errors per File and recover without poisoning reuse.
+
+    Both sides have committed Git identities, so their loads are deferred.
+    A failed side must retain its diagnostic while its successful sibling and
+    unrelated File remain intact. Repeating the failure reuses its Snapshot;
+    restoring the object creates a successful Snapshot that remains readable
+    and reusable after local LFS objects disappear. HTTP media must serve the
+    captured payload bytes, never the committed pointers.
+
+    # Parameters
+
+    - `tmp_path`: Disposable repository directory; database and captures live beside it.
+    - `failed_side`: Left or right committed image side whose local object fails loading.
+    - `damage`: Remove the object or give it the wrong size before capture.
+    """
+    formats = Path(__file__).parents[1] / "presets" / "formats"
+    payloads = {
+        "left": (formats / "images/image-changed/old.png").read_bytes(),
+        "right": (formats / "images/image-changed/new.png").read_bytes(),
+    }
+    oids = {
+        side: hashlib.sha256(content).hexdigest()
+        for side, content in payloads.items()
+    }
+    create_committed_repo(tmp_path, branch="main")
+    object_paths = {}
+    for side, content in payloads.items():
+        oid = oids[side]
+        (tmp_path / "logo.png").write_bytes(
+            b"version https://git-lfs.github.com/spec/v1\n"
+            + f"oid sha256:{oid}\nsize {len(content)}\n".encode()
+        )
+        (tmp_path / "alpha.txt").write_text(f"{side} sibling\n")
+        run_git(tmp_path, "add", "logo.png", "alpha.txt")
+        run_git(tmp_path, "commit", "-m", side)
+        object_path = tmp_path / ".git/lfs/objects" / oid[:2] / oid[2:4] / oid
+        object_path.parent.mkdir(parents=True, exist_ok=True)
+        object_path.write_bytes(content)
+        object_paths[side] = object_path
+
+    failed_path = object_paths[failed_side]
+    if damage == "missing":
+        failed_path.unlink()
+    else:
+        failed_path.write_bytes(payloads[failed_side] + b"extra")
+    client, _project_id = create_repo_client(tmp_path)
+    with client:
+        joined = client.post(
+            "/api/agent/join_review",
+            json={
+                "agent_uuid": "f" * 32,
+                "name": "LFS capture reviewer",
+                "tab": {
+                    "kind": "refs",
+                    "repo_path": str(tmp_path),
+                    "left": "HEAD~1",
+                    "right": "HEAD",
+                },
+            },
+        )
+        assert joined.status_code == 200, joined.text
+        failed = joined.json()
+        snapshot_path = Path(failed["snapshot_path"])
+        assert len(list(snapshot_path.iterdir())) == 2
+        successful_side = "right" if failed_side == "left" else "left"
+        for side in ("left", "right"):
+            contents = [
+                path.read_bytes() for path in snapshot_path.glob(f"*/{side}")
+            ]
+            assert f"{side} sibling\n".encode() in contents
+            if side == successful_side:
+                assert payloads[side] in contents
+            else:
+                assert payloads[side] not in contents
+                assert any(
+                    oids[side].encode() in content for content in contents
+                )
+        for path, expected_status in (("logo.png", 400), ("alpha.txt", 200)):
+            diff = client.get(
+                "/api/file-diff",
+                params={
+                    "snapshot_id": failed["snapshot_id"],
+                    "engine": "tokendiff",
+                    "left_path": path,
+                    "right_path": path,
+                },
+            )
+            assert diff.status_code == expected_status, diff.text
+            if path == "logo.png":
+                assert oids[failed_side] in diff.text
+
+        repeated = client.post(
+            "/api/agent/continue_review",
+            json={
+                "snapshot_id": failed["snapshot_id"],
+                "last_activity_id": failed["last_activity_id"],
+            },
+        )
+        assert repeated.status_code == 200, repeated.text
+        assert repeated.json()["snapshot_id"] == failed["snapshot_id"]
+
+        failed_path.write_bytes(payloads[failed_side])
+        recovered = client.post(
+            "/api/agent/continue_review",
+            json={
+                "snapshot_id": failed["snapshot_id"],
+                "last_activity_id": failed["last_activity_id"],
+            },
+        )
+        assert recovered.status_code == 200, recovered.text
+        success = recovered.json()
+        assert success["snapshot_id"] != failed["snapshot_id"]
+        for object_path in object_paths.values():
+            object_path.unlink()
+        for side, expected in payloads.items():
+            media = client.get(
+                "/api/file-media",
+                params={
+                    "snapshot_id": success["snapshot_id"],
+                    "bay_key": "image",
+                    "side": side,
+                    "left_path": "logo.png",
+                    "right_path": "logo.png",
+                },
+            )
+            assert media.status_code == 200, media.text
+            assert media.content == expected
+        repeated = client.post(
+            "/api/agent/continue_review",
+            json={
+                "snapshot_id": success["snapshot_id"],
+                "last_activity_id": success["last_activity_id"],
+            },
+        )
+        assert repeated.status_code == 200, repeated.text
+        assert repeated.json()["snapshot_id"] == success["snapshot_id"]
+
+
 def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
     """Serve the captured bytes themselves, and refuse what there are none of.
 

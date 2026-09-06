@@ -6,6 +6,8 @@ Git setup local to temporary directories and assert public diff-path contracts,
 not private command strings.
 """
 
+import hashlib
+import os
 import subprocess
 from pathlib import Path
 
@@ -500,3 +502,251 @@ def test_worktree_symlinks_load_as_git_records_them(tmp_path: Path) -> None:
         b"real-dir",
         b"no-such-target",
     )
+
+
+def test_lfs_pointers_load_as_their_objects_from_the_local_store(
+    tmp_path: Path,
+) -> None:
+    """Load local LFS payloads without changing Git identities or raw links.
+
+    Real committed pointers exercise single and batch loading on tree, index,
+    and worktree sides. Missing, wrong-sized, or unreadable objects and pointers
+    with extensions produce ordinary loading errors. Pointer-like text and symlinks
+    stay raw. Storage configuration applies to existing backend instances.
+    No Git LFS installation, network access, or filters are required.
+    """
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    held = b"\x89PNG held object bytes\n" * 3
+    held_oid = hashlib.sha256(held).hexdigest()
+    absent_oid = "b" * 64
+    (tmp_path / "held.png").write_bytes(
+        b"version https://git-lfs.github.com/spec/v1\n"
+        + f"oid sha256:{held_oid}\nsize {len(held)}\n".encode()
+    )
+    (tmp_path / "absent.bin").write_bytes(
+        b"version https://git-lfs.github.com/spec/v1\n"
+        + f"oid sha256:{absent_oid}\nsize 12345\n".encode()
+    )
+    # Keys out of alphabetical order: valid-looking but not a pointer.
+    (tmp_path / "lookalike.txt").write_bytes(
+        b"version https://git-lfs.github.com/spec/v1\n"
+        + b"size 5\noid sha256:"
+        + b"c" * 64
+        + b"\n"
+    )
+    pointer_text = (tmp_path / "held.png").read_bytes()
+    (tmp_path / "documentation.txt").write_bytes(
+        b"version https://git-lfs.github.com/spec/v1\n"
+        b"This describes the pointer format; it is not a pointer.\n"
+    )
+    # A link whose target spells the held pointer, byte for byte.
+    os.symlink(os.fsdecode(pointer_text), tmp_path / "pointer-link")
+    (tmp_path / "extended.bin").write_bytes(
+        b"version https://git-lfs.github.com/spec/v1\n"
+        + b"ext-0-encrypt sha256:"
+        + b"e" * 64
+        + f"\noid sha256:{held_oid}\nsize {len(held)}\n".encode()
+    )
+    subprocess.run(
+        ["git", "add", "--all"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "pointers"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    store_dir = tmp_path / ".git" / "lfs" / "objects"
+    (store_dir / held_oid[:2] / held_oid[2:4]).mkdir(parents=True)
+    (store_dir / held_oid[:2] / held_oid[2:4] / held_oid).write_bytes(held)
+    backend = GitBackend.discover(cwd=tmp_path)
+    for side in ("HEAD", "index", "worktree"):
+        assert backend.load_version("held.png", side) == held
+        assert backend.file_size("held.png", side) == len(held)
+        assert backend.load_versions((("held.png", side),)) == (held,)
+        for name in ("lookalike.txt", "documentation.txt", "pointer-link"):
+            expected = (
+                pointer_text
+                if name == "pointer-link"
+                else (tmp_path / name).read_bytes()
+            )
+            assert backend.load_version(name, side) == expected
+            assert backend.file_size(name, side) == len(expected)
+            assert backend.load_versions(((name, side),)) == (expected,)
+    # Retarget the worktree pointer at an object the store lacks, as a fresh
+    # checkout with `GIT_LFS_SKIP_SMUDGE=1` leaves it.
+    (tmp_path / "held.png").write_bytes(
+        b"version https://git-lfs.github.com/spec/v1\n"
+        + b"oid sha256:"
+        + b"d" * 64
+        + b"\nsize 7\n"
+    )
+
+    empty_tree = (
+        subprocess.run(
+            ["git", "hash-object", "-t", "tree", "--stdin"],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            input=b"",
+        )
+        .stdout.decode()
+        .strip()
+    )
+    diff = backend.repo_diff(left=empty_tree, right="HEAD")
+    identities = {
+        entry.right_path: entry.right_object_id for entry in diff.paths
+    }
+    for name in (
+        "held.png",
+        "absent.bin",
+        "lookalike.txt",
+        "pointer-link",
+        "extended.bin",
+    ):
+        blob_id = (
+            subprocess.run(
+                ["git", "rev-parse", f"HEAD:{name}"],
+                cwd=tmp_path,
+                check=True,
+                capture_output=True,
+            )
+            .stdout.decode()
+            .strip()
+        )
+        assert identities[name] == blob_id, name
+    assert identities["held.png"] != held_oid
+    assert identities["pointer-link"] == identities["held.png"]
+
+    assert backend.file_size("absent.bin", "HEAD") == 12345
+    assert backend.file_size("held.png", "worktree") == 7
+    with pytest.raises(
+        DirdiffError, match="Unsupported Git LFS pointer version or extensions"
+    ):
+        backend.load_version("extended.bin", "HEAD")
+    with pytest.raises(DirdiffError) as absent_failure:
+        backend.load_version("absent.bin", "HEAD")
+    assert f"object {absent_oid} (12345 bytes)" in str(absent_failure.value)
+    assert "`git lfs fetch <remote> HEAD`" in str(absent_failure.value)
+
+    batch = backend.load_versions(
+        (
+            ("held.png", "HEAD"),
+            ("absent.bin", "HEAD"),
+            ("held.png", "worktree"),
+            ("lookalike.txt", "index"),
+            ("pointer-link", "HEAD"),
+            ("pointer-link", "worktree"),
+            ("extended.bin", "index"),
+        )
+    )
+    assert batch[0] == held
+    assert isinstance(batch[1], DirdiffError)
+    assert "HEAD:absent.bin points to Git LFS object" in str(batch[1])
+    assert isinstance(batch[2], DirdiffError)
+    assert "worktree:held.png points to Git LFS object" in str(batch[2])
+    assert "`git lfs fetch <remote>`" in str(batch[2])
+    assert batch[3] == (tmp_path / "lookalike.txt").read_bytes()
+    assert batch[4] == pointer_text
+    assert batch[5] == pointer_text
+    assert isinstance(batch[6], DirdiffError)
+    assert "Unsupported Git LFS pointer version or extensions" in str(batch[6])
+
+    # A damaged or unreadable store entry is refused at load; the pointer's
+    # identity is unaffected.
+    held_path = store_dir / held_oid[:2] / held_oid[2:4] / held_oid
+    for wrong_size in (held[:-1], held + b"\0"):
+        held_path.write_bytes(wrong_size)
+        with pytest.raises(
+            DirdiffError,
+            match=f"size mismatch, expected {len(held)} bytes",
+        ):
+            backend.load_version("held.png", "HEAD")
+    # Same-sized store contents are trusted, without another digest pass.
+    held_path.write_bytes(b"x" * len(held))
+    assert backend.load_version("held.png", "HEAD") == b"x" * len(held)
+    held_path.write_bytes(held)
+    # Root bypasses Unix read permissions; the other cases still run there.
+    if os.geteuid() != 0:
+        held_path.chmod(0)
+        try:
+            with pytest.raises(
+                DirdiffError, match="Could not load Git LFS object"
+            ):
+                backend.load_version("held.png", "HEAD")
+        finally:
+            held_path.chmod(0o644)
+
+    subprocess.run(
+        ["git", "config", "lfs.storage", ""],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    assert backend.load_version("held.png", "HEAD") == held
+    subprocess.run(
+        ["git", "config", "lfs.storage", "elsewhere"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    with pytest.raises(DirdiffError, match="missing from local storage"):
+        backend.load_version("held.png", "HEAD")
+
+    relocated = (
+        tmp_path
+        / ".git"
+        / "elsewhere"
+        / "objects"
+        / held_oid[:2]
+        / held_oid[2:4]
+        / held_oid
+    )
+    relocated.parent.mkdir(parents=True)
+    held_path.rename(relocated)
+    assert backend.load_version("held.png", "HEAD") == held
+
+    # Absolute storage and a linked worktree must find the same local object.
+    subprocess.run(
+        ["git", "config", "lfs.storage", str(relocated.parents[3])],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    assert backend.load_version("held.png", "index") == held
+    linked = tmp_path / "linked"
+    subprocess.run(
+        ["git", "worktree", "add", "--detach", str(linked), "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    linked_backend = GitBackend.discover(cwd=linked)
+    for side in ("HEAD", "index", "worktree"):
+        assert linked_backend.load_version("held.png", side) == held
+        assert linked_backend.file_size("held.png", side) == len(held)
+        assert linked_backend.load_versions((("held.png", side),)) == (held,)
+
+    # Restore default storage to exercise the shared common directory too.
+    relocated.rename(held_path)
+    subprocess.run(
+        ["git", "config", "--unset", "lfs.storage"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    assert linked_backend.load_version("held.png", "HEAD") == held
