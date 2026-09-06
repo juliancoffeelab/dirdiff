@@ -11,12 +11,12 @@ or review placement.
 """
 
 from dirdiff.server.app import (
+    ComposedDiffResponse,
     create_app,
     development_uvicorn_entrypoint,
     release_uvicorn_entrypoint,
 )
 from dirdiff.server.base import RUNTIME_CONFIG_ENV, RuntimeConfig
-from dirdiff.server.diff import ComposedDiffResponse
 
 __all__ = [
     "RUNTIME_CONFIG_ENV",

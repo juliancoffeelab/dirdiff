@@ -1,49 +1,34 @@
 """Collect class-local route declarations for later FastAPI registration.
 
-`ClassRoutes` provides the HTTP decorators used by the server and binds their
-original functions to one server instance during application construction. Its
-declaration records contain route metadata only.
+## Public interface
 
-The collector retains no application, server, database, or other runtime
-interface. FastAPI and Starlette handle every HTTP entity after registration.
+`ClassRoutes` provides the HTTP decorators used by server route groups and
+binds their original functions to one server instance during application
+construction.
 
----
-Hi, human here.
-The goal of this module is to combine the following:
-- Nice app.get() decorators so that handler and the route stays together,
-unlike in some other frameworks
-- One entrypoint for uvicorn hot-reloading
-- Dependency Injection of our services and stores
-- Potentially even make it public for doc generators
+## Purpose and boundaries
 
-Before we solved this with one gigantic create_app() function that did
-all of that, but, well, I don't need to tell you that this scales badly.
-Instead we have this `ClassRoutes` class that does it in two steps:
-- First you record everything using that class that proxies all the FastAPI
-decorators (well, all we need, at least).
-- Then you call `ClassRoutes.register()` to actually bind all of it to FastAPI
-app.
-
-Et voila, now you have all that in a nice class-based syntax, which
-lets you declare your dependencies and capabilities and manipulate them in
-whatever way you want.
-Very demure, I would say.
+The collector retains route metadata only. It stores no application, server,
+database, or other runtime service. `server.base` is its sole caller and exposes
+the shared decorator contract to the independent route leaves. FastAPI and
+Starlette handle every HTTP entity after registration.
 """
+
+from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import FunctionType, UnionType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
-from dirdiff.server.base import Responses
+if TYPE_CHECKING:
+    from dirdiff.server.base import Responses
 
-__all__ = [
-    "ClassRoutes",
-]
+__all__ = ["ClassRoutes"]
 
 
 type _ResponseModel = type[BaseModel] | UnionType

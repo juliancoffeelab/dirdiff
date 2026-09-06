@@ -13,9 +13,10 @@ never loaded as files. Known structural failures produce the documented engine
 warning and textual comparison; display folds and syntax are added later.
 """
 
-from dirdiff.engines.difftastic.difft import DifftasticJson, is_difftastic_json
 from dirdiff.engines.difftastic.logic import (
     DifftasticDiffEngine,
+    DifftasticJson,
+    is_difftastic_json,
 )
 
 __all__ = [

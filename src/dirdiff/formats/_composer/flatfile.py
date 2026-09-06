@@ -24,10 +24,10 @@ from dirdiff.formats.base import (
     BayContext,
     TextBay,
     TextRejection,
+    byte_facts_bay,
     try_decode_text,
     whole_file_change,
 )
-from dirdiff.formats.blob import blob_bays
 
 __all__ = [
     "flatfile_bays",
@@ -84,7 +84,7 @@ def flatfile_bays(
         if isinstance(value, TextRejection)
     ]
     if len(rejections) > 0:
-        yield from blob_bays(
+        yield byte_facts_bay(
             left,
             right,
             context,

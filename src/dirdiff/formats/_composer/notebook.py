@@ -37,10 +37,10 @@ from dirdiff.formats.base import (
     MovedChangeStatus,
     TextBay,
     TextRejection,
+    byte_facts_bay,
     try_decode_text,
     whole_file_change,
 )
-from dirdiff.formats.blob import blob_bays
 from dirdiff.util import JsonValue
 
 __all__ = [
@@ -885,7 +885,7 @@ def notebook_bays(
             },
         )
         if len(rejections) > 0:
-            yield from blob_bays(
+            yield byte_facts_bay(
                 left_bytes,
                 right_bytes,
                 context,

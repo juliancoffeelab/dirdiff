@@ -25,14 +25,10 @@ import threading
 import webbrowser
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote, urlencode
 
 from dirdiff.backend import BranchSelection
-from dirdiff.cli.marker_utils import (
-    InstallationMode,
-    default_db_path,
-    migration_config_path,
-)
 from dirdiff.db import RepoMarkStore, open_sqlite_engine
 from dirdiff.server import RUNTIME_CONFIG_ENV, RuntimeConfig
 
@@ -54,13 +50,13 @@ PORT_FALLBACK_ATTEMPTS = 20
 `choose_port_pair` tests offsets starting at zero, so the last candidate adds
 19 to each requested port. This bound prevents an unbounded search.
 """
-FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
+FRONTEND_DIR = Path(__file__).resolve().parents[4] / "frontend"
 """Vite project directory passed as the frontend process working directory.
 
 The path is derived from the installed source layout once at import time.
 `start_frontend_dev_server` does not search for another frontend directory.
 """
-BACKEND_RELOAD_DIR = Path(__file__).resolve().parents[1]
+BACKEND_RELOAD_DIR = Path(__file__).resolve().parents[2]
 """Python package directory watched by uvicorn reload.
 
 `run_uvicorn` passes this exact directory with a Python-only include pattern,
@@ -139,7 +135,7 @@ class AppOptions:
     this option because its bundled HUD is always present.
     """
 
-    mode: InstallationMode
+    mode: Literal["development", "release"]
     """Topology selected once from standardized distribution metadata.
 
     The value determines the server factory, reload behavior, frontend process,
@@ -392,7 +388,12 @@ def choose_port_pair(backend_port: int, frontend_port: int) -> tuple[int, int]:
     )
 
 
-def require_marked_repos(db_path: Path, *, mode: InstallationMode) -> None:
+def require_marked_repos(
+    db_path: Path,
+    *,
+    migration_config_path: Path,
+    default_db_path: Path,
+) -> None:
     """Require at least one marked repository before launching the app.
 
     The browser UI needs a repo catalog immediately.  Failing here gives the
@@ -402,13 +403,14 @@ def require_marked_repos(db_path: Path, *, mode: InstallationMode) -> None:
     # Parameters
 
     - `db_path`: Exact registry path the server will open.
-    - `mode`: Validated installation mode used to identify an implicit path.
+    - `migration_config_path`: Exact Alembic configuration used to open it.
+    - `default_db_path`: Installation default used only to choose the diagnostic.
 
     # Usage
 
     `run_app` calls this before selecting ports or starting child processes.
     Pass the same database path stored in `RuntimeConfig` and its validated
-    installation mode so the preflight and server read one repository registry
+    installation paths so the preflight and server read one repository registry
     and the implicit-path diagnostic stays accurate.
 
     # Failures
@@ -417,11 +419,11 @@ def require_marked_repos(db_path: Path, *, mode: InstallationMode) -> None:
     open and query errors propagate unchanged.
     """
 
-    engine = open_sqlite_engine(db_path, migration_config_path(mode))
+    engine = open_sqlite_engine(db_path, migration_config_path)
     marks = RepoMarkStore(engine).list()
     if len(marks) > 0:
         return
-    if db_path == default_db_path(mode):
+    if db_path == default_db_path:
         raise SystemExit("No marked repos. Run: dirdiff mark /path/to/repo")
     raise SystemExit(
         f"No marked repos. Run: dirdiff mark /path/to/repo --db-path {db_path}"
@@ -567,7 +569,10 @@ def start_frontend(
 
 
 def run_uvicorn(
-    *, config: RuntimeConfig, port: int, mode: InstallationMode
+    *,
+    config: RuntimeConfig,
+    port: int,
+    mode: Literal["development", "release"],
 ) -> None:
     """Run the FastAPI app through uvicorn's factory entrypoint.
 
@@ -625,7 +630,8 @@ def run_app(
     frontend_port: int,
     headless: bool,
     no_frontend_dev: bool,
-    mode: InstallationMode,
+    mode: Literal["development", "release"],
+    default_db_path: Path,
 ) -> None:
     """Launch one complete local dirdiff app session.
 
@@ -642,6 +648,7 @@ def run_app(
     - `headless`: Whether to skip scheduling browser opening.
     - `no_frontend_dev`: Whether to omit Vite and use the backend URL.
     - `mode`: Validated installation topology controlling the launch sequence.
+    - `default_db_path`: Installation default used for the empty-registry message.
 
     At least one repository mark is required. Development starts Vite unless
     disabled and terminates that child when uvicorn returns or raises. Release
@@ -669,7 +676,11 @@ def run_app(
             raise SystemExit(
                 "--frontend-port is unavailable in a release installation."
             )
-        require_marked_repos(Path(config.db_path), mode=mode)
+        require_marked_repos(
+            Path(config.db_path),
+            migration_config_path=Path(config.migration_config_path),
+            default_db_path=default_db_path,
+        )
         require_bindable_port(port, label="Server")
         url = build_url(port, config)
         print(f"dirdiff: {url}", file=sys.stderr)
@@ -680,7 +691,11 @@ def run_app(
 
     use_frontend_dev = not no_frontend_dev
 
-    require_marked_repos(Path(config.db_path), mode=mode)
+    require_marked_repos(
+        Path(config.db_path),
+        migration_config_path=Path(config.migration_config_path),
+        default_db_path=default_db_path,
+    )
     backend_port, frontend_port = choose_runtime_ports(
         backend_port=port,
         frontend_port=frontend_port,

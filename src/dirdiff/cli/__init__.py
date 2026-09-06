@@ -12,8 +12,9 @@ lifetime. HTTP routes, workspace loading, diff rendering, frontend behavior,
 and database schemas remain behind the interfaces the command invokes.
 """
 
-from dirdiff.cli.base import main
+from dirdiff.cli.base import db_path_or_default, main
 
 __all__ = [
+    "db_path_or_default",
     "main",
 ]

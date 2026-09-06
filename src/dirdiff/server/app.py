@@ -34,19 +34,20 @@ from dirdiff.db import (
 from dirdiff.room_lord import (
     RoomLord,
 )
+from dirdiff.server._app.diff import ComposedDiffResponse, DiffRoutes
+from dirdiff.server._app.external_agent import ExternalAgentRoutes
+from dirdiff.server._app.repos import RepoRoutes
+from dirdiff.server._app.review import ReviewRoutes
 from dirdiff.server.base import (
     RUNTIME_CONFIG_ENV,
     ApiModel,
+    ClassRoutes,
     ErrorResponse,
     RuntimeConfig,
 )
-from dirdiff.server.diff import DiffRoutes
-from dirdiff.server.external_agent import ExternalAgentRoutes
-from dirdiff.server.magic import ClassRoutes
-from dirdiff.server.repos import RepoRoutes
-from dirdiff.server.review import ReviewRoutes
 
 __all__ = [
+    "ComposedDiffResponse",
     "create_app",
     "development_uvicorn_entrypoint",
     "release_uvicorn_entrypoint",

@@ -23,18 +23,16 @@ from dirdiff.review.base import (
     ThreadPlacementView,
     ThreadSummaryView,
 )
-from dirdiff.review.external_agent import (
+from dirdiff.review.thread import (
     DeleteThread,
     ReplyToThread,
     ResolveThread,
     ReviewBatchAction,
     ReviewBatchResult,
-    apply_review_batch,
-)
-from dirdiff.review.placement import derive_room_threads
-from dirdiff.review.thread import (
     Thread,
+    apply_review_batch,
     create_thread,
+    derive_room_threads,
     get_thread,
     thread_objects,
 )

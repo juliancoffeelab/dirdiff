@@ -77,11 +77,11 @@ from dirdiff.room_lord import (
 )
 from dirdiff.server.base import (
     ApiModel,
+    ClassRoutes,
     ErrorResponse,
     capture_snapshot,
     preset_catalog_dirs,
 )
-from dirdiff.server.magic import ClassRoutes
 
 __all__ = ["ComposedDiffResponse", "DiffRoutes"]
 

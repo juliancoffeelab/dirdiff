@@ -19,7 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from dirdiff.cli.server_launch import choose_port_pair, require_bindable_port
+from dirdiff.cli.base import choose_port_pair, require_bindable_port
 from dirdiff.db import (
     RepoMarkStore,
     RoomStore,

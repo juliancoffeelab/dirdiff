@@ -30,9 +30,10 @@ from dirdiff.engines.base import (
     EngineWarning,
     InlineToken,
 )
-from dirdiff.engines.difftastic.difft import (
+from dirdiff.engines.difftastic._logic.driver import (
     DifftasticJson,
     DifftasticJsonSide,
+    is_difftastic_json,
     run_difftastic_json,
 )
 
@@ -59,8 +60,10 @@ represent Difftastic syntax nodes.
 
 __all__ = [
     "DifftasticDiffEngine",
+    "DifftasticJson",
     "difftastic_engine_warning",
     "difftastic_rows_from_json",
+    "is_difftastic_json",
 ]
 
 

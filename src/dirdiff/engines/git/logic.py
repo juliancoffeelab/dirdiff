@@ -2,24 +2,31 @@
 
 ## Public interface
 
-`git_diff_rows_from_patch` combines one patch with the exact source pair that
-produced it. `plain_line_rows_for_side` produces the same row shape for an added
-or removed File.
+`GitDiffEngine` runs Git through its private driver and returns the common
+engine result. Its row builders reconstruct complete sources from Git patches
+or one present side.
 
 ## Purpose and boundaries
 
 A unified patch omits unchanged text outside its hunks, while dirdiff rows must
 cover both complete sources. This module restores those gaps from the supplied
-strings and rejects a patch that contradicts them. It does not invoke Git or
-add display decoration.
+strings, rejects a patch that contradicts them, and calculates the result
+summary. The private driver contains executable and temporary-file mechanics;
+display decoration remains outside the engine.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Literal, final, override
 
-from dirdiff.engines.base import DiffEngineRow
+from dirdiff.engines.base import (
+    DiffEngineProtocol,
+    DiffEngineResult,
+    DiffEngineRow,
+    DiffSide,
+)
+from dirdiff.engines.git._logic.driver import run_git_no_index_diff
 
 GIT_HUNK_HEADER_PATTERN = re.compile(
     r"^@@ -(?P<left_start>\d+)(?:,(?P<left_count>\d+))? "
@@ -32,8 +39,7 @@ coordinates to restore unchanged gaps from the supplied source texts.
 """
 
 __all__ = [
-    "git_diff_rows_from_patch",
-    "plain_line_rows_for_side",
+    "GitDiffEngine",
 ]
 
 
@@ -267,3 +273,79 @@ def git_diff_rows_from_patch(
     assert left_no == len(left_lines) + 1
     assert right_no == len(right_lines) + 1
     return rows
+
+
+@final
+class GitDiffEngine(DiffEngineProtocol):
+    """Compare supplied text with `git diff --no-index`.
+
+    Path hints give temporary files useful names but are never loaded. Git's
+    patch is converted into the common engine rows. If one side is absent, the
+    engine emits complete insertion or deletion rows without invoking Git.
+
+    The engine retains no repository or HTTP state and works with text loaded
+    by any workspace backend.
+    """
+
+    @override
+    def render_diff(
+        self,
+        *,
+        old: DiffSide,
+        new: DiffSide,
+    ) -> DiffEngineResult:
+        """Render already-loaded text with Git's no-index diff algorithm.
+
+        # Parameters
+
+        - `old`: Old text side and its optional temporary-file naming hint.
+        - `new`: New text side under the same contract.
+
+        # Usage
+
+        Obtain this renderer through `dirdiff.engines.engine` and normally let
+        `dirdiff.formats.Composer` call it for a text bay.
+
+        # Failures
+
+        Propagates `DirdiffError` when Git cannot produce a patch. A patch that
+        contradicts the supplied source violates an invariant and raises
+        `AssertionError` while rows are reconstructed.
+        """
+        left_text_value = "" if old.text is None else old.text
+        right_text_value = "" if new.text is None else new.text
+        if old.exists and new.exists:
+            patch = run_git_no_index_diff(
+                left_text=left_text_value,
+                right_text=right_text_value,
+                left_path_hint=old.path_hint,
+                right_path_hint=new.path_hint,
+            )
+            rows = git_diff_rows_from_patch(
+                patch=patch,
+                left_text=left_text_value,
+                right_text=right_text_value,
+            )
+        elif old.exists:
+            rows = plain_line_rows_for_side(
+                text=left_text_value,
+                side="left",
+            )
+        else:
+            rows = plain_line_rows_for_side(
+                text=right_text_value,
+                side="right",
+            )
+        added_lines = sum(1 for row in rows if row["status"] == "insert")
+        removed_lines = sum(1 for row in rows if row["status"] == "delete")
+        moved_lines = sum(1 for row in rows if row["status"] == "move")
+        return {
+            "summary": {
+                "changed_lines": added_lines + removed_lines + moved_lines,
+                "modified_lines": 0,
+                "added_lines": added_lines,
+                "removed_lines": removed_lines,
+                "moved_lines": moved_lines,
+            },
+            "rows": rows,
+        }

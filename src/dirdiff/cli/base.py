@@ -10,10 +10,10 @@ repository registry.
 ## Purpose and boundaries
 
 This module defines command spelling, parses terminal input, and builds
-`RuntimeConfig`. Repository-mark operations live in
-`dirdiff.cli.marker_utils`; server and browser process lifetime lives in
-`dirdiff.cli.server_launch`. The command layer must not define HTTP routes,
-workspace loading, diff rendering, or frontend behavior.
+`RuntimeConfig`. Repository-mark operations and server and browser process
+lifetime live in the private `_base` implementation package. The command layer
+must not define HTTP routes, workspace loading, diff rendering, or frontend
+behavior.
 """
 
 from __future__ import annotations
@@ -29,13 +29,34 @@ from urllib.request import url2pathname
 
 import typer
 
+from dirdiff.cli._base.marker_utils import (
+    DB_PATH_ENV,
+    InstallationMode,
+    agent_skills_path,
+    db_path_or_default,
+    default_db_path,
+    mark_repo,
+    migration_config_path,
+    print_marked_repos,
+    remove_marked_repo,
+)
+from dirdiff.cli._base.server_launch import (
+    DEFAULT_FRONTEND_PORT,
+    DEFAULT_PORT,
+    AppOptions,
+    choose_port_pair,
+    require_bindable_port,
+    run_app,
+)
 from dirdiff.server import RuntimeConfig
 from dirdiff.util import JsonValue
 
-from . import marker_utils, server_launch
-from .marker_utils import DB_PATH_ENV, InstallationMode
-
-__all__ = ["main"]
+__all__ = [
+    "choose_port_pair",
+    "db_path_or_default",
+    "main",
+    "require_bindable_port",
+]
 
 cli_app = typer.Typer(
     no_args_is_help=False,
@@ -226,7 +247,7 @@ def start(
     port: Annotated[
         int,
         typer.Option(help="Local web server port."),
-    ] = server_launch.DEFAULT_PORT,
+    ] = DEFAULT_PORT,
     headless: Annotated[
         bool,
         typer.Option(
@@ -237,7 +258,7 @@ def start(
     frontend_port: Annotated[
         int,
         typer.Option(help="Browser UI dev server port."),
-    ] = server_launch.DEFAULT_FRONTEND_PORT,
+    ] = DEFAULT_FRONTEND_PORT,
     no_frontend_dev: Annotated[
         bool,
         typer.Option(
@@ -284,7 +305,7 @@ def start(
     # Read installation metadata once so every launch decision agrees.
     mode, default_presets_root = _installation()
 
-    resolved_db_path = marker_utils.db_path_or_default(db_path, mode)
+    resolved_db_path = db_path_or_default(db_path, mode)
     resolved_store_path = (
         store_path.expanduser() if store_path is not None else None
     )
@@ -296,7 +317,7 @@ def start(
     assert resolved_presets_root.is_dir(), (
         f"Preset root is not a directory: {resolved_presets_root}"
     )
-    ctx.obj = server_launch.AppOptions(
+    ctx.obj = AppOptions(
         db_path=resolved_db_path,
         store_path=resolved_store_path,
         presets_root=str(resolved_presets_root),
@@ -311,20 +332,21 @@ def start(
     configure_logging()
     config = RuntimeConfig(
         db_path=str(resolved_db_path),
-        migration_config_path=str(marker_utils.migration_config_path(mode)),
-        agent_skills_path=str(marker_utils.agent_skills_path(mode)),
+        migration_config_path=str(migration_config_path(mode)),
+        agent_skills_path=str(agent_skills_path(mode)),
         store_path=str(
             resolved_store_path or resolved_db_path.parent / "store"
         ),
         presets_root=str(resolved_presets_root),
     )
-    server_launch.run_app(
+    run_app(
         config=config,
         port=port,
         frontend_port=frontend_port,
         headless=headless,
         no_frontend_dev=no_frontend_dev,
         mode=mode,
+        default_db_path=default_db_path(mode),
     )
 
 
@@ -369,26 +391,25 @@ def refs(
 
     configure_logging()
     options = ctx.obj
-    assert isinstance(options, server_launch.AppOptions), "app options missing"
+    assert isinstance(options, AppOptions), "app options missing"
     config = RuntimeConfig(
         db_path=str(options.db_path),
-        migration_config_path=str(
-            marker_utils.migration_config_path(options.mode)
-        ),
-        agent_skills_path=str(marker_utils.agent_skills_path(options.mode)),
+        migration_config_path=str(migration_config_path(options.mode)),
+        agent_skills_path=str(agent_skills_path(options.mode)),
         store_path=str(options.store_path or options.db_path.parent / "store"),
         tab="refs",
         left=left,
         right=right,
         presets_root=options.presets_root,
     )
-    server_launch.run_app(
+    run_app(
         config=config,
         port=options.port,
         frontend_port=options.frontend_port,
         headless=options.headless,
         no_frontend_dev=options.no_frontend_dev,
         mode=options.mode,
+        default_db_path=default_db_path(options.mode),
     )
 
 
@@ -433,26 +454,25 @@ def branch(
 
     configure_logging()
     options = ctx.obj
-    assert isinstance(options, server_launch.AppOptions), "app options missing"
+    assert isinstance(options, AppOptions), "app options missing"
     config = RuntimeConfig(
         db_path=str(options.db_path),
-        migration_config_path=str(
-            marker_utils.migration_config_path(options.mode)
-        ),
-        agent_skills_path=str(marker_utils.agent_skills_path(options.mode)),
+        migration_config_path=str(migration_config_path(options.mode)),
+        agent_skills_path=str(agent_skills_path(options.mode)),
         store_path=str(options.store_path or options.db_path.parent / "store"),
         tab="branch-review",
         base_selection={"source": "local", "branch": base_branch},
         review_selection={"source": "local", "branch": review_branch},
         presets_root=options.presets_root,
     )
-    server_launch.run_app(
+    run_app(
         config=config,
         port=options.port,
         frontend_port=options.frontend_port,
         headless=options.headless,
         no_frontend_dev=options.no_frontend_dev,
         mode=options.mode,
+        default_db_path=default_db_path(options.mode),
     )
 
 
@@ -520,20 +540,20 @@ def mark(
 
     configure_logging()
     options = ctx.obj
-    assert isinstance(options, server_launch.AppOptions), "app options missing"
+    assert isinstance(options, AppOptions), "app options missing"
     if list_marks and remove_id is not None:
         raise typer.BadParameter("--list and --remove cannot be combined.")
     if list_marks:
-        marker_utils.print_marked_repos(db_path=db_path, mode=options.mode)
+        print_marked_repos(db_path=db_path, mode=options.mode)
         return
     if remove_id is not None:
-        marker_utils.remove_marked_repo(
+        remove_marked_repo(
             project_id=remove_id,
             db_path=db_path,
             mode=options.mode,
         )
         return
-    marker_utils.mark_repo(
+    mark_repo(
         repo_path=path,
         name=name,
         db_path=db_path,

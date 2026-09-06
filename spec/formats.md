@@ -299,10 +299,15 @@ request-level facts, but it does not classify Files or build bays itself.
 
 ## Module map
 
-The Python formats package contains the shared frame and bay contracts, the
-top-level composer, and sibling builders for flat files, notebooks, images,
-opaque bytes, and symbolic links. Builders depend on the shared contracts. They
-do not call the HTTP layer or frontend code.
+The Python formats package contains shared frame and bay contracts and the
+top-level composer. `composer.py` is the sole caller into `_composer`, importing
+its independent private blob, flat-file, notebook, image, and symbolic-link
+modules directly. `_composer/__init__.py` is empty. The shared byte-facts bay
+operation lives in `base.py`; `blob.py` owns opaque classification and blob
+composition. `symlink.py` owns link persistence and link-specific preparation,
+while the parent selects an independent builder for the normalized target.
+Private leaves do not import one another or call the HTTP layer or frontend
+code.
 
 The composer has two views of the same operation. One yields typed bays with
 exact media bytes for backend consumers. The other serializes those bays for

@@ -78,10 +78,10 @@ from dirdiff.room_lord import (
 )
 from dirdiff.server.base import (
     ApiModel,
+    ClassRoutes,
     ReviewExcerptResponse,
     capture_snapshot,
 )
-from dirdiff.server.magic import ClassRoutes
 
 __all__ = ["ExternalAgentRoutes"]
 

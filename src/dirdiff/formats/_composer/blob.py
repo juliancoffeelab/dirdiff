@@ -18,31 +18,17 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from dirdiff.engines import DiffSide
 from dirdiff.formats.base import (
-    BLOB_BAY_KEY,
-    MEDIA_FACTS_PATH_HINT,
     BayContext,
     BayWarning,
-    MediaSide,
     TextBay,
-    media_facts,
-    whole_file_change,
+    byte_facts_bay,
 )
 
 __all__ = [
     "blob_bays",
     "blob_media_type",
 ]
-
-
-BLOB_MEDIA_TYPE = "application/octet-stream"
-"""What this project says about the media type of content it cannot read.
-
-The honest answer is that it does not know, and `application/octet-stream` is
-how a media type spells that. It is the media type the facts bay states for both
-sides, which is the row a reviewer reads as "nothing here understood this".
-"""
 
 
 _BLOB_MEDIA_TYPES = {
@@ -146,45 +132,11 @@ def blob_bays(
     - `Identity and warnings`: The bay uses `BLOB_BAY_KEY`, preserves absent
       sides, and carries the supplied warnings unchanged.
     """
-    left_facts = media_facts(
-        None
-        if left is None
-        else MediaSide(
-            media_type=left_media_type or BLOB_MEDIA_TYPE,
-            data=left,
-        )
-    )
-    right_facts = media_facts(
-        None
-        if right is None
-        else MediaSide(
-            media_type=right_media_type or BLOB_MEDIA_TYPE,
-            data=right,
-        )
-    )
-    yield TextBay(
-        # One frame, and nothing to name above a File that is entirely one
-        # opaque payload, so the frame is keyed "file" and carries no heading,
-        # exactly as a flatfile's does.
-        frame_key="file",
-        heading=None,
-        bay_key=BLOB_BAY_KEY,
-        label="Binary content",
-        detail=None,
-        collapsible=False,
-        default_expanded=True,
-        change=whole_file_change(left_facts, right_facts),
-        left_label=context.left_label,
-        right_label=context.right_label,
-        left=DiffSide(
-            exists=left is not None,
-            text=left_facts,
-            path_hint=MEDIA_FACTS_PATH_HINT,
-        ),
-        right=DiffSide(
-            exists=right is not None,
-            text=right_facts,
-            path_hint=MEDIA_FACTS_PATH_HINT,
-        ),
+    yield byte_facts_bay(
+        left,
+        right,
+        context,
+        left_media_type=left_media_type,
+        right_media_type=right_media_type,
         warnings=warnings,
     )

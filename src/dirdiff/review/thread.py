@@ -3,16 +3,16 @@
 ## Public interface
 
 `Thread` is the bound discussion handle re-exported by `dirdiff.review`.
-`thread_objects`, `get_thread`, and `create_thread` are the package
-operations used by `Room` to construct those handles.
+The module also exposes Snapshot placement derivation and the external-agent
+batch operation assembled from its private leaves.
 
 ## Purpose and boundaries
 
 This module reduces append-only actions into discussion views and applies
 single-Thread Comment and lifecycle operations under the Room write lock. It
-loads only the persisted rows and captured Files needed by a bound Thread. It
-does not derive placements for newly captured Snapshots, implement agent batch
-instruments, publish Snapshot contents, or serialize HTTP entities.
+coordinates placement and external-agent instruments because only this module
+may import `_thread`. It does not publish Snapshot contents or serialize HTTP
+entities.
 """
 
 from __future__ import annotations
@@ -34,12 +34,35 @@ from dirdiff.db import (
     UserProfileRecord,
 )
 from dirdiff.engines import DirdiffError
+from dirdiff.review._thread.external_agent import (
+    DeleteThread,
+    ReplyToThread,
+    ResolveThread,
+    ReviewBatchAction,
+    ReviewBatchResult,
+)
+from dirdiff.review._thread.placement import (
+    BayStartPlacement,
+    FileMissingPlacement,
+    FileStartPlacement,
+    FileUnreadablePlacement,
+    Placement,
+    RangePlacement,
+    ReviewReadCache,
+    build_original_excerpt,
+    derive_room_threads,
+    file_pair,
+    origin_target_view,
+    placement_from_record,
+    plan_thread_creation,
+)
 from dirdiff.review.base import (
     AddComment,
     ChangeThreadState,
     CreateThread,
     DeleteComment,
     EditComment,
+    FilePair,
     ProfileAuthor,
     ReviewCommentView,
     ReviewError,
@@ -53,25 +76,17 @@ from dirdiff.review.base import (
     validate_author,
     validate_comment_body,
 )
-from dirdiff.review.placement import (
-    BayStartPlacement,
-    FileMissingPlacement,
-    FileStartPlacement,
-    FileUnreadablePlacement,
-    Placement,
-    RangePlacement,
-    ReviewReadCache,
-    build_original_excerpt,
-    file_pair,
-    origin_target_view,
-    placement_from_record,
-    plan_thread_creation,
-)
 
 __all__ = [
+    "DeleteThread",
+    "ReplyToThread",
+    "ResolveThread",
+    "ReviewBatchAction",
+    "ReviewBatchResult",
     "Thread",
+    "apply_review_batch",
     "create_thread",
-    "fold_actions",
+    "derive_room_threads",
     "get_thread",
     "thread_objects",
 ]
@@ -1370,3 +1385,269 @@ def create_thread(
                 cache=cache,
             ),
         )
+
+
+def apply_review_batch(
+    *,
+    database: RoomStore,
+    identity: RoomIdentity,
+    snapshot_id: UUID,
+    batch: tuple[ReviewBatchAction, ...],
+    lock_path: Path,
+    thread_lock: Lock,
+) -> tuple[ReviewBatchResult, ...]:
+    """Validate and apply one ordered multi-Thread batch atomically.
+
+    The agent boundary generates fresh identifiers before calling. Every
+    semantic check runs while holding the same Room lock used by browser
+    writes. Only after all items are valid are their placement and action rows
+    inserted in one database transaction.
+
+    # Parameters
+
+    - `database`: Persistence used for set-based validation and one final write.
+    - `identity`: Room containing every addressed Thread and Snapshot.
+    - `snapshot_id`: Exact code universe against which all actions apply.
+    - `batch`: Ordered non-empty instruments; later items observe earlier items
+      in memory before anything is committed.
+    - `lock_path`: Cross-process Room write lock shared with publication.
+    - `thread_lock`: In-process Room write lock held for the complete batch.
+
+    # Usage
+
+    Call through `Room.apply_review_batch` with the agent's full ordered batch.
+    Every command must use the same author Profile. Results preserve input order
+    and contain the authoritative state after each accepted command.
+
+    # Returns
+
+    - `Members`: One authoritative result for every accepted input action,
+      containing its instrument, identities, resulting state, and attention.
+    - `Order`: Results match input order after later actions have observed
+      earlier batch state; an invalid batch returns nothing and writes nothing.
+
+    # Failures
+
+    - Raises `ReviewError` when the batch is empty, mixes authors, repeats an
+      operation id, addresses invalid code, or contains an operation invalid for
+      the current in-memory Thread state. Nothing is written on failure.
+    - Raises `AssertionError` when persistence or command shapes contradict the
+      review invariants.
+    """
+    if batch == ():
+        raise ReviewError("invalid_target", "Review batch cannot be empty.")
+    with room_write_lock(thread_lock, lock_path):
+        # One set-based File read replaces hydrating the whole Snapshot:
+        # only the batch's distinct creation targets are loaded, in a single
+        # query and transaction that also answers Snapshot visibility.
+        # Absent pairs stay unmapped so planning rejects exactly the invalid
+        # creation.
+        creation_pairs = tuple(
+            dict.fromkeys(
+                action.target.file
+                for action in batch
+                if isinstance(action, CreateThread)
+            )
+        )
+        snapshot_exists, found_by_pair = database.snapshot_files_by_pairs(
+            identity,
+            snapshot_id=snapshot_id.hex,
+            pairs=tuple(
+                (pair.left_path, pair.right_path) for pair in creation_pairs
+            ),
+        )
+        if not snapshot_exists:
+            raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
+        selected_files_by_pair: dict[FilePair, SnapshotFileRecord] = {
+            pair: found_by_pair[(pair.left_path, pair.right_path)]
+            for pair in creation_pairs
+            if (pair.left_path, pair.right_path) in found_by_pair
+        }
+        cache = ReviewReadCache()
+        placements: list[ReviewThreadRecord] = []
+        records: list[ReviewActionRecord] = []
+        results: list[ReviewBatchResult] = []
+
+        # Set-based reads replace per-action queries: every author in one
+        # Profile read, every addressed existing Thread history in one
+        # placement/action read. The ordered in-memory reduction below still lets
+        # later actions observe earlier ones from the same batch, including a
+        # Thread the batch itself creates.
+        author_ids = [
+            action.author.profile_id
+            if isinstance(action, CreateThread)
+            else action.command.author.profile_id
+            for action in batch
+        ]
+        known_profiles = {
+            profile.id: profile
+            for profile in database.review_profiles(
+                tuple(dict.fromkeys(author_ids))
+            )
+        }
+        for author_id in author_ids:
+            if author_id not in known_profiles:
+                raise ReviewError(
+                    "profile_not_found", f"Unknown Profile: {author_id}"
+                )
+        addressed = tuple(
+            dict.fromkeys(
+                action.thread_id.hex
+                for action in batch
+                if not isinstance(action, CreateThread)
+            )
+        )
+        histories, history_profiles = database.review_actions_many(
+            snapshot_id.hex, addressed
+        )
+        fold_profiles = {
+            profile.id: profile for profile in history_profiles
+        } | known_profiles
+        simulated: dict[str, list[ReviewActionRecord]] = {}
+
+        for action in batch:
+            if isinstance(action, CreateThread):
+                rows, first_action = plan_thread_creation(
+                    command=action,
+                    created_at=action_timestamp(),
+                    snapshot_id=snapshot_id.hex,
+                    target_file=selected_files_by_pair.get(action.target.file),
+                    cache=cache,
+                )
+                placements.extend(rows)
+                records.append(first_action)
+                # Seed the materialized state so later batch actions can address the
+                # Thread this batch just created.
+                simulated[action.thread_id.hex] = [first_action]
+                results.append(
+                    ReviewBatchResult(
+                        "create-finding",
+                        action.thread_id,
+                        action.comment_id,
+                        "open",
+                        "author",
+                    )
+                )
+                continue
+
+            thread_key = action.thread_id.hex
+            thread_actions = simulated.get(thread_key)
+            if thread_actions is None:
+                persisted_actions = histories.get(thread_key)
+                if persisted_actions is None:
+                    raise ReviewError(
+                        "thread_not_found",
+                        f"Unknown Thread: {thread_key}",
+                    )
+                thread_actions = list(persisted_actions)
+                simulated[thread_key] = thread_actions
+
+            command = action.command
+            profile_id = command.author.profile_id
+            state, attention, _comments = fold_actions(
+                tuple(thread_actions), fold_profiles
+            )
+            if state == "deleted":
+                raise ReviewError("state_conflict", "Thread is deleted.")
+            if isinstance(action, ReplyToThread):
+                reply = action.command
+                validate_comment_body(reply.body)
+                allowed_attention = {
+                    "author-response": {"author", "both"},
+                    "reviewer-return": {"reviewer", "both"},
+                    "inert-comment": {"author", "reviewer", "both", "none"},
+                }[action.instrument]
+                if action.instrument != "inert-comment" and (
+                    state != "open" or attention not in allowed_attention
+                ):
+                    raise ReviewError(
+                        "state_conflict",
+                        f"{action.instrument} is not valid for this Thread outcome.",
+                    )
+                next_attention: Literal["author", "reviewer", "both", "none"]
+                if action.instrument == "author-response":
+                    next_attention = "reviewer"
+                elif action.instrument == "reviewer-return":
+                    next_attention = "author"
+                else:
+                    next_attention = attention
+                record = ReviewActionRecord(
+                    operation_id=reply.operation_id.hex,
+                    thread_id=thread_key,
+                    snapshot_id=snapshot_id.hex,
+                    sequence=len(thread_actions),
+                    kind="comment-created",
+                    profile_id=profile_id,
+                    comment_id=reply.comment_id.hex,
+                    expected_revision=None,
+                    body=reply.body,
+                    created_at=action_timestamp(),
+                    status_after=state,
+                    attention_after=next_attention,
+                )
+                result = ReviewBatchResult(
+                    action.instrument,
+                    action.thread_id,
+                    reply.comment_id,
+                    state,
+                    next_attention,
+                )
+            elif isinstance(action, ResolveThread):
+                resolve = action.command
+                if state != "open" or attention not in {"reviewer", "both"}:
+                    raise ReviewError(
+                        "state_conflict",
+                        "reviewer-resolve requires an open reviewer-attention Thread.",
+                    )
+                validate_comment_body(resolve.body)
+                record = ReviewActionRecord(
+                    operation_id=resolve.operation_id.hex,
+                    thread_id=thread_key,
+                    snapshot_id=snapshot_id.hex,
+                    sequence=len(thread_actions),
+                    kind="thread-resolved",
+                    profile_id=profile_id,
+                    comment_id=resolve.comment_id.hex,
+                    expected_revision=None,
+                    body=resolve.body,
+                    created_at=action_timestamp(),
+                    status_after="resolved",
+                    attention_after="none",
+                )
+                result = ReviewBatchResult(
+                    "reviewer-resolve",
+                    action.thread_id,
+                    resolve.comment_id,
+                    "resolved",
+                    "none",
+                )
+            else:
+                assert isinstance(action, DeleteThread)
+                deletion = action.command
+                record = ReviewActionRecord(
+                    operation_id=deletion.operation_id.hex,
+                    thread_id=thread_key,
+                    snapshot_id=snapshot_id.hex,
+                    sequence=len(thread_actions),
+                    kind="thread-deleted",
+                    profile_id=profile_id,
+                    comment_id=None,
+                    expected_revision=None,
+                    body=None,
+                    created_at=action_timestamp(),
+                    status_after="deleted",
+                    attention_after="none",
+                )
+                result = ReviewBatchResult(
+                    "reviewer-delete",
+                    action.thread_id,
+                    None,
+                    "deleted",
+                    "none",
+                )
+            thread_actions.append(record)
+            records.append(record)
+            results.append(result)
+
+        database.apply_review_batch(tuple(placements), tuple(records))
+        return tuple(results)

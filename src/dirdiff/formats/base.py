@@ -4,8 +4,8 @@
 
 This module defines the contexts, pre-render bays, warnings, and serialized
 payload types used by every format builder. Its functions classify whole-bay
-change, decode project text, describe media, and turn text or image bays into
-their wire content.
+change, decode project text, build shared byte-facts bays, describe media, and
+turn text or image bays into their wire content.
 
 ## Purpose and boundaries
 
@@ -59,6 +59,7 @@ __all__ = [
     "MovedChangeStatus",
     "TextBay",
     "TextRejection",
+    "byte_facts_bay",
     "image_kind_payload",
     "media_facts",
     "media_ref",
@@ -243,6 +244,13 @@ the bay holding them is an ordinary `text` bay. The key is distinct from
 `FLATFILE_BAY_KEY` and `IMAGE_BAY_KEY` for exactly the reason given there: the
 key changing is what makes a File that stopped being text visible to review
 placement as a coordinate that no longer exists.
+"""
+
+BLOB_MEDIA_TYPE = "application/octet-stream"
+"""Media type used when captured bytes have no more specific classification.
+
+The facts bay states this value instead of guessing from content. Format
+builders may supply a path-declared media type when one exists.
 """
 
 
@@ -1098,6 +1106,76 @@ def media_facts(side: MediaSide | None) -> str | None:
         f"type: {ref['media_type']}\n"
         f"size: {ref['byte_size']} bytes\n"
         f"sha256: {ref['digest']}"
+    )
+
+
+def byte_facts_bay(
+    left: bytes | None,
+    right: bytes | None,
+    context: BayContext,
+    *,
+    left_media_type: str | None,
+    right_media_type: str | None,
+    warnings: tuple[BayWarning, ...],
+) -> TextBay:
+    """Build the shared text bay that states facts about opaque bytes.
+
+    Blob composition and text/notebook rejection use the same representation,
+    so this package-internal operation keeps its identity, media defaults, and
+    warnings exact without making one private builder depend on another.
+
+    # Parameters
+
+    - `left`: Captured old bytes, or `None` when absent.
+    - `right`: Captured new bytes under the same convention.
+    - `context`: Side labels copied into the resulting bay.
+    - `left_media_type`: Old path's declared type, or `None` when unknown.
+    - `right_media_type`: New path's declared type, or `None` when unknown.
+    - `warnings`: Existing damage notices attached unchanged.
+
+    # Returns
+
+    - One `BLOB_BAY_KEY` text bay stating type, size, and digest for every
+      present side and preserving the supplied warnings.
+    """
+    left_facts = media_facts(
+        None
+        if left is None
+        else MediaSide(
+            media_type=left_media_type or BLOB_MEDIA_TYPE,
+            data=left,
+        )
+    )
+    right_facts = media_facts(
+        None
+        if right is None
+        else MediaSide(
+            media_type=right_media_type or BLOB_MEDIA_TYPE,
+            data=right,
+        )
+    )
+    return TextBay(
+        frame_key="file",
+        heading=None,
+        bay_key=BLOB_BAY_KEY,
+        label="Binary content",
+        detail=None,
+        collapsible=False,
+        default_expanded=True,
+        change=whole_file_change(left_facts, right_facts),
+        left_label=context.left_label,
+        right_label=context.right_label,
+        left=DiffSide(
+            exists=left is not None,
+            text=left_facts,
+            path_hint=MEDIA_FACTS_PATH_HINT,
+        ),
+        right=DiffSide(
+            exists=right is not None,
+            text=right_facts,
+            path_hint=MEDIA_FACTS_PATH_HINT,
+        ),
+        warnings=warnings,
     )
 
 

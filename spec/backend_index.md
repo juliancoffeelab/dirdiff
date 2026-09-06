@@ -91,8 +91,9 @@ and UTF-8 columns and its normalized line breaks. Ambiguous Unicode offsets prod
 Invalid ranges, unknown actions, and contradictory matches fail explicitly.
 A missing language generator builds local `difflib.unified_diff` rows with a visible
 `gumtree_unsupported_language` warning. Parser errors, missing executables,
-and malformed JSON remain failures. GumTree's logic module contains both subprocess validation and row construction;
-its package facade re-exports the engine and raw-fact interface.
+and malformed JSON remain failures. GumTree's logic module contains row
+construction and is the sole consumer of its private `_logic` driver package.
+The package facade re-exports the engine and raw-fact interface.
 
 The package also owns engine selection. `EngineKind` is the complete set of
 engine names, and `engine()` maps one to its renderer; both are exported from
@@ -136,9 +137,13 @@ the HTTP boundary attaches (`display_name`, `file_kind`). It assigns no hunk
 numbering: rows keep the bay-local boundaries enrichment gave them, and the
 frontend turns those into the File's navigable sequence. `base.py` holds those
 contracts (contexts, the text-bay renderer, the serialized shapes);
-`composer.py` holds the class and top-level path-only classification;
-per-format sibling builders live beside it. `symlink.py` owns the link-specific
-two-bay composition and flattening of safely reached target content.
+`composer.py` holds the class, path-only classification, and symbolic-link
+coordination and is the sole caller into `_composer`. That private package
+contains independent blob, flat-file, notebook, image, and symbolic-link
+modules. `base.py` contains the shared byte-facts bay operation used when
+several builders reject readable text. The symbolic-link leaf prepares its
+outer bay and normalized target; `composer.py` selects the target builder. No
+private builder imports another private builder.
 
 Classification reads paths only and is total. `.ipynb` paths are notebooks,
 the image extension table names images, the blob extension table names formats
@@ -170,7 +175,7 @@ reads the type, size, and lowercase-hex digest changing line by line and can
 comment on any of them. Those lines are real lines: they count toward the File
 summary the way any other bay's do.
 
-`image.py` and `notebook.py` produce `ImageBay` values, which hold two optional
+The private image and notebook builders produce `ImageBay` values, which hold two optional
 sides of exact media bytes. Whole-File images carry captured bytes; notebook
 outputs carry the bytes strictly decoded from their base64 MIME entry.
 `compose()` never serializes them: each present side becomes a `MediaRef` of
@@ -178,7 +183,7 @@ media type, byte size, and lowercase-hex SHA-256, and the bytes themselves are
 served only by `/api/file-media`. Whole-File image change is read from the bytes;
 notebook output change remains the raw output entry's semantic change.
 
-`dirdiff.formats.notebook` owns everything notebook-shaped: parsing, cell
+The private notebook builder contains everything notebook-shaped: parsing, cell
 pairing, public cell keys, and each bay's content. A valid distinct `nbformat`
 id is durable identity. An id-less or duplicate-id cell visibly degrades to a
 source-derived pseudo key, including an occurrence among identical sources, so
@@ -268,13 +273,13 @@ The review model is described in [`reviews.md`](reviews.md).
 
 The package facade exports the review commands, views, bound `Thread`, and
 external-agent batch instruments used by `Room` and the HTTP boundaries.
-`base.py` contains their shared contracts and Room write invariants;
-`thread.py` contains ordinary Thread reads and single-Thread writes;
-`placement.py` contains origin construction, source-context reconstruction, and
-later-Snapshot placement derivation; and `external_agent.py` contains the
-role-directed commands and atomic multi-Thread batch used only by external
-agents. Snapshot publication, SQL, and HTTP serialization remain outside the
-package.
+`base.py` contains shared contracts and Room write invariants. `thread.py`
+contains ordinary Thread operations and is the sole caller into `_thread`.
+The private `placement.py` leaf contains origin construction and later-Snapshot
+placement derivation; the independent `external_agent.py` leaf contains batch
+instrument and result contracts. `thread.py` coordinates the batch operation
+across them. Snapshot publication, SQL, and HTTP serialization remain outside
+the package.
 
 ## `dirdiff.server`
 
@@ -282,13 +287,12 @@ Defines FastAPI routes and request-level rendering orchestration.
 
 The package facade preserves the application factory, runtime configuration,
 response contract, and branch-selection imports used by the CLI and tests.
-`base.py` contains startup, shared HTTP, route-metadata, and Snapshot-capture
-contracts used by multiple route groups. `magic.py` records class-local route
-declarations and binds them during application construction.
-`external_agent.py` defines the external-agent HTTP contract and routes;
-`review.py` defines browser review routes; `repos.py` defines repository
-registry and ref-selection routes; and `diff.py` defines preset, manifest,
-lazy File, diff, and media routes. `app.py` keeps Profile and preference routes,
+`base.py` contains startup, shared HTTP, and Snapshot-capture contracts used by
+multiple route groups. It is the sole caller into `_base/magic.py`, whose
+`ClassRoutes` collector is shared by those groups. `app.py` is the sole caller into
+`_app`, whose private modules contain class-local route declarations and the
+external-agent, browser-review, repository, diff, and media routes. `app.py`
+keeps Profile and preference routes,
 the application-wide error boundary, frontend-independent application
 composition, and the development and release uvicorn factories. Both factories
 share one runtime-construction operation. Development adds the missing-Vite
@@ -348,4 +352,5 @@ mode-specific implicit persistent paths, builds runtime configuration, starts
 the selected server topology, opens the browser, and exposes repository-mark
 commands. Editable installations run Vite and reloadable uvicorn; standard
 installations run the bundled HUD and API through one non-reloading uvicorn
-process. See [`release.md`](release.md).
+process. `base.py` is the sole caller into `_base`, whose private modules
+implement registry operations and process launch. See [`release.md`](release.md).

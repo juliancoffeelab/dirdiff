@@ -112,21 +112,31 @@ or the frontend. Outdated state is highly unlikely, and is a likely a bug.
 
 ### Python packages
 
-- Package `__init__.py` files are public facades containing re-exports only,
-  unless the user explicitly authorizes an exception.
+- Package `__init__.py` files are public facades containing re-exports only.
+  The sole exception is a private `_x/__init__.py`, which is empty.
 - Code outside a package imports its public items from the package root, not its
   submodules. Never from its submodules.
 - Package-internal shared contracts, types, helpers, and invariants belong in
   `base.py`. Sibling modules import those internals from `base.py`, not from the
   package facade.
+- A module `x.py` may split its private implementation across `_x/`. Only
+  `x.py` imports modules beneath `_x`, and it imports them directly rather than
+  through `_x/__init__.py`. The implementation modules remain independent
+  leaves. No other module, including one inside `_x`, imports `_x` or anything
+  beneath it.
+- Top-level modules directly under `dirdiff` are peer packages represented by
+  one file. Their module interface is their package interface, so other
+  top-level packages import them directly.
 - A Python module must define `__all__`. Items can be listed there when they are
-  actually used outside that module.
+  actually used outside that module. Empty private `_x/__init__.py` files are
+  the sole exception.
 - Do not use ORM, but dont throw raw SQL around, use Python DSL operations.
 - Database design must satisfy Second Normal Form or better.
 
 ## Documentation and code structure
 
-- Every added module requires a thorough module-level docstring or equivalent
+- Every added module except an empty private `_x/__init__.py` requires a
+  thorough module-level docstring or equivalent
   comment explaining:
   - its public interface;
   - why the module exists;

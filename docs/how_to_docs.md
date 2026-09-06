@@ -33,11 +33,11 @@ When module docstring describe things in depth, the main goal of package
 docstring is to familiarize the reader with the purpose of the package and its
 boundaries.
 
-Package is defined by having an `__init__.py` which should hold nothing, except
-for `__all__` variable, and in some authorized exceptions, a facade function.
-Package `__init__.py` docstrings describe the package facade. They should make
-the supported import path and the split between public and package-internal
-contracts obvious.
+A public package `__init__.py` is its documented facade: it contains re-exports
+and `__all__`, and its docstring makes the supported import path and the split
+between public and package-internal contracts obvious. A private `_x` package
+is different: only its paired `x.py` imports its submodules directly, so its
+`__init__.py` is empty and has no package docstring.
 
 
 ### Bad example
@@ -47,7 +47,7 @@ contracts obvious.
 This package renders already-loaded text sides by writing temporary files,
 running `git diff --no-index`, and projecting Git's unified patch text into
 dirdiff engine rows.  Code outside the package imports `GitDiffEngine` from this
-package root; subprocess execution lives in `git.py`, and patch-to-row
+package root; subprocess execution lives in `_logic/driver.py`, and patch-to-row
 projection lives in `logic.py`.
 The engine is intentionally repo-agnostic.  Backend code loads text from Git
 refs, presets, or the worktree before this package is called.  This package must
@@ -68,9 +68,8 @@ This package implements a version of diff engine using native functionality
 of git.
 As all engines, it exports `GitDiffEngine` with a method to turn two `DiffSide`
 handles into structured diff representation, this one by using `git diff`.
-If you want to check how we call and get info from git subprocess, go to
-`dirdiff.engines.git.git`, if you want to see what we do with that later, go
-to `dirdiff.engines.git.logic`.
+The private `_logic/driver.py` module invokes Git. Row construction and the
+engine entrypoint live in `dirdiff.engines.git.logic`.
 
 This engine is, maybe surprisingly, agnostic to repo-backend, and can be used
 with any kind of version storage, even if it doesn't use git at all (like

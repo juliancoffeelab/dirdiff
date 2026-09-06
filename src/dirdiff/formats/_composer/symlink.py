@@ -4,50 +4,44 @@
 
 `write_captured_link` and `read_captured_link` persist and authenticate the
 exact private Snapshot sidecars named by relational capture facts.
-`symlink_bays` composes a File with
-at least one symbolic-link side into its raw payload bay and one collapsed
-target bay containing safely reached content or a resolution diagnosis.
+`symlink_composition` builds the outer payload bay and normalized target pair.
+`symlink_target_bay` and `nested_symlink_target_document` apply the link-only
+target presentation used by the parent composer.
 
 ## Purpose and boundaries
 
 Room capture has already walked each link inside the repository and stopped at
 damage or a loop. This module writes and reads that immutable result beside the
-ordinary Snapshot side, then turns it into bays. It never reads the repository,
-follows links, or retries failed resolution. A target is deliberately flattened
-to one bay so nested formats cannot introduce frames inside the link File.
+ordinary Snapshot side and performs the link-specific half of composition. It
+never reads the repository, follows links, chooses a target format builder, or
+retries failed resolution. The parent composer coordinates independent leaves.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterator
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal
 
 from dirdiff.engines import DiffSide
 from dirdiff.formats.base import (
     Bay,
     BayContext,
     CapturedLink,
-    ImageBay,
     TextBay,
     TextRejection,
     try_decode_text,
     whole_file_change,
 )
-from dirdiff.formats.blob import blob_bays, blob_media_type
-from dirdiff.formats.flatfile import flatfile_bays
-from dirdiff.formats.image import image_bays, image_media_type
-from dirdiff.formats.notebook import (
-    NotebookCell,
-    NotebookDocument,
-    RejectedNotebookPart,
-    try_load_notebook_document,
-)
 
-__all__ = ["read_captured_link", "symlink_bays", "write_captured_link"]
+__all__ = [
+    "nested_symlink_target_document",
+    "read_captured_link",
+    "symlink_composition",
+    "symlink_target_bay",
+    "write_captured_link",
+]
 
 
 SYMLINK_BAY_KEY = "symlink"
@@ -65,15 +59,6 @@ SYMLINK_TARGET_BAY_KEY = "symlink-target"
 The bay compares safely resolved target content with ordinary File content on
 a side that changed between link and non-link. A link that reaches no content
 uses the same bay for its synthetic nested walk and terminal diagnosis.
-"""
-
-
-TargetFormat = Literal["notebook", "image", "blob", "text"]
-"""Format used to flatten one safely reached target pair.
-
-It is local to link composition: it cannot classify the outer File or select a
-top-level format builder. Conflicting target suffix claims become text so one
-specialized representation never lies about the other side.
 """
 
 
@@ -237,23 +222,43 @@ def read_captured_link(
     )
 
 
-def symlink_bays(
+@dataclass(frozen=True)
+class SymlinkComposition:
+    """Carry the outer link bay and normalized target pair to `Composer`.
+
+    `symlink_composition` creates this value after validating link facts and
+    turning a stopped walk into textual target bytes. `Composer` selects the
+    independent target builder from `target_context` and wraps its result.
+
+    The value owns no files or live repository state. Its bytes come only from
+    the supplied captured File and authenticated `CapturedLink` values.
+    """
+
+    link_bay: TextBay
+    """Visible bay containing only the exact outer-link payload."""
+
+    left_target: bytes | None
+    """Normalized old target bytes, or `None` when that side is absent."""
+
+    right_target: bytes | None
+    """Normalized new target bytes, or `None` when that side is absent."""
+
+    target_context: BayContext
+    """Reached target paths and original side labels used for classification."""
+
+
+def symlink_composition(
     left: bytes | None,
     right: bytes | None,
     context: BayContext,
-) -> Iterator[Bay]:
-    """Yield the raw outer-link payload and one collapsed target bay.
+) -> SymlinkComposition:
+    """Build link-specific facts before `Composer` selects a target builder.
 
-    At least one context side must carry captured link facts. The first bay
-    mirrors Git by showing only the exact outer link payload; a regular side in
-    a link-to-File transition is absent from that bay. The second bay compares
-    safely resolved target bytes with the ordinary bytes of a non-link side, or
-    presents the stopped walk as a synthetic text document.
-
-    Notebook targets flatten to one script-like text bay with `# %%` walls,
-    markdown and raw source commented, and outputs omitted. Image targets keep
-    one image bay. Opaque or rejected text targets become one facts bay through
-    the existing builders. No target can introduce nested frames.
+    At least one context side must carry captured link facts. The outer bay
+    mirrors Git by showing only the exact link payload. A safely reached target
+    contributes its captured bytes and final repository path; a stopped walk
+    becomes a synthetic text document containing nested links and its terminal
+    diagnosis.
 
     # Parameters
 
@@ -263,8 +268,8 @@ def symlink_bays(
 
     # Returns
 
-    - First, the required visible outer-link payload bay.
-    - Then, one collapsed target bay with reached content or a diagnosis.
+    - A visible outer-link bay plus the normalized target pair that the caller
+      must pass to exactly one independent format builder.
     """
     assert context.left_link is not None or context.right_link is not None, (
         "link composition requires captured link facts"
@@ -295,7 +300,7 @@ def symlink_bays(
     else:
         assert right is not None
         right_payload = link_payload(right)
-    yield TextBay(
+    link_bay = TextBay(
         frame_key="file",
         heading=None,
         bay_key=SYMLINK_BAY_KEY,
@@ -372,216 +377,75 @@ def symlink_bays(
     assert left_target is not None or right_target is not None, (
         "a captured link always yields target content or a diagnosis"
     )
-    target_context = BayContext(
-        left_path=left_target_path,
-        right_path=right_target_path,
-        left_label=context.left_label,
-        right_label=context.right_label,
-    )
-
-    def target_bay(bay: Bay) -> Bay:
-        """Apply the link target's single-frame contract to one built bay."""
-        return replace(
-            bay,
-            frame_key="file",
-            heading=None,
-            bay_key=SYMLINK_TARGET_BAY_KEY,
-            label="Target content",
-            collapsible=True,
-            default_expanded=False,
-        )
-
-    def nested_target_document(
-        data: bytes | None,
-        link: CapturedLink | None,
-        final_path: str | None,
-    ) -> bytes | None:
-        """Prepend nested link payloads to one synthetic textual target.
-
-        Direct links need no wall: their target is already an ordinary File.
-        A nested walk becomes one script-like document where each `# %% path`
-        wall names the object whose exact text follows it. Binary content stays
-        in its specialized representation and therefore receives no text wall.
-
-        # Parameters
-
-        - `data`: Reached or already-flattened target bytes, if present.
-        - `link`: Captured link facts, or `None` for an ordinary side.
-        - `final_path`: Repository path naming reached final content.
-
-        # Returns
-
-        - `bytes`: Original bytes, or the comment-walled synthetic document.
-        - `None`: No target bytes exist on this side.
-        """
-        if (
-            data is None
-            or link is None
-            or link.target_data is None
-            or link.nested_links == ()
-        ):
-            return data
-        decoded = try_decode_text(data)
-        if isinstance(decoded, TextRejection):
-            return data
-        assert final_path is not None
-        blocks = [
-            f"# %% {path}\n{payload}" for path, payload in link.nested_links
-        ]
-        blocks.append(f"# %% {final_path}\n{decoded}")
-        return ("\n\n".join(blocks).rstrip("\n") + "\n").encode()
-
-    def path_claim(path: str) -> tuple[TargetFormat, str | None]:
-        """Return one final target path's format and declared media type.
-
-        # Returns
-
-        - First, the target builder classification claimed by the path.
-        - Second, its declared media type when image/blob needs one.
-        """
-        if path.lower().endswith(".ipynb"):
-            return "notebook", None
-        image_type = image_media_type(path)
-        if image_type is not None:
-            return "image", image_type
-        blob_type = blob_media_type(path)
-        if blob_type is not None:
-            return "blob", blob_type
-        return "text", None
-
-    left_claim = (
-        None if left_target_path is None else path_claim(left_target_path)
-    )
-    right_claim = (
-        None if right_target_path is None else path_claim(right_target_path)
-    )
-    present_claims = [
-        claim for claim in (left_claim, right_claim) if claim is not None
-    ]
-    assert len(present_claims) > 0, "reached content always has a target path"
-    format_name: TargetFormat = (
-        present_claims[0][0]
-        if all(claim[0] == present_claims[0][0] for claim in present_claims)
-        else "text"
-    )
-    left_media_type = None if left_claim is None else left_claim[1]
-    right_media_type = None if right_claim is None else right_claim[1]
-
-    if format_name == "image":
-        picture = next(
-            image_bays(
-                left_target,
-                right_target,
-                target_context,
-                left_media_type=left_media_type,
-                right_media_type=right_media_type,
-            )
-        )
-        assert isinstance(picture, ImageBay), (
-            "an image builder yields its picture before text attachments"
-        )
-        yield target_bay(picture)
-        return
-    if format_name == "blob":
-        for bay in blob_bays(
-            left_target,
-            right_target,
-            target_context,
-            left_media_type=left_media_type,
-            right_media_type=right_media_type,
-            warnings=(),
-        ):
-            yield target_bay(bay)
-        return
-    if format_name == "notebook":
-        left_document = (
-            None
-            if left_target is None
-            else try_load_notebook_document(left_target)
-        )
-        right_document = (
-            None
-            if right_target is None
-            else try_load_notebook_document(right_target)
-        )
-        if (left_target is None or left_document is not None) and (
-            right_target is None or right_document is not None
-        ):
-
-            def notebook_script(document: NotebookDocument) -> bytes:
-                """Flatten one accepted notebook without its output records."""
-                blocks: list[str] = []
-                for cell in document.cells:
-                    if isinstance(cell, NotebookCell):
-                        marker = "# %%"
-                        if cell.cell_type != "code":
-                            marker = f"# %% [{cell.cell_type}]"
-                        if cell.cell_type == "code":
-                            body = cell.source
-                        else:
-                            body = "\n".join(
-                                "#" if line == "" else f"# {line}"
-                                for line in cell.source.splitlines()
-                            )
-                        blocks.append(
-                            marker if body == "" else f"{marker}\n{body}"
-                        )
-                        continue
-                    assert isinstance(cell, RejectedNotebookPart)
-                    raw = json.dumps(
-                        cell.raw,
-                        ensure_ascii=False,
-                        indent=2,
-                        sort_keys=True,
-                    )
-                    body = "\n".join(f"# {line}" for line in raw.splitlines())
-                    blocks.append(f"# %% [invalid]\n{body}")
-                return (("\n\n".join(blocks) + "\n") if blocks else "").encode()
-
-            left_script = (
-                None
-                if left_document is None
-                else notebook_script(left_document)
-            )
-            right_script = (
-                None
-                if right_document is None
-                else notebook_script(right_document)
-            )
-            left_script = nested_target_document(
-                left_script,
-                context.left_link,
-                left_target_path,
-            )
-            right_script = nested_target_document(
-                right_script,
-                context.right_link,
-                right_target_path,
-            )
-            script_context = BayContext(
-                left_path=None if left_script is None else "target.py",
-                right_path=None if right_script is None else "target.py",
-                left_label=context.left_label,
-                right_label=context.right_label,
-            )
-            for bay in flatfile_bays(
-                left_script,
-                right_script,
-                script_context,
-            ):
-                yield target_bay(bay)
-            return
-    for bay in flatfile_bays(
-        nested_target_document(
-            left_target,
-            context.left_link,
-            left_target_path,
+    return SymlinkComposition(
+        link_bay=link_bay,
+        left_target=left_target,
+        right_target=right_target,
+        target_context=BayContext(
+            left_path=left_target_path,
+            right_path=right_target_path,
+            left_label=context.left_label,
+            right_label=context.right_label,
         ),
-        nested_target_document(
-            right_target,
-            context.right_link,
-            right_target_path,
-        ),
-        target_context,
+    )
+
+
+def symlink_target_bay(bay: Bay) -> Bay:
+    """Apply the link target's single-frame contract to one built bay.
+
+    # Parameters
+
+    - `bay`: First bay produced for the normalized target pair.
+
+    # Returns
+
+    - The same bay content under the collapsed `symlink-target` coordinate.
+    """
+    return replace(
+        bay,
+        frame_key="file",
+        heading=None,
+        bay_key=SYMLINK_TARGET_BAY_KEY,
+        label="Target content",
+        collapsible=True,
+        default_expanded=False,
+    )
+
+
+def nested_symlink_target_document(
+    data: bytes | None,
+    link: CapturedLink | None,
+    final_path: str | None,
+) -> bytes | None:
+    """Prepend nested link payloads to one synthetic textual target.
+
+    Direct links need no wall: their target is already an ordinary File. A
+    nested walk becomes one script-like document where each `# %% path` wall
+    names the object whose exact text follows it. Binary content stays in its
+    specialized representation and therefore receives no text wall.
+
+    # Parameters
+
+    - `data`: Reached or already-flattened target bytes, if present.
+    - `link`: Captured link facts, or `None` for an ordinary side.
+    - `final_path`: Repository path naming reached final content.
+
+    # Returns
+
+    - `bytes`: Original bytes, or the comment-walled synthetic document.
+    - `None`: No target bytes exist on this side.
+    """
+    if (
+        data is None
+        or link is None
+        or link.target_data is None
+        or link.nested_links == ()
     ):
-        yield target_bay(bay)
+        return data
+    decoded = try_decode_text(data)
+    if isinstance(decoded, TextRejection):
+        return data
+    assert final_path is not None
+    blocks = [f"# %% {path}\n{payload}" for path, payload in link.nested_links]
+    blocks.append(f"# %% {final_path}\n{decoded}")
+    return ("\n\n".join(blocks).rstrip("\n") + "\n").encode()

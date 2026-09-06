@@ -31,8 +31,11 @@ from dirdiff.formats.base import (
     media_ref,
     try_decode_text,
 )
-from dirdiff.formats.composer import Composer
-from dirdiff.formats.symlink import read_captured_link, write_captured_link
+from dirdiff.formats.composer import (
+    Composer,
+    read_captured_link,
+    write_captured_link,
+)
 
 __all__ = [
     "BLOB_BAY_KEY",

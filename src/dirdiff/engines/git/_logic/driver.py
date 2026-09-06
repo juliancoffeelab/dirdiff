@@ -3,15 +3,14 @@
 ## Public interface
 
 `run_git_no_index_diff` returns a unified patch for two strings.
-`GitDiffEngine` implements the shared engine protocol and converts that patch
-into complete neutral rows.
 
 ## Purpose and boundaries
 
 No-index mode gives any loaded text pair Git's diff algorithm without tying the
 engine to a repository. Path hints name temporary files but never authorize a
 filesystem read. Repository refs and File loading therefore remain in
-`dirdiff.backend`.
+`dirdiff.backend`; row construction and engine behavior remain in
+`dirdiff.engines.git.logic`.
 """
 
 from __future__ import annotations
@@ -19,22 +18,11 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import final, override
 
-from dirdiff.engines.base import (
-    DiffEngineProtocol,
-    DiffEngineResult,
-    DiffSide,
-    DirdiffError,
-    git_executable,
-)
-from dirdiff.engines.git.logic import (
-    git_diff_rows_from_patch,
-    plain_line_rows_for_side,
-)
+from dirdiff.engines.base import DirdiffError, git_executable
 
 __all__ = [
-    "GitDiffEngine",
+    "run_git_no_index_diff",
 ]
 
 
@@ -124,80 +112,3 @@ def run_git_no_index_diff(
     if message == "":
         message = "Git could not build this diff."
     raise DirdiffError(message)
-
-
-@final
-class GitDiffEngine(DiffEngineProtocol):
-    """Compare supplied text with `git diff --no-index`.
-
-    Path hints give temporary files useful names but are never loaded. Git's
-    patch is projected into the common engine rows. If one side is absent, the
-    engine emits complete insertion or deletion rows without invoking Git.
-
-    The engine holds no repository or HTTP state and works with text loaded
-    by any workspace backend.
-    """
-
-    @override
-    def render_diff(
-        self,
-        *,
-        old: DiffSide,
-        new: DiffSide,
-    ) -> DiffEngineResult:
-        """Render already-loaded text with Git's no-index diff algorithm.
-
-        # Parameters
-
-        - `old`: Old text side and its optional temporary-file naming hint.
-        - `new`: New text side under the same contract.
-
-        # Usage
-
-        Obtain this renderer through `dirdiff.engines.engine` and normally let
-        `dirdiff.formats.Composer` call it for a text bay.
-
-        # Failures
-
-        Propagates `DirdiffError` when Git cannot produce a patch. A patch that
-        contradicts the supplied source violates an invariant and raises
-        `AssertionError` while rows are reconstructed.
-        """
-        left_text_value = "" if old.text is None else old.text
-        right_text_value = "" if new.text is None else new.text
-        if old.exists and new.exists:
-            patch = run_git_no_index_diff(
-                left_text=left_text_value,
-                right_text=right_text_value,
-                left_path_hint=old.path_hint,
-                right_path_hint=new.path_hint,
-            )
-            rows = git_diff_rows_from_patch(
-                patch=patch,
-                left_text=left_text_value,
-                right_text=right_text_value,
-            )
-        elif old.exists:
-            rows = plain_line_rows_for_side(
-                text=left_text_value,
-                side="left",
-            )
-        else:
-            rows = plain_line_rows_for_side(
-                text=right_text_value,
-                side="right",
-            )
-        added_lines = sum(1 for row in rows if row["status"] == "insert")
-        removed_lines = sum(1 for row in rows if row["status"] == "delete")
-        moved_lines = sum(1 for row in rows if row["status"] == "move")
-        payload: DiffEngineResult = {
-            "summary": {
-                "changed_lines": added_lines + removed_lines + moved_lines,
-                "modified_lines": 0,
-                "added_lines": added_lines,
-                "removed_lines": removed_lines,
-                "moved_lines": moved_lines,
-            },
-            "rows": rows,
-        }
-        return payload

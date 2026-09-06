@@ -18,9 +18,27 @@ module.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from typing import Literal
 
+from dirdiff.formats._composer.blob import blob_bays, blob_media_type
+from dirdiff.formats._composer.flatfile import flatfile_bays
+from dirdiff.formats._composer.image import image_bays, image_media_type
+from dirdiff.formats._composer.notebook import (
+    NotebookCell,
+    NotebookDocument,
+    RejectedNotebookPart,
+    notebook_bays,
+    try_load_notebook_document,
+)
+from dirdiff.formats._composer.symlink import (
+    nested_symlink_target_document,
+    read_captured_link,
+    symlink_composition,
+    symlink_target_bay,
+    write_captured_link,
+)
 from dirdiff.formats.base import (
     Bay,
     BayContext,
@@ -31,19 +49,13 @@ from dirdiff.formats.base import (
     ComposedFilePayload,
     ComposedSummary,
     FramePayload,
+    ImageBay,
     TextBay,
     image_kind_payload,
     text_kind_payload,
 )
-from dirdiff.formats.blob import blob_bays, blob_media_type
-from dirdiff.formats.flatfile import flatfile_bays
-from dirdiff.formats.image import image_bays, image_media_type
-from dirdiff.formats.notebook import (
-    notebook_bays,
-)
-from dirdiff.formats.symlink import symlink_bays
 
-__all__ = ["Composer"]
+__all__ = ["Composer", "read_captured_link", "write_captured_link"]
 
 
 FileFormat = Literal["notebook", "image", "blob", "text"]
@@ -308,3 +320,193 @@ class Composer:
             "default_expanded": True,
             "frames": frames,
         }
+
+
+# NOTE: This coordinator lives here because it must import every private format
+# builder. Only composer.py may import modules under _composer; the leaves cannot
+# import each other.
+def symlink_bays(
+    left: bytes | None,
+    right: bytes | None,
+    context: BayContext,
+) -> Iterator[Bay]:
+    """Compose one link File through independent private format leaves.
+
+    Link-specific mechanics produce the visible payload and normalized target
+    pair. This coordinator then selects exactly one ordinary target builder and
+    applies the link target's collapsed coordinate to its result. Notebook
+    targets flatten to script-like text so nested formats introduce no frames.
+
+    # Parameters
+
+    - `left`: Raw old-side bytes, or `None` when that side is absent.
+    - `right`: Raw new-side bytes under the same convention.
+    - `context`: File paths, labels, and captured link facts for both sides.
+
+    # Returns
+
+    - First, the required visible outer-link payload bay.
+    - Then, one collapsed target bay with reached content or a diagnosis.
+    """
+    composition = symlink_composition(left, right, context)
+    yield composition.link_bay
+    left_target = composition.left_target
+    right_target = composition.right_target
+    target_context = composition.target_context
+    left_target_path = target_context.left_path
+    right_target_path = target_context.right_path
+
+    def path_claim(path: str) -> tuple[FileFormat, str | None]:
+        """Return one final target path's format and declared media type.
+
+        # Returns
+
+        - First, the target builder classification claimed by the path.
+        - Second, its declared media type when image/blob needs one.
+        """
+        if path.lower().endswith(".ipynb"):
+            return "notebook", None
+        image_type = image_media_type(path)
+        if image_type is not None:
+            return "image", image_type
+        blob_type = blob_media_type(path)
+        if blob_type is not None:
+            return "blob", blob_type
+        return "text", None
+
+    left_claim = (
+        None if left_target_path is None else path_claim(left_target_path)
+    )
+    right_claim = (
+        None if right_target_path is None else path_claim(right_target_path)
+    )
+    present_claims = [
+        claim for claim in (left_claim, right_claim) if claim is not None
+    ]
+    assert len(present_claims) > 0, "reached content always has a target path"
+    format_name: FileFormat = (
+        present_claims[0][0]
+        if all(claim[0] == present_claims[0][0] for claim in present_claims)
+        else "text"
+    )
+    left_media_type = None if left_claim is None else left_claim[1]
+    right_media_type = None if right_claim is None else right_claim[1]
+
+    if format_name == "image":
+        picture = next(
+            image_bays(
+                left_target,
+                right_target,
+                target_context,
+                left_media_type=left_media_type,
+                right_media_type=right_media_type,
+            )
+        )
+        assert isinstance(picture, ImageBay), (
+            "an image builder yields its picture before text attachments"
+        )
+        yield symlink_target_bay(picture)
+        return
+    if format_name == "blob":
+        for bay in blob_bays(
+            left_target,
+            right_target,
+            target_context,
+            left_media_type=left_media_type,
+            right_media_type=right_media_type,
+            warnings=(),
+        ):
+            yield symlink_target_bay(bay)
+        return
+    if format_name == "notebook":
+        left_document = (
+            None
+            if left_target is None
+            else try_load_notebook_document(left_target)
+        )
+        right_document = (
+            None
+            if right_target is None
+            else try_load_notebook_document(right_target)
+        )
+        if (left_target is None or left_document is not None) and (
+            right_target is None or right_document is not None
+        ):
+
+            def notebook_script(document: NotebookDocument) -> bytes:
+                """Flatten one accepted notebook without its output records."""
+                blocks: list[str] = []
+                for cell in document.cells:
+                    if isinstance(cell, NotebookCell):
+                        marker = "# %%"
+                        if cell.cell_type != "code":
+                            marker = f"# %% [{cell.cell_type}]"
+                        if cell.cell_type == "code":
+                            body = cell.source
+                        else:
+                            body = "\n".join(
+                                "#" if line == "" else f"# {line}"
+                                for line in cell.source.splitlines()
+                            )
+                        blocks.append(
+                            marker if body == "" else f"{marker}\n{body}"
+                        )
+                        continue
+                    assert isinstance(cell, RejectedNotebookPart)
+                    raw = json.dumps(
+                        cell.raw,
+                        ensure_ascii=False,
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    body = "\n".join(f"# {line}" for line in raw.splitlines())
+                    blocks.append(f"# %% [invalid]\n{body}")
+                return (("\n\n".join(blocks) + "\n") if blocks else "").encode()
+
+            left_script = (
+                None
+                if left_document is None
+                else notebook_script(left_document)
+            )
+            right_script = (
+                None
+                if right_document is None
+                else notebook_script(right_document)
+            )
+            left_script = nested_symlink_target_document(
+                left_script,
+                context.left_link,
+                left_target_path,
+            )
+            right_script = nested_symlink_target_document(
+                right_script,
+                context.right_link,
+                right_target_path,
+            )
+            script_context = BayContext(
+                left_path=None if left_script is None else "target.py",
+                right_path=None if right_script is None else "target.py",
+                left_label=context.left_label,
+                right_label=context.right_label,
+            )
+            for bay in flatfile_bays(
+                left_script,
+                right_script,
+                script_context,
+            ):
+                yield symlink_target_bay(bay)
+            return
+    for bay in flatfile_bays(
+        nested_symlink_target_document(
+            left_target,
+            context.left_link,
+            left_target_path,
+        ),
+        nested_symlink_target_document(
+            right_target,
+            context.right_link,
+            right_target_path,
+        ),
+        target_context,
+    ):
+        yield symlink_target_bay(bay)

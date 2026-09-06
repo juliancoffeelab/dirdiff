@@ -12,7 +12,7 @@ from pathlib import Path
 from sqlalchemy import URL, create_engine
 
 from alembic import context
-from dirdiff.cli.marker_utils import db_path_or_default
+from dirdiff.cli import db_path_or_default
 from dirdiff.db import TableBase
 
 # This is the Alembic Config object, which provides

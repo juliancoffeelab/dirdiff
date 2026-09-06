@@ -48,10 +48,10 @@ from dirdiff.room_lord import (
 )
 from dirdiff.server.base import (
     ApiModel,
+    ClassRoutes,
     Responses,
     ReviewExcerptResponse,
 )
-from dirdiff.server.magic import ClassRoutes
 
 __all__ = ["ReviewRoutes"]
 

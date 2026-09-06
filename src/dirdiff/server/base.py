@@ -1,12 +1,13 @@
 """Define contracts shared by the dirdiff server package.
 
 `RuntimeConfig` carries startup values between the CLI and application factory.
-`ApiModel`, response metadata, and the review excerpt are shared HTTP
-contracts. `capture_snapshot` is the one capture operation used by the HUD and
-external-agent boundaries.
+`ApiModel`, response metadata, the review excerpt, and `ClassRoutes` are shared
+HTTP contracts. `capture_snapshot` is the one capture operation used by the HUD
+and external-agent boundaries.
 
-The module does not construct an application, register routes, implement
-handlers, retain request state, or perform rendering.
+The module does not construct an application, implement handlers, retain HTTP
+state, or perform rendering. It imports the private `_base/magic.py` route
+collector and exposes that shared contract to the route groups.
 """
 
 from collections.abc import Mapping
@@ -34,10 +35,12 @@ from dirdiff.room_lord import (
     Room,
     RoomLord,
 )
+from dirdiff.server._base.magic import ClassRoutes
 
 __all__ = [
     "RUNTIME_CONFIG_ENV",
     "ApiModel",
+    "ClassRoutes",
     "ErrorResponse",
     "Responses",
     "ReviewExcerptResponse",

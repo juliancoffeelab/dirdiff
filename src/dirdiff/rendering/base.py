@@ -33,7 +33,7 @@ from dirdiff.engines import (
     InlineToken,
     InlineTokenStatus,
 )
-from dirdiff.rendering.fold import (
+from dirdiff.rendering._base.fold import (
     FoldHint,
     engine_row_has_change,
     fold_hints_for_path,
@@ -41,6 +41,7 @@ from dirdiff.rendering.fold import (
 
 __all__ = [
     "DiffRow",
+    "FoldHint",
     "SyntaxClass",
     "SyntaxSpan",
     "enrich_rows_for_display",

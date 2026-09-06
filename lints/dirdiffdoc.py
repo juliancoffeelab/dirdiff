@@ -217,8 +217,14 @@ class DirdiffDocPlugin:
         asserts that Flake8 supplied an `ast.Module`.
         """
         module_docstring = ast.get_docstring(self.tree, clean=False)
-        if module_docstring is None or module_docstring.strip() == "":
-            is_package = Path(self.filename).name == "__init__.py"
+        source_path = Path(self.filename)
+        is_package = source_path.name == "__init__.py"
+        is_private_package = is_package and source_path.parent.name.startswith(
+            "_"
+        )
+        if not is_private_package and (
+            module_docstring is None or module_docstring.strip() == ""
+        ):
             guide = PACKAGE_DOC_GUIDE if is_package else MODULE_DOC_GUIDE
             subject = "package" if is_package else "module"
             yield (

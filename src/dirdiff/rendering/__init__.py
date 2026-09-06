@@ -14,13 +14,13 @@ workspace loading, and HTTP representation stay outside this package.
 
 from dirdiff.rendering.base import (
     DiffRow,
+    FoldHint,
     SyntaxClass,
     SyntaxSpan,
     enrich_rows_for_display,
     highlight_lines_for_path,
     weave_decorated_parts,
 )
-from dirdiff.rendering.fold import FoldHint
 
 __all__ = [
     "DiffRow",

@@ -44,11 +44,11 @@ RELEASE_DB_PATH = (
 )
 """Default database path for a standard release installation."""
 DEVELOPMENT_MIGRATION_CONFIG_PATH = (
-    Path(__file__).resolve().parents[3] / "alembic.ini"
+    Path(__file__).resolve().parents[4] / "alembic.ini"
 )
 """Canonical Alembic configuration in an editable source checkout."""
 DEVELOPMENT_AGENT_SKILLS_PATH = (
-    Path(__file__).resolve().parents[3] / ".agents" / "skills"
+    Path(__file__).resolve().parents[4] / ".agents" / "skills"
 )
 """Canonical external-agent skills in an editable source checkout."""
 

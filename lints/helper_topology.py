@@ -57,7 +57,7 @@ UNUSED_EXPORT_CODE = "HLP005"
 PRIVATE_EXPORT_CODE = "HLP006"
 """Diagnostic for an underscore-prefixed name listed in `__all__`."""
 PACKAGE_IMPORT_CODE = "HLP007"
-"""Diagnostic for bypassing a package's `base.py` or public facade."""
+"""Diagnostic for bypassing a package boundary or private implementation root."""
 
 type _InterfaceDiagnostic = tuple[int, int, str]
 """One line, column, and complete HLP interface diagnostic for one file."""
@@ -109,26 +109,30 @@ def _project_interface_diagnostics(
         source_root = project_root / "src"
         tests_root = project_root / "tests"
         lints_root = project_root / "lints"
+        alembic_root = project_root / "alembic"
         if path.is_relative_to(source_root):
             relative = path.relative_to(source_root)
             prefix: tuple[str, ...] = ()
         elif path.is_relative_to(tests_root):
             relative = path.relative_to(tests_root)
             prefix = ("tests",)
-        else:
-            assert path.is_relative_to(lints_root)
+        elif path.is_relative_to(lints_root):
             relative = path.relative_to(lints_root)
             prefix = ()
+        else:
+            assert path.is_relative_to(alembic_root)
+            relative = path.relative_to(alembic_root)
+            prefix = ("alembic",)
         parts = (*prefix, *relative.with_suffix("").parts)
         return parts[:-1] if parts[-1] == "__init__" else parts
 
     indexed_roots = tuple(
         path
-        for name in ("src", "tests", "lints")
+        for name in ("src", "tests", "lints", "alembic")
         if (path := project_root / name).is_dir()
     )
-    assert len(indexed_roots) == 3, (
-        "helper topology requires src, tests, and lints"
+    assert len(indexed_roots) == 4, (
+        "helper topology requires src, tests, lints, and alembic"
     )
     preset_root = project_root / "tests" / "presets"
     files = tuple(
@@ -315,6 +319,10 @@ def _project_interface_diagnostics(
     for path in files:
         exported = exports[path]
         externally_used = uses[path]
+        module_parts_for_path = module_by_path[path].split(".")
+        private_package_init = path.name == "__init__.py" and any(
+            part.startswith("_") for part in module_parts_for_path[1:]
+        )
         requires_declaration = path.is_relative_to(
             project_root / "src"
         ) or path.is_relative_to(project_root / "lints")
@@ -322,6 +330,7 @@ def _project_interface_diagnostics(
         # subpackages. This does not exempt root imports from interface checks.
         if (
             requires_declaration
+            and not private_package_init
             and path not in declares_all
             and module_by_path[path] != "dirdiff"
         ):
@@ -331,6 +340,16 @@ def _project_interface_diagnostics(
                     0,
                     f"{MISSING_EXPORT_CODE} module has no literal __all__ "
                     "declaration",
+                )
+            )
+        if private_package_init and trees[path].body:
+            first_statement = trees[path].body[0]
+            diagnostics[path].append(
+                (
+                    first_statement.lineno,
+                    first_statement.col_offset,
+                    f"{PACKAGE_IMPORT_CODE} private package __init__.py must "
+                    "be empty",
                 )
             )
         for name in sorted(externally_used - exported.keys()):
@@ -364,14 +383,11 @@ def _project_interface_diagnostics(
                 )
             )
 
-    # Facades publish their implementations, and tests may inspect them. Other
-    # production imports stay within a package through base.py or enter through
-    # that package's facade.
+    # Facades publish their implementations, and top-level modules are peer
+    # packages whose module file is itself their interface. A module x.py may
+    # reach directly into its private _x package. No other module may import
+    # _x or anything beneath it, and the private package initializer is empty.
     for importer_path, tree in trees.items():
-        if importer_path.is_relative_to(project_root / "tests"):
-            continue
-        if importer_path.name == "__init__.py":
-            continue
         importer_parts = module_by_path[importer_path].split(".")
         for node in ast.walk(tree):
             target_modules: list[str] = []
@@ -410,6 +426,35 @@ def _project_interface_diagnostics(
                 if target_path is None:
                     continue
                 target_parts = target_module.split(".")
+                private_indexes = [
+                    index
+                    for index, part in enumerate(target_parts)
+                    if index >= 1 and part.startswith("_")
+                ]
+                if private_indexes:
+                    private_index = private_indexes[0]
+                    private_parts = tuple(target_parts[: private_index + 1])
+                    target_is_private_facade = (
+                        len(target_parts) == private_index + 1
+                        and target_path.name == "__init__.py"
+                    )
+                    paired_module = (
+                        *private_parts[:-1],
+                        private_parts[-1][1:],
+                    )
+                    paired_implementation_import = (
+                        tuple(importer_parts) == paired_module
+                        and not target_is_private_facade
+                    )
+                    if paired_implementation_import:
+                        continue
+                    import_violates_boundary = True
+                    break
+
+                if importer_path.name == "__init__.py":
+                    continue
+                if importer_path.is_relative_to(project_root / "tests"):
+                    continue
                 importer_package = tuple(importer_parts[:2])
                 target_package = tuple(target_parts[:2])
                 shares_package = (
@@ -424,7 +469,12 @@ def _project_interface_diagnostics(
                 allowed_external_facade = (
                     not shares_package and target_path.name == "__init__.py"
                 )
-                if allowed_internal_base or allowed_external_facade:
+                allowed_top_level_module = len(target_parts) == 2
+                if (
+                    allowed_internal_base
+                    or allowed_external_facade
+                    or allowed_top_level_module
+                ):
                     continue
                 import_violates_boundary = True
                 break
@@ -433,9 +483,10 @@ def _project_interface_diagnostics(
                     (
                         node.lineno,
                         node.col_offset,
-                        f"{PACKAGE_IMPORT_CODE} production imports inside a "
-                        "package must target its base.py; imports from outside "
-                        "must target its __init__.py facade",
+                        f"{PACKAGE_IMPORT_CODE} imports inside a package must "
+                        "target its base.py or the paired module's private "
+                        "submodules; imports from outside must target a package "
+                        "facade or top-level module",
                     )
                 )
     return {path: tuple(sorted(items)) for path, items in diagnostics.items()}

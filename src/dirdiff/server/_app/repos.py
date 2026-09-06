@@ -32,8 +32,7 @@ from dirdiff.db import (
 from dirdiff.engines import (
     DirdiffError,
 )
-from dirdiff.server.base import ApiModel, ErrorResponse
-from dirdiff.server.magic import ClassRoutes
+from dirdiff.server.base import ApiModel, ClassRoutes, ErrorResponse
 
 __all__ = [
     "RepoRoutes",
