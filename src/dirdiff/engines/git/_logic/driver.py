@@ -19,7 +19,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from dirdiff.engines.base import DirdiffError, git_executable
+from dirdiff.engines.base import DirdiffError, GitAlgorithm, git_executable
 
 __all__ = [
     "run_git_no_index_diff",
@@ -28,6 +28,7 @@ __all__ = [
 
 def run_git_no_index_diff(
     *,
+    algorithm: GitAlgorithm,
     left_text: str,
     right_text: str,
     left_path_hint: str | None,
@@ -42,6 +43,7 @@ def run_git_no_index_diff(
 
     # Parameters
 
+    - `algorithm`: Validated line-matching choice, overriding Git configuration.
     - `left_text`: Complete old text written to Git's left temporary file.
     - `right_text`: Complete new text written to Git's right temporary file.
     - `left_path_hint`: Optional old path used only to choose a useful suffix.
@@ -90,6 +92,7 @@ def run_git_no_index_diff(
                     git_executable(),
                     "diff",
                     "--no-index",
+                    f"--diff-algorithm={algorithm}",
                     "--no-color",
                     "--no-ext-diff",
                     "--no-textconv",

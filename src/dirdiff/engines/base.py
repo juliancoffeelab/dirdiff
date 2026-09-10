@@ -25,6 +25,8 @@ from functools import cache
 from pathlib import Path
 from typing import Literal, NotRequired, Protocol, TypedDict
 
+from pydantic import BaseModel, ConfigDict
+
 __all__ = [
     "DiffEngineProtocol",
     "DiffEngineResult",
@@ -32,14 +34,41 @@ __all__ = [
     "DiffSide",
     "DiffSummary",
     "DirdiffError",
-    "EngineKind",
+    "EngineConfig",
     "EngineWarning",
+    "GitAlgorithm",
+    "GitEngineConfig",
     "InlineMove",
     "InlineToken",
     "InlineTokenStatus",
     "MoveSpan",
     "git_executable",
 ]
+
+
+type GitAlgorithm = Literal["myers", "minimal", "patience", "histogram"]
+"""Closed Git line-matching choices; token decoration is independent."""
+
+
+class GitEngineConfig(BaseModel):
+    """Complete Git rendering choice, validated before constructing a renderer.
+
+    The engine tag selects Git and algorithm controls every text bay. Unknown
+    fields are errors; this value contains no Snapshot or workspace state.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    engine: Literal["git"]
+    """Identifies the only engine that accepts this configuration."""
+    algorithm: GitAlgorithm
+    """Required line-matching algorithm passed explicitly to Git."""
+
+
+type EngineConfig = (
+    GitEngineConfig
+    | Literal["dirdiff", "difftastic", "gumtree", "diffsitter", "tokendiff"]
+)
+"""Complete renderer selection. Engines without options use their name alone."""
 
 
 class DirdiffError(ValueError):
@@ -426,23 +455,6 @@ class DiffEngineResult(TypedDict):
     the named limitation. Composer appends it after bay-builder warnings;
     invalid output and unexpected failures must propagate instead of using it.
     """
-
-
-EngineKind = Literal[
-    "dirdiff", "git", "difftastic", "gumtree", "diffsitter", "tokendiff"
-]
-"""Which diff engine a caller selects.
-
-- `dirdiff` selects the legacy line-first prototype.
-- `git` selects `git diff --no-index`.
-- `difftastic` selects structural Difftastic comparison.
-- `gumtree` selects GumTree range-based comparison.
-- `diffsitter` selects Diffsitter grapheme-level comparison.
-- `tokendiff` selects the next-generation token-first prototype.
-
-Pass a validated value to `dirdiff.engines.engine`. It names an implementation,
-not a format, executable path, or per-engine option set.
-"""
 
 
 class DiffEngineProtocol(Protocol):

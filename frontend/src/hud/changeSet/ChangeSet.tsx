@@ -25,15 +25,12 @@ import {
 } from "solid-js";
 import { createStore, type SetStoreFunction } from "solid-js/store";
 import { Portal } from "solid-js/web";
-import {
-  createQueries,
-  createQuery,
-  useQueryClient,
-} from "@tanstack/solid-query";
+import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import { CircleAlert, Clock3, LoaderCircle } from "lucide-solid";
 import {
   api,
   type DiffEngine,
+  type EngineConfig,
   type DiffParams,
   type Manifest,
   type ManifestFile,
@@ -437,7 +434,7 @@ type ChangeSetSnapshotProps = {
   /** Complete selected Tab value used to interpret snapshot-specific naming. */
   params: DiffParams;
   /** Renderer identity that keys the nested file-lane lifetime. */
-  engine: DiffEngine;
+  engine: EngineConfig;
   /** Immutable successful manifest and opaque Snapshot identity for this boundary. */
   manifest: Manifest;
   /** Reactive layout mode consumed by mounted files and review presentation. */
@@ -489,7 +486,9 @@ type ChangeSetSnapshotProps = {
  * hotkey and History controls. The callback replaces only that state and never
  * performs review transport, navigation, or File-lane work.
  */
-type ReviewSnapshotBoundaryProps = ChangeSetSnapshotProps & {
+type ReviewSnapshotBoundaryProps = Omit<ChangeSetSnapshotProps, "engine"> & {
+  /** Selected engine name; preferences complete its File configuration. */
+  engine: DiffEngine;
   /** ChangeSet-local History visibility shared across engine replacements. */
   historyOpen: boolean;
   /**
@@ -539,6 +538,24 @@ type ChangeSetFileLaneProps = ChangeSetSnapshotProps & {
 function ReviewSnapshotBoundary(
   props: ReviewSnapshotBoundaryProps,
 ): JSX.Element {
+  const preferences = createQuery(() =>
+    api.profile.preferences(props.profile?.id ?? null),
+  );
+  // This boundary retains review state while complete rendering choices replace
+  // only the File lane. Equal choices survive unrelated preference updates.
+  const configuration = createMemo<EngineConfig | null>(
+    () => {
+      if (preferences.isPending || preferences.error !== null) return null;
+      if (props.engine !== "git") return props.engine;
+      return {
+        engine: "git",
+        algorithm: expect(preferences.data, "Loaded preferences require data.")
+          .git_algorithm,
+      };
+    },
+    null,
+    { equals: (left, right) => JSON.stringify(left) === JSON.stringify(right) },
+  );
   const navigation = useNavigation();
   // History navigation shares this exact Snapshot boundary lifetime; disposal
   // cancels any line preparation before it can scroll or return a detached row.
@@ -685,7 +702,7 @@ function ReviewSnapshotBoundary(
       canViewThread={canViewReviewThread}
       viewThread={viewReviewThread}
     >
-      <Show when={props.engine} keyed>
+      <Show when={configuration()} keyed>
         {(engine) => (
           <ChangeSetSnapshot
             params={props.params}
@@ -826,19 +843,14 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
   // initialize a replacement snapshot's fresh DOM.
   onMount(() => writeInitialHunkSelection(changeSetRoot));
 
-  const preferenceQueries = createQueries<
-    Array<ReturnType<typeof api.profile.preferences>>
-  >(() => ({
-    queries:
-      props.profile === null ? [] : [api.profile.preferences(props.profile.id)],
-  }));
-  const aggressiveFolds = createMemo(() => {
-    const query = preferenceQueries[0];
-    if (query === undefined || query.data === undefined) {
-      return true;
-    }
-    return query.data.aggressive_folds;
-  });
+  const preferences = createQuery(() =>
+    api.profile.preferences(props.profile?.id ?? null),
+  );
+  const aggressiveFolds = createMemo(
+    () =>
+      expect(preferences.data, "File folding requires loaded preferences.")
+        .aggressive_folds,
+  );
 
   // ReviewProvider must react when lane queries replace Husk or Lazy states
   // with FullFiles, but the lane deliberately knows nothing about review. This

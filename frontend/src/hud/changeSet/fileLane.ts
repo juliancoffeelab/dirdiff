@@ -28,7 +28,7 @@ import { createQuery, type QueryClient } from "@tanstack/solid-query";
 import { isCancelledError, type QueryKey } from "@tanstack/query-core";
 import {
   api,
-  type DiffEngine,
+  type EngineConfig,
   type FileDiff,
   type FileDiffTimeout,
   isHeavyEngine,
@@ -277,7 +277,7 @@ export type FileLaneLineTarget = {
  */
 export type FileLaneArgs = {
   /** File-rendering engine included in every canonical file-query key. */
-  engine: DiffEngine;
+  engine: EngineConfig;
   /** Opaque manifest Snapshot identity used unchanged for lazy-info and files. */
   snapshotId: string;
   /** Flattened, unique manifest leaves in exact backend order. */

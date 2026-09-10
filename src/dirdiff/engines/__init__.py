@@ -2,7 +2,7 @@
 
 Import the common input, row, warning, and result contracts from
 `dirdiff.engines`. `engine()` selects the implementation named by an
-`EngineKind`; concrete classes used directly elsewhere in the repository are
+`EngineConfig`; concrete classes used directly elsewhere in the repository are
 also part of this facade.
 
 ## Purpose and boundaries
@@ -23,8 +23,10 @@ from dirdiff.engines.base import (
     DiffSide,
     DiffSummary,
     DirdiffError,
-    EngineKind,
+    EngineConfig,
     EngineWarning,
+    GitAlgorithm,
+    GitEngineConfig,
     InlineMove,
     InlineToken,
     InlineTokenStatus,
@@ -52,32 +54,31 @@ from dirdiff.engines.textdiff import TextDiffEngine, text_diff_summary
 from dirdiff.engines.tokendiff import TokenDiffEngine
 
 
-def engine(name: EngineKind) -> DiffEngineProtocol:
-    """Return the renderer that `name` selects.
+def engine(config: EngineConfig) -> DiffEngineProtocol:
+    """Return the renderer that `config` selects.
 
-    Every engine name maps to a renderer, so this always returns one. The
-    returned renderer holds no workspace or HTTP state. Callers
-    construct one per use and hand it already-loaded `DiffSide` values.
+    Every validated configuration maps to one renderer, which holds no workspace
+    or HTTP state. Callers construct one per use and hand it already-loaded `DiffSide` values.
 
     # Usage
 
-    Select the renderer after validating an `EngineKind`, then pass it to
+    Select the renderer after validating an `EngineConfig`, then pass it to
     `dirdiff.formats.ComposeContext.build`. Composition invokes
     `DiffEngineProtocol.render_diff` for each text bay.
     """
-    if name == "dirdiff":
+    if config == "dirdiff":
         return TextDiffEngine()
-    if name == "git":
-        return GitDiffEngine()
-    if name == "difftastic":
+    if isinstance(config, GitEngineConfig):
+        return GitDiffEngine(algorithm=config.algorithm)
+    if config == "difftastic":
         return DifftasticDiffEngine()
-    if name == "gumtree":
+    if config == "gumtree":
         return GumTreeDiffEngine()
-    if name == "diffsitter":
+    if config == "diffsitter":
         return DiffsitterDiffEngine()
-    if name == "tokendiff":
+    if config == "tokendiff":
         return TokenDiffEngine()
-    assert_never(name)
+    assert_never(config)
 
 
 __all__ = [
@@ -91,8 +92,9 @@ __all__ = [
     "DifftasticDiffEngine",
     "DifftasticJson",
     "DirdiffError",
-    "EngineKind",
+    "EngineConfig",
     "EngineWarning",
+    "GitAlgorithm",
     "GitDiffEngine",
     "GumTreeDiffEngine",
     "GumTreeJson",

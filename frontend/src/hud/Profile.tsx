@@ -195,8 +195,8 @@ type ProfileUiState =
 /**
  * Defines the required inputs of the private preferences dialog.
  *
- * A concrete profile is mandatory because preferences have no profile-less
- * query identity. Closing returns to Profile without changing identity.
+ * This dialog edits a concrete Profile's preferences. Anonymous engine options
+ * use the header control. Closing does not change Profile identity.
  */
 type PreferencesModalProps = {
   /**
@@ -790,14 +790,10 @@ export function Profile(props: ProfileProps): JSX.Element {
           )}
         </Show>
       </Show>
-      <Show when={props.selected} keyed>
-        {(selected) => (
-          <ProfilePreferencesStatus
-            profile={selected}
-            metadataTarget={props.metadataTarget}
-          />
-        )}
-      </Show>
+      <ProfilePreferencesStatus
+        profile={props.selected}
+        metadataTarget={props.metadataTarget}
+      />
     </div>
   );
 }
@@ -811,11 +807,11 @@ export function Profile(props: ProfileProps): JSX.Element {
  */
 type ProfilePreferencesStatusProps = {
   /**
-   * Confirmed selected identity whose ID fixes the observed preferences query key.
+   * Selected identity or anonymous absence, fixing the preference query key.
    *
-   * The keyed parent replaces this component when the selected Profile changes.
+   * The query follows explicit Profile selection, including logout.
    */
-  profile: StoredProfile;
+  profile: StoredProfile | null;
   /**
    * Current AppHeader Portal destination, or null before it is registered.
    *
@@ -836,7 +832,7 @@ function ProfilePreferencesStatus(
   props: ProfilePreferencesStatusProps,
 ): JSX.Element {
   const preferences = createQuery(() => ({
-    ...api.profile.preferences(props.profile.id),
+    ...api.profile.preferences(props.profile?.id ?? null),
   }));
 
   return (
@@ -985,25 +981,9 @@ function PreferencesEditor(props: PreferencesEditorProps): JSX.Element {
   const [aggressiveFolds, setAggressiveFolds] = createSignal(
     props.preferences.aggressive_folds,
   );
-  const savePreferences = createMutation(() => ({
-    ...api.profile.savePreferences(),
-    /**
-     * Applies preferences confirmed by the backend to the canonical query entry.
-     *
-     * TanStack supplies the complete saved value after success. The callback
-     * writes that exact value and closes the editor without copying it into
-     * separate Profile state.
-     *
-     * @param saved Complete backend-confirmed preferences entity.
-     */
-    onSuccess(saved: Preferences) {
-      queryClient.setQueryData(
-        api.profile.preferences(props.profile.id).queryKey,
-        saved,
-      );
-      props.onClose();
-    },
-  }));
+  const savePreferences = createMutation(() =>
+    api.profile.savePreferences(queryClient),
+  );
 
   /**
    * Submits the complete preferences entity for this required profile.
@@ -1012,10 +992,14 @@ function PreferencesEditor(props: PreferencesEditorProps): JSX.Element {
    * successful backend result closes the dialog through the mutation callback.
    */
   function submitPreferences(): void {
-    savePreferences.mutate({
-      profileId: props.profile.id,
-      aggressiveFolds: aggressiveFolds(),
-    });
+    savePreferences.mutate(
+      {
+        profileId: props.profile.id,
+        aggressiveFolds: aggressiveFolds(),
+        gitAlgorithm: props.preferences.git_algorithm,
+      },
+      { onSuccess: props.onClose },
+    );
   }
 
   return (

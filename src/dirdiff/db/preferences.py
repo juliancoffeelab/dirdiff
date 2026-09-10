@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import Boolean, Engine, ForeignKey, select
+from sqlalchemy import Boolean, Engine, ForeignKey, String, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -65,6 +65,9 @@ class UserPreferences(TableBase):
     this exact default to its own folding rules.
     """
 
+    git_algorithm: Mapped[str] = mapped_column(String, nullable=False)
+    """Remembered Git line-matching algorithm, validated by the HTTP boundary."""
+
 
 @dataclass(frozen=True)
 class PreferencesRecord:
@@ -90,6 +93,9 @@ class PreferencesRecord:
     The value is stored and returned without interpreting current File contents
     or mutating an open Tab.
     """
+
+    git_algorithm: str
+    """Exact stored Git algorithm, independent of the active engine."""
 
 
 class PreferencesStore:
@@ -144,6 +150,7 @@ class PreferencesStore:
                 select(
                     UserPreferences.user_profile_id,
                     UserPreferences.aggressive_folds,
+                    UserPreferences.git_algorithm,
                 ).where(UserPreferences.user_profile_id == user_profile_id)
             ).one_or_none()
             if row is None:
@@ -151,13 +158,14 @@ class PreferencesStore:
             return PreferencesRecord(
                 user_profile_id=row[0],
                 aggressive_folds=row[1],
+                git_algorithm=row[2],
             )
 
     def get_or_create(self, user_profile_id: int) -> PreferencesRecord:
         """Return a Profile's preferences, creating them if absent.
 
         An existing record is returned unchanged. If none exists, the method
-        creates one with aggressive folding enabled and returns it.
+        creates one with aggressive folding enabled and the Myers Git algorithm.
         Everything happens in one SQL query.
 
         # Usage
@@ -185,6 +193,7 @@ class PreferencesStore:
                 .values(
                     user_profile_id=user_profile_id,
                     aggressive_folds=True,
+                    git_algorithm="myers",
                 )
                 .on_conflict_do_update(
                     index_elements=[UserPreferences.user_profile_id],
@@ -197,25 +206,28 @@ class PreferencesStore:
                 .returning(
                     UserPreferences.user_profile_id,
                     UserPreferences.aggressive_folds,
+                    UserPreferences.git_algorithm,
                 )
             ).one()
             return PreferencesRecord(
                 user_profile_id=row[0],
                 aggressive_folds=row[1],
+                git_algorithm=row[2],
             )
 
-    def set_aggressive_folds(
-        self, user_profile_id: int, aggressive_folds: bool
+    def save(
+        self, user_profile_id: int, aggressive_folds: bool, git_algorithm: str
     ) -> PreferencesRecord:
-        """Persist and return one Profile's aggressive-fold preference.
+        """Persist and return one Profile's complete preferences.
 
         The operation creates the complete preference row when the Profile has
-        none, or changes only this value on its existing row.
+        none, or replaces both values on its existing row.
 
         # Parameters
 
         - `user_profile_id`: Existing Profile whose preference is being set.
         - `aggressive_folds`: Exact value later returned to the HUD.
+        - `git_algorithm`: Validated Git algorithm to remember.
 
         # Usage
 
@@ -232,17 +244,23 @@ class PreferencesStore:
                 .values(
                     user_profile_id=user_profile_id,
                     aggressive_folds=aggressive_folds,
+                    git_algorithm=git_algorithm,
                 )
                 .on_conflict_do_update(
                     index_elements=[UserPreferences.user_profile_id],
-                    set_={"aggressive_folds": aggressive_folds},
+                    set_={
+                        "aggressive_folds": aggressive_folds,
+                        "git_algorithm": git_algorithm,
+                    },
                 )
                 .returning(
                     UserPreferences.user_profile_id,
                     UserPreferences.aggressive_folds,
+                    UserPreferences.git_algorithm,
                 )
             ).one()
             return PreferencesRecord(
                 user_profile_id=row[0],
                 aggressive_folds=row[1],
+                git_algorithm=row[2],
             )

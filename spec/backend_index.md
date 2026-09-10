@@ -77,6 +77,10 @@ endpoints, summary counts, and an engine warning when applicable. It does not lo
 highlighting, folds, or hunk indexes. Difftastic keeps its degraded textual
 diff construction inside its own implementation.
 
+Git no-index accepts Myers, Minimal, Patience, or Histogram. Myers is its
+declared default. Each Git invocation passes `--diff-algorithm` explicitly;
+algorithm selection changes line alignment without changing subsequent decoration.
+
 The concrete engines are difftastic, Git no-index, GumTree, Diffsitter, the
 legacy line-first prototype (`textdiff`, engine param `dirdiff`), and the
 next-generation token-first prototype (`tokendiff`, engine param `tokendiff`).
@@ -142,9 +146,9 @@ other process failures, malformed JSON, and unsatisfiable coordinates are
 the sole consumer of its private `_logic` driver, which contains executable
 discovery, temporary files, and raw JSON validation.
 
-The package also owns engine selection. `EngineKind` is the complete set of
-engine names, and `engine()` maps one to its renderer; both are exported from
-the package root. `engine()` is defined in `__init__.py` rather than `base.py`
+The package also defines engine selection. `EngineConfig` carries Git's required
+algorithm or the name of an engine with no options. `engine()` constructs that
+configured renderer. Both are exported from the package root. `engine()` is defined in `__init__.py` rather than `base.py`
 because selection must reach the concrete engine classes, whose modules import
 their contracts from `base.py`.
 
@@ -266,6 +270,10 @@ reference the same identity. Profile usernames are globally unique and select
 one existing local identity without credentials. Agent registration adds a one-to-one UUID binding
 without changing that Profile shape. `db.room` contains these relations,
 immutable records, and transactions through `RoomStore`.
+
+Profile preferences store the folding policy and Git algorithm in one row per
+Profile. Reads create initial values only when no preference row exists; saves
+replace both values. The HTTP boundary validates the closed algorithm choice.
 
 Its public interface is exported from `dirdiff.db`.
 

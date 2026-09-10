@@ -10,8 +10,7 @@ engine entrypoint live in `dirdiff.engines.git.logic`.
 This engine is, maybe surprisingly, agnostic to repo-backend, and can be used
 with any kind of version storage, even if it doesn't use git at all (like
 presets): the secret is in using `git diff --no-index`. This allows us to use
-real functionality with any option it gives (i.e. different diff algorithm,
-even if we don't use any at the moment), on any two files we want.
+Git's selected line-matching algorithm on any two supplied text sides.
 
 Because of that, none of the code in this package should read any git refs,
 branches, or commits. That's the responsibility of `dirdiff.backend.git` module.

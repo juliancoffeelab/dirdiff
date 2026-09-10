@@ -6,11 +6,15 @@
  * combines cancellation with transport deadlines, and verifies repeated review
  * and pagination identities before publishing those responses.
  *
- * It defines backend data and transport policy, not query-observer lifetimes or
- * presentation. File sequencing belongs to the ChangeSet file lane, and failures
+ * It defines backend data, preference persistence, and transport policy.
+ * Query-observer lifetimes and presentation belong to the HUD. File sequencing belongs to the ChangeSet file lane, and failures
  * remain errors for the nearest query or UI boundary to present.
  */
-import { mutationOptions, queryOptions } from "@tanstack/solid-query";
+import {
+  mutationOptions,
+  queryOptions,
+  type QueryClient,
+} from "@tanstack/solid-query";
 import { z } from "zod";
 import { assert } from "../utils";
 
@@ -44,6 +48,23 @@ export const DiffEngineSchema = z.enum([
  */
 export type DiffEngine = z.infer<typeof DiffEngineSchema>;
 
+/** Closed Git line-matching choices accepted by both preference and File input. */
+export const GitAlgorithmSchema = z.enum([
+  "myers",
+  "minimal",
+  "patience",
+  "histogram",
+]);
+
+/** Complete Git configuration or the name of an engine with no options. */
+export const EngineConfigSchema = z.union([
+  z.strictObject({ engine: z.literal("git"), algorithm: GitAlgorithmSchema }),
+  DiffEngineSchema.exclude(["git"]),
+]);
+
+/** Validated File-rendering identity; options never enter manifest parameters. */
+export type EngineConfig = z.infer<typeof EngineConfigSchema>;
+
 /**
  * Reports whether the engine's renders are heavy enough to need protection.
  *
@@ -56,8 +77,9 @@ export type DiffEngine = z.infer<typeof DiffEngineSchema>;
  * not the process boundary, decides heaviness. A new engine remains heavy
  * until measured otherwise.
  */
-export function isHeavyEngine(engine: DiffEngine): boolean {
-  return !(engine === "dirdiff" || engine === "git");
+export function isHeavyEngine(engine: EngineConfig): boolean {
+  const name = typeof engine === "string" ? engine : engine.engine;
+  return !(name === "dirdiff" || name === "git");
 }
 
 /**
@@ -132,27 +154,22 @@ const UserProfileSchema = z.strictObject({
  */
 export type UserProfile = z.infer<typeof UserProfileSchema>;
 
-/**
- * Validates the complete preferences record returned for one Profile.
- *
- * The positive Profile identity keeps the record tied to its query key, while
- * strict validation rejects undeclared preference fields until the interface is
- * intentionally extended.
- */
-const PreferencesSchema = z.strictObject({
-  /** Profile identity repeated by the response for the addressed preferences entity. */
-  user_profile_id: z.number().int().positive(),
-  /** Whether every valid backend fold hint should begin folded. */
+/** Mutable preferences persisted locally and, with a Profile, in the database. */
+const PreferenceValuesSchema = z.strictObject({
   aggressive_folds: z.boolean(),
+  git_algorithm: GitAlgorithmSchema,
 });
 
-/**
- * Describes backend preferences for one user profile.
- *
- * Callers may cache this complete value under its profile query key. The value
- * must not be copied into workspace state or persisted separately by the UI.
- */
+/** Complete active preferences; a null identity means anonymous local use. */
+const PreferencesSchema = PreferenceValuesSchema.extend({
+  user_profile_id: z.number().int().positive().nullable(),
+});
+
+/** Canonical query value. HUD components retain only editable input separately. */
 export type Preferences = z.infer<typeof PreferencesSchema>;
+
+/** Local preference cache shared by anonymous use and the selected Profile. */
+const PREFERENCES_STORAGE_KEY = "dirdiff:preferences";
 
 /**
  * Validates the local arm of a structured branch selection.
@@ -2946,19 +2963,27 @@ function requestRenameProfile(input: {
 }
 
 /**
- * Requests backend preferences for one selected profile.
+ * Loads active preferences from the database or the anonymous local cache.
  *
- * A concrete profile ID and cancellation AbortSignal are required. This function
+ * A nullable profile ID and cancellation AbortSignal are required. This function
  * does not supply defaults when the backend response is absent or malformed.
  *
- * @param profileId Exact selected Profile whose preferences are read.
+ * @param profileId Exact selected Profile, or null for anonymous local use.
  * @param abortSignal Query cancellation that bounds this read attempt.
  */
-function requestPreferences(
-  profileId: number,
+async function requestPreferences(
+  profileId: number | null,
   abortSignal: AbortSignal,
 ): Promise<Preferences> {
-  return requestJson(
+  if (profileId === null) {
+    const raw = window.localStorage.getItem(PREFERENCES_STORAGE_KEY);
+    const values =
+      raw === null
+        ? { aggressive_folds: true, git_algorithm: "myers" as const }
+        : PreferenceValuesSchema.parse(JSON.parse(raw));
+    return { ...values, user_profile_id: null };
+  }
+  const preferences = await requestJson(
     {
       input: `/api/user-profile/${profileId}/preferences`,
       init: {},
@@ -2967,42 +2992,59 @@ function requestPreferences(
     },
     PreferencesSchema,
   );
+  assert(
+    preferences.user_profile_id === profileId,
+    "Preferences must belong to the addressed Profile.",
+  );
+  // A disposed Profile query must not replace the next Profile's local cache.
+  abortSignal.throwIfAborted();
+  window.localStorage.setItem(
+    PREFERENCES_STORAGE_KEY,
+    JSON.stringify({
+      aggressive_folds: preferences.aggressive_folds,
+      git_algorithm: preferences.git_algorithm,
+    }),
+  );
+  return preferences;
 }
 
 /**
- * Saves the complete editable preference entity for one profile.
- *
- * Callers provide an explicit profile ID and aggressive-folds value. The
- * validated backend result is returned without mutating UI state.
+ * Saves complete preferences. Anonymous writes stay local; Profile writes return
+ * the database-confirmed value. The mutation definition publishes that value.
  */
-function requestSavePreferences(input: {
-  /**
-   * Exact Profile whose persisted preferences will change.
-   *
-   * It addresses the URL resource and must match the caller's selected Profile.
-   */
-  profileId: number;
-  /**
-   * Complete accepted value for the aggressive-folding preference.
-   *
-   * The boolean is sent directly and the validated response remains authoritative
-   * for cache and presentation updates.
-   */
+async function requestSavePreferences(input: {
+  /** Addressed Profile, or null for an anonymous browser-local write. */
+  profileId: number | null;
+  /** Complete folding policy to persist. */
   aggressiveFolds: boolean;
+  /** Complete Git algorithm choice to persist. */
+  gitAlgorithm: Preferences["git_algorithm"];
 }): Promise<Preferences> {
-  return requestJson(
+  const values = PreferenceValuesSchema.parse({
+    aggressive_folds: input.aggressiveFolds,
+    git_algorithm: input.gitAlgorithm,
+  });
+  if (input.profileId === null) {
+    return { ...values, user_profile_id: null };
+  }
+  const saved = await requestJson(
     {
       input: `/api/user-profile/${input.profileId}/preferences`,
       init: {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ aggressive_folds: input.aggressiveFolds }),
+        body: JSON.stringify(values),
       },
       abortSignal: null,
       timeoutMs: REQUEST_TIMEOUT_MS,
     },
     PreferencesSchema,
   );
+  assert(
+    saved.user_profile_id === input.profileId,
+    "Saved preferences must belong to the addressed Profile.",
+  );
+  return saved;
 }
 
 /**
@@ -3074,8 +3116,7 @@ function manifestSearchParams(params: DiffParams): URLSearchParams {
 /**
  * Encodes the opaque `snapshot_id` shared by lazy and file endpoints.
  *
- * File paths and the selected rendering engine are deliberately appended only
- * by the file endpoint that uses them.
+ * The File endpoint appends its paths and complete engine configuration.
  */
 function snapshotSearchParams(snapshotId: string): URLSearchParams {
   return new URLSearchParams({ snapshot_id: snapshotId });
@@ -3138,21 +3179,21 @@ function requestLazyInfo(
  * entry, cancellation, and a bounded-or-unbounded timeout policy. The timeout
  * policy affects execution only and must not alter query identity.
  *
- * @param engine Backend renderer selected for this file attempt.
+ * @param engine Complete validated rendering configuration for this File attempt.
  * @param snapshotId Opaque Snapshot established by the containing manifest.
  * @param entry Exact thin manifest handle for the File being rendered.
  * @param abortSignal TanStack cancellation that bounds this file attempt.
  * @param timeout Explicit bounded initial load or unbounded user-retry policy.
  */
 function requestFileDiff(
-  engine: DiffEngine,
+  engine: EngineConfig,
   snapshotId: string,
   entry: ManifestEntry,
   abortSignal: AbortSignal,
   timeout: FileDiffTimeout,
 ): Promise<FileDiff> {
   const search = snapshotSearchParams(snapshotId);
-  search.set("engine", engine);
+  search.set("engine", JSON.stringify(EngineConfigSchema.parse(engine)));
   if (entry.left_path !== null) {
     search.set("left_path", entry.left_path);
   }
@@ -3667,13 +3708,13 @@ export const api = {
     /**
      * Defines one canonical rendered-file query from a manifest handle.
      *
-     * Engine, snapshot ID, and entry paths form stable query identity.
+     * Complete engine configuration, Snapshot ID, and entry paths form the key.
      * Timeout controls only this attempt's transport and is deliberately absent
      * from the query key. The definition does not decide sequential scheduling
      * or rich/lazy state.
      */
     file(
-      engine: DiffEngine,
+      engine: EngineConfig,
       snapshotId: string,
       entry: ManifestEntry,
       timeout: FileDiffTimeout,
@@ -3886,16 +3927,18 @@ export const api = {
 
   profile: {
     /**
-     * Defines backend preferences for one concrete profile.
+     * Defines preferences for the selected Profile or anonymous local use.
      *
-     * Consumers must provide a selected profile ID and may not observe this query
-     * before one exists. Backend absence or invalidity remains a visible error.
+     * Null selects local storage. A Profile loads database values directly into
+     * the local cache. Failures remain visible; invalid data is never repaired.
      */
-    preferences(profileId: number) {
+    preferences(profileId: number | null) {
       return queryOptions({
         queryKey: ["profile", profileId, "preferences"] as const,
         queryFn: ({ signal: abortSignal }) =>
           requestPreferences(profileId, abortSignal),
+        staleTime: Infinity,
+        gcTime: 0,
         meta: { errorTitle: "Failed to load preferences" },
       });
     },
@@ -3946,12 +3989,33 @@ export const api = {
      * Defines the mutation that saves one complete preferences entity.
      *
      * Consumers pass every editable preference with the profile ID. Cache updates
-     * occur only from the backend-confirmed result.
+     * follow a successful local write, after database confirmation for a Profile.
+     * The supplied QueryClient must be the one observing these preferences.
      */
-    savePreferences() {
+    savePreferences(queryClient: QueryClient) {
       return mutationOptions({
         mutationKey: ["profile", "save-preferences"] as const,
         mutationFn: requestSavePreferences,
+        /** Publish a confirmed save only to its addressed preference query. */
+        onSuccess(saved: Preferences) {
+          const queryKey = api.profile.preferences(
+            saved.user_profile_id,
+          ).queryKey;
+          // A completed write to a departed Profile still belongs to that Profile.
+          // It must not overwrite the current user's local cache.
+          if (
+            queryClient.getQueryCache().find({ queryKey })?.isActive() === true
+          ) {
+            window.localStorage.setItem(
+              PREFERENCES_STORAGE_KEY,
+              JSON.stringify({
+                aggressive_folds: saved.aggressive_folds,
+                git_algorithm: saved.git_algorithm,
+              }),
+            );
+            queryClient.setQueryData(queryKey, saved);
+          }
+        },
         meta: { errorTitle: "Failed to save preferences" },
       });
     },

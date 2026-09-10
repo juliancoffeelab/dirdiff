@@ -26,6 +26,7 @@ from fastapi.responses import (
 )
 from pydantic import (
     Field,
+    Json,
     model_validator,
 )
 
@@ -46,7 +47,7 @@ from dirdiff.db import (
 )
 from dirdiff.engines import (
     DirdiffError,
-    EngineKind,
+    EngineConfig,
     InlineMove,
     InlineTokenStatus,
     engine,
@@ -1471,6 +1472,23 @@ def _branch_selection_from_query(
     }
 
 
+class FileDiffQuery(ApiModel):
+    """Address one captured File and its complete renderer configuration.
+
+    Engine JSON validates the selected variant before capture lookup. Unknown
+    fields are rejected. Absent paths represent added or deleted File sides.
+    """
+
+    snapshot_id: str
+    """Opaque Snapshot id returned by manifest."""
+    engine: Json[EngineConfig]
+    """Complete JSON rendering choice, including Git's required algorithm."""
+    left_path: str | None = None
+    """Exact old path, absent only for an added File."""
+    right_path: str | None = None
+    """Exact new path, absent only for a deleted File."""
+
+
 class DiffRoutes:
     """Bind capture and composed-diff handlers to application interfaces.
 
@@ -1651,7 +1669,7 @@ class DiffRoutes:
         *,
         room: Room,
         snapshot_id: UUID,
-        engine_name: EngineKind,
+        engine_config: EngineConfig,
         pair: FilePair,
         left_file: Optional[CapturedFileSide],
         right_file: Optional[CapturedFileSide],
@@ -1669,7 +1687,7 @@ class DiffRoutes:
 
         - `room`: Room supplying retained labels and Tab presentation rules.
         - `snapshot_id`: Exact Snapshot containing the loaded File.
-        - `engine_name`: Requested renderer selected only for text bays.
+        - `engine_config`: Complete rendering configuration for text bays.
         - `pair`: Exact nullable repository paths identifying the File.
         - `left_file`: Authenticated captured left side, or `None` when absent.
         - `right_file`: Authenticated captured right side under the same rule.
@@ -1721,7 +1739,7 @@ class DiffRoutes:
             right_label=snapshot_meta["right_label"],
             left_link=left_link,
             right_link=right_link,
-            renderer=engine(engine_name),
+            renderer=engine(engine_config),
         )
         composed = Composer().compose(left_bytes, right_bytes, context)
         # TODO: the frontend should probably take the display name and file kind
@@ -2034,16 +2052,7 @@ class DiffRoutes:
     )
     def serve_file_diff(
         self,
-        snapshot_id: str = Query(
-            description="Opaque Snapshot id returned by /api/manifest.",
-        ),
-        engine: EngineKind = Query(description="Diff engine."),
-        left_path: str | None = Query(
-            default=None, description="Repo-relative path on the left side."
-        ),
-        right_path: str | None = Query(
-            default=None, description="Repo-relative path on the right side."
-        ),
+        params: Annotated[FileDiffQuery, Query()],
     ) -> ComposedDiffResponse:
         """Render one exact filepath pair from a manifest Snapshot.
 
@@ -2054,11 +2063,7 @@ class DiffRoutes:
 
         # Parameters
 
-        - `snapshot_id`: Opaque key returned by manifest.
-        - `engine`: Renderer requested for composed text bays.
-        - `left_path`: Exact left repository path, or absent for an added File.
-        - `right_path`: Exact right repository path, or absent for a deleted
-          File.
+        - `params`: Captured File identity and validated complete engine choice.
 
         # Failures
 
@@ -2069,13 +2074,13 @@ class DiffRoutes:
         """
         try:
             try:
-                snapshot_key = UUID(hex=snapshot_id)
+                snapshot_key = UUID(hex=params.snapshot_id)
             except ValueError as exc:
                 raise DirdiffError(
-                    f"Unknown snapshot id: {snapshot_id}"
+                    f"Unknown snapshot id: {params.snapshot_id}"
                 ) from exc
             try:
-                pair = FilePair(left_path, right_path)
+                pair = FilePair(params.left_path, params.right_path)
             except ValueError as exc:
                 raise DirdiffError(str(exc)) from exc
             room = self.room_lord.find_room(snapshot_key)
@@ -2089,7 +2094,7 @@ class DiffRoutes:
             payload = self.render_loaded_snapshot_file(
                 room=room,
                 snapshot_id=snapshot_key,
-                engine_name=engine,
+                engine_config=params.engine,
                 pair=pair,
                 left_file=left_file,
                 right_file=right_file,

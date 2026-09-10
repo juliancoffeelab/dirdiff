@@ -18,6 +18,7 @@ display decoration remains outside the engine.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Literal, final, override
 
 from dirdiff.engines.base import (
@@ -25,6 +26,7 @@ from dirdiff.engines.base import (
     DiffEngineResult,
     DiffEngineRow,
     DiffSide,
+    GitAlgorithm,
 )
 from dirdiff.engines.git._logic.driver import run_git_no_index_diff
 
@@ -276,6 +278,7 @@ def git_diff_rows_from_patch(
 
 
 @final
+@dataclass(frozen=True)
 class GitDiffEngine(DiffEngineProtocol):
     """Compare supplied text with `git diff --no-index`.
 
@@ -286,6 +289,9 @@ class GitDiffEngine(DiffEngineProtocol):
     The engine retains no repository or HTTP state and works with text loaded
     by any workspace backend.
     """
+
+    algorithm: GitAlgorithm = "myers"
+    """Line-matching choice for all bays; Myers is the engine default."""
 
     @override
     def render_diff(
@@ -316,6 +322,7 @@ class GitDiffEngine(DiffEngineProtocol):
         right_text_value = "" if new.text is None else new.text
         if old.exists and new.exists:
             patch = run_git_no_index_diff(
+                algorithm=self.algorithm,
                 left_text=left_text_value,
                 right_text=right_text_value,
                 left_path_hint=old.path_hint,

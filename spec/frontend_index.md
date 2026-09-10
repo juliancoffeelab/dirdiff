@@ -171,12 +171,32 @@ api.profile.preferences(profileId)
 api.profile.login()
 api.profile.register()
 api.profile.rename()
-api.profile.savePreferences()
+api.profile.savePreferences(queryClient)
 
 api.pullRequest.prepare()
 ```
 
 Each facade operation returns a TanStack query or mutation definition. HUD modules decide when to observe, prefetch, refetch, or execute it.
+
+File rendering accepts a complete `EngineConfig`: Git carries its engine tag and
+required algorithm; engines without options use their name. The File HTTP
+parameter is JSON, and the complete value participates in query identity.
+Workspace URLs continue to store only the selected engine name.
+
+`api.profile.preferences(profileId)` accepts a Profile id or `null` for anonymous
+use. Profile reads load the database value directly into the localStorage
+preference cache. Anonymous reads use that cache, creating initial preferences
+only when the key is absent. Validation and storage failures remain errors.
+Preferences contain `aggressive_folds` and `git_algorithm`, initially true and
+Myers. The active TanStack query is the sole reactive representation; localStorage
+contains only the two preference values, with no Profile identity or version.
+
+`savePreferences(queryClient)` publishes complete values through the same path
+for both the header and the preferences editor. Profile saves await the database;
+anonymous saves do no HTTP work. A successful localStorage write precedes query
+publication. A save completing after its Profile has been left does not overwrite
+the current local cache. Queries stay fresh while observed and are discarded
+when unobserved, so selecting a Profile loads its database preferences again.
 
 Browser review domain failures validate the direct `{ code, message }` body and
 become `ReviewRequestError`. Callers classify its stable `code`; presentation
@@ -327,6 +347,11 @@ Private component:
 - engine selection;
 - view selection.
 
+For Git, an Algorithm Select beside the engine selector shows the active value
+and explains all four choices, marking Myers as the default. Other engines show
+no options control. It observes and saves canonical preferences directly;
+option values are not copied into workspace state.
+
 It observes the canonical repository-list query.
 
 `AppHeaderOutlets` exposes the stable header destinations used by an active ChangeSet:
@@ -375,7 +400,10 @@ the primary action and creation is a separate explicit action. A selected
 Profile may log in as another Profile, rename itself, edit preferences, or log
 out. Login never creates a missing Profile.
 
-Confirmed profile identity is persisted in browser storage. Preferences remain canonical backend data.
+Confirmed Profile identity is persisted in browser storage. Preferences use the
+shared query and localStorage path described above. Profile preference status
+also reports anonymous cache failures. The existing folding editor preserves
+the current Git algorithm when saving.
 
 ## 8. Tabs
 
@@ -613,8 +641,11 @@ restoration gate and the explicit-load notification the host uses for its
 expansion policy. The lane performs no presentation: no DOM, toasts, URL or
 line-pin identity, file expansion, or navigation.
 
-`ReviewSnapshotBoundary` wraps the engine-keyed File lane in `ReviewProvider`
-and passes the exact selected Profile through as browser review authorship.
+`ReviewSnapshotBoundary` observes preferences and wraps the configuration-keyed
+File lane in `ReviewProvider` and passes the exact selected Profile through as browser review authorship.
+File rendering waits for loaded preferences. A changed algorithm replaces the
+File lane while the ReviewProvider, manifest, and Snapshot remain mounted. An
+equal configuration does not replace the lane when unrelated preferences change.
 Each History Thread's explicit go-to action finds the exact manifest File pair and invokes
 exact-line navigation for an already loaded FullFile; it does not select a hunk
 or load a File. The File lane publishes only indexes whose FullFile is mounted,

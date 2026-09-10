@@ -548,6 +548,14 @@ h1 {
   min-width: min(320px, 40vw);
 }
 
+.engine-algorithm-select .ui-select-menu {
+  width: 440px;
+}
+
+.engine-algorithm-select .ui-select-option {
+  white-space: normal;
+}
+
 .view-select .ui-select-value {
   min-width: 52px;
 }

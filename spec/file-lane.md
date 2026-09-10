@@ -22,10 +22,17 @@ complete selected `DiffParams` value. The diff engine is supplied separately and
 does not participate in manifest identity. A successful manifest creates a keyed
 `ChangeSetSnapshot`.
 
+The surrounding review boundary reads the active preferences before mounting the
+File lane. A Git algorithm change replaces the lane through the same lifecycle
+as engine selection, without fetching another manifest or replacing the
+Snapshot's review state. Git's complete configuration belongs in both the lane
+identity and every File query key. Unrelated preference changes do not replace
+an equal configuration.
+
 The snapshot treats these values as immutable for its entire lifetime:
 
 - `DiffParams`;
-- the file-rendering engine;
+- the complete file-rendering engine configuration;
 - the manifest tree and manifest statistics;
 - the manifest `snapshot_id`;
 - the manifest-order list of files.
@@ -49,8 +56,8 @@ The snapshot has three related query layers:
 1. one manifest query, keyed by `DiffParams`;
 2. one lazy-info query, keyed by `snapshot_id`, only when the manifest contains
    lazy files;
-3. one ordered collection of canonical file-query definitions, keyed by engine,
-   `snapshot_id`, and the manifest entry's left/right path locator, executed
+3. one ordered collection of canonical file-query definitions, keyed by complete
+   engine configuration, `snapshot_id`, and the manifest entry's left/right path locator, executed
    only imperatively by the lane.
 
 File queries have no observers. TanStack's `createQueries` store deep-unwraps
@@ -256,7 +263,8 @@ For each manifest index, `ChangeSet` supplies `FileCard` with:
 - File indexes are manifest indexes and remain stable for the snapshot.
 - Automatic admissions are sequential in manifest order; automatic fetches are
   launched in manifest order and overlap only within one fixed bound.
-- One canonical file query represents one manifest entry in one snapshot.
+- One canonical File query represents one manifest entry in one Snapshot under
+  one complete engine configuration.
 - Lazy planks, Retry, and line pins all use the same lane.
 - Admission is separate from fetch success and yields before mounting the
   expensive `FileBody`.

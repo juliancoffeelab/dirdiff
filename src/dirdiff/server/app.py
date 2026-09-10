@@ -31,6 +31,7 @@ from dirdiff.db import (
     UserProfileStore,
     open_sqlite_engine,
 )
+from dirdiff.engines import GitAlgorithm
 from dirdiff.room_lord import (
     RoomLord,
 )
@@ -123,6 +124,9 @@ class PreferencesResponse(ApiModel):
     The value does not collapse Files or override later reviewer actions.
     """
 
+    git_algorithm: GitAlgorithm
+    """Remembered Git line-matching choice for future File rendering."""
+
 
 class PreferencesUpdateRequest(ApiModel):
     """Supply the mutable preference values to store for one Profile.
@@ -139,6 +143,9 @@ class PreferencesUpdateRequest(ApiModel):
     The route stores this exact boolean for the Profile named in its path. It
     does not create the Profile or change already mounted fold state directly.
     """
+
+    git_algorithm: GitAlgorithm
+    """Required replacement for the Profile's Git algorithm preference."""
 
 
 class _ApplicationRoutes:
@@ -359,12 +366,12 @@ class _ApplicationRoutes:
         profile_id: int,
         request: PreferencesUpdateRequest,
     ) -> PreferencesResponse:
-        """Replace one existing Profile's aggressive-fold preference.
+        """Replace one existing Profile's complete preferences.
 
         # Parameters
 
         - `profile_id`: Existing Profile whose preference row is updated.
-        - `request`: Exact boolean value to persist and return.
+        - `request`: Complete preference values to persist and return.
 
         # Failures
 
@@ -378,8 +385,8 @@ class _ApplicationRoutes:
                 detail=f"User profile not found: {profile_id}.",
             )
         return PreferencesResponse.model_validate(
-            self.preferences_store.set_aggressive_folds(
-                profile_id, request.aggressive_folds
+            self.preferences_store.save(
+                profile_id, request.aggressive_folds, request.git_algorithm
             ),
             from_attributes=True,
         )

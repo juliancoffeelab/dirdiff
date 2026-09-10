@@ -20,6 +20,7 @@ import {
   api,
   type DiffEngine,
   DiffEngineSchema,
+  GitAlgorithmSchema,
   type ProjectId,
   type RepoMark,
 } from "../api/api";
@@ -43,6 +44,30 @@ const engineLabels: Record<DiffEngine, string> = {
   dirdiff: "Dirdiff",
   diffsitter: "Diffsitter",
 };
+
+/** Header labels for the Git algorithm, with explanations in the choice menu. */
+const gitAlgorithms = [
+  {
+    value: "myers",
+    label: "Myers",
+    explanation: "Standard greedy diff. Default.",
+  },
+  {
+    value: "minimal",
+    label: "Minimal",
+    explanation: "Spend more time finding the smallest diff.",
+  },
+  {
+    value: "patience",
+    label: "Patience",
+    explanation: "Match lines with the patience algorithm.",
+  },
+  {
+    value: "histogram",
+    label: "Histogram",
+    explanation: "Extend patience using low-occurrence common lines.",
+  },
+] as const;
 
 /**
  * Exhaustive user-visible labels for the client text presentation modes.
@@ -291,6 +316,12 @@ type RepoSelectProps = {
  */
 export function AppHeader(props: AppHeaderProps): JSX.Element {
   const queryClient = useQueryClient();
+  const preferences = createQuery(() =>
+    api.profile.preferences(props.selectedProfile?.id ?? null),
+  );
+  const savePreferences = createMutation(() =>
+    api.profile.savePreferences(queryClient),
+  );
   const [metadataTarget, setMetadataTarget] = createSignal<HTMLElement | null>(
     null,
   );
@@ -393,6 +424,48 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
               }}
               optionAction={null}
             />
+            <Show when={props.engine === "git"}>
+              <Select
+                class="header-engine-select engine-algorithm-select"
+                label="Algorithm"
+                valueLabel={
+                  preferences.isPending
+                    ? "Loading..."
+                    : preferences.error !== null
+                      ? "Unavailable"
+                      : expect(
+                          gitAlgorithms.find(
+                            (option) =>
+                              option.value === preferences.data?.git_algorithm,
+                          ),
+                          "Git preferences require a known algorithm.",
+                        ).label
+                }
+                options={gitAlgorithms.map((option) => ({
+                  value: option.value,
+                  label: `${option.label} · ${option.explanation}`,
+                }))}
+                selectedValue={preferences.data?.git_algorithm ?? ""}
+                disabled={
+                  preferences.isPending ||
+                  preferences.error !== null ||
+                  savePreferences.isPending
+                }
+                onOpen={null}
+                onChange={(value) => {
+                  const current = expect(
+                    preferences.data,
+                    "Changing an algorithm requires loaded preferences.",
+                  );
+                  savePreferences.mutate({
+                    profileId: props.selectedProfile?.id ?? null,
+                    aggressiveFolds: current.aggressive_folds,
+                    gitAlgorithm: GitAlgorithmSchema.parse(value),
+                  });
+                }}
+                optionAction={null}
+              />
+            </Show>
             <Select
               class="header-engine-select view-select"
               label="View"
