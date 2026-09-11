@@ -548,38 +548,283 @@ h1 {
   min-width: min(320px, 40vw);
 }
 
-.engine-whitespace-toggle {
-  min-height: var(--header-control-height);
-  padding: 0 10px;
+.engine-options-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.engine-options-trigger {
+  anchor-name: --engine-options;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--header-control-height);
+  height: var(--header-control-height);
   border: 1px solid #d8d0c2;
   background: #fffdf8;
+  color: #24231f;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease;
+}
+
+.engine-options-trigger:hover {
+  border-color: #c7bcaa;
+  background: #fff;
+}
+
+.engine-options-trigger:focus-visible,
+.engine-options-menu:has(> :popover-open) .engine-options-trigger {
+  border-color: #24231f;
+  background: #fff;
+  box-shadow: 0 0 0 2px #ece6d8;
+  outline: 0;
+}
+
+.engine-options-trigger-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.engine-options-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #167951;
+}
+
+.engine-options-popover {
+  /* Keep the native top-layer popover aligned with its header button. */
+  position-anchor: --engine-options;
+  position: fixed;
+  inset: auto;
+  top: calc(anchor(bottom) + 4px);
+  left: anchor(left);
+  margin: 0;
+  padding: 0;
+  width: 320px;
+  border: 1px solid #d8d0c2;
+  background: #fffdf8;
+  box-shadow: 0 10px 24px rgb(36 35 31 / 16%);
+}
+
+.engine-options-popover:popover-open {
+  display: grid;
+}
+
+.engine-options-popover-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+}
+
+.engine-options-popover-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.engine-options-popover-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.engine-options-popover-copy strong {
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.engine-options-popover-copy span {
   color: #6a665d;
+  font-size: 11px;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.engine-options-popover-divider {
+  height: 1px;
+  background: #ece6d8;
+}
+
+.engine-options-empty-message {
+  padding: 16px 12px;
+  color: #6a665d;
+  font-size: 13px;
+  text-align: center;
+}
+
+.engine-options-message {
+  padding: 12px;
+  color: #6a665d;
+  font-size: 13px;
+}
+
+.engine-options-content {
+  display: grid;
+  gap: 0;
+}
+
+.engine-options-section {
+  padding: 8px 10px;
+}
+
+.engine-options-section-label {
+  display: block;
+  color: #6a665d;
+  font-size: 11px;
   font-weight: 700;
-  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
 }
 
-.engine-whitespace-toggle[aria-pressed="true"] {
+.engine-algorithm-list {
+  display: grid;
+  gap: 4px;
+}
+
+.engine-algorithm-item {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.engine-algorithm-item:hover:not(:has([aria-disabled="true"])) {
+  background: #f4f1ea;
+}
+
+.engine-algorithm-item.selected {
   border-color: #167951;
-  background: #e3f3e9;
-  color: #167951;
+  background: #eaf5ee;
 }
 
-.engine-whitespace-toggle:focus-visible {
+.engine-algorithm-item:has(:focus-visible) {
   outline: 2px solid #24231f;
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
-.engine-whitespace-toggle:disabled {
-  opacity: 0.5;
+.engine-algorithm-item:has([aria-disabled="true"]) {
+  opacity: 0.6;
   cursor: default;
 }
 
-.engine-algorithm-select .ui-select-menu {
-  width: 440px;
+.engine-algorithm-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
 }
 
-.engine-algorithm-select .ui-select-option {
-  white-space: normal;
+.engine-options-checkbox-row:has([aria-disabled="true"]) {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.engine-options-checkbox-row .profile-checkbox-input {
+  cursor: inherit;
+}
+
+.engine-algorithm-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.engine-algorithm-item-header strong {
+  font-size: 13px;
+  color: #24231f;
+}
+
+.engine-algorithm-item.selected .engine-algorithm-item-header strong {
+  color: #167951;
+}
+
+.engine-algorithm-default-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #8c867c;
+  background: #ece6d8;
+  padding: 1px 4px;
+  border-radius: 2px;
+  text-transform: uppercase;
+}
+
+.engine-algorithm-item-desc {
+  font-size: 11px;
+  color: #6a665d;
+  line-height: 1.3;
+}
+
+.engine-options-checkbox-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #ded8cc;
+  background: #fbfaf7;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.engine-options-checkbox-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.engine-options-checkbox-copy strong {
+  font-size: 13px;
+  line-height: 1.2;
+  color: #24231f;
+}
+
+.engine-options-checkbox-copy span {
+  color: #625f58;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.engine-options-checkbox-copy code {
+  font-size: 10px;
+  background: #ece6d8;
+  padding: 1px 3px;
+  border-radius: 2px;
+}
+
+.engine-options-error-block {
+  padding: 8px 10px;
 }
 
 .view-select .ui-select-value {

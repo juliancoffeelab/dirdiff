@@ -9,13 +9,20 @@
  * Workspace selection remains controlled by `App`. Portal contributors retain
  * their own data, and the header never reconstructs ChangeSet status or summary.
  */
-import { Show, createMemo, createSignal, type JSX } from "solid-js";
+import {
+  For,
+  Show,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  type JSX,
+} from "solid-js";
 import {
   createMutation,
   createQuery,
   useQueryClient,
 } from "@tanstack/solid-query";
-import { Trash2 } from "lucide-solid";
+import { SlidersHorizontal, Trash2 } from "lucide-solid";
 import {
   api,
   type DiffEngine,
@@ -50,7 +57,7 @@ const gitAlgorithms = [
   {
     value: "myers",
     label: "Myers",
-    explanation: "Standard greedy diff. Default.",
+    explanation: "Standard greedy diff.",
   },
   {
     value: "minimal",
@@ -316,12 +323,6 @@ type RepoSelectProps = {
  */
 export function AppHeader(props: AppHeaderProps): JSX.Element {
   const queryClient = useQueryClient();
-  const preferences = createQuery(() =>
-    api.profile.preferences(props.selectedProfile?.id ?? null),
-  );
-  const savePreferences = createMutation(() =>
-    api.profile.savePreferences(queryClient),
-  );
   const [metadataTarget, setMetadataTarget] = createSignal<HTMLElement | null>(
     null,
   );
@@ -424,74 +425,10 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
               }}
               optionAction={null}
             />
-            <Show when={props.engine === "git"}>
-              <Select
-                class="header-engine-select engine-algorithm-select"
-                label="Algorithm"
-                valueLabel={
-                  preferences.isPending
-                    ? "Loading..."
-                    : preferences.error !== null
-                      ? "Unavailable"
-                      : expect(
-                          gitAlgorithms.find(
-                            (option) =>
-                              option.value === preferences.data?.git_algorithm,
-                          ),
-                          "Git preferences require a known algorithm.",
-                        ).label
-                }
-                options={gitAlgorithms.map((option) => ({
-                  value: option.value,
-                  label: `${option.label} · ${option.explanation}`,
-                }))}
-                selectedValue={preferences.data?.git_algorithm ?? ""}
-                disabled={
-                  preferences.isPending ||
-                  preferences.error !== null ||
-                  savePreferences.isPending
-                }
-                onOpen={null}
-                onChange={(value) => {
-                  const current = expect(
-                    preferences.data,
-                    "Changing an algorithm requires loaded preferences.",
-                  );
-                  savePreferences.mutate({
-                    profileId: props.selectedProfile?.id ?? null,
-                    aggressiveFolds: current.aggressive_folds,
-                    gitAlgorithm: GitAlgorithmSchema.parse(value),
-                    gitIgnoreSpaceChange: current.git_ignore_space_change,
-                  });
-                }}
-                optionAction={null}
-              />
-              <button
-                type="button"
-                class="engine-whitespace-toggle"
-                aria-pressed={preferences.data?.git_ignore_space_change}
-                title="--ignore-space-change: ignore changes in whitespace amount and trailing whitespace."
-                disabled={
-                  preferences.isPending ||
-                  preferences.error !== null ||
-                  savePreferences.isPending
-                }
-                onClick={() => {
-                  const current = expect(
-                    preferences.data,
-                    "Changing whitespace handling requires loaded preferences.",
-                  );
-                  savePreferences.mutate({
-                    profileId: props.selectedProfile?.id ?? null,
-                    aggressiveFolds: current.aggressive_folds,
-                    gitAlgorithm: current.git_algorithm,
-                    gitIgnoreSpaceChange: !current.git_ignore_space_change,
-                  });
-                }}
-              >
-                Ignore space changes
-              </button>
-            </Show>
+            <EngineOptions
+              engine={props.engine}
+              selectedProfile={props.selectedProfile}
+            />
             <Select
               class="header-engine-select view-select"
               label="View"
@@ -696,5 +633,296 @@ function RepoSelect(props: RepoSelectProps): JSX.Element {
         );
       }}
     </Show>
+  );
+}
+
+/**
+ * Defines the complete inputs required by EngineOptions.
+ *
+ * It receives the selected engine and profile identity to read and persist engine
+ * preferences. The browser manages popup visibility through the native popover.
+ */
+type EngineOptionsProps = {
+  /** Backend diff engine currently selected in AppHeader. */
+  engine: DiffEngine;
+  /** Confirmed Profile shown and used by preferences, or genuine absence. */
+  selectedProfile: StoredProfile | null;
+};
+
+/**
+ * Renders the persistent engine options trigger and popup configuration menu.
+ *
+ * The component remains mounted for every diff engine. For Git, it allows selecting
+ * the diff algorithm and toggling whitespace handling, saving changes into canonical
+ * preferences. For other engines, it informs the user that no options are implemented.
+ *
+ * @param props Component properties containing current engine and profile selection.
+ * The native popover handles dismissal and focus; CSS anchors it to the trigger.
+ *
+ * @returns Rendered trigger button and native options popover.
+ */
+function EngineOptions(props: EngineOptionsProps): JSX.Element {
+  const optionsId = createUniqueId();
+  const queryClient = useQueryClient();
+
+  const preferences = createQuery(() =>
+    api.profile.preferences(props.selectedProfile?.id ?? null),
+  );
+  const savePreferences = createMutation(() =>
+    api.profile.savePreferences(queryClient),
+  );
+
+  /**
+   * Computes whether non-default Git options are currently active.
+   *
+   * Returns true when the active engine is Git and either a non-default algorithm
+   * or whitespace ignoring is enabled.
+   */
+  const hasCustomGitOptions = createMemo(() => {
+    if (props.engine !== "git") {
+      return false;
+    }
+    const data = preferences.data;
+    if (data === undefined) {
+      return false;
+    }
+    return data.git_algorithm !== "myers" || data.git_ignore_space_change;
+  });
+
+  /**
+   * Persists a chosen Git diff algorithm to the canonical preferences cache.
+   *
+   * @param value Validated algorithm choice.
+   */
+  function selectAlgorithm(
+    value: (typeof gitAlgorithms)[number]["value"],
+  ): void {
+    const current = expect(
+      preferences.data,
+      "Changing an algorithm requires loaded preferences.",
+    );
+    savePreferences.mutate({
+      profileId: props.selectedProfile?.id ?? null,
+      aggressiveFolds: current.aggressive_folds,
+      gitAlgorithm: GitAlgorithmSchema.parse(value),
+      gitIgnoreSpaceChange: current.git_ignore_space_change,
+    });
+  }
+
+  /**
+   * Inverts and persists Git's ignore-space-change preference.
+   */
+  function toggleWhitespace(): void {
+    const current = expect(
+      preferences.data,
+      "Changing whitespace handling requires loaded preferences.",
+    );
+    savePreferences.mutate({
+      profileId: props.selectedProfile?.id ?? null,
+      aggressiveFolds: current.aggressive_folds,
+      gitAlgorithm: current.git_algorithm,
+      gitIgnoreSpaceChange: !current.git_ignore_space_change,
+    });
+  }
+
+  return (
+    <div class="engine-options-menu">
+      <button
+        type="button"
+        class="engine-options-trigger"
+        popovertarget={optionsId}
+        aria-label={`${engineLabels[props.engine]} engine options`}
+        title={`${engineLabels[props.engine]} options`}
+      >
+        <SlidersHorizontal
+          class="engine-options-trigger-icon"
+          aria-hidden="true"
+        />
+        <Show when={hasCustomGitOptions()}>
+          <span
+            class="engine-options-badge"
+            aria-label="Custom engine options active"
+          />
+        </Show>
+      </button>
+      <div
+        popover="auto"
+        id={optionsId}
+        class="engine-options-popover"
+        role="region"
+        aria-label={`${engineLabels[props.engine]} options`}
+      >
+        <div class="engine-options-popover-header">
+          <SlidersHorizontal
+            class="engine-options-popover-icon"
+            aria-hidden="true"
+          />
+          <div class="engine-options-popover-copy">
+            <strong>{engineLabels[props.engine]}</strong>
+            <span>Engine options</span>
+          </div>
+        </div>
+        <div class="engine-options-popover-divider" />
+        <Show
+          when={props.engine === "git"}
+          fallback={
+            <div class="engine-options-empty-message">
+              No options implemented for this engine
+            </div>
+          }
+        >
+          <Show when={preferences.isPending}>
+            <div class="engine-options-message">Loading options...</div>
+          </Show>
+          <Show when={preferences.error} keyed>
+            {(error) => (
+              <div class="engine-options-error-block">
+                <ErrorPopover
+                  title="Failed to load preferences"
+                  error={error}
+                  onRetry={() => void preferences.refetch()}
+                  trigger={<span>Failed to load preferences</span>}
+                  triggerClass="compact-error-trigger"
+                  triggerLabel="Show preferences error"
+                />
+              </div>
+            )}
+          </Show>
+          <Show when={preferences.data}>
+            {(prefs) => (
+              <div class="engine-options-content">
+                <div class="engine-options-section">
+                  <span class="engine-options-section-label">Algorithm</span>
+                  <div
+                    class="engine-algorithm-list"
+                    role="radiogroup"
+                    aria-label="Git algorithm"
+                  >
+                    <For each={gitAlgorithms}>
+                      {(algo) => (
+                        <label
+                          class="engine-algorithm-item"
+                          classList={{
+                            selected: prefs().git_algorithm === algo.value,
+                          }}
+                        >
+                          <input
+                            class="engine-algorithm-input"
+                            type="radio"
+                            name={`${optionsId}-algorithm`}
+                            value={algo.value}
+                            checked={prefs().git_algorithm === algo.value}
+                            aria-disabled={
+                              preferences.isPending ||
+                              preferences.error !== null ||
+                              savePreferences.isPending
+                            }
+                            onClick={(event) => {
+                              // Keep selection tied to confirmed preferences. Native
+                              // activation must not display an unsuccessful save.
+                              event.preventDefault();
+                              if (
+                                preferences.isPending ||
+                                preferences.error !== null ||
+                                savePreferences.isPending ||
+                                prefs().git_algorithm === algo.value
+                              )
+                                return;
+                              selectAlgorithm(algo.value);
+                            }}
+                          />
+                          <span class="engine-algorithm-item-header">
+                            <strong>{algo.label}</strong>
+                            <Show when={algo.value === "myers"}>
+                              <span class="engine-algorithm-default-badge">
+                                default
+                              </span>
+                            </Show>
+                          </span>
+                          <span class="engine-algorithm-item-desc">
+                            {algo.explanation}
+                          </span>
+                        </label>
+                      )}
+                    </For>
+                  </div>
+                </div>
+                <div class="engine-options-popover-divider" />
+                <div class="engine-options-section">
+                  <label class="engine-options-checkbox-row">
+                    <span class="engine-options-checkbox-copy">
+                      <strong>Ignore space changes</strong>
+                      <span>
+                        Ignore amount of whitespace and trailing space
+                        differences (<code>--ignore-space-change</code>).
+                      </span>
+                    </span>
+                    <span class="profile-checkbox-control">
+                      <input
+                        class="profile-checkbox-input"
+                        type="checkbox"
+                        checked={prefs().git_ignore_space_change}
+                        aria-disabled={
+                          preferences.isPending ||
+                          preferences.error !== null ||
+                          savePreferences.isPending
+                        }
+                        onClick={(event) => {
+                          // The native check changes only when the save succeeds.
+                          // aria-disabled preserves keyboard focus while saving.
+                          event.preventDefault();
+                          if (
+                            preferences.isPending ||
+                            preferences.error !== null ||
+                            savePreferences.isPending
+                          )
+                            return;
+                          toggleWhitespace();
+                        }}
+                      />
+                      <span
+                        class="visibility-indicator large profile-checkbox-indicator"
+                        classList={{
+                          visible: prefs().git_ignore_space_change,
+                        }}
+                        aria-hidden="true"
+                      />
+                    </span>
+                  </label>
+                </div>
+                <Show
+                  when={
+                    savePreferences.variables?.profileId ===
+                      (props.selectedProfile?.id ?? null) &&
+                    savePreferences.error
+                  }
+                  keyed
+                >
+                  {(saveError) => (
+                    <div class="engine-options-error-block">
+                      <ErrorPopover
+                        title="Failed to save preferences"
+                        error={saveError}
+                        onRetry={() =>
+                          savePreferences.mutate(
+                            expect(
+                              savePreferences.variables,
+                              "Retrying a save requires its original preferences.",
+                            ),
+                          )
+                        }
+                        trigger={<span>Failed to save preferences</span>}
+                        triggerClass="compact-error-trigger"
+                        triggerLabel="Show save error"
+                      />
+                    </div>
+                  )}
+                </Show>
+              </div>
+            )}
+          </Show>
+        </Show>
+      </div>
+    </div>
   );
 }

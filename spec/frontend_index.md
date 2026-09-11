@@ -339,9 +339,10 @@ AppHeaderOutlets
 RepositoryState
 ```
 
-Private component:
+Private components:
 
-- `RepoSelect` renders the global repository selector.
+- `RepoSelect` renders the global repository selector;
+- `EngineOptions` renders the engine-specific options trigger and popup menu.
 
 `AppHeader` receives current workspace values and explicit callbacks for:
 
@@ -350,12 +351,19 @@ Private component:
 - engine selection;
 - view selection.
 
-For Git, an Algorithm Select beside the engine selector shows the active value
-and explains all four choices, marking Myers as the default. The adjacent
-Ignore space changes toggle controls Git's `--ignore-space-change` flag. Both
-controls are disabled while preferences load or save. Other engines show no
-options control. The header observes and saves canonical preferences directly;
-option values are not copied into workspace state.
+An engine options button beside the engine selector opens a popup menu for
+engine-specific configuration. A native auto popover handles opening, outside-click
+dismissal, and Escape; CSS anchors it below the trigger without popup state or
+document listeners. For Git, the popup displays the algorithm choices
+(Myers as the default, Minimal, Patience, Histogram) and the Ignore space changes
+toggle for Git's `--ignore-space-change` flag. For all other engines, the popup
+indicates that no options are implemented for that engine. When custom Git options
+are active, the button displays an indicator badge. Controls are disabled while
+preferences save without losing keyboard focus. Native radio inputs provide
+arrow-key algorithm selection; both controls display only confirmed saves. Save
+errors offer a retry of the original values for the same Profile. The component
+observes and saves canonical preferences directly; option values are not copied
+into workspace state.
 
 It observes the canonical repository-list query.
 
