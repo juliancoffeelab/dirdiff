@@ -104,14 +104,14 @@ def _append_equal_rows(
     right_no: int,
     target_left_no: int,
     target_right_no: int,
+    ignore_space_change: bool,
 ) -> tuple[int, int]:
-    """Append source-backed equal rows until the next patch hunk starts.
+    """Append source-backed equal rows up to an exclusive source boundary.
 
-    Git patches omit unchanged file regions outside hunk context.  Those gaps
-    are still part of the rendered source, so callers provide the
-    original left/right lines and the next hunk's line numbers.  The two gaps
-    must have the same length and text because Git only omits unchanged
-    regions; a mismatch means the patch no longer matches its source inputs.
+    Callers provide the original lines and exclusive endpoints for a patch gap
+    or a context row. The ranges must have the same length and equivalent text
+    under the selected whitespace policy. Both original spellings are preserved,
+    including ignored spacing.
 
     # Parameters
 
@@ -120,8 +120,9 @@ def _append_equal_rows(
     - `right_lines`: Complete new source split into display lines.
     - `left_no`: Next one-based old line number not yet emitted.
     - `right_no`: Next one-based new line number not yet emitted.
-    - `target_left_no`: Old line number at the next hunk boundary.
-    - `target_right_no`: New line number at the next hunk boundary.
+    - `target_left_no`: Exclusive old-side line number for this range.
+    - `target_right_no`: Exclusive new-side line number for this range.
+    - `ignore_space_change`: Compare nonempty whitespace runs as Git `-b` does.
 
     # Returns
 
@@ -131,14 +132,21 @@ def _append_equal_rows(
 
     # Failures
 
-    Asserts when Git's omitted old and new gaps have different lengths or text,
-    because the patch would no longer describe the supplied sources.
+    Asserts when the ranges differ in length or are not equivalent under the
+    selected whitespace policy, so the patch cannot describe these sources.
     """
     assert (target_left_no - left_no) == (target_right_no - right_no)
     while left_no < target_left_no:
         left_text = left_lines[left_no - 1]
         right_text = right_lines[right_no - 1]
-        assert left_text == right_text
+        if ignore_space_change:
+            # Git -b ignores trailing ASCII whitespace and treats other nonempty
+            # runs alike. Only comparison uses these keys; rows keep exact text.
+            assert re.sub(
+                r"[ \t\r\v\f]+", " ", left_text.rstrip(" \t\r\v\f")
+            ) == re.sub(r"[ \t\r\v\f]+", " ", right_text.rstrip(" \t\r\v\f"))
+        else:
+            assert left_text == right_text
         rows.append(
             {
                 "status": "equal",
@@ -158,6 +166,7 @@ def _append_equal_rows(
 def git_diff_rows_from_patch(
     *,
     patch: str,
+    ignore_space_change: bool,
     left_text: str,
     right_text: str,
 ) -> list[DiffEngineRow]:
@@ -172,6 +181,7 @@ def git_diff_rows_from_patch(
     # Parameters
 
     - `patch`: Unified patch produced for the two supplied source texts.
+    - `ignore_space_change`: Whitespace policy used to produce this patch.
     - `left_text`: Complete old text used to restore omitted equal lines.
     - `right_text`: Complete new text used to restore omitted equal lines.
 
@@ -206,6 +216,7 @@ def git_diff_rows_from_patch(
                 right_no=right_no,
                 target_left_no=target_left_no,
                 target_right_no=target_right_no,
+                ignore_space_change=ignore_space_change,
             )
             in_hunk = True
             continue
@@ -221,19 +232,18 @@ def git_diff_rows_from_patch(
             text = line[1:]
 
         if prefix == " ":
-            rows.append(
-                {
-                    "status": "equal",
-                    "left_no": left_no,
-                    "right_no": right_no,
-                    "left_text": text,
-                    "right_text": text,
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
+            # Patch context contains only one side's spelling. Read both sources
+            # so ignored whitespace does not replace the other side's content.
+            left_no, right_no = _append_equal_rows(
+                rows=rows,
+                left_lines=left_lines,
+                right_lines=right_lines,
+                left_no=left_no,
+                right_no=right_no,
+                target_left_no=left_no + 1,
+                target_right_no=right_no + 1,
+                ignore_space_change=ignore_space_change,
             )
-            left_no += 1
-            right_no += 1
             continue
         if prefix == "-":
             rows.append(
@@ -271,6 +281,7 @@ def git_diff_rows_from_patch(
         right_no=right_no,
         target_left_no=len(left_lines) + 1,
         target_right_no=len(right_lines) + 1,
+        ignore_space_change=ignore_space_change,
     )
     assert left_no == len(left_lines) + 1
     assert right_no == len(right_lines) + 1
@@ -292,6 +303,9 @@ class GitDiffEngine(DiffEngineProtocol):
 
     algorithm: GitAlgorithm = "myers"
     """Line-matching choice for all bays; Myers is the engine default."""
+
+    ignore_space_change: bool = False
+    """Ignore changes in whitespace amount when enabled; preserve source text."""
 
     @override
     def render_diff(
@@ -323,6 +337,7 @@ class GitDiffEngine(DiffEngineProtocol):
         if old.exists and new.exists:
             patch = run_git_no_index_diff(
                 algorithm=self.algorithm,
+                ignore_space_change=self.ignore_space_change,
                 left_text=left_text_value,
                 right_text=right_text_value,
                 left_path_hint=old.path_hint,
@@ -330,6 +345,7 @@ class GitDiffEngine(DiffEngineProtocol):
             )
             rows = git_diff_rows_from_patch(
                 patch=patch,
+                ignore_space_change=self.ignore_space_change,
                 left_text=left_text_value,
                 right_text=right_text_value,
             )

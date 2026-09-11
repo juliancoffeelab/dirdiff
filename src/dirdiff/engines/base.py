@@ -57,11 +57,13 @@ class GitEngineConfig(BaseModel):
     fields are errors; this value contains no Snapshot or workspace state.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     engine: Literal["git"]
     """Identifies the only engine that accepts this configuration."""
     algorithm: GitAlgorithm
     """Required line-matching algorithm passed explicitly to Git."""
+    ignore_space_change: bool
+    """Whether Git ignores changes in whitespace amount with `--ignore-space-change`."""
 
 
 type EngineConfig = (

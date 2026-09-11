@@ -68,6 +68,11 @@ class UserPreferences(TableBase):
     git_algorithm: Mapped[str] = mapped_column(String, nullable=False)
     """Remembered Git line-matching algorithm, validated by the HTTP boundary."""
 
+    git_ignore_space_change: Mapped[bool] = mapped_column(
+        Boolean, nullable=False
+    )
+    """Whether the Git engine ignores changes in whitespace amount."""
+
 
 @dataclass(frozen=True)
 class PreferencesRecord:
@@ -97,6 +102,9 @@ class PreferencesRecord:
     git_algorithm: str
     """Exact stored Git algorithm, independent of the active engine."""
 
+    git_ignore_space_change: bool
+    """Remembered Git whitespace policy, independent of the active engine."""
+
 
 class PreferencesStore:
     """Read and update the complete persisted preferences of one Profile.
@@ -104,7 +112,7 @@ class PreferencesStore:
     # Usage
     Construct one store from the application's database engine. Use `get` for a
     non-creating lookup, `get_or_create` when a complete row is required, and
-    the named setter to change one persisted value.
+    `save` to replace the complete row.
 
     # Boundaries
     Each operation owns its short-lived session and commits its own write. The
@@ -151,6 +159,7 @@ class PreferencesStore:
                     UserPreferences.user_profile_id,
                     UserPreferences.aggressive_folds,
                     UserPreferences.git_algorithm,
+                    UserPreferences.git_ignore_space_change,
                 ).where(UserPreferences.user_profile_id == user_profile_id)
             ).one_or_none()
             if row is None:
@@ -159,13 +168,15 @@ class PreferencesStore:
                 user_profile_id=row[0],
                 aggressive_folds=row[1],
                 git_algorithm=row[2],
+                git_ignore_space_change=row[3],
             )
 
     def get_or_create(self, user_profile_id: int) -> PreferencesRecord:
         """Return a Profile's preferences, creating them if absent.
 
         An existing record is returned unchanged. If none exists, the method
-        creates one with aggressive folding enabled and the Myers Git algorithm.
+        creates one with aggressive folding enabled, Myers, and whitespace changes
+        included.
         Everything happens in one SQL query.
 
         # Usage
@@ -194,6 +205,7 @@ class PreferencesStore:
                     user_profile_id=user_profile_id,
                     aggressive_folds=True,
                     git_algorithm="myers",
+                    git_ignore_space_change=False,
                 )
                 .on_conflict_do_update(
                     index_elements=[UserPreferences.user_profile_id],
@@ -207,27 +219,34 @@ class PreferencesStore:
                     UserPreferences.user_profile_id,
                     UserPreferences.aggressive_folds,
                     UserPreferences.git_algorithm,
+                    UserPreferences.git_ignore_space_change,
                 )
             ).one()
             return PreferencesRecord(
                 user_profile_id=row[0],
                 aggressive_folds=row[1],
                 git_algorithm=row[2],
+                git_ignore_space_change=row[3],
             )
 
     def save(
-        self, user_profile_id: int, aggressive_folds: bool, git_algorithm: str
+        self,
+        user_profile_id: int,
+        aggressive_folds: bool,
+        git_algorithm: str,
+        git_ignore_space_change: bool,
     ) -> PreferencesRecord:
         """Persist and return one Profile's complete preferences.
 
         The operation creates the complete preference row when the Profile has
-        none, or replaces both values on its existing row.
+        none, or replaces all values on its existing row.
 
         # Parameters
 
         - `user_profile_id`: Existing Profile whose preference is being set.
         - `aggressive_folds`: Exact value later returned to the HUD.
         - `git_algorithm`: Validated Git algorithm to remember.
+        - `git_ignore_space_change`: Whether Git ignores whitespace amount changes.
 
         # Usage
 
@@ -245,22 +264,26 @@ class PreferencesStore:
                     user_profile_id=user_profile_id,
                     aggressive_folds=aggressive_folds,
                     git_algorithm=git_algorithm,
+                    git_ignore_space_change=git_ignore_space_change,
                 )
                 .on_conflict_do_update(
                     index_elements=[UserPreferences.user_profile_id],
                     set_={
                         "aggressive_folds": aggressive_folds,
                         "git_algorithm": git_algorithm,
+                        "git_ignore_space_change": git_ignore_space_change,
                     },
                 )
                 .returning(
                     UserPreferences.user_profile_id,
                     UserPreferences.aggressive_folds,
                     UserPreferences.git_algorithm,
+                    UserPreferences.git_ignore_space_change,
                 )
             ).one()
             return PreferencesRecord(
                 user_profile_id=row[0],
                 aggressive_folds=row[1],
                 git_algorithm=row[2],
+                git_ignore_space_change=row[3],
             )

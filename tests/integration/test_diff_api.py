@@ -522,17 +522,23 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
         "user_profile_id": first_user["id"],
         "aggressive_folds": True,
         "git_algorithm": "myers",
+        "git_ignore_space_change": False,
     }
     assert second_preferences.status_code == 200
     assert second_preferences.json() == {
         "user_profile_id": second_user["id"],
         "aggressive_folds": True,
         "git_algorithm": "myers",
+        "git_ignore_space_change": False,
     }
 
     update_response = client.patch(
         f"/api/user-profile/{first_user['id']}/preferences",
-        json={"aggressive_folds": False, "git_algorithm": "myers"},
+        json={
+            "aggressive_folds": False,
+            "git_algorithm": "myers",
+            "git_ignore_space_change": False,
+        },
     )
     reloaded_second_preferences = client.get(
         f"/api/user-profile/{second_user['id']}/preferences"
@@ -543,12 +549,14 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
         "user_profile_id": first_user["id"],
         "aggressive_folds": False,
         "git_algorithm": "myers",
+        "git_ignore_space_change": False,
     }
     assert reloaded_second_preferences.status_code == 200
     assert reloaded_second_preferences.json() == {
         "user_profile_id": second_user["id"],
         "aggressive_folds": True,
         "git_algorithm": "myers",
+        "git_ignore_space_change": False,
     }
 
 

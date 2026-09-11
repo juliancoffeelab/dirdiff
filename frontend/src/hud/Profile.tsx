@@ -997,6 +997,7 @@ function PreferencesEditor(props: PreferencesEditorProps): JSX.Element {
         profileId: props.profile.id,
         aggressiveFolds: aggressiveFolds(),
         gitAlgorithm: props.preferences.git_algorithm,
+        gitIgnoreSpaceChange: props.preferences.git_ignore_space_change,
       },
       { onSuccess: props.onClose },
     );

@@ -69,7 +69,10 @@ def engine(config: EngineConfig) -> DiffEngineProtocol:
     if config == "dirdiff":
         return TextDiffEngine()
     if isinstance(config, GitEngineConfig):
-        return GitDiffEngine(algorithm=config.algorithm)
+        return GitDiffEngine(
+            algorithm=config.algorithm,
+            ignore_space_change=config.ignore_space_change,
+        )
     if config == "difftastic":
         return DifftasticDiffEngine()
     if config == "gumtree":

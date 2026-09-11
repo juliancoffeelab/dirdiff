@@ -58,7 +58,11 @@ export const GitAlgorithmSchema = z.enum([
 
 /** Complete Git configuration or the name of an engine with no options. */
 export const EngineConfigSchema = z.union([
-  z.strictObject({ engine: z.literal("git"), algorithm: GitAlgorithmSchema }),
+  z.strictObject({
+    engine: z.literal("git"),
+    algorithm: GitAlgorithmSchema,
+    ignore_space_change: z.boolean(),
+  }),
   DiffEngineSchema.exclude(["git"]),
 ]);
 
@@ -158,6 +162,7 @@ export type UserProfile = z.infer<typeof UserProfileSchema>;
 const PreferenceValuesSchema = z.strictObject({
   aggressive_folds: z.boolean(),
   git_algorithm: GitAlgorithmSchema,
+  git_ignore_space_change: z.boolean(),
 });
 
 /** Complete active preferences; a null identity means anonymous local use. */
@@ -2979,8 +2984,16 @@ async function requestPreferences(
     const raw = window.localStorage.getItem(PREFERENCES_STORAGE_KEY);
     const values =
       raw === null
-        ? { aggressive_folds: true, git_algorithm: "myers" as const }
-        : PreferenceValuesSchema.parse(JSON.parse(raw));
+        ? {
+            aggressive_folds: true,
+            git_algorithm: "myers" as const,
+            git_ignore_space_change: false,
+          }
+        : PreferenceValuesSchema.extend({
+            // A browser cache may predate this control. This initial value is
+            // confined to localStorage; API preferences remain fully required.
+            git_ignore_space_change: z.boolean().default(false),
+          }).parse(JSON.parse(raw));
     return { ...values, user_profile_id: null };
   }
   const preferences = await requestJson(
@@ -3003,6 +3016,7 @@ async function requestPreferences(
     JSON.stringify({
       aggressive_folds: preferences.aggressive_folds,
       git_algorithm: preferences.git_algorithm,
+      git_ignore_space_change: preferences.git_ignore_space_change,
     }),
   );
   return preferences;
@@ -3019,10 +3033,13 @@ async function requestSavePreferences(input: {
   aggressiveFolds: boolean;
   /** Complete Git algorithm choice to persist. */
   gitAlgorithm: Preferences["git_algorithm"];
+  /** Whether Git should ignore changes in whitespace amount. */
+  gitIgnoreSpaceChange: boolean;
 }): Promise<Preferences> {
   const values = PreferenceValuesSchema.parse({
     aggressive_folds: input.aggressiveFolds,
     git_algorithm: input.gitAlgorithm,
+    git_ignore_space_change: input.gitIgnoreSpaceChange,
   });
   if (input.profileId === null) {
     return { ...values, user_profile_id: null };
@@ -4011,6 +4028,7 @@ export const api = {
               JSON.stringify({
                 aggressive_folds: saved.aggressive_folds,
                 git_algorithm: saved.git_algorithm,
+                git_ignore_space_change: saved.git_ignore_space_change,
               }),
             );
             queryClient.setQueryData(queryKey, saved);

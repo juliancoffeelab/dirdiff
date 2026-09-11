@@ -23,7 +23,7 @@ does not participate in manifest identity. A successful manifest creates a keyed
 `ChangeSetSnapshot`.
 
 The surrounding review boundary reads the active preferences before mounting the
-File lane. A Git algorithm change replaces the lane through the same lifecycle
+File lane. A Git option change replaces the lane through the same lifecycle
 as engine selection, without fetching another manifest or replacing the
 Snapshot's review state. Git's complete configuration belongs in both the lane
 identity and every File query key. Unrelated preference changes do not replace

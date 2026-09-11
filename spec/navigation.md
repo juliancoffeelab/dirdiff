@@ -30,8 +30,9 @@ A bay's stops usually come from its rows. A bay that changed and contributes no
 changed row — an `image` or `blob` bay, which has no rows at all, or a text
 bay whose change is a move — instead carries one stop at index zero on its own
 chrome. The coordinate is an ordinary `real` hunk and resolves the ordinary way;
-what differs is only which element carries the target. Chrome stays mounted in
-every representation, so such a stop is always landable, which is what makes
+what differs is only which element carries the target. A bare flatfile places
+its bay-carried target directly before its grid. These targets stay mounted
+in every representation, so such a stop is always landable, which is what makes
 every change reachable by Next and Previous.
 
 An empty text bay — one whose row list is empty, as for an added or removed

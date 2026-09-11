@@ -29,6 +29,7 @@ __all__ = [
 def run_git_no_index_diff(
     *,
     algorithm: GitAlgorithm,
+    ignore_space_change: bool,
     left_text: str,
     right_text: str,
     left_path_hint: str | None,
@@ -44,6 +45,7 @@ def run_git_no_index_diff(
     # Parameters
 
     - `algorithm`: Validated line-matching choice, overriding Git configuration.
+    - `ignore_space_change`: Pass `--ignore-space-change` when enabled.
     - `left_text`: Complete old text written to Git's left temporary file.
     - `right_text`: Complete new text written to Git's right temporary file.
     - `left_path_hint`: Optional old path used only to choose a useful suffix.
@@ -93,6 +95,7 @@ def run_git_no_index_diff(
                     "diff",
                     "--no-index",
                     f"--diff-algorithm={algorithm}",
+                    *(["--ignore-space-change"] if ignore_space_change else []),
                     "--no-color",
                     "--no-ext-diff",
                     "--no-textconv",

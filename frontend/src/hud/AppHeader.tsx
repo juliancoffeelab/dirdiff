@@ -461,10 +461,36 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
                     profileId: props.selectedProfile?.id ?? null,
                     aggressiveFolds: current.aggressive_folds,
                     gitAlgorithm: GitAlgorithmSchema.parse(value),
+                    gitIgnoreSpaceChange: current.git_ignore_space_change,
                   });
                 }}
                 optionAction={null}
               />
+              <button
+                type="button"
+                class="engine-whitespace-toggle"
+                aria-pressed={preferences.data?.git_ignore_space_change}
+                title="--ignore-space-change: ignore changes in whitespace amount and trailing whitespace."
+                disabled={
+                  preferences.isPending ||
+                  preferences.error !== null ||
+                  savePreferences.isPending
+                }
+                onClick={() => {
+                  const current = expect(
+                    preferences.data,
+                    "Changing whitespace handling requires loaded preferences.",
+                  );
+                  savePreferences.mutate({
+                    profileId: props.selectedProfile?.id ?? null,
+                    aggressiveFolds: current.aggressive_folds,
+                    gitAlgorithm: current.git_algorithm,
+                    gitIgnoreSpaceChange: !current.git_ignore_space_change,
+                  });
+                }}
+              >
+                Ignore space changes
+              </button>
             </Show>
             <Select
               class="header-engine-select view-select"

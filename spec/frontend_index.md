@@ -179,17 +179,20 @@ api.pullRequest.prepare()
 Each facade operation returns a TanStack query or mutation definition. HUD modules decide when to observe, prefetch, refetch, or execute it.
 
 File rendering accepts a complete `EngineConfig`: Git carries its engine tag and
-required algorithm; engines without options use their name. The File HTTP
-parameter is JSON, and the complete value participates in query identity.
+required algorithm and `ignore_space_change` boolean; engines without options
+use their name. The File HTTP parameter is JSON, and the complete value participates in query identity.
 Workspace URLs continue to store only the selected engine name.
 
 `api.profile.preferences(profileId)` accepts a Profile id or `null` for anonymous
 use. Profile reads load the database value directly into the localStorage
 preference cache. Anonymous reads use that cache, creating initial preferences
-only when the key is absent. Validation and storage failures remain errors.
-Preferences contain `aggressive_folds` and `git_algorithm`, initially true and
-Myers. The active TanStack query is the sole reactive representation; localStorage
-contains only the two preference values, with no Profile identity or version.
+only when the key is absent. At this localStorage boundary, an absent
+`git_ignore_space_change` field starts off. HTTP values still require every
+field. Validation and storage failures remain errors.
+Preferences contain `aggressive_folds`, `git_algorithm`, and
+`git_ignore_space_change`, initially true, Myers, and false. The active TanStack
+query is the sole reactive representation; localStorage contains only the
+preference values, with no Profile identity or version.
 
 `savePreferences(queryClient)` publishes complete values through the same path
 for both the header and the preferences editor. Profile saves await the database;
@@ -348,8 +351,10 @@ Private component:
 - view selection.
 
 For Git, an Algorithm Select beside the engine selector shows the active value
-and explains all four choices, marking Myers as the default. Other engines show
-no options control. It observes and saves canonical preferences directly;
+and explains all four choices, marking Myers as the default. The adjacent
+Ignore space changes toggle controls Git's `--ignore-space-change` flag. Both
+controls are disabled while preferences load or save. Other engines show no
+options control. The header observes and saves canonical preferences directly;
 option values are not copied into workspace state.
 
 It observes the canonical repository-list query.
@@ -403,7 +408,7 @@ out. Login never creates a missing Profile.
 Confirmed Profile identity is persisted in browser storage. Preferences use the
 shared query and localStorage path described above. Profile preference status
 also reports anonymous cache failures. The existing folding editor preserves
-the current Git algorithm when saving.
+the current Git algorithm and whitespace policy when saving.
 
 ## 8. Tabs
 
@@ -643,7 +648,7 @@ line-pin identity, file expansion, or navigation.
 
 `ReviewSnapshotBoundary` observes preferences and wraps the configuration-keyed
 File lane in `ReviewProvider` and passes the exact selected Profile through as browser review authorship.
-File rendering waits for loaded preferences. A changed algorithm replaces the
+File rendering waits for loaded preferences. A changed Git option replaces the
 File lane while the ReviewProvider, manifest, and Snapshot remain mounted. An
 equal configuration does not replace the lane when unrelated preferences change.
 Each History Thread's explicit go-to action finds the exact manifest File pair and invokes
@@ -878,6 +883,8 @@ and a bay whose `change` is not `unchanged`, contributing no such row,
 takes one stop of its own at index zero. There is no file-wide numbering: a
 hunk coordinate is the owning bay's key plus the bay-local index, and
 `TextDiffGrid` takes the bay key so `rowDom` writes both halves untranslated.
+A bare flatfile mounts its bay-carried stop before the grid, so a file whose
+changes are all ignored by the engine remains reachable through navigation.
 `composedHunkCount` is the File total, replacing the `hunk_count` the payload
 used to carry.
 

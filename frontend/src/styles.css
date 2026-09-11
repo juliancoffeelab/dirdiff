@@ -548,6 +548,32 @@ h1 {
   min-width: min(320px, 40vw);
 }
 
+.engine-whitespace-toggle {
+  min-height: var(--header-control-height);
+  padding: 0 10px;
+  border: 1px solid #d8d0c2;
+  background: #fffdf8;
+  color: #6a665d;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.engine-whitespace-toggle[aria-pressed="true"] {
+  border-color: #167951;
+  background: #e3f3e9;
+  color: #167951;
+}
+
+.engine-whitespace-toggle:focus-visible {
+  outline: 2px solid #24231f;
+  outline-offset: 2px;
+}
+
+.engine-whitespace-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .engine-algorithm-select .ui-select-menu {
   width: 440px;
 }

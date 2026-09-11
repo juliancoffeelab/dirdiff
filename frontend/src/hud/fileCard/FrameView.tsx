@@ -1350,6 +1350,27 @@ export function FrameView(props: {
     >
       {(bare) => (
         <>
+          {/* A changed flat file can have no row hunks after whitespace is
+              ignored. Its bay stop remains mounted outside the grid. */}
+          <For
+            each={
+              bayHunks(bare.bay).carrier === "bay"
+                ? bayHunks(bare.bay).stops
+                : []
+            }
+          >
+            {(hunkIndex) => (
+              <span
+                class="composed-bay-anchor"
+                data-hunk-target
+                data-hunk-kind="real"
+                data-file-index={props.fileIndex}
+                data-hunk-bay={bare.bay.bay_key}
+                data-hunk-index={hunkIndex}
+                aria-hidden="true"
+              />
+            )}
+          </For>
           {/* A bare text File has no bay chrome to hang a warning on, so it
               renders directly above the grid it describes. */}
           <BayWarnings bay={bare.bay} />

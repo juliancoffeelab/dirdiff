@@ -547,10 +547,14 @@ function ReviewSnapshotBoundary(
     () => {
       if (preferences.isPending || preferences.error !== null) return null;
       if (props.engine !== "git") return props.engine;
+      const current = expect(
+        preferences.data,
+        "Loaded preferences require data.",
+      );
       return {
         engine: "git",
-        algorithm: expect(preferences.data, "Loaded preferences require data.")
-          .git_algorithm,
+        algorithm: current.git_algorithm,
+        ignore_space_change: current.git_ignore_space_change,
       };
     },
     null,

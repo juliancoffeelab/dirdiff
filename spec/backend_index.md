@@ -80,6 +80,11 @@ diff construction inside its own implementation.
 Git no-index accepts Myers, Minimal, Patience, or Histogram. Myers is its
 declared default. Each Git invocation passes `--diff-algorithm` explicitly;
 algorithm selection changes line alignment without changing subsequent decoration.
+Its `ignore_space_change` boolean adds `--ignore-space-change` when enabled.
+Git then ignores trailing whitespace and changes in the amount of existing
+whitespace. Adding whitespace where there was none still counts as a change.
+Equal rows retain both original source spellings, including ignored spacing in
+patch context and omitted gaps.
 
 The concrete engines are difftastic, Git no-index, GumTree, Diffsitter, the
 legacy line-first prototype (`textdiff`, engine param `dirdiff`), and the
@@ -147,8 +152,8 @@ the sole consumer of its private `_logic` driver, which contains executable
 discovery, temporary files, and raw JSON validation.
 
 The package also defines engine selection. `EngineConfig` carries Git's required
-algorithm or the name of an engine with no options. `engine()` constructs that
-configured renderer. Both are exported from the package root. `engine()` is defined in `__init__.py` rather than `base.py`
+algorithm and whitespace boolean, or the name of an engine with no options.
+`engine()` constructs that configured renderer. Both are exported from the package root. `engine()` is defined in `__init__.py` rather than `base.py`
 because selection must reach the concrete engine classes, whose modules import
 their contracts from `base.py`.
 
@@ -271,9 +276,9 @@ one existing local identity without credentials. Agent registration adds a one-t
 without changing that Profile shape. `db.room` contains these relations,
 immutable records, and transactions through `RoomStore`.
 
-Profile preferences store the folding policy and Git algorithm in one row per
-Profile. Reads create initial values only when no preference row exists; saves
-replace both values. The HTTP boundary validates the closed algorithm choice.
+Profile preferences store the folding policy, Git algorithm, and Git whitespace
+policy in one row per Profile. Reads create initial values only when no
+preference row exists; saves replace all values. The HTTP boundary validates the closed algorithm choice.
 
 Its public interface is exported from `dirdiff.db`.
 

@@ -127,6 +127,9 @@ class PreferencesResponse(ApiModel):
     git_algorithm: GitAlgorithm
     """Remembered Git line-matching choice for future File rendering."""
 
+    git_ignore_space_change: bool
+    """Whether Git ignores changes in whitespace amount for future rendering."""
+
 
 class PreferencesUpdateRequest(ApiModel):
     """Supply the mutable preference values to store for one Profile.
@@ -146,6 +149,9 @@ class PreferencesUpdateRequest(ApiModel):
 
     git_algorithm: GitAlgorithm
     """Required replacement for the Profile's Git algorithm preference."""
+
+    git_ignore_space_change: bool
+    """Required replacement for the Profile's Git whitespace preference."""
 
 
 class _ApplicationRoutes:
@@ -386,7 +392,10 @@ class _ApplicationRoutes:
             )
         return PreferencesResponse.model_validate(
             self.preferences_store.save(
-                profile_id, request.aggressive_folds, request.git_algorithm
+                profile_id,
+                request.aggressive_folds,
+                request.git_algorithm,
+                request.git_ignore_space_change,
             ),
             from_attributes=True,
         )
