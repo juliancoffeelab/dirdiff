@@ -133,11 +133,19 @@ Backend row order is authoritative. Inline view combines insert-only
 replacement rows into one presented row regardless of engine, but hunk
 identity remains attached to the backend boundary that produced it.
 
+Moved rows may carry an unpaired `move` record with a presentation group and
+dimmed state, independent of structural move endpoints. The populated row side
+selects the old or new background. Split and Inline preserve both presentation
+groups and dimmed interiors. Syntax colors remain readable.
+These rows have no paired hover, outlines, or counterpart navigation, and
+each old-only or new-only row counts once toward moved lines.
+
 The rendering layer combines each engine token partition with the syntax spans
 for the same row side. The resulting ordered parts preserve every source
 character and carry `syntax_classes`, `diff_status`, whitespace status, and
 leading-whitespace status. Structural tokens also carry their containing move's
-old and new source spans. Syntax splitting preserves those endpoints and never
+`paired` kind and old and new source spans. Syntax splitting preserves those
+endpoints and never
 merges different move relationships. Moved tokens carry the purple move
 background. Persistent SVG outlines enclose the text carrying each move
 relationship, including inserted and edited descendants. Text with another

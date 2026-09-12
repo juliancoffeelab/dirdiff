@@ -28,6 +28,8 @@ import {
   type DiffEngine,
   DiffEngineSchema,
   GitAlgorithmSchema,
+  GitColorMovedSchema,
+  GitColorMovedWsSchema,
   GumTreeMatcherSchema,
   type ProjectId,
   type RepoMark,
@@ -735,6 +737,8 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
       gumtreeMatcher: current.gumtree_matcher,
       gitAlgorithm: GitAlgorithmSchema.parse(value),
       gitIgnoreSpaceChange: current.git_ignore_space_change,
+      gitColorMoved: current.git_color_moved,
+      gitColorMovedWs: current.git_color_moved_ws,
     });
   }
 
@@ -753,6 +757,8 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
       gumtreeMatcher: current.gumtree_matcher,
       gitAlgorithm: current.git_algorithm,
       gitIgnoreSpaceChange: !current.git_ignore_space_change,
+      gitColorMoved: current.git_color_moved,
+      gitColorMovedWs: current.git_color_moved_ws,
     });
   }
 
@@ -835,6 +841,150 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
             {(prefs) => (
               <div class="engine-options-content">
                 <Show when={props.engine === "git"}>
+                  <For
+                    each={[
+                      {
+                        field: "git_color_moved" as const,
+                        label: "Moved-code mode",
+                        options: [
+                          ["no", "Do not highlight moved code."],
+                          [
+                            "plain",
+                            "Highlight individual removed and added lines that match.",
+                          ],
+                          [
+                            "blocks",
+                            "Highlight greedy moved blocks with at least 20 alphanumeric characters.",
+                          ],
+                          [
+                            "zebra",
+                            "Alternate colors between adjacent detected blocks.",
+                          ],
+                          [
+                            "dimmed-zebra",
+                            "Alternate blocks, dim interiors and emphasize boundaries.",
+                          ],
+                          [
+                            "default",
+                            "Use Git's default mode, currently zebra.",
+                          ],
+                        ],
+                      },
+                      {
+                        field: "git_color_moved_ws" as const,
+                        label: "Whitespace during move detection",
+                        options: [
+                          ["no", "Require exact whitespace."],
+                          [
+                            "ignore-space-at-eol",
+                            "Ignore trailing whitespace differences.",
+                          ],
+                          [
+                            "ignore-space-change",
+                            "Ignore changes in existing whitespace amount and trailing space.",
+                          ],
+                          [
+                            "ignore-all-space",
+                            "Ignore all whitespace, including newly added spaces.",
+                          ],
+                          [
+                            "allow-indentation-change",
+                            "Match ignoring whitespace, then group lines with the same indentation change.",
+                          ],
+                        ],
+                      },
+                    ]}
+                  >
+                    {(setting) => (
+                      <div class="engine-options-section">
+                        <span class="engine-options-section-label">
+                          {setting.label}
+                        </span>
+                        <div
+                          class="engine-algorithm-list"
+                          role="radiogroup"
+                          aria-label={setting.label}
+                        >
+                          <For each={setting.options}>
+                            {([value, explanation]) => (
+                              <label
+                                class="engine-algorithm-item"
+                                classList={{
+                                  selected: prefs()[setting.field] === value,
+                                }}
+                              >
+                                <input
+                                  class="engine-algorithm-input"
+                                  type="radio"
+                                  name={`${optionsId}-${setting.field}`}
+                                  value={value}
+                                  checked={prefs()[setting.field] === value}
+                                  disabled={
+                                    setting.field === "git_color_moved_ws" &&
+                                    prefs().git_color_moved === "no"
+                                  }
+                                  aria-disabled={savePreferences.isPending}
+                                  onChange={(event) => {
+                                    // Native activation has finished. Restore confirmed
+                                    // selection before saving, so cancellation cannot
+                                    // undo a synchronous anonymous preference update.
+                                    const group = expect(
+                                      event.currentTarget.closest(
+                                        '[role="radiogroup"]',
+                                      ),
+                                      "Move options require their radio group.",
+                                    );
+                                    for (const input of group.querySelectorAll<HTMLInputElement>(
+                                      'input[type="radio"]',
+                                    )) {
+                                      input.checked =
+                                        input.value === prefs()[setting.field];
+                                    }
+                                    if (
+                                      savePreferences.isPending ||
+                                      prefs()[setting.field] === value
+                                    ) {
+                                      return;
+                                    }
+                                    const current = prefs();
+                                    savePreferences.mutate({
+                                      profileId:
+                                        props.selectedProfile?.id ?? null,
+                                      aggressiveFolds: current.aggressive_folds,
+                                      gitAlgorithm: current.git_algorithm,
+                                      gitIgnoreSpaceChange:
+                                        current.git_ignore_space_change,
+                                      gitColorMoved: GitColorMovedSchema.parse(
+                                        setting.field === "git_color_moved"
+                                          ? value
+                                          : current.git_color_moved,
+                                      ),
+                                      gitColorMovedWs:
+                                        GitColorMovedWsSchema.parse(
+                                          setting.field === "git_color_moved_ws"
+                                            ? value
+                                            : current.git_color_moved_ws,
+                                        ),
+                                      difftasticIgnoreComments:
+                                        current.difftastic_ignore_comments,
+                                      gumtreeMatcher: current.gumtree_matcher,
+                                    });
+                                  }}
+                                />
+                                <span class="engine-algorithm-item-header">
+                                  <strong>{value}</strong>
+                                </span>
+                                <span class="engine-algorithm-item-desc">
+                                  {explanation}
+                                </span>
+                              </label>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                  <div class="engine-options-popover-divider" />
                   <div class="engine-options-section">
                     <span class="engine-options-section-label">Algorithm</span>
                     <div
@@ -970,6 +1120,8 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                               profileId: props.selectedProfile?.id ?? null,
                               aggressiveFolds: current.aggressive_folds,
                               gitAlgorithm: current.git_algorithm,
+                              gitColorMoved: current.git_color_moved,
+                              gitColorMovedWs: current.git_color_moved_ws,
                               gitIgnoreSpaceChange:
                                 current.git_ignore_space_change,
                               difftasticIgnoreComments:
@@ -1045,6 +1197,8 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                                   profileId: props.selectedProfile?.id ?? null,
                                   aggressiveFolds: current.aggressive_folds,
                                   gitAlgorithm: current.git_algorithm,
+                                  gitColorMoved: current.git_color_moved,
+                                  gitColorMovedWs: current.git_color_moved_ws,
                                   gitIgnoreSpaceChange:
                                     current.git_ignore_space_change,
                                   difftasticIgnoreComments:

@@ -6,6 +6,7 @@
       {
         "is_ws": false,
         "move": {
+          "kind": "paired",
           "left": {
             "end_column": 12,
             "end_line": 2,
@@ -35,6 +36,7 @@
       {
         "is_ws": false,
         "move": {
+          "kind": "paired",
           "left": {
             "end_column": 12,
             "end_line": 2,
@@ -127,6 +129,7 @@
       {
         "is_ws": false,
         "move": {
+          "kind": "paired",
           "left": {
             "end_column": 12,
             "end_line": 2,
@@ -156,6 +159,7 @@
       {
         "is_ws": false,
         "move": {
+          "kind": "paired",
           "left": {
             "end_column": 12,
             "end_line": 2,

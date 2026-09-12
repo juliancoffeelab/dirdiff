@@ -179,7 +179,8 @@ api.pullRequest.prepare()
 Each facade operation returns a TanStack query or mutation definition. HUD modules decide when to observe, prefetch, refetch, or execute it.
 
 File rendering accepts a complete `EngineConfig`: Git carries its engine tag and
-required algorithm and `ignore_space_change` boolean. Difftastic carries its
+required algorithm, `ignore_space_change` boolean, `color_moved`, and
+`color_moved_ws`. Difftastic carries its
 required `ignore_comments` boolean; GumTree carries its required `matcher`. Engines without options carry just their name as the `engine` tag. The File HTTP parameter is JSON, and the complete value participates in query identity.
 Workspace URLs continue to store only the selected engine name.
 
@@ -188,12 +189,14 @@ use. Profile reads load the database value directly into the localStorage
 preference cache. Anonymous reads use that cache, creating initial preferences
 only when the key is absent. At this localStorage boundary, an absent
 `git_ignore_space_change` field starts off. HTTP values still require every
-field. The same localStorage boundary initializes missing Difftastic and GumTree
+field. This boundary initializes missing `git_color_moved` and
+`git_color_moved_ws` to `no`, and missing Difftastic and GumTree
 options to false and `gumtree-simple`; database migration preserves those values
 for existing Profiles. Validation and storage failures remain errors.
 Preferences contain `aggressive_folds`, `git_algorithm`, and
-`git_ignore_space_change`, `difftastic_ignore_comments`, and `gumtree_matcher`,
-initially true, Myers, false, false, and `gumtree-simple`. The active TanStack
+`git_ignore_space_change`, `difftastic_ignore_comments`, `gumtree_matcher`,
+`git_color_moved`, and `git_color_moved_ws`, initially true, Myers, false,
+false, `gumtree-simple`, `no`, and `no`. The active TanStack
 query is the sole reactive representation; localStorage contains only the
 preference values, with no Profile identity or version.
 
@@ -359,13 +362,17 @@ engine-specific configuration. A native auto popover handles opening, outside-cl
 dismissal, and Escape. Opening sets fixed viewport coordinates below the trigger;
 scrolling does not re-anchor the popup. No popup state or document listeners are needed. For Git, the popup displays the algorithm choices
 (Myers as the default, Minimal, Patience, Histogram) and the Ignore space changes
-toggle for Git's `--ignore-space-change` flag. Difftastic shows an Ignore comments
+toggle for Git's `--ignore-space-change` flag. Git also shows all six moved-color modes and five exclusive
+move-whitespace modes as radio cards with explanations. The latter is disabled
+while moved-color is `no`, retaining its selection. These options do not
+disable or replace Ignore space changes. The popup scrolls within the desktop
+viewport. Difftastic shows an Ignore comments
 toggle; GumTree uses the same radio cards for its matcher, with Simple, Classic, Hybrid, Stable,
 and Auto choices. For engines without options, the popup
 indicates that no options are implemented for that engine. The button displays an indicator badge whenever the engine has options,
 including when all settings have their default values. Controls are disabled while
 preferences save without losing keyboard focus. Native radio inputs provide
-arrow-key algorithm selection; both controls display only confirmed saves. Save
+arrow-key selection; option controls display only confirmed saves. Save
 errors offer a retry of the original values for the same Profile. The component
 observes and saves canonical preferences directly; option values are not copied
 into workspace state.

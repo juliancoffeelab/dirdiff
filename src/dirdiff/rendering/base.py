@@ -29,9 +29,10 @@ from tree_sitter import Language, Parser, Query, QueryCursor
 
 from dirdiff.engines import (
     DiffEngineRow,
-    InlineMove,
     InlineToken,
     InlineTokenStatus,
+    PairedMove,
+    UnpairedMove,
 )
 from dirdiff.rendering._base.fold import (
     FoldHint,
@@ -202,7 +203,7 @@ class DecoratedPart(TypedDict):
     these classes directly and must not infer additional syntax from neighbors.
     """
 
-    move: NotRequired[InlineMove]
+    move: NotRequired[PairedMove]
     """Structural move endpoints copied intact from the containing engine token.
 
     Syntax splitting preserves this metadata even on edited move descendants;
@@ -422,6 +423,9 @@ class DiffRow(TypedDict):
     It contains decorated text and bay-local hunk identity. Frontend fold rows
     are derived from `FoldHint` and never enter this shape.
     """
+
+    move: NotRequired[UnpairedMove]
+    """Unpaired row move facts that enrichment preserves unchanged."""
 
     status: Literal["equal", "replace", "insert", "delete", "move"]
     """Engine-supplied relationship of the aligned source sides.
@@ -1201,6 +1205,9 @@ def enrich_rows_for_display(
                 "hunk_index": hunk_index,
             }
         )
+
+        if "move" in row:
+            enriched_rows[-1]["move"] = row["move"]
 
     payload: EnrichedRows = {
         "hunk_count": hunk_count,

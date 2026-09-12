@@ -7,6 +7,7 @@ parser validity where a parser is available. It does not assert rendered diff
 output; that belongs to the golden and logic test modules.
 """
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -25,13 +26,13 @@ dependency rather than a separate global compiler.
 EXPECTED_PRESET_MAKEFILE = """OLD := $(firstword $(wildcard old.*))
 NEW := $(firstword $(wildcard new.*))
 
-.PHONY: diff full gum json show
+.PHONY: difft git gum difft-json bat diffs
 
-diff:
+difft:
 \tdifft $(OLD) $(NEW)
 
-full:
-\tdiff $(OLD) $(NEW)
+git:
+\tgit --no-pager diff --no-index --color=always --no-color-moved $(OLD) $(NEW)
 
 gum:
 \tgumtree webdiff --port $${GUM_PORT:-4567} $(OLD) $(NEW) & \\
@@ -44,16 +45,20 @@ gum:
 \telse printf 'GumTree webdiff: %s\\n' $$url; fi; \\
 \twait $$pid
 
-json:
-\t@DFT_UNSTABLE=yes difft --display json --context 100000000 $(OLD) $(NEW)
+difft-json:
+\tDFT_UNSTABLE=yes difft --display json --context 100000000 $(OLD) $(NEW)
 
-show:
+bat:
 \tbat $(OLD) $(NEW)
-"""
-"""Exact human-facing helper commands every two-sided preset provides.
 
-Keeping one checked value prevents fixture-local command drift; the Makefile is
-for manual inspection and snapshot generation, not part of diff behavior.
+diffs:
+\tdiffsitter --no-config $(OLD) $(NEW)
+"""
+"""Hardcoded shared commands copied into every two-sided preset Makefile.
+
+Catalogs may provide preset.Makefile recipes that extend these defaults. Fixture
+Makefiles stay standalone; no includes or generated files are needed to run a
+command.
 """
 
 
@@ -95,17 +100,125 @@ def test_presets_have_old_and_new_files() -> None:
 
 
 def test_presets_have_standard_makefiles() -> None:
-    """Every two-sided fixture exposes the same manual inspection commands.
+    """Verify standalone shared commands and each catalog's additive recipes.
 
-    Exact equality keeps snapshot, external-engine, and display helpers aligned
-    across catalogs instead of letting copied fixtures drift.
+    A catalog with additions declares them beside preset.toml. Make itself
+    expands commands against each real source pair. Shared command output must
+    remain identical to the defaults even when a catalog assigns variables or
+    targets. Additional targets are discovered from Make's rule database and
+    dry-run too; Git move commands additionally retain their advertised
+    detection flags.
     """
+    shared_targets = ["difft", "git", "gum", "difft-json", "bat", "diffs"]
+    for makefile in PRESETS_ROOT.rglob("*Makefile"):
+        assert not any(
+            line.startswith("\t@") for line in makefile.read_text().splitlines()
+        ), makefile
+    for catalog in sorted(PRESETS_ROOT.iterdir()):
+        if catalog.is_dir():
+            assert (catalog / "preset.toml").is_file(), catalog
+
     preset_dirs = _preset_dirs()
     assert preset_dirs != []
     for preset_dir in preset_dirs:
         makefile = preset_dir / "Makefile"
+        extension_file = preset_dir.parents[1] / "preset.Makefile"
+        extensions = (
+            extension_file.read_text() if extension_file.is_file() else ""
+        )
+        assert makefile.read_text() == EXPECTED_PRESET_MAKEFILE + extensions, (
+            preset_dir
+        )
+        defaults = subprocess.run(
+            [
+                "make",
+                "--dry-run",
+                "--no-print-directory",
+                "-f",
+                "-",
+                *shared_targets,
+            ],
+            input=EXPECTED_PRESET_MAKEFILE,
+            cwd=preset_dir,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        actual = subprocess.run(
+            ["make", "--dry-run", "--no-print-directory", *shared_targets],
+            cwd=preset_dir,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        assert actual.stderr == "", (preset_dir, actual.stderr)
+        assert actual.stdout == defaults.stdout, (preset_dir, actual.stdout)
+        (old_file,) = preset_dir.glob("old.*")
+        (new_file,) = preset_dir.glob("new.*")
+        assert f"bat {old_file.name} {new_file.name}\n" in actual.stdout, (
+            preset_dir
+        )
 
-        assert makefile.read_text() == EXPECTED_PRESET_MAKEFILE, preset_dir
+        database = subprocess.run(
+            [
+                "make",
+                "--dry-run",
+                "--no-print-directory",
+                "--print-data-base",
+                "-rR",
+                *shared_targets,
+            ],
+            cwd=preset_dir,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        # GNU Make expands multi-target and variable-defined rules here. Its
+        # non-target file entries are marked separately from declared targets.
+        rules = database.stdout.split("# Files\n", 1)[1].split(
+            "# files hash-table", 1
+        )[0]
+        targets = []
+        for block in rules.split("\n\n"):
+            if "# Not a target:" in block:
+                continue
+            target = re.search(r"^([^#\s:=]+):", block, re.MULTILINE)
+            if (
+                target is not None
+                and not target[1].startswith(".")
+                and target[1] not in shared_targets
+            ):
+                targets.append(target[1])
+        for target_name in targets:
+            expanded = subprocess.run(
+                ["make", "--dry-run", "--no-print-directory", target_name],
+                cwd=preset_dir,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            assert expanded.stderr == "", (
+                preset_dir,
+                target_name,
+                expanded.stderr,
+            )
+            assert expanded.stdout.strip(), (preset_dir, target_name)
+            if preset_dir.parents[1].name == "git" and target_name in {
+                "git-moved",
+                "git-moved-indent",
+            }:
+                assert "--color-moved=zebra" in expanded.stdout, preset_dir
+                whitespace = (
+                    "allow-indentation-change"
+                    if target_name == "git-moved-indent"
+                    else "no"
+                )
+                assert f"--color-moved-ws={whitespace}" in expanded.stdout, (
+                    preset_dir
+                )
+                assert f"{old_file.name} {new_file.name}" in expanded.stdout, (
+                    preset_dir
+                )
 
 
 def test_python_presets_compile() -> None:

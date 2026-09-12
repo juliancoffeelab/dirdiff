@@ -86,6 +86,17 @@ whitespace. Adding whitespace where there was none still counts as a change.
 Equal rows retain both original source spellings, including ignored spacing in
 patch context and omitted gaps.
 
+Git's required `color_moved` and `color_moved_ws` settings pass the exact
+upstream choices, including `default`, independently of diff whitespace.
+Both initially use `no`. Controlled Git color slots become optional
+unpaired `move` row data at the engine boundary. The record stores its
+`unpaired` kind, primary or alternative zebra group, and dimmed state without
+a counterpart identity. The populated source coordinate supplies the old or
+new side. Each highlighted row is classified and counted once as moved. The
+adapter validates colored payloads against the original source; escapes never
+become decoration markup. Unsupported envelopes and failed Git execution
+remain local failures.
+
 The concrete engines are difftastic, Git no-index, GumTree, Diffsitter, the
 legacy line-first prototype (`textdiff`, engine param `dirdiff`), and the
 next-generation token-first prototype (`tokendiff`, engine param `tokendiff`).
@@ -290,6 +301,8 @@ immutable records, and transactions through `RoomStore`.
 Profile preferences store the folding policy, Git algorithm and whitespace
 policy, Difftastic comment policy, and GumTree matcher in one row per Profile. Reads create initial values only when no
 preference row exists; saves replace all values. The HTTP boundary validates the closed algorithm choice.
+The same row stores Git moved-color and move-whitespace choices. Migration
+initializes both to `no` for existing Profiles; subsequent writes require both.
 
 Its public interface is exported from `dirdiff.db`.
 

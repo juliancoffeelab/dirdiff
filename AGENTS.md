@@ -3,9 +3,14 @@
 This is a browser-based review tool. Its goal is to enable humans to review the
 code with ease, and having a pleasant experience while doing so. No matter
 the size of the patch, or the shape of the files.
+Alongside that, the goal of this project specifically, is to showcase existing
+external tools and faithfully their options, even when these options have
+their drawbacks.
 
 When it comes to developing itself, every piece hot-reloads, be it the backend
 or the frontend. Outdated state is highly unlikely, and is a likely a bug.
+This document is for agents, README.md is for humans and you are not allowed
+to edit top-level README.md, ever.
 
 ## Non-negotiable rules
 

@@ -1,13 +1,13 @@
 OLD := $(firstword $(wildcard old.*))
 NEW := $(firstword $(wildcard new.*))
 
-.PHONY: diff full gum json show
+.PHONY: difft git gum difft-json bat diffs
 
-diff:
+difft:
 	difft $(OLD) $(NEW)
 
-full:
-	diff $(OLD) $(NEW)
+git:
+	git --no-pager diff --no-index --color=always --no-color-moved $(OLD) $(NEW)
 
 gum:
 	gumtree webdiff --port $${GUM_PORT:-4567} $(OLD) $(NEW) & \
@@ -20,8 +20,11 @@ gum:
 	else printf 'GumTree webdiff: %s\n' $$url; fi; \
 	wait $$pid
 
-json:
-	@DFT_UNSTABLE=yes difft --display json --context 100000000 $(OLD) $(NEW)
+difft-json:
+	DFT_UNSTABLE=yes difft --display json --context 100000000 $(OLD) $(NEW)
 
-show:
+bat:
 	bat $(OLD) $(NEW)
+
+diffs:
+	diffsitter --no-config $(OLD) $(NEW)

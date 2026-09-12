@@ -78,6 +78,12 @@ class UserPreferences(TableBase):
     )
     """Whether Difftastic excludes comments from structural change detection."""
 
+    git_color_moved: Mapped[str] = mapped_column(String, nullable=False)
+    """Exact Git move-color selection, validated at the HTTP boundary."""
+
+    git_color_moved_ws: Mapped[str] = mapped_column(String, nullable=False)
+    """Move-detection whitespace selection, retained independently of active engine."""
+
     gumtree_matcher: Mapped[str] = mapped_column(String, nullable=False)
     """Exact GumTree matcher ID validated at the HTTP boundary."""
 
@@ -115,6 +121,12 @@ class PreferencesRecord:
 
     difftastic_ignore_comments: bool
     """Stored Difftastic comment policy, without UI interpretation."""
+
+    git_color_moved: str
+    """Stored Git move-color mode, without alias conversion."""
+
+    git_color_moved_ws: str
+    """Stored Git move-detection whitespace mode."""
 
     gumtree_matcher: str
     """Stored upstream GumTree matcher ID."""
@@ -176,6 +188,8 @@ class PreferencesStore:
                     UserPreferences.git_ignore_space_change,
                     UserPreferences.difftastic_ignore_comments,
                     UserPreferences.gumtree_matcher,
+                    UserPreferences.git_color_moved,
+                    UserPreferences.git_color_moved_ws,
                 ).where(UserPreferences.user_profile_id == user_profile_id)
             ).one_or_none()
             if row is None:
@@ -187,6 +201,8 @@ class PreferencesStore:
                 git_ignore_space_change=row[3],
                 difftastic_ignore_comments=row[4],
                 gumtree_matcher=row[5],
+                git_color_moved=row[6],
+                git_color_moved_ws=row[7],
             )
 
     def get_or_create(self, user_profile_id: int) -> PreferencesRecord:
@@ -226,6 +242,8 @@ class PreferencesStore:
                     git_ignore_space_change=False,
                     difftastic_ignore_comments=False,
                     gumtree_matcher="gumtree-simple",
+                    git_color_moved="no",
+                    git_color_moved_ws="no",
                 )
                 .on_conflict_do_update(
                     index_elements=[UserPreferences.user_profile_id],
@@ -242,6 +260,8 @@ class PreferencesStore:
                     UserPreferences.git_ignore_space_change,
                     UserPreferences.difftastic_ignore_comments,
                     UserPreferences.gumtree_matcher,
+                    UserPreferences.git_color_moved,
+                    UserPreferences.git_color_moved_ws,
                 )
             ).one()
             return PreferencesRecord(
@@ -251,6 +271,8 @@ class PreferencesStore:
                 git_ignore_space_change=row[3],
                 difftastic_ignore_comments=row[4],
                 gumtree_matcher=row[5],
+                git_color_moved=row[6],
+                git_color_moved_ws=row[7],
             )
 
     def save(
@@ -261,6 +283,8 @@ class PreferencesStore:
         git_ignore_space_change: bool,
         difftastic_ignore_comments: bool,
         gumtree_matcher: str,
+        git_color_moved: str,
+        git_color_moved_ws: str,
     ) -> PreferencesRecord:
         """Persist and return one Profile's complete preferences.
 
@@ -275,6 +299,8 @@ class PreferencesStore:
         - `git_ignore_space_change`: Whether Git ignores whitespace amount changes.
         - `difftastic_ignore_comments`: Whether Difftastic ignores comments.
         - `gumtree_matcher`: Validated upstream matcher ID.
+        - `git_color_moved`: Exact Git move-color selection.
+        - `git_color_moved_ws`: Exact move-detection whitespace selection.
 
         # Usage
 
@@ -295,6 +321,8 @@ class PreferencesStore:
                     git_ignore_space_change=git_ignore_space_change,
                     difftastic_ignore_comments=difftastic_ignore_comments,
                     gumtree_matcher=gumtree_matcher,
+                    git_color_moved=git_color_moved,
+                    git_color_moved_ws=git_color_moved_ws,
                 )
                 .on_conflict_do_update(
                     index_elements=[UserPreferences.user_profile_id],
@@ -304,6 +332,8 @@ class PreferencesStore:
                         "git_ignore_space_change": git_ignore_space_change,
                         "difftastic_ignore_comments": difftastic_ignore_comments,
                         "gumtree_matcher": gumtree_matcher,
+                        "git_color_moved": git_color_moved,
+                        "git_color_moved_ws": git_color_moved_ws,
                     },
                 )
                 .returning(
@@ -313,6 +343,8 @@ class PreferencesStore:
                     UserPreferences.git_ignore_space_change,
                     UserPreferences.difftastic_ignore_comments,
                     UserPreferences.gumtree_matcher,
+                    UserPreferences.git_color_moved,
+                    UserPreferences.git_color_moved_ws,
                 )
             ).one()
             return PreferencesRecord(
@@ -322,4 +354,6 @@ class PreferencesStore:
                 git_ignore_space_change=row[3],
                 difftastic_ignore_comments=row[4],
                 gumtree_matcher=row[5],
+                git_color_moved=row[6],
+                git_color_moved_ws=row[7],
             )

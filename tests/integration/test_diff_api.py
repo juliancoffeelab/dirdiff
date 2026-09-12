@@ -523,6 +523,8 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
         "aggressive_folds": True,
         "git_algorithm": "myers",
         "git_ignore_space_change": False,
+        "git_color_moved": "no",
+        "git_color_moved_ws": "no",
         "difftastic_ignore_comments": False,
         "gumtree_matcher": "gumtree-simple",
     }
@@ -532,6 +534,8 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
         "aggressive_folds": True,
         "git_algorithm": "myers",
         "git_ignore_space_change": False,
+        "git_color_moved": "no",
+        "git_color_moved_ws": "no",
         "difftastic_ignore_comments": False,
         "gumtree_matcher": "gumtree-simple",
     }
@@ -542,6 +546,8 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
             "aggressive_folds": False,
             "git_algorithm": "myers",
             "git_ignore_space_change": False,
+            "git_color_moved": "no",
+            "git_color_moved_ws": "no",
             "difftastic_ignore_comments": True,
             "gumtree_matcher": "gumtree-classic",
         },
@@ -556,6 +562,8 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
         "aggressive_folds": False,
         "git_algorithm": "myers",
         "git_ignore_space_change": False,
+        "git_color_moved": "no",
+        "git_color_moved_ws": "no",
         "difftastic_ignore_comments": True,
         "gumtree_matcher": "gumtree-classic",
     }
@@ -565,6 +573,8 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
         "aggressive_folds": True,
         "git_algorithm": "myers",
         "git_ignore_space_change": False,
+        "git_color_moved": "no",
+        "git_color_moved_ws": "no",
         "difftastic_ignore_comments": False,
         "gumtree_matcher": "gumtree-simple",
     }

@@ -314,6 +314,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -338,6 +339,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -359,6 +361,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -383,6 +386,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -407,6 +411,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 18,
@@ -478,6 +483,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 18,
@@ -577,6 +583,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -601,6 +608,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -622,6 +630,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -645,6 +654,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -666,6 +676,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -689,6 +700,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -710,6 +722,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -733,6 +746,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -754,6 +768,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -777,6 +792,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -798,6 +814,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -821,6 +838,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -842,6 +860,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -865,6 +884,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -886,6 +906,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,
@@ -909,6 +930,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 3,
             "start_column": 2,

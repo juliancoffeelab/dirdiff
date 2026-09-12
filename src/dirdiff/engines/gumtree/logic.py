@@ -36,10 +36,10 @@ from dirdiff.engines.base import (
     DiffSummary,
     DirdiffError,
     GumTreeMatcher,
-    InlineMove,
     InlineToken,
     InlineTokenStatus,
     MoveSpan,
+    PairedMove,
 )
 from dirdiff.engines.gumtree._logic.driver import (
     GumTreeJson,
@@ -94,7 +94,7 @@ class _Decoration:
     ordinal: int
     """Input action order, breaking ties after span width and edit priority."""
 
-    move: InlineMove | None
+    move: PairedMove | None
     """Both endpoints for a move action; other actions have no move of their own."""
 
 
@@ -312,10 +312,11 @@ def build_gumtree_rows_from_json(
             right_start, right_end = source_range(
                 destinations[tree], right_text, right_offsets
             )
-            move: InlineMove | None = None
+            move: PairedMove | None = None
             if status == "move":
                 assert left_start < left_end and right_start < right_end
                 move = {
+                    "kind": "paired",
                     "left": move_span(left_start, left_end, left_starts),
                     "right": move_span(right_start, right_end, right_starts),
                 }

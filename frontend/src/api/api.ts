@@ -56,6 +56,30 @@ export const GitAlgorithmSchema = z.enum([
   "histogram",
 ]);
 
+/** Exact Git move highlighting choices, preserving its default alias. */
+export const GitColorMovedSchema = z.enum([
+  "no",
+  "plain",
+  "blocks",
+  "zebra",
+  "dimmed-zebra",
+  "default",
+]);
+
+/** Single-choice whitespace policy for move detection only. */
+// NOTE: technically git allows you to provide them as comma-separated options.
+//
+// But, it will only pick one in the end, and for `allow-indentation-change`
+// will error if you combine it with anything, and `no` will just reset all
+// others.
+export const GitColorMovedWsSchema = z.enum([
+  "no",
+  "ignore-space-at-eol",
+  "ignore-space-change",
+  "ignore-all-space",
+  "allow-indentation-change",
+]);
+
 /** Upstream GumTree matchers available as structural rendering choices. */
 export const GumTreeMatcherSchema = z.enum([
   "gumtree-simple",
@@ -71,6 +95,8 @@ export const EngineConfigSchema = z.discriminatedUnion("engine", [
     engine: z.literal("git"),
     algorithm: GitAlgorithmSchema,
     ignore_space_change: z.boolean(),
+    color_moved: GitColorMovedSchema,
+    color_moved_ws: GitColorMovedWsSchema,
   }),
   z.strictObject({
     engine: z.literal("difftastic"),
@@ -197,6 +223,8 @@ export type UserProfile = z.infer<typeof UserProfileSchema>;
 const PreferenceValuesSchema = z.strictObject({
   aggressive_folds: z.boolean(),
   git_algorithm: GitAlgorithmSchema,
+  git_color_moved: GitColorMovedSchema,
+  git_color_moved_ws: GitColorMovedWsSchema,
   git_ignore_space_change: z.boolean(),
   difftastic_ignore_comments: z.boolean(),
   gumtree_matcher: GumTreeMatcherSchema,
@@ -1153,7 +1181,11 @@ const DecoratedPartSchema = z.strictObject({
   diff_status: z.enum(["unchanged", "replace", "insert", "delete", "move"]),
   /** Exact paired endpoints of the innermost structural move, including edited descendants. */
   move: z
-    .strictObject({ left: MoveSpanSchema, right: MoveSpanSchema })
+    .strictObject({
+      kind: z.literal("paired"),
+      left: MoveSpanSchema,
+      right: MoveSpanSchema,
+    })
     .optional(),
   /** Whether every character in `text` is whitespace. */
   is_whitespace: z.boolean(),
@@ -1176,6 +1208,14 @@ export type DecoratedPart = z.infer<typeof DecoratedPartSchema>;
  * this alignment without constructing substitute counterparts.
  */
 const DiffRowSchema = z.strictObject({
+  /** Unpaired row move presentation; the populated source side supplies old/new. */
+  move: z
+    .strictObject({
+      kind: z.literal("unpaired"),
+      group: z.enum(["primary", "alternative"]),
+      dimmed: z.boolean(),
+    })
+    .optional(),
   /** Backend alignment classification for the complete row. */
   status: RowStatusSchema,
   /** Positive old-side line number, or null when that side is absent. */
@@ -3024,14 +3064,22 @@ async function requestPreferences(
         ? {
             aggressive_folds: true,
             git_algorithm: "myers" as const,
+            git_color_moved: "no" as const,
+            git_color_moved_ws: "no" as const,
             git_ignore_space_change: false,
             difftastic_ignore_comments: false,
             gumtree_matcher: "gumtree-simple" as const,
           }
         : PreferenceValuesSchema.extend({
-            // A browser cache may predate this control. This initial value is
-            // confined to localStorage; API preferences remain fully required.
+            // Since localStorage might be permanently outdated, and
+            // would require a manual migration otherwise, we supply
+            // default values for fields that are not present.
+            //
+            // The alternative would be to pretty much erase it, which
+            // is not the right trade-off here.
             git_ignore_space_change: z.boolean().default(false),
+            git_color_moved: GitColorMovedSchema.default("no"),
+            git_color_moved_ws: GitColorMovedWsSchema.default("no"),
             difftastic_ignore_comments: z.boolean().default(false),
             gumtree_matcher: GumTreeMatcherSchema.default("gumtree-simple"),
           }).parse(JSON.parse(raw));
@@ -3057,6 +3105,8 @@ async function requestPreferences(
     JSON.stringify({
       aggressive_folds: preferences.aggressive_folds,
       git_algorithm: preferences.git_algorithm,
+      git_color_moved: preferences.git_color_moved,
+      git_color_moved_ws: preferences.git_color_moved_ws,
       git_ignore_space_change: preferences.git_ignore_space_change,
       difftastic_ignore_comments: preferences.difftastic_ignore_comments,
       gumtree_matcher: preferences.gumtree_matcher,
@@ -3076,6 +3126,10 @@ async function requestSavePreferences(input: {
   aggressiveFolds: boolean;
   /** Complete Git algorithm choice to persist. */
   gitAlgorithm: Preferences["git_algorithm"];
+  /** Exact Git moved-color mode to persist. */
+  gitColorMoved: Preferences["git_color_moved"];
+  /** Whitespace choice for Git move detection only. */
+  gitColorMovedWs: Preferences["git_color_moved_ws"];
   /** Whether Git should ignore changes in whitespace amount. */
   gitIgnoreSpaceChange: boolean;
   /** Whether Difftastic excludes comments from change detection. */
@@ -3086,6 +3140,8 @@ async function requestSavePreferences(input: {
   const values = PreferenceValuesSchema.parse({
     aggressive_folds: input.aggressiveFolds,
     git_algorithm: input.gitAlgorithm,
+    git_color_moved: input.gitColorMoved,
+    git_color_moved_ws: input.gitColorMovedWs,
     git_ignore_space_change: input.gitIgnoreSpaceChange,
     difftastic_ignore_comments: input.difftasticIgnoreComments,
     gumtree_matcher: input.gumtreeMatcher,
@@ -4077,6 +4133,8 @@ export const api = {
               JSON.stringify({
                 aggressive_folds: saved.aggressive_folds,
                 git_algorithm: saved.git_algorithm,
+                git_color_moved: saved.git_color_moved,
+                git_color_moved_ws: saved.git_color_moved_ws,
                 git_ignore_space_change: saved.git_ignore_space_change,
                 difftastic_ignore_comments: saved.difftastic_ignore_comments,
                 gumtree_matcher: saved.gumtree_matcher,

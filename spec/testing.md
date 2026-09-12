@@ -112,13 +112,29 @@ tests/presets/<catalog>/<group>/<case>/
 The catalog directory is a directory under the presets root holding a
 `preset.toml` that states the `name` the Preset Tab shows; its own directory
 name is the catalog id. Creating a catalog is creating that directory and that
-one line — `/api/presets` lists whatever is there.
+one line. A catalog with additional inspection commands also has a
+`preset.Makefile`. `/api/presets` lists the catalogs from their metadata.
 
 The case directory must contain:
 
 - exactly one `old.*` file;
 - exactly one `new.*` file with the same extension;
-- the standard preset `Makefile`, copied from an adjacent preset.
+- a standalone `Makefile` containing the hardcoded defaults from
+  `test_preset_hygiene.py`, followed by the catalog's `preset.Makefile` contents.
+
+The shared commands are `difft`, `git`, `gum`, `difft-json`, `bat` for both
+sides, and `diffs` for Diffsitter. Catalogs add commands without replacing shared
+behavior. Git adds `git-moved` and `git-moved-indent`. There are no Makefile
+includes: a fixture contains its complete recipes, and catalog additions must
+be copied to its fixtures when they change. Recipe commands must not use Make's
+`@` prefix; the invoked command remains visible in terminal output.
+
+Hygiene checks require `preset.toml`, verify each fixture's complete Makefile,
+and dry-run the shared commands with its actual source filenames.
+Their expansion must match the defaults, which detects catalog overrides that
+change shared behavior. Make's rule database supplies additional targets for
+dry-runs; Git's move targets also have their detection flags checked. These
+checks inspect command construction without launching the external tools.
 
 A case describing an addition or a deletion holds only its one side and has no
 `Makefile`, since there is no pair to run. Golden snapshot tests cover the

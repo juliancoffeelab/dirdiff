@@ -48,8 +48,9 @@ from dirdiff.db import (
 from dirdiff.engines import (
     DirdiffError,
     EngineConfig,
-    InlineMove,
     InlineTokenStatus,
+    PairedMove,
+    UnpairedMove,
     engine,
 )
 from dirdiff.formats import (
@@ -220,7 +221,7 @@ class DecoratedPartResponse(ApiModel):
     are presentation metadata, not source-token identity.
     """
 
-    move: InlineMove | None = Field(
+    move: PairedMove | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
     """Exact structural move endpoints, omitted when the engine supplies none.
@@ -306,11 +307,21 @@ class DiffRowResponse(ApiModel):
     also accepts `None`. `status` summarizes the row relationship.
     """
 
+    move: UnpairedMove | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    """Optional unpaired move classification for this complete row.
+
+    The populated source side supplies old/new presentation. `group` selects
+    one of two presentation groups and `dimmed` marks unchanged block
+    interiors. The value never supplies or implies a counterpart range.
+    """
+
     status: Literal["equal", "replace", "insert", "delete", "move"]
     """Relationship the engine assigned to this aligned source row.
 
-    `equal`, `replace`, and `move` pair present lines from both sides; they mean
-    unchanged text, changed aligned text, and structurally moved text respectively.
+    `equal`, `replace`, and `move` classify unchanged, changed, and moved text.
+    Alignment is independent; an unpaired move row has exactly one present side.
     `insert` is right-only and therefore has no left line, while `delete` is
     left-only and has no right line. The HUD uses this closed vocabulary for row
     styling and change accounting; token statuses may still describe finer

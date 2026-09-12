@@ -84,6 +84,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 1,
             "start_column": 16,
@@ -334,6 +335,7 @@
         "is_whitespace": false,
         "is_leading_whitespace": false,
         "move": {
+          "kind": "paired",
           "left": {
             "start_line": 1,
             "start_column": 16,

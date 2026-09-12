@@ -567,6 +567,8 @@ function ReviewSnapshotBoundary(
           return {
             engine: "git",
             algorithm: current.git_algorithm,
+            color_moved: current.git_color_moved,
+            color_moved_ws: current.git_color_moved_ws,
             ignore_space_change: current.git_ignore_space_change,
           };
         case "diffsitter":

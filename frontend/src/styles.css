@@ -608,7 +608,8 @@ h1 {
 .engine-options-popover {
   /* Opening sets viewport coordinates; scrolling must not re-anchor the popup. */
   position-anchor: none;
-  overflow: visible;
+  overflow: auto;
+  max-height: calc(100vh - 90px);
   position: fixed;
   inset: auto;
   margin: 0;
@@ -3439,6 +3440,40 @@ h1 {
 
 .diff-row.move .diff-side.empty-side {
   background: #f4ecf8;
+}
+
+/* Unpaired move groups select presentation only, never a counterpart. */
+.diff-row.move-old {
+  --move-background: #f0dcf7;
+}
+.diff-row.move-new {
+  --move-background: #d5eef6;
+}
+.diff-row.move-old.move-alternative {
+  --move-background: #e0dcfa;
+}
+.diff-row.move-new.move-alternative {
+  --move-background: #f3e6bd;
+}
+.diff-row.move-old .diff-side:not(.empty-side),
+.diff-row.move-new .diff-side:not(.empty-side),
+.inline-diff-row.move-old .line-no,
+.inline-diff-row.move-old .line-code,
+.inline-diff-row.move-new .line-no,
+.inline-diff-row.move-new .line-code {
+  background: var(--move-background);
+}
+.diff-row.move-dimmed .diff-side:not(.empty-side),
+.inline-diff-row.move-dimmed .line-no,
+.inline-diff-row.move-dimmed .line-code {
+  background: color-mix(in srgb, var(--move-background), #fffdf8 55%);
+}
+.diff-row.move-dimmed .line-code {
+  opacity: 0.65;
+}
+.engine-algorithm-item:has(input:disabled) {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .diff-row.whitespace-only-change .line-no {

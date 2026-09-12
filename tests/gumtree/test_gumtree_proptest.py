@@ -213,7 +213,12 @@ def test_edited_moves_keep_exact_unicode_endpoints(
             == text[len(prefix)]
         )
         assert all(
-            token["move"] == {"left": expected_span, "right": expected_span}
+            token["move"]
+            == {
+                "kind": "paired",
+                "left": expected_span,
+                "right": expected_span,
+            }
             for token in tokens
         )
         parts = weave_decorated_parts(
@@ -229,7 +234,12 @@ def test_edited_moves_keep_exact_unicode_endpoints(
         )
         assert "".join(part["text"] for part in parts) == text
         assert all(
-            part["move"] == {"left": expected_span, "right": expected_span}
+            part["move"]
+            == {
+                "kind": "paired",
+                "left": expected_span,
+                "right": expected_span,
+            }
             for part in parts
         )
 

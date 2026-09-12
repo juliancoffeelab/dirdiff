@@ -1003,6 +1003,8 @@ function PreferencesEditor(props: PreferencesEditorProps): JSX.Element {
         profileId: props.profile.id,
         aggressiveFolds: aggressiveFolds(),
         gitAlgorithm: props.preferences.git_algorithm,
+        gitColorMoved: props.preferences.git_color_moved,
+        gitColorMovedWs: props.preferences.git_color_moved_ws,
         gitIgnoreSpaceChange: props.preferences.git_ignore_space_change,
         difftasticIgnoreComments: props.preferences.difftastic_ignore_comments,
         gumtreeMatcher: props.preferences.gumtree_matcher,

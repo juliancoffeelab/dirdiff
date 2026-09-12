@@ -11,8 +11,9 @@ or one present side.
 A unified patch omits unchanged text outside its hunks, while dirdiff rows must
 cover both complete sources. This module restores those gaps from the supplied
 strings, rejects a patch that contradicts them, and calculates the result
-summary. The private driver contains executable and temporary-file mechanics;
-display decoration remains outside the engine.
+summary. Git color slots become row presentation data without paired move
+identities. The private driver contains executable and temporary-file mechanics;
+syntax enrichment remains outside the engine.
 """
 
 from __future__ import annotations
@@ -27,6 +28,9 @@ from dirdiff.engines.base import (
     DiffEngineRow,
     DiffSide,
     GitAlgorithm,
+    GitColorMoved,
+    GitColorMovedWs,
+    UnpairedMove,
 )
 from dirdiff.engines.git._logic.driver import run_git_no_index_diff
 
@@ -36,8 +40,9 @@ GIT_HUNK_HEADER_PATTERN = re.compile(
 )
 """Recognize Git unified-hunk starts and capture both source coordinates.
 
-The optional counts do not affect row placement. Row building uses the two start
-coordinates to restore unchanged gaps from the supplied source texts.
+An omitted count means one. An explicit zero count names the line preceding an
+empty range, so row building advances that side's start coordinate before
+restoring unchanged gaps from the supplied source texts.
 """
 
 __all__ = [
@@ -180,7 +185,7 @@ def git_diff_rows_from_patch(
 
     # Parameters
 
-    - `patch`: Unified patch produced for the two supplied source texts.
+    - `patch`: Colored unified patch using the private driver's controlled slots.
     - `ignore_space_change`: Whitespace policy used to produce this patch.
     - `left_text`: Complete old text used to restore omitted equal lines.
     - `right_text`: Complete new text used to restore omitted equal lines.
@@ -199,15 +204,35 @@ def git_diff_rows_from_patch(
     rows: list[DiffEngineRow] = []
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
+    # Git preserves CRLF spelling; display lines omit line terminators.
+    left_patch_lines = left_text.split("\n")
+    right_patch_lines = right_text.split("\n")
     left_no = 1
     right_no = 1
     in_hunk = False
 
-    for line in patch.splitlines():
+    # Only Git's envelope is decoded. Source escape sequences are compared as
+    # literal text, never stripped, so source cannot masquerade as decoration.
+    move_colors: dict[str, UnpairedMove] = {
+        "33": {"kind": "unpaired", "group": "primary", "dimmed": False},
+        "34": {"kind": "unpaired", "group": "primary", "dimmed": False},
+        "35": {"kind": "unpaired", "group": "alternative", "dimmed": False},
+        "36": {"kind": "unpaired", "group": "alternative", "dimmed": False},
+        "37": {"kind": "unpaired", "group": "primary", "dimmed": True},
+        "38": {"kind": "unpaired", "group": "primary", "dimmed": True},
+        "39": {"kind": "unpaired", "group": "alternative", "dimmed": True},
+        "40": {"kind": "unpaired", "group": "alternative", "dimmed": True},
+    }
+    for line in patch.split("\n"):
+        if line == "":
+            continue
         hunk_match = GIT_HUNK_HEADER_PATTERN.match(line)
         if hunk_match is not None:
             target_left_no = int(hunk_match.group("left_start"))
             target_right_no = int(hunk_match.group("right_start"))
+            # Empty ranges name the preceding line, not the next source line.
+            target_left_no += hunk_match.group("left_count") == "0"
+            target_right_no += hunk_match.group("right_count") == "0"
             left_no, right_no = _append_equal_rows(
                 rows=rows,
                 left_lines=left_lines,
@@ -225,11 +250,39 @@ def git_diff_rows_from_patch(
         if line.startswith("\\"):
             continue
 
-        prefix = " "
-        text = ""
-        if line != "":
-            prefix = line[0]
-            text = line[1:]
+        envelope = re.match(r"^(\x1b\[38;5;(\d+)m)?([ +-])", line)
+        assert envelope is not None, f"Unsupported Git patch row: {line!r}"
+        color = envelope.group(2)
+        prefix = envelope.group(3)
+        text = (
+            left_lines[left_no - 1]
+            if prefix == "-"
+            else right_lines[right_no - 1]
+        )
+        payload = line[envelope.end() :]
+        patch_text = (
+            left_patch_lines[left_no - 1]
+            if prefix == "-"
+            else right_patch_lines[right_no - 1]
+        )
+        # Git emits a CRLF source's CR after its reset, outside the color span.
+        if patch_text.endswith("\r"):
+            assert payload.endswith("\r")
+            payload = payload[:-1]
+            patch_text = patch_text[:-1]
+        # Git resets after every line and may separately color an added '+'.
+        assert payload in (
+            patch_text + "\x1b[m",
+            "\x1b[m" + (envelope.group(1) or "") + patch_text + "\x1b[m",
+        ), f"Git patch contradicts source at {left_no}/{right_no}"
+        moved = move_colors.get(color)
+        assert (
+            color is None
+            if prefix == " "
+            else color in {"31", "32", *move_colors}
+        )
+        if color is not None:
+            assert (int(color) % 2 == 1) == (prefix == "-")
 
         if prefix == " ":
             # Patch context contains only one side's spelling. Read both sources
@@ -257,6 +310,9 @@ def git_diff_rows_from_patch(
                     "right_tokens": [],
                 }
             )
+            if moved is not None:
+                rows[-1]["status"] = "move"
+                rows[-1]["move"] = moved
             left_no += 1
             continue
         if prefix == "+":
@@ -271,6 +327,9 @@ def git_diff_rows_from_patch(
                     "right_tokens": [],
                 }
             )
+            if moved is not None:
+                rows[-1]["status"] = "move"
+                rows[-1]["move"] = moved
             right_no += 1
 
     left_no, right_no = _append_equal_rows(
@@ -307,6 +366,12 @@ class GitDiffEngine(DiffEngineProtocol):
     ignore_space_change: bool = False
     """Ignore changes in whitespace amount when enabled; preserve source text."""
 
+    color_moved: GitColorMoved = "no"
+    """Git's move highlighting mode, without inferred move relationships."""
+
+    color_moved_ws: GitColorMovedWs = "no"
+    """Whitespace ignored only while Git detects moves."""
+
     @override
     def render_diff(
         self,
@@ -338,6 +403,8 @@ class GitDiffEngine(DiffEngineProtocol):
             patch = run_git_no_index_diff(
                 algorithm=self.algorithm,
                 ignore_space_change=self.ignore_space_change,
+                color_moved=self.color_moved,
+                color_moved_ws=self.color_moved_ws,
                 left_text=left_text_value,
                 right_text=right_text_value,
                 left_path_hint=old.path_hint,

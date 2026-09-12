@@ -27,13 +27,19 @@ from dirdiff.engines.base import (
     EngineConfig,
     EngineWarning,
     GitAlgorithm,
+    GitColorMoved,
+    GitColorMovedWs,
     GitEngineConfig,
     GumTreeEngineConfig,
     GumTreeMatcher,
-    InlineMove,
     InlineToken,
     InlineTokenStatus,
+    Move,
+    MoveGroup,
+    MoveSpan,
+    PairedMove,
     TokenDiffEngineConfig,
+    UnpairedMove,
     git_executable,
 )
 from dirdiff.engines.diffsitter import (
@@ -72,10 +78,15 @@ def engine(config: EngineConfig) -> DiffEngineProtocol:
     """
     match config:
         case GitEngineConfig(
-            algorithm=algorithm, ignore_space_change=ignore_space_change
+            algorithm=algorithm,
+            ignore_space_change=ignore_space_change,
+            color_moved=color_moved,
+            color_moved_ws=color_moved_ws,
         ):
             return GitDiffEngine(
                 algorithm=algorithm,
+                color_moved=color_moved,
+                color_moved_ws=color_moved_ws,
                 ignore_space_change=ignore_space_change,
             )
         case DifftasticEngineConfig(ignore_comments=ignore_comments):
@@ -104,15 +115,21 @@ __all__ = [
     "EngineConfig",
     "EngineWarning",
     "GitAlgorithm",
+    "GitColorMoved",
+    "GitColorMovedWs",
     "GitDiffEngine",
     "GumTreeDiffEngine",
     "GumTreeJson",
     "GumTreeMatcher",
-    "InlineMove",
     "InlineToken",
     "InlineTokenStatus",
+    "Move",
+    "MoveGroup",
+    "MoveSpan",
+    "PairedMove",
     "TextDiffEngine",
     "TokenDiffEngine",
+    "UnpairedMove",
     "build_diffsitter_rows_from_json",
     "build_gumtree_rows_from_json",
     "engine",

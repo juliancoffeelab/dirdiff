@@ -31,7 +31,12 @@ from dirdiff.db import (
     UserProfileStore,
     open_sqlite_engine,
 )
-from dirdiff.engines import GitAlgorithm, GumTreeMatcher
+from dirdiff.engines import (
+    GitAlgorithm,
+    GitColorMoved,
+    GitColorMovedWs,
+    GumTreeMatcher,
+)
 from dirdiff.room_lord import (
     RoomLord,
 )
@@ -124,6 +129,12 @@ class PreferencesResponse(ApiModel):
     The value does not collapse Files or override later reviewer actions.
     """
 
+    git_color_moved: GitColorMoved
+    """Required exact Git moved-color mode."""
+
+    git_color_moved_ws: GitColorMovedWs
+    """Required whitespace policy used only for Git move detection."""
+
     git_algorithm: GitAlgorithm
     """Remembered Git line-matching choice for future File rendering."""
 
@@ -152,6 +163,12 @@ class PreferencesUpdateRequest(ApiModel):
     The route stores this exact boolean for the Profile named in its path. It
     does not create the Profile or change already mounted fold state directly.
     """
+
+    git_color_moved: GitColorMoved
+    """Required exact Git moved-color mode."""
+
+    git_color_moved_ws: GitColorMovedWs
+    """Required whitespace policy used only for Git move detection."""
 
     git_algorithm: GitAlgorithm
     """Required replacement for the Profile's Git algorithm preference."""
@@ -410,6 +427,8 @@ class _ApplicationRoutes:
                 request.git_ignore_space_change,
                 request.difftastic_ignore_comments,
                 request.gumtree_matcher,
+                request.git_color_moved,
+                request.git_color_moved_ws,
             ),
             from_attributes=True,
         )

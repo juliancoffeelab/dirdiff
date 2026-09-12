@@ -40,20 +40,39 @@ __all__ = [
     "EngineConfig",
     "EngineWarning",
     "GitAlgorithm",
+    "GitColorMoved",
+    "GitColorMovedWs",
     "GitEngineConfig",
     "GumTreeEngineConfig",
     "GumTreeMatcher",
-    "InlineMove",
     "InlineToken",
     "InlineTokenStatus",
+    "Move",
+    "MoveGroup",
     "MoveSpan",
+    "PairedMove",
     "TokenDiffEngineConfig",
+    "UnpairedMove",
     "git_executable",
 ]
 
 
 type GitAlgorithm = Literal["myers", "minimal", "patience", "histogram"]
 """Closed Git line-matching choices; token decoration is independent."""
+
+type GitColorMoved = Literal[
+    "no", "plain", "blocks", "zebra", "dimmed-zebra", "default"
+]
+"""Exact upstream moved-color modes, including Git's own default alias."""
+
+type GitColorMovedWs = Literal[
+    "no",
+    "ignore-space-at-eol",
+    "ignore-space-change",
+    "ignore-all-space",
+    "allow-indentation-change",
+]
+"""Exclusive move-detection whitespace choices, independent of diff whitespace."""
 
 
 class GitEngineConfig(BaseModel):
@@ -70,6 +89,10 @@ class GitEngineConfig(BaseModel):
     """Required line-matching algorithm passed explicitly to Git."""
     ignore_space_change: bool
     """Whether Git ignores changes in whitespace amount with `--ignore-space-change`."""
+    color_moved: GitColorMoved
+    """Required move highlighting mode passed unchanged to Git."""
+    color_moved_ws: GitColorMovedWs
+    """Required move whitespace mode, retained even when highlighting is off."""
 
 
 class DifftasticEngineConfig(BaseModel):
@@ -333,7 +356,7 @@ class MoveSpan(TypedDict):
     """Zero-based exclusive Unicode column; zero may address the following line."""
 
 
-class InlineMove(TypedDict):
+class PairedMove(TypedDict):
     """Exact old and new ranges paired by a structural move action.
 
     Both endpoints belong to the same text bay. Every token inside the move
@@ -341,11 +364,40 @@ class InlineMove(TypedDict):
     never establishes this relationship.
     """
 
+    kind: Literal["paired"]
+    """Discriminator stating that both source ranges are known."""
+
     left: MoveSpan
     """Original range in the old source, independent of its displayed row."""
 
     right: MoveSpan
     """Matched destination in the new source, which may also contain edits."""
+
+
+type MoveGroup = Literal["primary", "alternative"]
+"""One of two alternating presentation groups, without identity or pairing."""
+
+
+class UnpairedMove(TypedDict):
+    """Moved row classified without a known source counterpart.
+
+    An engine may alternate presentation groups and dim a block's unchanged
+    interior. The row's populated source side determines whether the HUD uses
+    the old-side or new-side color.
+    """
+
+    kind: Literal["unpaired"]
+    """Discriminator stating that no counterpart source range is known."""
+
+    group: MoveGroup
+    """Primary or alternating secondary presentation group."""
+
+    dimmed: bool
+    """Whether the engine marked this row as an unchanged moved-block interior."""
+
+
+type Move = PairedMove | UnpairedMove
+"""Move facts at either supported capability level, distinguished by `kind`."""
 
 
 class InlineToken(TypedDict):
@@ -373,7 +425,7 @@ class InlineToken(TypedDict):
     distinguishing leading indentation from other changed token content.
     """
 
-    move: NotRequired[InlineMove]
+    move: NotRequired[PairedMove]
     """Present exactly when the engine supplies a containing structural move.
 
     Nested edits retain their change status and the innermost containing move.
@@ -398,6 +450,9 @@ class DiffEngineRow(TypedDict):
     A row describes aligned source text only. It has no syntax classes, fold
     policy, bay identity, hunk number, or HTTP fields.
     """
+
+    move: NotRequired[UnpairedMove]
+    """Present when the engine classifies this complete row as an unpaired move."""
 
     status: DiffEngineRowStatus
     """

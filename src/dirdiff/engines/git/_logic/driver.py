@@ -19,7 +19,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from dirdiff.engines.base import DirdiffError, GitAlgorithm, git_executable
+from dirdiff.engines.base import (
+    DirdiffError,
+    GitAlgorithm,
+    GitColorMoved,
+    GitColorMovedWs,
+    git_executable,
+)
 
 __all__ = [
     "run_git_no_index_diff",
@@ -30,6 +36,8 @@ def run_git_no_index_diff(
     *,
     algorithm: GitAlgorithm,
     ignore_space_change: bool,
+    color_moved: GitColorMoved,
+    color_moved_ws: GitColorMovedWs,
     left_text: str,
     right_text: str,
     left_path_hint: str | None,
@@ -46,6 +54,8 @@ def run_git_no_index_diff(
 
     - `algorithm`: Validated line-matching choice, overriding Git configuration.
     - `ignore_space_change`: Pass `--ignore-space-change` when enabled.
+    - `color_moved`: Exact move-color mode to apply.
+    - `color_moved_ws`: Whitespace policy used only for move detection.
     - `left_text`: Complete old text written to Git's left temporary file.
     - `right_text`: Complete new text written to Git's right temporary file.
     - `left_path_hint`: Optional old path used only to choose a useful suffix.
@@ -92,11 +102,42 @@ def run_git_no_index_diff(
                     # 19.9ms vs 5.8ms per spawn, and this engine spawns once
                     # per rendered file.
                     git_executable(),
+                    # These slots form the parser's wire alphabet. Reset every
+                    # slot Git can emit so personal colors never affect parsing.
+                    *[
+                        arg
+                        for slot, color in {
+                            "meta": "normal",
+                            "frag": "normal",
+                            "func": "normal",
+                            "context": "normal",
+                            "old": "31",
+                            "new": "32",
+                            "oldMoved": "33",
+                            "newMoved": "34",
+                            "oldMovedAlternative": "35",
+                            "newMovedAlternative": "36",
+                            "oldMovedDimmed": "37",
+                            "newMovedDimmed": "38",
+                            "oldMovedAlternativeDimmed": "39",
+                            "newMovedAlternativeDimmed": "40",
+                            "whitespace": "normal",
+                        }.items()
+                        for arg in ("-c", f"color.diff.{slot}={color}")
+                    ],
+                    "-c",
+                    "diff.wsErrorHighlight=none",
+                    "-c",
+                    "diff.suppressBlankEmpty=false",
                     "diff",
                     "--no-index",
                     f"--diff-algorithm={algorithm}",
                     *(["--ignore-space-change"] if ignore_space_change else []),
-                    "--no-color",
+                    "--color=always",
+                    f"--color-moved={color_moved}",
+                    f"--color-moved-ws={color_moved_ws}",
+                    "--no-relative",
+                    "--text",
                     "--no-ext-diff",
                     "--no-textconv",
                     str(left_path),
@@ -104,7 +145,6 @@ def run_git_no_index_diff(
                 ],
                 check=False,
                 capture_output=True,
-                text=True,
             )
         except FileNotFoundError as exc:
             raise DirdiffError(
@@ -112,9 +152,9 @@ def run_git_no_index_diff(
             ) from exc
 
     if result.returncode in {0, 1}:
-        return result.stdout
+        return result.stdout.decode("utf-8")
 
-    message = result.stderr.strip()
+    message = result.stderr.decode("utf-8").strip()
     if message == "":
         message = "Git could not build this diff."
     raise DirdiffError(message)

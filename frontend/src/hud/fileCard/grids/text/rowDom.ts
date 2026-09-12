@@ -1141,6 +1141,20 @@ function diffRowClass(
     classes.push(extraClass);
   }
   classes.push(status);
+  if (row.move !== undefined) {
+    assert(status === "move", "Unpaired move data requires move row status.");
+    assert(
+      (row.left_no === null) !== (row.right_no === null),
+      "An unpaired move row must contain exactly one source side.",
+    );
+    classes.push(
+      row.left_no === null ? "move-new" : "move-old",
+      `move-${row.move.group}`,
+    );
+    if (row.move.dimmed) {
+      classes.push("move-dimmed");
+    }
+  }
   if (row.hunk_index !== null) {
     classes.push("hunk-anchor");
   }
