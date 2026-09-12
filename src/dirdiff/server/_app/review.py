@@ -859,10 +859,8 @@ immutable facts.
 class ReviewThreadResponse(ApiModel):
     """Return one complete Room discussion in displayed Snapshot context.
 
-    `origin_target` states what the Thread was written against and never
-    changes. `location_source` states whether `placement` belongs to the
-    displayed Snapshot or to the origin used because displayed placement is
-    absent. Nothing is stated twice across those discriminated cases.
+    Immutable origin and discriminated placement data state each location fact
+    once, including when the displayed Snapshot has no placement.
     """
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")

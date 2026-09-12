@@ -1158,12 +1158,17 @@ def _bind_threads(
         origin_file: SnapshotFileRecord,
         displayed_file: SnapshotFileRecord,
     ) -> bool:
-        """Compare code-bearing File facts without comparing capture identities.
+        """Compare captured File contents without comparing capture identities.
 
         Repository paths and content digests prove ordinary sides. Symlink
         metadata and target digests prove link sides without comparing their
         Snapshot-specific physical paths. Capture errors always make the
         displayed File unusable rather than equal.
+
+        # Parameters
+
+        - `origin_file`: File captured with the Thread's origin Snapshot.
+        - `displayed_file`: Corresponding File in the displayed Snapshot.
         """
         return (
             origin_file.error is None

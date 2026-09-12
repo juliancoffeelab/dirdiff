@@ -47,8 +47,6 @@ __all__ = [
     "GumTreeMatcher",
     "InlineToken",
     "InlineTokenStatus",
-    "Move",
-    "MoveGroup",
     "MoveSpan",
     "PairedMove",
     "TokenDiffEngineConfig",

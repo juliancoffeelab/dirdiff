@@ -92,7 +92,10 @@ export const dirdiffDocRule = {
     }
 
     /**
-     * Return the adjacent JSDoc attached to a declaration.
+     * Return the JSDoc within a declaration's contiguous leading comment block.
+     *
+     * Explanatory comments may follow the JSDoc when every comment remains on
+     * consecutive lines through the declaration.
      *
      * @param {import("estree").Node} node Declared syntax node.
      * # Returns
@@ -103,16 +106,23 @@ export const dirdiffDocRule = {
     function jsdocComment(node) {
       const target = commentTarget(node);
       const comments = sourceCode.getCommentsBefore(target);
-      const previous = comments.at(-1);
-      if (
-        previous !== undefined &&
-        previous.type === "Block" &&
-        previous.value.startsWith("*") &&
-        previous.loc !== undefined &&
-        target.loc !== undefined &&
-        previous.loc.end.line === target.loc.start.line - 1
-      ) {
-        return previous;
+      if (target.loc === undefined) {
+        return null;
+      }
+      let precedingLine = target.loc.start.line;
+      for (let index = comments.length - 1; index >= 0; index -= 1) {
+        const comment = comments[index];
+        if (
+          comment === undefined ||
+          comment.loc === undefined ||
+          comment.loc.end.line !== precedingLine - 1
+        ) {
+          return null;
+        }
+        if (comment.type === "Block" && comment.value.startsWith("*")) {
+          return comment;
+        }
+        precedingLine = comment.loc.start.line;
       }
       return null;
     }

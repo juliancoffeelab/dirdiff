@@ -182,13 +182,13 @@ def test_presets_have_standard_makefiles() -> None:
         for block in rules.split("\n\n"):
             if "# Not a target:" in block:
                 continue
-            target = re.search(r"^([^#\s:=]+):", block, re.MULTILINE)
-            if (
-                target is not None
-                and not target[1].startswith(".")
-                and target[1] not in shared_targets
-            ):
-                targets.append(target[1])
+            target = re.search(r"^[^#\s:=]+(?=:)", block, re.MULTILINE)
+            if target is None:
+                continue
+            target_name = target.group()
+            if target_name.startswith(".") or target_name in shared_targets:
+                continue
+            targets.append(target_name)
         for target_name in targets:
             expanded = subprocess.run(
                 ["make", "--dry-run", "--no-print-directory", target_name],
@@ -202,7 +202,7 @@ def test_presets_have_standard_makefiles() -> None:
                 target_name,
                 expanded.stderr,
             )
-            assert expanded.stdout.strip(), (preset_dir, target_name)
+            assert expanded.stdout.strip() != "", (preset_dir, target_name)
             if preset_dir.parents[1].name == "git" and target_name in {
                 "git-moved",
                 "git-moved-indent",
