@@ -14,8 +14,6 @@ content or decide its format, and display enrichment adds folds and syntax only
 after comparison.
 """
 
-from typing import assert_never
-
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,

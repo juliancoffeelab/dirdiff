@@ -554,7 +554,6 @@ h1 {
 }
 
 .engine-options-trigger {
-  anchor-name: --engine-options;
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -607,13 +606,11 @@ h1 {
 }
 
 .engine-options-popover {
-  /* Keep the native top-layer popover aligned with its header button. */
-  position-anchor: --engine-options;
+  /* Opening sets viewport coordinates; scrolling must not re-anchor the popup. */
+  position-anchor: none;
   overflow: visible;
   position: fixed;
   inset: auto;
-  top: calc(anchor(bottom) + 4px);
-  left: anchor(left);
   margin: 0;
   padding: 0;
   width: 320px;

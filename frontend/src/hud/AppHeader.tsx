@@ -77,13 +77,38 @@ const gitAlgorithms = [
   },
 ] as const;
 
-/** Human-readable names paired with the exact upstream matcher IDs. */
+/** Matcher descriptions follow CompositeMatchers and AutoMatchers in GumTree. */
 const gumtreeMatchers = [
-  { value: "gumtree-simple", label: "Simple" },
-  { value: "gumtree-classic", label: "Classic" },
-  { value: "gumtree-hybrid", label: "Hybrid" },
-  { value: "gumtree-simple-stable", label: "Stable" },
-  { value: "gumtree-simple-auto", label: "Auto" },
+  {
+    value: "gumtree-simple",
+    label: "Simple",
+    explanation:
+      "Match similar code structures, then align their remaining children.",
+  },
+  {
+    value: "gumtree-classic",
+    label: "Classic",
+    explanation:
+      "Original GumTree matcher. Use tree edit distance to recover unmatched nodes.",
+  },
+  {
+    value: "gumtree-hybrid",
+    label: "Hybrid",
+    explanation:
+      "Use tree edit distance for small structures and simpler matching for larger ones.",
+  },
+  {
+    value: "gumtree-simple-stable",
+    label: "Stable",
+    explanation:
+      "Like Simple, but pair similar structures only when each is the other's best match.",
+  },
+  {
+    value: "gumtree-simple-auto",
+    label: "Auto",
+    explanation:
+      "Try 25 Stable configurations in parallel and keep the fewest edits. Uses more CPU.",
+  },
 ] as const;
 
 /**
@@ -667,7 +692,7 @@ type EngineOptionsProps = {
  * an explicit empty state. Saving never copies preferences into component state.
  *
  * @param props Component properties containing current engine and profile selection.
- * The native popover handles dismissal and focus; CSS anchors it to the trigger.
+ * The native popover handles dismissal and focus; opening positions it below the trigger.
  *
  * @returns Rendered trigger button and native options popover.
  */
@@ -739,6 +764,18 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
         popovertarget={optionsId}
         aria-label={`${engineLabels[props.engine]} engine options`}
         title={`${engineLabels[props.engine]} options`}
+        onClick={(event) => {
+          // Fix the top-layer popup in viewport coordinates before native opening.
+          // CSS anchor tracking against the sticky header flickers during scrolling.
+          // Related: https://bugzilla.mozilla.org/show_bug.cgi?id=1999954
+          const popup = expect(
+            document.getElementById(optionsId),
+            "The options trigger requires its mounted popover.",
+          );
+          const button = event.currentTarget.getBoundingClientRect();
+          popup.style.top = `${button.bottom + 4}px`;
+          popup.style.left = `${button.left}px`;
+        }}
       >
         <SlidersHorizontal
           class="engine-options-trigger-icon"
@@ -1025,6 +1062,9 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                                   default
                                 </span>
                               </Show>
+                            </span>
+                            <span class="engine-algorithm-item-desc">
+                              {matcher.explanation}
                             </span>
                           </label>
                         )}

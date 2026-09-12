@@ -356,8 +356,8 @@ Private components:
 
 An engine options button beside the engine selector opens a popup menu for
 engine-specific configuration. A native auto popover handles opening, outside-click
-dismissal, and Escape; CSS anchors it below the trigger without popup state or
-document listeners. For Git, the popup displays the algorithm choices
+dismissal, and Escape. Opening sets fixed viewport coordinates below the trigger;
+scrolling does not re-anchor the popup. No popup state or document listeners are needed. For Git, the popup displays the algorithm choices
 (Myers as the default, Minimal, Patience, Histogram) and the Ignore space changes
 toggle for Git's `--ignore-space-change` flag. Difftastic shows an Ignore comments
 toggle; GumTree uses the same radio cards for its matcher, with Simple, Classic, Hybrid, Stable,
