@@ -228,7 +228,9 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
           kind: "history",
           viewable: point !== null && props.canViewThread(point),
           onView: () => {
-            if (point === null) return;
+            if (point === null) {
+              return;
+            }
             const next = new Map(expandedThreads());
             next.set(thread().thread_id, true);
             setExpandedThreads(next);

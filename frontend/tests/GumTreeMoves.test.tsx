@@ -184,10 +184,11 @@ test.each(
         let offset = 0;
         offset < Number(rect.getAttribute("width"));
         offset += 1
-      )
+      ) {
         before.push(
           `${side}:${line}:${column + offset}:${group.dataset.moveKey}`,
         );
+      }
     }
     expect([...new Set(before)].sort()).toEqual([...new Set(expected)].sort());
     const geometry = [...root.querySelectorAll(".move-outlines rect")].map(
@@ -217,14 +218,17 @@ test.each(
           candidate.end_line < range.end_line ||
           (candidate.end_line === range.end_line &&
             candidate.end_column <= range.end_column);
-        if (beginsInside && endsInside) expectedKeys.add(key);
+        if (beginsInside && endsInside) {
+          expectedKeys.add(key);
+        }
       }
       for (const group of root.querySelectorAll<SVGGElement | HTMLElement>(
         ".move-outlines g, .token-moved",
-      ))
+      )) {
         expect(group.classList.contains("move-highlighted")).toBe(
           expectedKeys.has(group.dataset.moveKey!),
         );
+      }
       fireEvent.pointerOut(trigger);
       expect(root.querySelector(".move-highlighted")).toBeNull();
       expect(

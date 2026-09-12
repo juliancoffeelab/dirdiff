@@ -28,6 +28,7 @@ import {
   type DiffEngine,
   DiffEngineSchema,
   GitAlgorithmSchema,
+  GumTreeMatcherSchema,
   type ProjectId,
   type RepoMark,
 } from "../api/api";
@@ -74,6 +75,15 @@ const gitAlgorithms = [
     label: "Histogram",
     explanation: "Extend patience using low-occurrence common lines.",
   },
+] as const;
+
+/** Human-readable names paired with the exact upstream matcher IDs. */
+const gumtreeMatchers = [
+  { value: "gumtree-simple", label: "Simple" },
+  { value: "gumtree-classic", label: "Classic" },
+  { value: "gumtree-hybrid", label: "Hybrid" },
+  { value: "gumtree-simple-stable", label: "Stable" },
+  { value: "gumtree-simple-auto", label: "Auto" },
 ] as const;
 
 /**
@@ -652,9 +662,9 @@ type EngineOptionsProps = {
 /**
  * Renders the persistent engine options trigger and popup configuration menu.
  *
- * The component remains mounted for every diff engine. For Git, it allows selecting
- * the diff algorithm and toggling whitespace handling, saving changes into canonical
- * preferences. For other engines, it informs the user that no options are implemented.
+ * The component observes canonical preferences for Git algorithm and whitespace,
+ * Difftastic comments, and GumTree matcher choices. Engines without options show
+ * an explicit empty state. Saving never copies preferences into component state.
  *
  * @param props Component properties containing current engine and profile selection.
  * The native popover handles dismissal and focus; CSS anchors it to the trigger.
@@ -672,22 +682,14 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
     api.profile.savePreferences(queryClient),
   );
 
-  /**
-   * Computes whether non-default Git options are currently active.
-   *
-   * Returns true when the active engine is Git and either a non-default algorithm
-   * or whitespace ignoring is enabled.
-   */
-  const hasCustomGitOptions = createMemo(() => {
-    if (props.engine !== "git") {
-      return false;
-    }
-    const data = preferences.data;
-    if (data === undefined) {
-      return false;
-    }
-    return data.git_algorithm !== "myers" || data.git_ignore_space_change;
-  });
+  /** Reports option availability from the current engine, independent of preferences. */
+  function hasOptions(): boolean {
+    return (
+      props.engine === "git" ||
+      props.engine === "difftastic" ||
+      props.engine === "gumtree"
+    );
+  }
 
   /**
    * Persists a chosen Git diff algorithm to the canonical preferences cache.
@@ -704,6 +706,8 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
     savePreferences.mutate({
       profileId: props.selectedProfile?.id ?? null,
       aggressiveFolds: current.aggressive_folds,
+      difftasticIgnoreComments: current.difftastic_ignore_comments,
+      gumtreeMatcher: current.gumtree_matcher,
       gitAlgorithm: GitAlgorithmSchema.parse(value),
       gitIgnoreSpaceChange: current.git_ignore_space_change,
     });
@@ -720,6 +724,8 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
     savePreferences.mutate({
       profileId: props.selectedProfile?.id ?? null,
       aggressiveFolds: current.aggressive_folds,
+      difftasticIgnoreComments: current.difftastic_ignore_comments,
+      gumtreeMatcher: current.gumtree_matcher,
       gitAlgorithm: current.git_algorithm,
       gitIgnoreSpaceChange: !current.git_ignore_space_change,
     });
@@ -738,10 +744,10 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
           class="engine-options-trigger-icon"
           aria-hidden="true"
         />
-        <Show when={hasCustomGitOptions()}>
+        <Show when={hasOptions()}>
           <span
             class="engine-options-badge"
-            aria-label="Custom engine options active"
+            aria-label="Engine options available"
           />
         </Show>
       </button>
@@ -764,7 +770,7 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
         </div>
         <div class="engine-options-popover-divider" />
         <Show
-          when={props.engine === "git"}
+          when={hasOptions()}
           fallback={
             <div class="engine-options-empty-message">
               No options implemented for this engine
@@ -791,105 +797,241 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
           <Show when={preferences.data}>
             {(prefs) => (
               <div class="engine-options-content">
-                <div class="engine-options-section">
-                  <span class="engine-options-section-label">Algorithm</span>
-                  <div
-                    class="engine-algorithm-list"
-                    role="radiogroup"
-                    aria-label="Git algorithm"
-                  >
-                    <For each={gitAlgorithms}>
-                      {(algo) => (
-                        <label
-                          class="engine-algorithm-item"
-                          classList={{
-                            selected: prefs().git_algorithm === algo.value,
-                          }}
-                        >
-                          <input
-                            class="engine-algorithm-input"
-                            type="radio"
-                            name={`${optionsId}-algorithm`}
-                            value={algo.value}
-                            checked={prefs().git_algorithm === algo.value}
-                            aria-disabled={
-                              preferences.isPending ||
-                              preferences.error !== null ||
-                              savePreferences.isPending
-                            }
-                            onClick={(event) => {
-                              // Keep selection tied to confirmed preferences. Native
-                              // activation must not display an unsuccessful save.
-                              event.preventDefault();
-                              if (
+                <Show when={props.engine === "git"}>
+                  <div class="engine-options-section">
+                    <span class="engine-options-section-label">Algorithm</span>
+                    <div
+                      class="engine-algorithm-list"
+                      role="radiogroup"
+                      aria-label="Git algorithm"
+                    >
+                      <For each={gitAlgorithms}>
+                        {(algo) => (
+                          <label
+                            class="engine-algorithm-item"
+                            classList={{
+                              selected: prefs().git_algorithm === algo.value,
+                            }}
+                          >
+                            <input
+                              class="engine-algorithm-input"
+                              type="radio"
+                              name={`${optionsId}-algorithm`}
+                              value={algo.value}
+                              checked={prefs().git_algorithm === algo.value}
+                              aria-disabled={
                                 preferences.isPending ||
                                 preferences.error !== null ||
-                                savePreferences.isPending ||
-                                prefs().git_algorithm === algo.value
-                              )
-                                return;
-                              selectAlgorithm(algo.value);
-                            }}
-                          />
-                          <span class="engine-algorithm-item-header">
-                            <strong>{algo.label}</strong>
-                            <Show when={algo.value === "myers"}>
-                              <span class="engine-algorithm-default-badge">
-                                default
-                              </span>
-                            </Show>
-                          </span>
-                          <span class="engine-algorithm-item-desc">
-                            {algo.explanation}
-                          </span>
-                        </label>
-                      )}
-                    </For>
+                                savePreferences.isPending
+                              }
+                              onClick={(event) => {
+                                // Keep selection tied to confirmed preferences. Native
+                                // activation must not display an unsuccessful save.
+                                event.preventDefault();
+                                if (
+                                  preferences.isPending ||
+                                  preferences.error !== null ||
+                                  savePreferences.isPending ||
+                                  prefs().git_algorithm === algo.value
+                                ) {
+                                  return;
+                                }
+                                selectAlgorithm(algo.value);
+                              }}
+                            />
+                            <span class="engine-algorithm-item-header">
+                              <strong>{algo.label}</strong>
+                              <Show when={algo.value === "myers"}>
+                                <span class="engine-algorithm-default-badge">
+                                  default
+                                </span>
+                              </Show>
+                            </span>
+                            <span class="engine-algorithm-item-desc">
+                              {algo.explanation}
+                            </span>
+                          </label>
+                        )}
+                      </For>
+                    </div>
                   </div>
-                </div>
-                <div class="engine-options-popover-divider" />
-                <div class="engine-options-section">
-                  <label class="engine-options-checkbox-row">
-                    <span class="engine-options-checkbox-copy">
-                      <strong>Ignore space changes</strong>
-                      <span>
-                        Ignore amount of whitespace and trailing space
-                        differences (<code>--ignore-space-change</code>).
+                  <div class="engine-options-popover-divider" />
+                  <div class="engine-options-section">
+                    <label class="engine-options-checkbox-row">
+                      <span class="engine-options-checkbox-copy">
+                        <strong>Ignore space changes</strong>
+                        <span>
+                          Ignore amount of whitespace and trailing space
+                          differences (<code>--ignore-space-change</code>).
+                        </span>
                       </span>
-                    </span>
-                    <span class="profile-checkbox-control">
-                      <input
-                        class="profile-checkbox-input"
-                        type="checkbox"
-                        checked={prefs().git_ignore_space_change}
-                        aria-disabled={
-                          preferences.isPending ||
-                          preferences.error !== null ||
-                          savePreferences.isPending
-                        }
-                        onClick={(event) => {
-                          // The native check changes only when the save succeeds.
-                          // aria-disabled preserves keyboard focus while saving.
-                          event.preventDefault();
-                          if (
+                      <span class="profile-checkbox-control">
+                        <input
+                          class="profile-checkbox-input"
+                          type="checkbox"
+                          checked={prefs().git_ignore_space_change}
+                          aria-disabled={
                             preferences.isPending ||
                             preferences.error !== null ||
                             savePreferences.isPending
-                          )
-                            return;
-                          toggleWhitespace();
-                        }}
-                      />
-                      <span
-                        class="visibility-indicator large profile-checkbox-indicator"
-                        classList={{
-                          visible: prefs().git_ignore_space_change,
-                        }}
-                        aria-hidden="true"
-                      />
-                    </span>
-                  </label>
-                </div>
+                          }
+                          onClick={(event) => {
+                            // The native check changes only when the save succeeds.
+                            // aria-disabled preserves keyboard focus while saving.
+                            event.preventDefault();
+                            if (
+                              preferences.isPending ||
+                              preferences.error !== null ||
+                              savePreferences.isPending
+                            ) {
+                              return;
+                            }
+                            toggleWhitespace();
+                          }}
+                        />
+                        <span
+                          class="visibility-indicator large profile-checkbox-indicator"
+                          classList={{
+                            visible: prefs().git_ignore_space_change,
+                          }}
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </label>
+                  </div>
+                </Show>
+                <Show when={props.engine === "difftastic"}>
+                  <div class="engine-options-section">
+                    <label class="engine-options-checkbox-row">
+                      <span class="engine-options-checkbox-copy">
+                        <strong>Ignore comments</strong>
+                        <span>
+                          Exclude comments from change detection (
+                          <code>--ignore-comments</code>).
+                        </span>
+                      </span>
+                      <span class="profile-checkbox-control">
+                        <input
+                          class="profile-checkbox-input"
+                          type="checkbox"
+                          checked={prefs().difftastic_ignore_comments}
+                          aria-disabled={
+                            preferences.error !== null ||
+                            savePreferences.isPending
+                          }
+                          onClick={(event) => {
+                            // Only confirmed saves change the native check state.
+                            event.preventDefault();
+                            if (
+                              preferences.error !== null ||
+                              savePreferences.isPending
+                            ) {
+                              return;
+                            }
+                            const current = prefs();
+                            savePreferences.mutate({
+                              profileId: props.selectedProfile?.id ?? null,
+                              aggressiveFolds: current.aggressive_folds,
+                              gitAlgorithm: current.git_algorithm,
+                              gitIgnoreSpaceChange:
+                                current.git_ignore_space_change,
+                              difftasticIgnoreComments:
+                                !current.difftastic_ignore_comments,
+                              gumtreeMatcher: current.gumtree_matcher,
+                            });
+                          }}
+                        />
+                        <span
+                          class="visibility-indicator large profile-checkbox-indicator"
+                          classList={{
+                            visible: prefs().difftastic_ignore_comments,
+                          }}
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </label>
+                  </div>
+                </Show>
+                <Show when={props.engine === "gumtree"}>
+                  <div class="engine-options-section">
+                    <span class="engine-options-section-label">Matcher</span>
+                    <div
+                      class="engine-algorithm-list"
+                      role="radiogroup"
+                      aria-label="GumTree matcher"
+                    >
+                      <For each={gumtreeMatchers}>
+                        {(matcher) => (
+                          <label
+                            class="engine-algorithm-item"
+                            classList={{
+                              selected:
+                                prefs().gumtree_matcher === matcher.value,
+                            }}
+                          >
+                            <input
+                              class="engine-algorithm-input"
+                              type="radio"
+                              name={`${optionsId}-matcher`}
+                              value={matcher.value}
+                              checked={
+                                prefs().gumtree_matcher === matcher.value
+                              }
+                              aria-disabled={
+                                preferences.error !== null ||
+                                savePreferences.isPending
+                              }
+                              onChange={(event) => {
+                                // Restore the confirmed group before starting the save.
+                                // Cancelling a click can undo a fast successful save.
+                                const group = expect(
+                                  event.currentTarget.closest(
+                                    '[role="radiogroup"]',
+                                  ),
+                                  "Matcher radios require their group.",
+                                );
+                                for (const input of group.querySelectorAll<HTMLInputElement>(
+                                  'input[type="radio"]',
+                                )) {
+                                  input.checked =
+                                    input.value === prefs().gumtree_matcher;
+                                }
+                                if (
+                                  preferences.error !== null ||
+                                  savePreferences.isPending ||
+                                  prefs().gumtree_matcher === matcher.value
+                                ) {
+                                  return;
+                                }
+                                const current = prefs();
+                                savePreferences.mutate({
+                                  profileId: props.selectedProfile?.id ?? null,
+                                  aggressiveFolds: current.aggressive_folds,
+                                  gitAlgorithm: current.git_algorithm,
+                                  gitIgnoreSpaceChange:
+                                    current.git_ignore_space_change,
+                                  difftasticIgnoreComments:
+                                    current.difftastic_ignore_comments,
+                                  gumtreeMatcher: GumTreeMatcherSchema.parse(
+                                    matcher.value,
+                                  ),
+                                });
+                              }}
+                            />
+                            <span class="engine-algorithm-item-header">
+                              <strong>{matcher.label}</strong>
+                              <Show when={matcher.value === "gumtree-simple"}>
+                                <span class="engine-algorithm-default-badge">
+                                  default
+                                </span>
+                              </Show>
+                            </span>
+                          </label>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
                 <Show
                   when={
                     savePreferences.variables?.profileId ===

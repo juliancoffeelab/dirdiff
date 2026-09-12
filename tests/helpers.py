@@ -297,14 +297,18 @@ def tool_json(
     old, new = inputs
     match engine:
         case "difftastic":
-            output = DifftasticDiffEngine()._run_difftastic_json(
+            output = DifftasticDiffEngine(
+                ignore_comments=False
+            )._run_difftastic_json(
                 left_text=old.text,
                 right_text=new.text,
                 left_path_hint=old.name,
                 right_path_hint=new.name,
             )
         case "gumtree":
-            output = GumTreeDiffEngine()._run_gumtree_json(
+            output = GumTreeDiffEngine(
+                matcher="gumtree-simple"
+            )._run_gumtree_json(
                 left_text=old.text,
                 right_text=new.text,
                 left_path_hint=old.name,

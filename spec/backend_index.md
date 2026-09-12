@@ -151,8 +151,17 @@ other process failures, malformed JSON, and unsatisfiable coordinates are
 the sole consumer of its private `_logic` driver, which contains executable
 discovery, temporary files, and raw JSON validation.
 
+Difftastic's `ignore_comments` option passes `--ignore-comments`. An upstream
+`unchanged` result with this option uses local line alignment to retain both
+source texts as equal rows, including comment-only edits. Other structural
+results retain the normal alignment and span validation.
+
+GumTree's `matcher` option passes an explicit `-m` ID: Simple, Classic, Hybrid,
+Stable, or Auto. Simple is the initial preference.
+
 The package also defines engine selection. `EngineConfig` carries Git's required
-algorithm and whitespace boolean, or the name of an engine with no options.
+algorithm and whitespace boolean, Difftastic's required comment boolean,
+GumTree's required matcher, or the name of an engine with no options.
 `engine()` constructs that configured renderer. Both are exported from the package root. `engine()` is defined in `__init__.py` rather than `base.py`
 because selection must reach the concrete engine classes, whose modules import
 their contracts from `base.py`.
@@ -276,8 +285,8 @@ one existing local identity without credentials. Agent registration adds a one-t
 without changing that Profile shape. `db.room` contains these relations,
 immutable records, and transactions through `RoomStore`.
 
-Profile preferences store the folding policy, Git algorithm, and Git whitespace
-policy in one row per Profile. Reads create initial values only when no
+Profile preferences store the folding policy, Git algorithm and whitespace
+policy, Difftastic comment policy, and GumTree matcher in one row per Profile. Reads create initial values only when no
 preference row exists; saves replace all values. The HTTP boundary validates the closed algorithm choice.
 
 Its public interface is exported from `dirdiff.db`.

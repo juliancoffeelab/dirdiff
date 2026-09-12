@@ -31,7 +31,7 @@ from dirdiff.db import (
     UserProfileStore,
     open_sqlite_engine,
 )
-from dirdiff.engines import GitAlgorithm
+from dirdiff.engines import GitAlgorithm, GumTreeMatcher
 from dirdiff.room_lord import (
     RoomLord,
 )
@@ -127,6 +127,12 @@ class PreferencesResponse(ApiModel):
     git_algorithm: GitAlgorithm
     """Remembered Git line-matching choice for future File rendering."""
 
+    difftastic_ignore_comments: bool
+    """Required Difftastic comment policy for this Profile."""
+
+    gumtree_matcher: GumTreeMatcher
+    """Required upstream GumTree matcher choice for this Profile."""
+
     git_ignore_space_change: bool
     """Whether Git ignores changes in whitespace amount for future rendering."""
 
@@ -149,6 +155,12 @@ class PreferencesUpdateRequest(ApiModel):
 
     git_algorithm: GitAlgorithm
     """Required replacement for the Profile's Git algorithm preference."""
+
+    difftastic_ignore_comments: bool
+    """Required Difftastic comment policy for this Profile."""
+
+    gumtree_matcher: GumTreeMatcher
+    """Required upstream GumTree matcher choice for this Profile."""
 
     git_ignore_space_change: bool
     """Required replacement for the Profile's Git whitespace preference."""
@@ -396,6 +408,8 @@ class _ApplicationRoutes:
                 request.aggressive_folds,
                 request.git_algorithm,
                 request.git_ignore_space_change,
+                request.difftastic_ignore_comments,
+                request.gumtree_matcher,
             ),
             from_attributes=True,
         )

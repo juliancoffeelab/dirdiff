@@ -33,11 +33,14 @@ __all__ = [
     "DiffEngineRow",
     "DiffSide",
     "DiffSummary",
+    "DifftasticEngineConfig",
     "DirdiffError",
     "EngineConfig",
     "EngineWarning",
     "GitAlgorithm",
     "GitEngineConfig",
+    "GumTreeEngineConfig",
+    "GumTreeMatcher",
     "InlineMove",
     "InlineToken",
     "InlineTokenStatus",
@@ -66,9 +69,41 @@ class GitEngineConfig(BaseModel):
     """Whether Git ignores changes in whitespace amount with `--ignore-space-change`."""
 
 
+type GumTreeMatcher = Literal[
+    "gumtree-simple",
+    "gumtree-classic",
+    "gumtree-hybrid",
+    "gumtree-simple-stable",
+    "gumtree-simple-auto",
+]
+"""GumTree matcher IDs exposed as explicit structural comparison choices."""
+
+
+class DifftasticEngineConfig(BaseModel):
+    """Required Difftastic rendering options; source text remains authoritative."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    engine: Literal["difftastic"]
+    """Selects Difftastic rather than another engine."""
+    ignore_comments: bool
+    """Exclude parser-recognized comments from change detection."""
+
+
+class GumTreeEngineConfig(BaseModel):
+    """Required GumTree matcher selection for one structural rendering."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    engine: Literal["gumtree"]
+    """Selects GumTree rather than another engine."""
+    matcher: GumTreeMatcher
+    """Exact upstream matcher ID passed through the -m option."""
+
+
 type EngineConfig = (
     GitEngineConfig
-    | Literal["dirdiff", "difftastic", "gumtree", "diffsitter", "tokendiff"]
+    | DifftasticEngineConfig
+    | GumTreeEngineConfig
+    | Literal["dirdiff", "diffsitter", "tokendiff"]
 )
 """Complete renderer selection. Engines without options use their name alone."""
 

@@ -23,6 +23,11 @@ export default defineConfig(
     ignores: ["dist/**", "node_modules/**", ".vite/**"],
   },
   {
+    rules: {
+      curly: ["error", "all"],
+    },
+  },
+  {
     files: ["src/hud/navigation.tsx"],
     rules: {
       "local/select-hunk-callers": "error",

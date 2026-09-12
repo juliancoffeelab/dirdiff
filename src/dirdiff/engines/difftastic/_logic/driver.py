@@ -354,6 +354,7 @@ class DifftasticTunings:
 
 def run_difftastic_json(
     *,
+    ignore_comments: bool,
     left_text: str,
     right_text: str,
     left_path_hint: str | None = None,
@@ -368,6 +369,7 @@ def run_difftastic_json(
 
     # Parameters
 
+    - `ignore_comments`: Exclude comments from structural change detection.
     - `left_text`: Complete old-side text written to Difftastic's left input.
     - `right_text`: Complete new-side text written to Difftastic's right input.
     - `left_path_hint`: Optional old-side name used only for its suffix.
@@ -403,6 +405,8 @@ def run_difftastic_json(
         env = {
             **os.environ,
             "DFT_GRAPH_LIMIT": tunings.graph_limit,
+            # The explicit CLI option controls this preference, not the shell.
+            "DFT_IGNORE_COMMENTS": "false",
         }
         if tunings.unstable:
             env["DFT_UNSTABLE"] = "yes"
@@ -411,6 +415,7 @@ def run_difftastic_json(
             result = subprocess.run(
                 [
                     "difft",
+                    *(["--ignore-comments"] if ignore_comments else []),
                     "--display",
                     "json",
                     "--context",

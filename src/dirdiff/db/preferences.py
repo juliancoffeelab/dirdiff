@@ -73,6 +73,14 @@ class UserPreferences(TableBase):
     )
     """Whether the Git engine ignores changes in whitespace amount."""
 
+    difftastic_ignore_comments: Mapped[bool] = mapped_column(
+        Boolean, nullable=False
+    )
+    """Whether Difftastic excludes comments from structural change detection."""
+
+    gumtree_matcher: Mapped[str] = mapped_column(String, nullable=False)
+    """Exact GumTree matcher ID validated at the HTTP boundary."""
+
 
 @dataclass(frozen=True)
 class PreferencesRecord:
@@ -104,6 +112,12 @@ class PreferencesRecord:
 
     git_ignore_space_change: bool
     """Remembered Git whitespace policy, independent of the active engine."""
+
+    difftastic_ignore_comments: bool
+    """Stored Difftastic comment policy, without UI interpretation."""
+
+    gumtree_matcher: str
+    """Stored upstream GumTree matcher ID."""
 
 
 class PreferencesStore:
@@ -160,6 +174,8 @@ class PreferencesStore:
                     UserPreferences.aggressive_folds,
                     UserPreferences.git_algorithm,
                     UserPreferences.git_ignore_space_change,
+                    UserPreferences.difftastic_ignore_comments,
+                    UserPreferences.gumtree_matcher,
                 ).where(UserPreferences.user_profile_id == user_profile_id)
             ).one_or_none()
             if row is None:
@@ -169,6 +185,8 @@ class PreferencesStore:
                 aggressive_folds=row[1],
                 git_algorithm=row[2],
                 git_ignore_space_change=row[3],
+                difftastic_ignore_comments=row[4],
+                gumtree_matcher=row[5],
             )
 
     def get_or_create(self, user_profile_id: int) -> PreferencesRecord:
@@ -206,6 +224,8 @@ class PreferencesStore:
                     aggressive_folds=True,
                     git_algorithm="myers",
                     git_ignore_space_change=False,
+                    difftastic_ignore_comments=False,
+                    gumtree_matcher="gumtree-simple",
                 )
                 .on_conflict_do_update(
                     index_elements=[UserPreferences.user_profile_id],
@@ -220,6 +240,8 @@ class PreferencesStore:
                     UserPreferences.aggressive_folds,
                     UserPreferences.git_algorithm,
                     UserPreferences.git_ignore_space_change,
+                    UserPreferences.difftastic_ignore_comments,
+                    UserPreferences.gumtree_matcher,
                 )
             ).one()
             return PreferencesRecord(
@@ -227,6 +249,8 @@ class PreferencesStore:
                 aggressive_folds=row[1],
                 git_algorithm=row[2],
                 git_ignore_space_change=row[3],
+                difftastic_ignore_comments=row[4],
+                gumtree_matcher=row[5],
             )
 
     def save(
@@ -235,6 +259,8 @@ class PreferencesStore:
         aggressive_folds: bool,
         git_algorithm: str,
         git_ignore_space_change: bool,
+        difftastic_ignore_comments: bool,
+        gumtree_matcher: str,
     ) -> PreferencesRecord:
         """Persist and return one Profile's complete preferences.
 
@@ -247,6 +273,8 @@ class PreferencesStore:
         - `aggressive_folds`: Exact value later returned to the HUD.
         - `git_algorithm`: Validated Git algorithm to remember.
         - `git_ignore_space_change`: Whether Git ignores whitespace amount changes.
+        - `difftastic_ignore_comments`: Whether Difftastic ignores comments.
+        - `gumtree_matcher`: Validated upstream matcher ID.
 
         # Usage
 
@@ -265,6 +293,8 @@ class PreferencesStore:
                     aggressive_folds=aggressive_folds,
                     git_algorithm=git_algorithm,
                     git_ignore_space_change=git_ignore_space_change,
+                    difftastic_ignore_comments=difftastic_ignore_comments,
+                    gumtree_matcher=gumtree_matcher,
                 )
                 .on_conflict_do_update(
                     index_elements=[UserPreferences.user_profile_id],
@@ -272,6 +302,8 @@ class PreferencesStore:
                         "aggressive_folds": aggressive_folds,
                         "git_algorithm": git_algorithm,
                         "git_ignore_space_change": git_ignore_space_change,
+                        "difftastic_ignore_comments": difftastic_ignore_comments,
+                        "gumtree_matcher": gumtree_matcher,
                     },
                 )
                 .returning(
@@ -279,6 +311,8 @@ class PreferencesStore:
                     UserPreferences.aggressive_folds,
                     UserPreferences.git_algorithm,
                     UserPreferences.git_ignore_space_change,
+                    UserPreferences.difftastic_ignore_comments,
+                    UserPreferences.gumtree_matcher,
                 )
             ).one()
             return PreferencesRecord(
@@ -286,4 +320,6 @@ class PreferencesStore:
                 aggressive_folds=row[1],
                 git_algorithm=row[2],
                 git_ignore_space_change=row[3],
+                difftastic_ignore_comments=row[4],
+                gumtree_matcher=row[5],
             )

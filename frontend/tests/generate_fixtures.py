@@ -25,7 +25,7 @@ def main() -> None:
         (right_path,) = preset.glob("new.*")
         left = left_path.read_bytes().decode("utf-8")
         right = right_path.read_bytes().decode("utf-8")
-        result = GumTreeDiffEngine().render_diff(
+        result = GumTreeDiffEngine(matcher="gumtree-simple").render_diff(
             old=DiffSide(exists=True, text=left, path_hint=left_path.name),
             new=DiffSide(exists=True, text=right, path_hint=right_path.name),
         )

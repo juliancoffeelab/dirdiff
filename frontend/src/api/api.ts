@@ -56,14 +56,31 @@ export const GitAlgorithmSchema = z.enum([
   "histogram",
 ]);
 
-/** Complete Git configuration or the name of an engine with no options. */
+/** Upstream GumTree matchers available as structural rendering choices. */
+export const GumTreeMatcherSchema = z.enum([
+  "gumtree-simple",
+  "gumtree-classic",
+  "gumtree-hybrid",
+  "gumtree-simple-stable",
+  "gumtree-simple-auto",
+]);
+
+/** Complete rendering options, or the name of an engine with no options. */
 export const EngineConfigSchema = z.union([
   z.strictObject({
     engine: z.literal("git"),
     algorithm: GitAlgorithmSchema,
     ignore_space_change: z.boolean(),
   }),
-  DiffEngineSchema.exclude(["git"]),
+  z.strictObject({
+    engine: z.literal("difftastic"),
+    ignore_comments: z.boolean(),
+  }),
+  z.strictObject({
+    engine: z.literal("gumtree"),
+    matcher: GumTreeMatcherSchema,
+  }),
+  DiffEngineSchema.exclude(["git", "difftastic", "gumtree"]),
 ]);
 
 /** Validated File-rendering identity; options never enter manifest parameters. */
@@ -163,6 +180,8 @@ const PreferenceValuesSchema = z.strictObject({
   aggressive_folds: z.boolean(),
   git_algorithm: GitAlgorithmSchema,
   git_ignore_space_change: z.boolean(),
+  difftastic_ignore_comments: z.boolean(),
+  gumtree_matcher: GumTreeMatcherSchema,
 });
 
 /** Complete active preferences; a null identity means anonymous local use. */
@@ -2988,11 +3007,15 @@ async function requestPreferences(
             aggressive_folds: true,
             git_algorithm: "myers" as const,
             git_ignore_space_change: false,
+            difftastic_ignore_comments: false,
+            gumtree_matcher: "gumtree-simple" as const,
           }
         : PreferenceValuesSchema.extend({
             // A browser cache may predate this control. This initial value is
             // confined to localStorage; API preferences remain fully required.
             git_ignore_space_change: z.boolean().default(false),
+            difftastic_ignore_comments: z.boolean().default(false),
+            gumtree_matcher: GumTreeMatcherSchema.default("gumtree-simple"),
           }).parse(JSON.parse(raw));
     return { ...values, user_profile_id: null };
   }
@@ -3017,6 +3040,8 @@ async function requestPreferences(
       aggressive_folds: preferences.aggressive_folds,
       git_algorithm: preferences.git_algorithm,
       git_ignore_space_change: preferences.git_ignore_space_change,
+      difftastic_ignore_comments: preferences.difftastic_ignore_comments,
+      gumtree_matcher: preferences.gumtree_matcher,
     }),
   );
   return preferences;
@@ -3035,11 +3060,17 @@ async function requestSavePreferences(input: {
   gitAlgorithm: Preferences["git_algorithm"];
   /** Whether Git should ignore changes in whitespace amount. */
   gitIgnoreSpaceChange: boolean;
+  /** Whether Difftastic excludes comments from change detection. */
+  difftasticIgnoreComments: boolean;
+  /** Exact upstream GumTree matcher selection. */
+  gumtreeMatcher: Preferences["gumtree_matcher"];
 }): Promise<Preferences> {
   const values = PreferenceValuesSchema.parse({
     aggressive_folds: input.aggressiveFolds,
     git_algorithm: input.gitAlgorithm,
     git_ignore_space_change: input.gitIgnoreSpaceChange,
+    difftastic_ignore_comments: input.difftasticIgnoreComments,
+    gumtree_matcher: input.gumtreeMatcher,
   });
   if (input.profileId === null) {
     return { ...values, user_profile_id: null };
@@ -4029,6 +4060,8 @@ export const api = {
                 aggressive_folds: saved.aggressive_folds,
                 git_algorithm: saved.git_algorithm,
                 git_ignore_space_change: saved.git_ignore_space_change,
+                difftastic_ignore_comments: saved.difftastic_ignore_comments,
+                gumtree_matcher: saved.gumtree_matcher,
               }),
             );
             queryClient.setQueryData(queryKey, saved);

@@ -816,10 +816,16 @@ function ImperativeDiffLines(props: {
         marker.kind === "deleted"
           ? String(marker.count)
           : actionLabel;
-      if (label.textContent !== labelText) label.textContent = labelText;
-      if (trigger.title !== actionLabel) trigger.title = actionLabel;
+      if (label.textContent !== labelText) {
+        label.textContent = labelText;
+      }
+      if (trigger.title !== actionLabel) {
+        trigger.title = actionLabel;
+      }
       const ariaLabel = `${actionLabel} on ${side === "left" ? "old" : "new"} line ${line}`;
-      if (trigger.ariaLabel !== ariaLabel) trigger.ariaLabel = ariaLabel;
+      if (trigger.ariaLabel !== ariaLabel) {
+        trigger.ariaLabel = ariaLabel;
+      }
       const warning = "warning" in marker && marker.warning;
       if (
         trigger.classList.contains("line-comment-trigger-warning") !== warning
@@ -916,7 +922,9 @@ function ImperativeDiffLines(props: {
   function paintMoveOutlines(): void {
     root.querySelector(".move-outlines")?.remove();
     const moved = root.querySelectorAll<HTMLElement>(".token-moved");
-    if (moved.length === 0) return;
+    if (moved.length === 0) {
+      return;
+    }
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.classList.add("move-outlines");
     svg.setAttribute("aria-hidden", "true");
@@ -1090,8 +1098,9 @@ function ImperativeDiffLines(props: {
       if (
         entered?.dataset.moveKey === exited?.dataset.moveKey &&
         entered?.dataset.moveSide === exited?.dataset.moveSide
-      )
+      ) {
         return;
+      }
       const hovered = event.type === "pointerout" ? exited : entered;
       const selected = new Set<string>();
       if (hovered !== null) {
@@ -1126,8 +1135,9 @@ function ImperativeDiffLines(props: {
               (firstLine === startLine && firstColumn >= startColumn)) &&
             (lastLine < endLine ||
               (lastLine === endLine && lastColumn <= endColumn))
-          )
+          ) {
             selected.add(candidate);
+          }
         }
       }
       // Coverage never changes: hover emphasizes existing text and outlines for

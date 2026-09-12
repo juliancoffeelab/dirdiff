@@ -35,6 +35,7 @@ from dirdiff.engines.base import (
     DiffSide,
     DiffSummary,
     DirdiffError,
+    GumTreeMatcher,
     InlineMove,
     InlineToken,
     InlineTokenStatus,
@@ -497,6 +498,7 @@ def _tokens_for_lines(
 
 
 @final
+@dataclass
 class GumTreeDiffEngine(DiffEngineProtocol):
     """Structural renderer backed by GumTree JSON ranges.
 
@@ -506,9 +508,12 @@ class GumTreeDiffEngine(DiffEngineProtocol):
     languages and ambiguous source offsets use a local unified diff with a
     visible engine warning.
 
-    The engine holds no state.  It locates the GumTree executable itself when a
+    The engine retains only its matcher selection. It locates the GumTree executable itself when a
     render needs one, so callers do not supply an executable path.
     """
+
+    matcher: GumTreeMatcher
+    """Exact upstream matcher used for syntax-node correspondence."""
 
     @override
     def render_diff(
@@ -722,6 +727,7 @@ class GumTreeDiffEngine(DiffEngineProtocol):
         """
 
         return run_gumtree_json(
+            matcher=self.matcher,
             gumtree_bin=gumtree_executable_for_cwd(Path.cwd()),
             left_text=left_text,
             right_text=right_text,

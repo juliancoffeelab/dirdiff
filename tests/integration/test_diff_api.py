@@ -523,6 +523,8 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
         "aggressive_folds": True,
         "git_algorithm": "myers",
         "git_ignore_space_change": False,
+        "difftastic_ignore_comments": False,
+        "gumtree_matcher": "gumtree-simple",
     }
     assert second_preferences.status_code == 200
     assert second_preferences.json() == {
@@ -530,6 +532,8 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
         "aggressive_folds": True,
         "git_algorithm": "myers",
         "git_ignore_space_change": False,
+        "difftastic_ignore_comments": False,
+        "gumtree_matcher": "gumtree-simple",
     }
 
     update_response = client.patch(
@@ -538,6 +542,8 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
             "aggressive_folds": False,
             "git_algorithm": "myers",
             "git_ignore_space_change": False,
+            "difftastic_ignore_comments": True,
+            "gumtree_matcher": "gumtree-classic",
         },
     )
     reloaded_second_preferences = client.get(
@@ -550,6 +556,8 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
         "aggressive_folds": False,
         "git_algorithm": "myers",
         "git_ignore_space_change": False,
+        "difftastic_ignore_comments": True,
+        "gumtree_matcher": "gumtree-classic",
     }
     assert reloaded_second_preferences.status_code == 200
     assert reloaded_second_preferences.json() == {
@@ -557,6 +565,8 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
         "aggressive_folds": True,
         "git_algorithm": "myers",
         "git_ignore_space_change": False,
+        "difftastic_ignore_comments": False,
+        "gumtree_matcher": "gumtree-simple",
     }
 
 

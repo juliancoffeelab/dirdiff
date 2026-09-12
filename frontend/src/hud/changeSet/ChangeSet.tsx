@@ -545,12 +545,28 @@ function ReviewSnapshotBoundary(
   // only the File lane. Equal choices survive unrelated preference updates.
   const configuration = createMemo<EngineConfig | null>(
     () => {
-      if (preferences.isPending || preferences.error !== null) return null;
-      if (props.engine !== "git") return props.engine;
+      if (preferences.isPending || preferences.error !== null) {
+        return null;
+      }
       const current = expect(
         preferences.data,
         "Loaded preferences require data.",
       );
+      if (props.engine === "difftastic") {
+        return {
+          engine: "difftastic",
+          ignore_comments: current.difftastic_ignore_comments,
+        };
+      }
+      if (props.engine === "gumtree") {
+        return {
+          engine: "gumtree",
+          matcher: current.gumtree_matcher,
+        };
+      }
+      if (props.engine !== "git") {
+        return props.engine;
+      }
       return {
         engine: "git",
         algorithm: current.git_algorithm,
@@ -644,7 +660,9 @@ function ReviewSnapshotBoundary(
       },
       abortSignal: reviewNavigationAbort.signal,
     });
-    if (result.state === "stopped") return null;
+    if (result.state === "stopped") {
+      return null;
+    }
     if (result.state === "missing") {
       throw new Error(
         "The exact reviewed line is absent from the loaded File.",

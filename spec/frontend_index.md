@@ -179,7 +179,8 @@ api.pullRequest.prepare()
 Each facade operation returns a TanStack query or mutation definition. HUD modules decide when to observe, prefetch, refetch, or execute it.
 
 File rendering accepts a complete `EngineConfig`: Git carries its engine tag and
-required algorithm and `ignore_space_change` boolean; engines without options
+required algorithm and `ignore_space_change` boolean. Difftastic carries its
+required `ignore_comments` boolean; GumTree carries its required `matcher`. Engines without options
 use their name. The File HTTP parameter is JSON, and the complete value participates in query identity.
 Workspace URLs continue to store only the selected engine name.
 
@@ -188,9 +189,12 @@ use. Profile reads load the database value directly into the localStorage
 preference cache. Anonymous reads use that cache, creating initial preferences
 only when the key is absent. At this localStorage boundary, an absent
 `git_ignore_space_change` field starts off. HTTP values still require every
-field. Validation and storage failures remain errors.
+field. The same localStorage boundary initializes missing Difftastic and GumTree
+options to false and `gumtree-simple`; database migration preserves those values
+for existing Profiles. Validation and storage failures remain errors.
 Preferences contain `aggressive_folds`, `git_algorithm`, and
-`git_ignore_space_change`, initially true, Myers, and false. The active TanStack
+`git_ignore_space_change`, `difftastic_ignore_comments`, and `gumtree_matcher`,
+initially true, Myers, false, false, and `gumtree-simple`. The active TanStack
 query is the sole reactive representation; localStorage contains only the
 preference values, with no Profile identity or version.
 
@@ -356,9 +360,11 @@ engine-specific configuration. A native auto popover handles opening, outside-cl
 dismissal, and Escape; CSS anchors it below the trigger without popup state or
 document listeners. For Git, the popup displays the algorithm choices
 (Myers as the default, Minimal, Patience, Histogram) and the Ignore space changes
-toggle for Git's `--ignore-space-change` flag. For all other engines, the popup
-indicates that no options are implemented for that engine. When custom Git options
-are active, the button displays an indicator badge. Controls are disabled while
+toggle for Git's `--ignore-space-change` flag. Difftastic shows an Ignore comments
+toggle; GumTree uses the same radio cards for its matcher, with Simple, Classic, Hybrid, Stable,
+and Auto choices. For engines without options, the popup
+indicates that no options are implemented for that engine. The button displays an indicator badge whenever the engine has options,
+including when all settings have their default values. Controls are disabled while
 preferences save without losing keyboard focus. Native radio inputs provide
 arrow-key algorithm selection; both controls display only confirmed saves. Save
 errors offer a retry of the original values for the same Profile. The component

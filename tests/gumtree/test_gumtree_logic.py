@@ -59,7 +59,7 @@ def test_invalid_engine_facts_are_rejected(facts: GumTreeJson) -> None:
 
 def test_unsupported_language_uses_unified_diff_with_notice() -> None:
     """The actual executable's missing-generator diagnosis produces usable text rows."""
-    result = GumTreeDiffEngine().render_diff(
+    result = GumTreeDiffEngine(matcher="gumtree-simple").render_diff(
         old=DiffSide(
             exists=True,
             text="old\ncontext\n",
@@ -146,7 +146,7 @@ def test_ambiguous_unicode_offsets_are_not_guessed() -> None:
             right_path_hint="new.py",
         )
 
-    result = GumTreeDiffEngine().render_diff(
+    result = GumTreeDiffEngine(matcher="gumtree-simple").render_diff(
         old=DiffSide(exists=True, text=left, path_hint="old.py"),
         new=DiffSide(exists=True, text=right, path_hint="new.py"),
     )
@@ -176,7 +176,7 @@ def test_missing_side_produces_complete_textual_rows(deleted: bool) -> None:
     """Absent files produce local textual rows without requiring an external engine."""
     present = DiffSide(exists=True, text="first\n\nlast\n", path_hint=None)
     absent = DiffSide(exists=False, text=None, path_hint=None)
-    result = GumTreeDiffEngine().render_diff(
+    result = GumTreeDiffEngine(matcher="gumtree-simple").render_diff(
         old=present if deleted else absent,
         new=absent if deleted else present,
     )
@@ -198,7 +198,9 @@ def test_unsupported_identical_sources_keep_context() -> None:
         text="first\n\nlast\n",
         path_hint="file.unsupported-dirdiff",
     )
-    result = GumTreeDiffEngine().render_diff(old=side, new=side)
+    result = GumTreeDiffEngine(matcher="gumtree-simple").render_diff(
+        old=side, new=side
+    )
     assert result["engine_warning"]["type"] == "gumtree_unsupported_language"
     assert [
         (row["left_no"], row["right_no"], row["status"])

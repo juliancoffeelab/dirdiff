@@ -729,7 +729,9 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     // and only History presents such Threads.
     for (const thread of revision[0]) {
       const point = threadCodePoint(thread);
-      if (point === null) continue;
+      if (point === null) {
+        continue;
+      }
       append(
         lineThreads,
         lineMarkerKey(
@@ -1045,8 +1047,12 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
    */
   function activeCommentInputDraft(): NewThreadDraft | null {
     const active = activeCommentInput();
-    if (active === null) return null;
-    if (active.input !== null) return active.input;
+    if (active === null) {
+      return null;
+    }
+    if (active.input !== null) {
+      return active.input;
+    }
     const draft = expect(
       drafts().find((draft) => draft.draft_id === active.draftId),
       "Active Comment input lost its persisted draft.",
@@ -1069,7 +1075,9 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
    */
   function closeActiveCommentInput(): void {
     const active = activeCommentInput();
-    if (active === null || submittingDraftIds().has(active.draftId)) return;
+    if (active === null || submittingDraftIds().has(active.draftId)) {
+      return;
+    }
     if (active.input !== null) {
       setActiveCommentInput(null);
       return;
@@ -1157,7 +1165,9 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       (draft) => draft.draft_id === replacement.draft_id,
     );
     if (replacement.body.trim().length === 0) {
-      if (!stored) return true;
+      if (!stored) {
+        return true;
+      }
       let removed = false;
       batch(() => {
         removed = draftContext.remove(replacement.draft_id);
@@ -1167,8 +1177,12 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       });
       return removed;
     }
-    if (stored) return draftContext.replace(replacement);
-    if (!draftContext.add(replacement)) return false;
+    if (stored) {
+      return draftContext.replace(replacement);
+    }
+    if (!draftContext.add(replacement)) {
+      return false;
+    }
     setActiveCommentInput({ ...active, input: null });
     return true;
   }
@@ -1287,10 +1301,14 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
    */
   function viewThreadInCode(thread: ReviewThread): void {
     const point = threadCodePoint(thread);
-    if (point === null) return;
+    if (point === null) {
+      return;
+    }
     void (async () => {
       const anchor = await props.viewThread(point);
-      if (anchor === null) return;
+      if (anchor === null) {
+        return;
+      }
       const trigger = anchor.trigger.parentElement?.querySelector(
         `[data-review-marker-kind="${thread.state}"]`,
       );
@@ -1332,7 +1350,9 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         throw new Error("Load the reviewed File before continuing this draft.");
       }
       const anchor = await props.viewThread(point);
-      if (anchor === null) return;
+      if (anchor === null) {
+        return;
+      }
       setActiveThreadPanel(null);
       const mount = anchor.codeCell.parentElement;
       assert(
@@ -1368,7 +1388,9 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         `[data-review-history-thread-id="${threadId}"]`,
       ) !== null
     ) {
-      if (submittingDraftIds().has(commentInput.draftId)) return false;
+      if (submittingDraftIds().has(commentInput.draftId)) {
+        return false;
+      }
       closeActiveCommentInput();
     }
     return true;
@@ -1531,7 +1553,9 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         "Empty review location requires its new-Comment marker.",
       );
       const profile = profileForWrite();
-      if (profile === null) return;
+      if (profile === null) {
+        return;
+      }
       openNewDraft(
         profile,
         {
@@ -1644,7 +1668,9 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
           onClose={() => {
             const commentInput = activeCommentInput();
             if (commentInput !== null && commentInput.sourceAnchor !== null) {
-              if (submittingDraftIds().has(commentInput.draftId)) return;
+              if (submittingDraftIds().has(commentInput.draftId)) {
+                return;
+              }
               closeActiveCommentInput();
             }
             setActiveThreadPanel(null);

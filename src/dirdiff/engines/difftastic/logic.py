@@ -587,6 +587,7 @@ def difftastic_rows_from_json(
 
 def build_difftastic_ast(
     *,
+    ignore_comments: bool,
     left_text: str,
     right_text: str,
     left_path_hint: str | None,
@@ -601,6 +602,7 @@ def build_difftastic_ast(
 
     # Parameters
 
+    - `ignore_comments`: Treat upstream comment-only results as unchanged.
     - `left_text`: Complete old document supplied to Difftastic and row building.
     - `right_text`: Complete new document supplied likewise.
     - `left_path_hint`: Optional old filename used for parser selection.
@@ -619,11 +621,24 @@ def build_difftastic_ast(
     supplied source text.
     """
     diff_json = run_difftastic_json(
+        ignore_comments=ignore_comments,
         left_text=left_text,
         right_text=right_text,
         left_path_hint=left_path_hint,
         right_path_hint=right_path_hint,
     )
+    if ignore_comments and diff_json.get("status") == "unchanged":
+        # Upstream omits alignment when no structural changes remain. Preserve
+        # both documents using local line alignment, with no changed rows.
+        rows = _unified_diff_rows(
+            left_text=left_text,
+            right_text=right_text,
+            left_label="" if left_path_hint is None else left_path_hint,
+            right_label="" if right_path_hint is None else right_path_hint,
+        )
+        for row in rows:
+            row["status"] = "equal"
+        return DifftasticAst(rows=rows, engine_warning=None)
     rows = difftastic_rows_from_json(
         diff_json,
         left_text=left_text,
@@ -787,6 +802,7 @@ def _unified_diff_rows(
 
 
 @final
+@dataclass
 class DifftasticDiffEngine(DiffEngineProtocol):
     """Compare text structurally using Difftastic.
 
@@ -800,6 +816,9 @@ class DifftasticDiffEngine(DiffEngineProtocol):
     The engine has no workspace or request state. Obtain it through `engine()`
     when selecting an engine by name.
     """
+
+    ignore_comments: bool
+    """Whether parser-recognized comments are excluded from change detection."""
 
     def _run_difftastic_json(
         self,
@@ -823,6 +842,7 @@ class DifftasticDiffEngine(DiffEngineProtocol):
         - `right_path_hint`: Optional new filename used for parser selection.
         """
         return run_difftastic_json(
+            ignore_comments=self.ignore_comments,
             left_text=left_text,
             right_text=right_text,
             left_path_hint=left_path_hint,
@@ -858,6 +878,7 @@ class DifftasticDiffEngine(DiffEngineProtocol):
         rows: list[DiffEngineRow]
         if old.exists and new.exists:
             difftastic_ast = build_difftastic_ast(
+                ignore_comments=self.ignore_comments,
                 left_text=left_text_value,
                 right_text=right_text_value,
                 left_path_hint=old.path_hint,

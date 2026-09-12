@@ -182,7 +182,7 @@ def test_difftastic_engine_keeps_identical_source_rows() -> None:
 print(value)
 """
 
-    payload = DifftasticDiffEngine().render_diff(
+    payload = DifftasticDiffEngine(ignore_comments=False).render_diff(
         old=DiffSide(exists=True, text=source, path_hint="cell.py"),
         new=DiffSide(exists=True, text=source, path_hint="cell.py"),
     )

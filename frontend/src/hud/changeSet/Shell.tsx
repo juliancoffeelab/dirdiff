@@ -533,7 +533,9 @@ function DebugHud(props: DebugHudProps): JSX.Element {
      * time from the FPS sample.
      */
     function scheduleNodeCount(): void {
-      if (countTimer !== null) return;
+      if (countTimer !== null) {
+        return;
+      }
       countTimer = window.setTimeout(() => {
         countTimer = null;
         setMetrics((current) => ({
@@ -573,7 +575,9 @@ function DebugHud(props: DebugHudProps): JSX.Element {
     frame = requestAnimationFrame(tick);
     onCleanup(() => {
       cancelAnimationFrame(frame);
-      if (countTimer !== null) window.clearTimeout(countTimer);
+      if (countTimer !== null) {
+        window.clearTimeout(countTimer);
+      }
     });
   });
 

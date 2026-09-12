@@ -609,6 +609,7 @@ h1 {
 .engine-options-popover {
   /* Keep the native top-layer popover aligned with its header button. */
   position-anchor: --engine-options;
+  overflow: visible;
   position: fixed;
   inset: auto;
   top: calc(anchor(bottom) + 4px);
@@ -817,6 +818,7 @@ h1 {
 }
 
 .engine-options-checkbox-copy code {
+  white-space: nowrap;
   font-size: 10px;
   background: #ece6d8;
   padding: 1px 3px;

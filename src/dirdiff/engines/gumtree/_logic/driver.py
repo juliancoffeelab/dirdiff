@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 from typing import NotRequired, Required, TypedDict, TypeIs
 
-from dirdiff.engines.base import DirdiffError
+from dirdiff.engines.base import DirdiffError, GumTreeMatcher
 
 __all__ = [
     "GumTreeJson",
@@ -269,6 +269,7 @@ def gumtree_executable_for_cwd(cwd: Path) -> Path:
 def run_gumtree_json(
     *,
     gumtree_bin: Path,
+    matcher: GumTreeMatcher,
     left_text: str,
     right_text: str,
     left_path_hint: str,
@@ -284,6 +285,7 @@ def run_gumtree_json(
 
     # Parameters
 
+    - `matcher`: Explicit upstream matcher selected for this comparison.
     - `gumtree_bin`: Exact executable selected by discovery or a test.
     - `left_text`: Complete old source written to the left temporary file.
     - `right_text`: Complete new source written to the right temporary file.
@@ -326,6 +328,8 @@ def run_gumtree_json(
                 [
                     str(gumtree_bin),
                     "textdiff",
+                    "-m",
+                    matcher,
                     "-f",
                     "JSON",
                     str(left_path),

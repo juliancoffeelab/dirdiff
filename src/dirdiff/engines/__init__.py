@@ -22,11 +22,14 @@ from dirdiff.engines.base import (
     DiffEngineRow,
     DiffSide,
     DiffSummary,
+    DifftasticEngineConfig,
     DirdiffError,
     EngineConfig,
     EngineWarning,
     GitAlgorithm,
     GitEngineConfig,
+    GumTreeEngineConfig,
+    GumTreeMatcher,
     InlineMove,
     InlineToken,
     InlineTokenStatus,
@@ -73,10 +76,10 @@ def engine(config: EngineConfig) -> DiffEngineProtocol:
             algorithm=config.algorithm,
             ignore_space_change=config.ignore_space_change,
         )
-    if config == "difftastic":
-        return DifftasticDiffEngine()
-    if config == "gumtree":
-        return GumTreeDiffEngine()
+    if isinstance(config, DifftasticEngineConfig):
+        return DifftasticDiffEngine(ignore_comments=config.ignore_comments)
+    if isinstance(config, GumTreeEngineConfig):
+        return GumTreeDiffEngine(matcher=config.matcher)
     if config == "diffsitter":
         return DiffsitterDiffEngine()
     if config == "tokendiff":
@@ -101,6 +104,7 @@ __all__ = [
     "GitDiffEngine",
     "GumTreeDiffEngine",
     "GumTreeJson",
+    "GumTreeMatcher",
     "InlineMove",
     "InlineToken",
     "InlineTokenStatus",

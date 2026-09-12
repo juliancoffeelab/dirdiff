@@ -823,7 +823,9 @@ export function createFileLane(args: FileLaneArgs): FileLane {
             // in-flight fetch and records the same settlement.
             void queryClient.fetchQuery(aheadOptions).then(
               (data) => {
-                if (stopped) return;
+                if (stopped) {
+                  return;
+                }
                 fileDiffs[ahead] = data;
                 setFileView(ahead, { phase: "success" });
               },
@@ -832,7 +834,9 @@ export function createFileLane(args: FileLaneArgs): FileLane {
                 // cancelled by stopLane, which sets `stopped` first and
                 // always precedes this snapshot's teardown or replacement,
                 // so the view frozen at "fetching" is never presented.
-                if (stopped) return;
+                if (stopped) {
+                  return;
+                }
                 setFileView(ahead, { phase: "error", error });
               },
             );

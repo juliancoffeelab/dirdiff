@@ -404,9 +404,13 @@ export function createThreadDiscussion(
     const currentProfileId = profileId();
     const replies = new Map<ReviewId, ReviewDraft>();
     const edits = new Map<ReviewId, ReviewDraft>();
-    if (currentProfileId === null) return { replies, edits };
+    if (currentProfileId === null) {
+      return { replies, edits };
+    }
     for (const draft of draftContext.drafts()) {
-      if (draft.profile_id !== currentProfileId) continue;
+      if (draft.profile_id !== currentProfileId) {
+        continue;
+      }
       if (draft.kind === "reply") {
         assert(
           !replies.has(draft.thread_id),
@@ -477,7 +481,9 @@ export function createThreadDiscussion(
    */
   function updateReplyDraft(thread: ReviewThread, body: string): boolean {
     const profile = profileForWrite();
-    if (profile === null) return false;
+    if (profile === null) {
+      return false;
+    }
     const existing = replyDraftForThread(thread.thread_id);
     if (body.trim().length === 0) {
       return existing === null || draftContext.remove(existing.draft_id);
@@ -521,11 +527,15 @@ export function createThreadDiscussion(
     // in-flight read so the committed response publishes last.
     await queryClient.cancelQueries({ queryKey: key });
     queryClient.setQueryData<ReviewThread[]>(key, (current) => {
-      if (current === undefined) return current;
+      if (current === undefined) {
+        return current;
+      }
       const matches = current.filter(
         (candidate) => candidate.thread_id === thread.thread_id,
       );
-      if (matches.length === 0) return [...current, thread];
+      if (matches.length === 0) {
+        return [...current, thread];
+      }
       // A concurrent Reload already fetched the committed Thread: ordinary
       // concurrency, not an error. Keep the equal-or-newer loaded entry.
       assert(
@@ -570,7 +580,9 @@ export function createThreadDiscussion(
     // and silently revert the applied update.
     await queryClient.cancelQueries({ queryKey: key });
     const current = queryClient.getQueryData<ReviewThread[]>(key);
-    if (current === undefined) return;
+    if (current === undefined) {
+      return;
+    }
     const matches = current.filter(
       (candidate) => candidate.thread_id === update.thread_id,
     );
@@ -682,9 +694,13 @@ export function createThreadDiscussion(
    * true.
    */
   async function submitDraft(draftId: ReviewId): Promise<boolean> {
-    if (draftContext.error() !== null || !reviewAvailable()) return false;
+    if (draftContext.error() !== null || !reviewAvailable()) {
+      return false;
+    }
     const profile = profileForWrite();
-    if (profile === null) return false;
+    if (profile === null) {
+      return false;
+    }
     const command = draftContext.beginSubmission(draftId);
     if (command.kind === "new-thread") {
       assert(
@@ -784,7 +800,9 @@ export function createThreadDiscussion(
       return;
     }
     const profile = profileForWrite();
-    if (profile === null) return;
+    if (profile === null) {
+      return;
+    }
     if (
       action === "delete" &&
       !window.confirm(
@@ -843,13 +861,16 @@ export function createThreadDiscussion(
       return;
     }
     const profile = profileForWrite();
-    if (profile === null) return;
+    if (profile === null) {
+      return;
+    }
     assert(
       comment.author.profile_id === profile.id && comment.body !== null,
       "Only the original Profile may edit a current Comment.",
     );
-    if (editDraftForComment(thread.thread_id, comment.comment_id) !== null)
+    if (editDraftForComment(thread.thread_id, comment.comment_id) !== null) {
       return;
+    }
     const draft: ReviewDraft = {
       kind: "edit",
       draft_id: newReviewId(),
@@ -891,8 +912,12 @@ export function createThreadDiscussion(
       return;
     }
     const profile = profileForWrite();
-    if (profile === null) return;
-    if (!window.confirm("Delete this Comment?")) return;
+    if (profile === null) {
+      return;
+    }
+    if (!window.confirm("Delete this Comment?")) {
+      return;
+    }
     void (async () => {
       try {
         const updated = await deleteComment.mutateAsync({

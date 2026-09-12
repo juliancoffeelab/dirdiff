@@ -97,7 +97,9 @@ export function CommentInput(props: {
 }): JSX.Element {
   const draft = createMemo(() => {
     const active = props.active();
-    if (active === null) return null;
+    if (active === null) {
+      return null;
+    }
     const current =
       active.input ??
       expect(
@@ -223,7 +225,9 @@ export function CommentInput(props: {
                 disabled={props.draftError() !== null || submitting()}
                 onClick={() => {
                   const current = draft();
-                  if (current !== null) props.onDiscard(current.draft_id);
+                  if (current !== null) {
+                    props.onDiscard(current.draft_id);
+                  }
                 }}
               >
                 Discard
@@ -500,7 +504,9 @@ export function InlineThreadPanel(props: {
                       }
                       toggleable={multiple()}
                       onToggle={() => {
-                        if (!multiple()) return;
+                        if (!multiple()) {
+                          return;
+                        }
                         const next = new Set(expandedThreadIds());
                         if (next.has(thread.thread_id)) {
                           next.delete(thread.thread_id);

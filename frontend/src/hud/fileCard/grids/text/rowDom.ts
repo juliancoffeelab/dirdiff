@@ -1076,7 +1076,9 @@ function renderInlineDiffRowDom(props: {
     props.parts === props.sourceRow.left_parts ? "left" : "right";
   code.dataset.sourceSide = sourceSide;
   const sourceLine = sourceSide === "left" ? props.leftNo : props.rightNo;
-  if (sourceLine !== null) code.dataset.sourceLine = String(sourceLine);
+  if (sourceLine !== null) {
+    code.dataset.sourceLine = String(sourceLine);
+  }
   element.append(
     createLineNumberDom(displayedLeftNo, "left"),
     createLineNumberDom(displayedRightNo, "right"),
@@ -1176,7 +1178,9 @@ function createDiffSideDom(row: DiffRow, side: Side): HTMLElement {
   const codeElement = document.createElement("code");
   codeElement.className = "line-code";
   codeElement.dataset.sourceSide = side;
-  if (lineNo !== null) codeElement.dataset.sourceLine = String(lineNo);
+  if (lineNo !== null) {
+    codeElement.dataset.sourceLine = String(lineNo);
+  }
   appendDecoratedText(codeElement, text, parts, side, row.status);
   element.append(createLineNumberDom(lineNo, side), codeElement);
   return element;

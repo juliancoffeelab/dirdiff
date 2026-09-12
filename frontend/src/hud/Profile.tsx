@@ -545,9 +545,15 @@ export function Profile(props: ProfileProps): JSX.Element {
     | typeof registerProfile
     | typeof renameProfile {
     const state = ui();
-    if (state.view === "login") return loginProfile;
-    if (state.view === "create") return registerProfile;
-    if (state.view === "rename") return renameProfile;
+    if (state.view === "login") {
+      return loginProfile;
+    }
+    if (state.view === "create") {
+      return registerProfile;
+    }
+    if (state.view === "rename") {
+      return renameProfile;
+    }
     assert(false, "Profile mutation requires a username action.");
   }
 
@@ -998,6 +1004,8 @@ function PreferencesEditor(props: PreferencesEditorProps): JSX.Element {
         aggressiveFolds: aggressiveFolds(),
         gitAlgorithm: props.preferences.git_algorithm,
         gitIgnoreSpaceChange: props.preferences.git_ignore_space_change,
+        difftasticIgnoreComments: props.preferences.difftastic_ignore_comments,
+        gumtreeMatcher: props.preferences.gumtree_matcher,
       },
       { onSuccess: props.onClose },
     );
