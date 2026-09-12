@@ -159,12 +159,14 @@ results retain the normal alignment and span validation.
 GumTree's `matcher` option passes an explicit `-m` ID: Simple, Classic, Hybrid,
 Stable, or Auto. Simple is the initial preference.
 
-The package also defines engine selection. `EngineConfig` carries Git's required
-algorithm and whitespace boolean, Difftastic's required comment boolean,
-GumTree's required matcher, or the name of an engine with no options.
-`engine()` constructs that configured renderer. Both are exported from the package root. `engine()` is defined in `__init__.py` rather than `base.py`
-because selection must reach the concrete engine classes, whose modules import
-their contracts from `base.py`.
+The package also defines engine selection. `EngineConfig` is an object-shaped
+Pydantic discriminated union keyed by `engine`. Git, Difftastic, and GumTree
+variants carry their required options; Dirdiff, Diffsitter, and Tokendiff
+variants carry only their engine tag. `engine()` exhaustively maps a validated
+configuration to its concrete renderer. Both are exported from the package
+root. `engine()` is defined in `__init__.py` rather than `base.py` because
+selection must import the concrete engine classes, whose modules depend on
+contracts from `base.py`.
 
 Its public interface is exported from `dirdiff.engines`.
 

@@ -180,8 +180,7 @@ Each facade operation returns a TanStack query or mutation definition. HUD modul
 
 File rendering accepts a complete `EngineConfig`: Git carries its engine tag and
 required algorithm and `ignore_space_change` boolean. Difftastic carries its
-required `ignore_comments` boolean; GumTree carries its required `matcher`. Engines without options
-use their name. The File HTTP parameter is JSON, and the complete value participates in query identity.
+required `ignore_comments` boolean; GumTree carries its required `matcher`. Engines without options carry just their name as the `engine` tag. The File HTTP parameter is JSON, and the complete value participates in query identity.
 Workspace URLs continue to store only the selected engine name.
 
 `api.profile.preferences(profileId)` accepts a Profile id or `null` for anonymous

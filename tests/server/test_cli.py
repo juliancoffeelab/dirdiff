@@ -25,7 +25,7 @@ from dirdiff.db import (
     RoomStore,
     open_ephemeral_engine,
 )
-from dirdiff.engines import engine
+from dirdiff.engines import TextDiffEngine
 from dirdiff.formats import ComposeContext, Composer
 from dirdiff.room_lord import RoomLord
 from dirdiff.server import (
@@ -249,7 +249,7 @@ def test_composed_diff_response_accepts_real_composition() -> None:
         right_path="a.py",
         left_label="HEAD",
         right_label="worktree",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(b"x = 1\n", b"x = 2\n", context)
     payload = dict(composed)

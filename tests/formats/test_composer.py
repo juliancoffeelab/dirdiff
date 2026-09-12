@@ -8,7 +8,7 @@ a renderer. Full composition uses the real text engine and enrichment path.
 
 from __future__ import annotations
 
-from dirdiff.engines import engine
+from dirdiff.engines import TextDiffEngine
 from dirdiff.formats import (
     BLOB_BAY_KEY,
     FLATFILE_BAY_KEY,
@@ -31,7 +31,7 @@ def test_plain_modification_is_one_frame_one_flatfile_bay() -> None:
         right_path="m.py",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     left = b"a = 1\nb = 2\nc = 3\n"
     right = b"a = 1\nb = 20\nc = 3\n"
@@ -67,7 +67,7 @@ def test_hunk_indexes_are_gapless_and_mark_only_run_starts() -> None:
         right_path="m.txt",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     left = b"1\n2\n3\n4\n5\n6\n7\n"
     right = b"1\nX\n3\n4\nY\n6\n7\n"
@@ -94,7 +94,7 @@ def test_identical_content_has_no_hunks() -> None:
         right_path="s.txt",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     same = b"unchanged\ncontent\n"
     composed = Composer().compose(same, same, context)
@@ -117,7 +117,7 @@ def test_added_file_has_left_absent_and_right_present() -> None:
         right_path="n.txt",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(None, b"new file\n", context)
     assert composed["summary"]["left_exists"] is False
@@ -136,7 +136,7 @@ def test_deleted_file_has_right_absent() -> None:
         right_path=None,
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(b"gone\n", None, context)
     assert composed["summary"]["left_exists"] is True
@@ -155,7 +155,7 @@ def test_summary_aggregates_bay_stats_for_single_bay() -> None:
         right_path="a.txt",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     left = b"keep\ndrop\n"
     right = b"keep\nadd1\nadd2\n"
@@ -186,7 +186,7 @@ def test_one_binary_side_sends_the_whole_file_to_the_blob_terminal() -> None:
         right_path="b.bin",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(b"ok\n", b"bad\x00byte", context)
     bay = composed["frames"][0]["bays"][0]

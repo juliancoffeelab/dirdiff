@@ -727,7 +727,8 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
 
     The manifest marks a changed lockfile lazy. An explicit File diff then
     renders its complete captured contents, proving laziness is presentation
-    policy rather than content loss.
+    policy rather than content loss. The engine parameter accepts the current
+    object-shaped configuration.
     """
     subprocess.run(
         ["git", "init", "-b", "master"],
@@ -814,7 +815,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         "/api/file-diff",
         params={
             "snapshot_id": snapshot_id,
-            "engine": '"dirdiff"',
+            "engine": '{"engine":"dirdiff"}',
             "left_path": "Cargo.lock",
             "right_path": "Cargo.lock",
         },
@@ -847,7 +848,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         "/api/file-diff",
         params={
             "snapshot_id": snapshot_id,
-            "engine": '"dirdiff"',
+            "engine": '{"engine":"dirdiff"}',
             "left_path": "Cargo.lock",
             "right_path": "Cargo.lock",
         },
@@ -916,7 +917,7 @@ def test_preset_manifest_and_file_diff_do_not_require_a_mark(
         "/api/file-diff",
         params={
             "snapshot_id": manifest["snapshot_id"],
-            "engine": '"dirdiff"',
+            "engine": '{"engine":"dirdiff"}',
             "left_path": file_entry["left_path"],
             "right_path": file_entry["right_path"],
         },
@@ -1962,7 +1963,7 @@ def test_symlink_loop_stops_before_loading_a_link_twice(tmp_path: Path) -> None:
         "/api/file-diff",
         params={
             "snapshot_id": manifest.json()["snapshot_id"],
-            "engine": '"dirdiff"',
+            "engine": '{"engine":"dirdiff"}',
             "left_path": "portal",
             "right_path": "portal",
         },
@@ -2090,7 +2091,7 @@ def test_file_media_serves_captured_symlink_target_images(
         "/api/file-diff",
         params={
             "snapshot_id": snapshot_id,
-            "engine": '"dirdiff"',
+            "engine": '{"engine":"dirdiff"}',
             "left_path": "logo",
             "right_path": "logo",
         },
@@ -2122,7 +2123,7 @@ def test_file_media_serves_captured_symlink_target_images(
         "/api/file-diff",
         params={
             "snapshot_id": snapshot_id,
-            "engine": '"dirdiff"',
+            "engine": '{"engine":"dirdiff"}',
             "left_path": "logo",
             "right_path": "logo",
         },
@@ -2163,7 +2164,7 @@ def test_symlink_target_cannot_escape_the_repository(tmp_path: Path) -> None:
         "/api/file-diff",
         params={
             "snapshot_id": manifest.json()["snapshot_id"],
-            "engine": '"dirdiff"',
+            "engine": '{"engine":"dirdiff"}',
             "left_path": "portal",
             "right_path": "portal",
         },
@@ -2283,7 +2284,7 @@ def test_lfs_capture_contains_errors_and_recovers(
                 "/api/file-diff",
                 params={
                     "snapshot_id": failed["snapshot_id"],
-                    "engine": '"tokendiff"',
+                    "engine": '{"engine":"tokendiff"}',
                     "left_path": path,
                     "right_path": path,
                 },
@@ -2391,7 +2392,7 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
         "/api/file-diff",
         params={
             "snapshot_id": snapshot_id,
-            "engine": '"dirdiff"',
+            "engine": '{"engine":"dirdiff"}',
             "left_path": "logo.png",
             "right_path": "logo.png",
         },
@@ -2635,7 +2636,7 @@ def test_file_media_selects_a_notebook_image_by_bay_key(
         "/api/file-diff",
         params={
             "snapshot_id": snapshot_id,
-            "engine": '"dirdiff"',
+            "engine": '{"engine":"dirdiff"}',
             "left_path": "plots.ipynb",
             "right_path": "plots.ipynb",
         },
@@ -2892,7 +2893,7 @@ def test_gitlinks_review_as_commit_ids_through_the_head_tab(
             "/api/file-diff",
             params={
                 "snapshot_id": snapshot_id,
-                "engine": '"dirdiff"',
+                "engine": '{"engine":"dirdiff"}',
                 "left_path": "sub",
                 "right_path": "sub",
             },
@@ -2911,7 +2912,7 @@ def test_gitlinks_review_as_commit_ids_through_the_head_tab(
             "/api/file-diff",
             params={
                 "snapshot_id": snapshot_id,
-                "engine": '"dirdiff"',
+                "engine": '{"engine":"dirdiff"}',
                 "right_path": "embedded",
             },
         )
@@ -2983,7 +2984,7 @@ def test_symlink_to_a_submodule_captures_its_commit_id(tmp_path: Path) -> None:
             "/api/file-diff",
             params={
                 "snapshot_id": manifest.json()["snapshot_id"],
-                "engine": '"dirdiff"',
+                "engine": '{"engine":"dirdiff"}',
                 "left_path": "portal",
                 "right_path": "portal",
             },

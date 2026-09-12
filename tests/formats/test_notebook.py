@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dirdiff.engines import engine
+from dirdiff.engines import TextDiffEngine
 from dirdiff.formats import (
     BayContext,
     ComposeContext,
@@ -41,7 +41,7 @@ def test_error_traceback_output_bay_keeps_uninterpreted_escapes() -> None:
         right_path="error.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         (directory / "old.ipynb").read_bytes(),
@@ -94,7 +94,7 @@ def test_metadata_change_collapses_source_and_adds_metadata_bay() -> None:
         right_path="meta.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         (directory / "old.ipynb").read_bytes(),
@@ -139,7 +139,7 @@ def test_added_and_removed_cells_are_separate_frames() -> None:
         right_path="s.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         (directory / "old.ipynb").read_bytes(),
@@ -197,7 +197,7 @@ def test_markdown_edit_is_one_source_bay() -> None:
         right_path="md.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         (directory / "old.ipynb").read_bytes(),
@@ -230,7 +230,7 @@ def test_invalid_notebook_composes_as_warned_raw_notebook() -> None:
         right_path="b.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         (directory / "old.ipynb").read_bytes(),
@@ -267,7 +267,7 @@ def test_source_and_output_both_change_in_one_frame() -> None:
         right_path="o.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         (directory / "old.ipynb").read_bytes(),
@@ -364,7 +364,7 @@ def test_cells_pair_by_id_so_an_edited_cell_is_not_an_add_and_a_remove() -> (
         right_path="demo.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(left, right, context)
 
@@ -473,7 +473,7 @@ def test_cell_reorder_keeps_one_unique_key_per_cell() -> None:
         right_path="n.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         notebook(["A", "B", "C"]), notebook(["B", "A", "C"]), context
@@ -516,7 +516,7 @@ def test_plot_output_prefers_png_and_stays_reachable() -> None:
         right_path="p.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         (directory / "old.ipynb").read_bytes(),
@@ -576,7 +576,7 @@ def test_png_on_only_one_output_side_stays_an_image_bay() -> None:
             right_path="p.ipynb",
             left_label="old",
             right_label="new",
-            renderer=engine("dirdiff"),
+            renderer=TextDiffEngine(),
         ),
     )
     bay = next(
@@ -614,7 +614,7 @@ def test_unchanged_presets_cover_added_and_removed_plot_outputs() -> None:
                 right_path="p.ipynb",
                 left_label="old",
                 right_label="new",
-                renderer=engine("dirdiff"),
+                renderer=TextDiffEngine(),
             ),
         )
         image_bays = [
@@ -672,7 +672,7 @@ def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
         right_path="n.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     malformed: list[list[JsonValue]] = [
         [None, "kept"],
@@ -778,7 +778,7 @@ def test_schema_violations_degrade_only_the_affected_notebook_part() -> None:
         right_path="n.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     for cell in malformed:
         composed = Composer().compose(notebook(valid), notebook(cell), context)
@@ -833,7 +833,7 @@ def test_a_cell_key_is_the_id_verbatim() -> None:
         right_path="n.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(notebook("a\n"), notebook("b\n"), context)
     assert [
@@ -880,7 +880,7 @@ def test_notebook_level_metadata_change_is_reachable() -> None:
         right_path="n.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     changed = Composer().compose(
         notebook("python3", 5), notebook("python3.12", 5), context
@@ -954,7 +954,7 @@ def test_one_sided_notebook_never_invents_the_absent_side() -> None:
         right_path="new.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     added = Composer().compose(None, data, context)
     assert added["summary"]["left_exists"] is False
@@ -984,7 +984,7 @@ def test_one_sided_notebook_never_invents_the_absent_side() -> None:
         right_path=None,
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     removed = Composer().compose(data, None, context)
     assert removed["summary"]["right_exists"] is False
@@ -1063,7 +1063,7 @@ def test_cells_are_named_by_prompt_and_a_move_reports_both_names() -> None:
         right_path="n.ipynb",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         notebook(

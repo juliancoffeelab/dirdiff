@@ -552,26 +552,28 @@ function ReviewSnapshotBoundary(
         preferences.data,
         "Loaded preferences require data.",
       );
-      if (props.engine === "difftastic") {
-        return {
-          engine: "difftastic",
-          ignore_comments: current.difftastic_ignore_comments,
-        };
+      switch (props.engine) {
+        case "difftastic":
+          return {
+            engine: "difftastic",
+            ignore_comments: current.difftastic_ignore_comments,
+          };
+        case "gumtree":
+          return {
+            engine: "gumtree",
+            matcher: current.gumtree_matcher,
+          };
+        case "git":
+          return {
+            engine: "git",
+            algorithm: current.git_algorithm,
+            ignore_space_change: current.git_ignore_space_change,
+          };
+        case "diffsitter":
+        case "dirdiff":
+        case "tokendiff":
+          return { engine: props.engine };
       }
-      if (props.engine === "gumtree") {
-        return {
-          engine: "gumtree",
-          matcher: current.gumtree_matcher,
-        };
-      }
-      if (props.engine !== "git") {
-        return props.engine;
-      }
-      return {
-        engine: "git",
-        algorithm: current.git_algorithm,
-        ignore_space_change: current.git_ignore_space_change,
-      };
     },
     null,
     { equals: (left, right) => JSON.stringify(left) === JSON.stringify(right) },

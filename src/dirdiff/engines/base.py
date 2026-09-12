@@ -23,9 +23,9 @@ import sys
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import Literal, NotRequired, Protocol, TypedDict
+from typing import Annotated, Literal, NotRequired, Protocol, TypedDict
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
     "DiffEngineProtocol",
@@ -33,7 +33,9 @@ __all__ = [
     "DiffEngineRow",
     "DiffSide",
     "DiffSummary",
+    "DiffsitterEngineConfig",
     "DifftasticEngineConfig",
+    "DirdiffEngineConfig",
     "DirdiffError",
     "EngineConfig",
     "EngineWarning",
@@ -45,6 +47,7 @@ __all__ = [
     "InlineToken",
     "InlineTokenStatus",
     "MoveSpan",
+    "TokenDiffEngineConfig",
     "git_executable",
 ]
 
@@ -62,11 +65,21 @@ class GitEngineConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     engine: Literal["git"]
-    """Identifies the only engine that accepts this configuration."""
+    """Typed discriminator for Git engine."""
     algorithm: GitAlgorithm
     """Required line-matching algorithm passed explicitly to Git."""
     ignore_space_change: bool
     """Whether Git ignores changes in whitespace amount with `--ignore-space-change`."""
+
+
+class DifftasticEngineConfig(BaseModel):
+    """Required Difftastic rendering options; source text remains authoritative."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    engine: Literal["difftastic"]
+    """Typed discriminator for Difftastic engine."""
+    ignore_comments: bool
+    """Exclude parser-recognized comments from change detection."""
 
 
 type GumTreeMatcher = Literal[
@@ -79,33 +92,50 @@ type GumTreeMatcher = Literal[
 """GumTree matcher IDs exposed as explicit structural comparison choices."""
 
 
-class DifftasticEngineConfig(BaseModel):
-    """Required Difftastic rendering options; source text remains authoritative."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    engine: Literal["difftastic"]
-    """Selects Difftastic rather than another engine."""
-    ignore_comments: bool
-    """Exclude parser-recognized comments from change detection."""
-
-
 class GumTreeEngineConfig(BaseModel):
     """Required GumTree matcher selection for one structural rendering."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     engine: Literal["gumtree"]
-    """Selects GumTree rather than another engine."""
+    """Typed discriminator for GumTree engine."""
     matcher: GumTreeMatcher
     """Exact upstream matcher ID passed through the -m option."""
 
 
-type EngineConfig = (
+class DirdiffEngineConfig(BaseModel):
+    """Select the optionless legacy line-first renderer."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    engine: Literal["dirdiff"]
+    """Typed discriminator for Dirdiff engine."""
+
+
+class DiffsitterEngineConfig(BaseModel):
+    """Select the optionless Diffsitter structural renderer."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    engine: Literal["diffsitter"]
+    """Typed discriminator for Diffsitter engine."""
+
+
+class TokenDiffEngineConfig(BaseModel):
+    """Select the optionless token-first renderer."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    engine: Literal["tokendiff"]
+    """Typed discriminator for Tokendiff engine."""
+
+
+type EngineConfig = Annotated[
     GitEngineConfig
     | DifftasticEngineConfig
     | GumTreeEngineConfig
-    | Literal["dirdiff", "diffsitter", "tokendiff"]
-)
-"""Complete renderer selection. Engines without options use their name alone."""
+    | DirdiffEngineConfig
+    | DiffsitterEngineConfig
+    | TokenDiffEngineConfig,
+    Field(discriminator="engine"),
+]
+"""Complete object-shaped renderer selection with one class per engine tag."""
 
 
 class DirdiffError(ValueError):

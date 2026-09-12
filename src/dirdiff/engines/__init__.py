@@ -21,8 +21,10 @@ from dirdiff.engines.base import (
     DiffEngineResult,
     DiffEngineRow,
     DiffSide,
+    DiffsitterEngineConfig,
     DiffSummary,
     DifftasticEngineConfig,
+    DirdiffEngineConfig,
     DirdiffError,
     EngineConfig,
     EngineWarning,
@@ -33,6 +35,7 @@ from dirdiff.engines.base import (
     InlineMove,
     InlineToken,
     InlineTokenStatus,
+    TokenDiffEngineConfig,
     git_executable,
 )
 from dirdiff.engines.diffsitter import (
@@ -69,22 +72,24 @@ def engine(config: EngineConfig) -> DiffEngineProtocol:
     `dirdiff.formats.ComposeContext.build`. Composition invokes
     `DiffEngineProtocol.render_diff` for each text bay.
     """
-    if config == "dirdiff":
-        return TextDiffEngine()
-    if isinstance(config, GitEngineConfig):
-        return GitDiffEngine(
-            algorithm=config.algorithm,
-            ignore_space_change=config.ignore_space_change,
-        )
-    if isinstance(config, DifftasticEngineConfig):
-        return DifftasticDiffEngine(ignore_comments=config.ignore_comments)
-    if isinstance(config, GumTreeEngineConfig):
-        return GumTreeDiffEngine(matcher=config.matcher)
-    if config == "diffsitter":
-        return DiffsitterDiffEngine()
-    if config == "tokendiff":
-        return TokenDiffEngine()
-    assert_never(config)
+    match config:
+        case GitEngineConfig(
+            algorithm=algorithm, ignore_space_change=ignore_space_change
+        ):
+            return GitDiffEngine(
+                algorithm=algorithm,
+                ignore_space_change=ignore_space_change,
+            )
+        case DifftasticEngineConfig(ignore_comments=ignore_comments):
+            return DifftasticDiffEngine(ignore_comments=ignore_comments)
+        case GumTreeEngineConfig(matcher=matcher):
+            return GumTreeDiffEngine(matcher=matcher)
+        case DiffsitterEngineConfig():
+            return DiffsitterDiffEngine()
+        case TokenDiffEngineConfig():
+            return TokenDiffEngine()
+        case DirdiffEngineConfig():
+            return TextDiffEngine()
 
 
 __all__ = [

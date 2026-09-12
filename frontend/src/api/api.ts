@@ -65,8 +65,8 @@ export const GumTreeMatcherSchema = z.enum([
   "gumtree-simple-auto",
 ]);
 
-/** Complete rendering options, or the name of an engine with no options. */
-export const EngineConfigSchema = z.union([
+/** Complete rendering options. */
+export const EngineConfigSchema = z.discriminatedUnion("engine", [
   z.strictObject({
     engine: z.literal("git"),
     algorithm: GitAlgorithmSchema,
@@ -80,7 +80,15 @@ export const EngineConfigSchema = z.union([
     engine: z.literal("gumtree"),
     matcher: GumTreeMatcherSchema,
   }),
-  DiffEngineSchema.exclude(["git", "difftastic", "gumtree"]),
+  z.strictObject({
+    engine: z.literal("tokendiff"),
+  }),
+  z.strictObject({
+    engine: z.literal("dirdiff"),
+  }),
+  z.strictObject({
+    engine: z.literal("diffsitter"),
+  }),
 ]);
 
 /** Validated File-rendering identity; options never enter manifest parameters. */
@@ -89,18 +97,28 @@ export type EngineConfig = z.infer<typeof EngineConfigSchema>;
 /**
  * Reports whether the engine's renders are heavy enough to need protection.
  *
+ * Protection pretty much means that you shouldn't run them in parallel.
  * Heavy engines take long enough per attempt to need the slow initial
  * transport timeout, and concurrent requests degrade the backend outright
  * (difftastic measured 2.4x slower total load at three in flight), so the
- * file lane never prefetches them. Only engines measured to tolerate
- * concurrent renders are named light. Prefetch made dirdiff 23% faster and git
- * 14% faster over the total load. Git also spawns per file, so measurement,
- * not the process boundary, decides heaviness. A new engine remains heavy
- * until measured otherwise.
+ * file lane never prefetches them.
+ *
+ * Only engines measured to tolerate concurrent renders are named light.
+ * Prefetch made dirdiff 23% faster and git 14% faster over the total load.
+ * Git also spawns per file, so measurement, not the process boundary, decides
+ * heaviness. A new engine remains heavy until measured otherwise.
  */
 export function isHeavyEngine(engine: EngineConfig): boolean {
-  const name = typeof engine === "string" ? engine : engine.engine;
-  return !(name === "dirdiff" || name === "git");
+  switch (engine.engine) {
+    case "dirdiff":
+    case "tokendiff":
+    case "git":
+      return false;
+    case "difftastic":
+    case "gumtree":
+    case "diffsitter":
+      return true;
+  }
 }
 
 /**

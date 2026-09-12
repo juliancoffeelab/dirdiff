@@ -22,7 +22,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from dirdiff.engines import engine
+from dirdiff.engines import TextDiffEngine
 from dirdiff.formats import (
     BLOB_BAY_KEY,
     FLATFILE_BAY_KEY,
@@ -50,7 +50,7 @@ def test_image_pair_composes_picture_metadata_and_facts_bays() -> None:
         right_path="logo.png",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     left = b"\x89PNG\r\n\x1a\n-old-bytes"
     right = b"\x89PNG\r\n\x1a\n-new-bytes-longer"
@@ -121,7 +121,7 @@ def test_byte_identical_media_sides_are_unchanged() -> None:
         right_path="icon.png",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     image_bays = Composer().compose(same_image, same_image, image_context)[
         "frames"
@@ -140,7 +140,7 @@ def test_byte_identical_media_sides_are_unchanged() -> None:
         right_path="blob.dat",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     blob_bay = Composer().compose(same_blob, same_blob, blob_context)["frames"][
         0
@@ -163,7 +163,7 @@ def test_added_and_removed_images_carry_exactly_one_side() -> None:
         right_path="new-asset.webp",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     added = Composer().compose(None, b"RIFF....WEBP", added_context)
     added_bays = added["frames"][0]["bays"]
@@ -187,7 +187,7 @@ def test_added_and_removed_images_carry_exactly_one_side() -> None:
         right_path=None,
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     removed = Composer().compose(b"GIF89a....", None, removed_context)
     removed_bays = removed["frames"][0]["bays"]
@@ -217,7 +217,7 @@ def test_image_classification_reads_the_path_and_not_the_bytes() -> None:
         right_path="mislabelled.png",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         b"not a png at all\n", b"still not\n", context
@@ -242,7 +242,7 @@ def test_extension_matching_ignores_case_and_pairs_jpg_with_jpeg() -> None:
         right_path="PHOTO.JPG",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     shouted = Composer().compose(
         b"\xff\xd8\xff-a", b"\xff\xd8\xff-b", shouted_context
@@ -257,7 +257,7 @@ def test_extension_matching_ignores_case_and_pairs_jpg_with_jpeg() -> None:
         right_path="photo.jpeg",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     spelled = Composer().compose(
         b"\xff\xd8\xff-a", b"\xff\xd8\xff-b", spelled_context
@@ -281,7 +281,7 @@ def test_svg_is_diffed_as_the_text_it_is() -> None:
         right_path="chart.svg",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         b'<svg width="10"></svg>\n',
@@ -306,7 +306,7 @@ def test_an_unlisted_image_format_reaches_the_blob_terminal() -> None:
         right_path="scan.tiff",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(b"II*\x00-old", b"II*\x00-new", context)
     bays = composed["frames"][0]["bays"]
@@ -331,7 +331,7 @@ def test_a_file_that_is_an_image_on_one_side_only_is_not_an_image() -> None:
         right_path="asset.dat",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         b"\x89PNG\r\n\x1a\n", b"\x00\x01\x02\x03", context
@@ -372,7 +372,7 @@ def test_a_file_captured_on_neither_side_is_not_an_image() -> None:
         right_path="ghost.png",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(None, None, context)
     bay = composed["frames"][0]["bays"][0]
@@ -443,7 +443,7 @@ def test_a_rendered_image_bay_carries_no_captured_byte() -> None:
         right_path="a.ico",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(marker, marker + b"!", context)
     content = composed["frames"][0]["bays"][0]["kind_data"]
@@ -468,7 +468,7 @@ def test_a_file_made_of_bytes_reports_only_its_facts_lines() -> None:
         right_path="clip.ogg",
         left_label="old",
         right_label="new",
-        renderer=engine("dirdiff"),
+        renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
         b"OggS\x00-one", b"OggS\x00-two-longer", context
@@ -538,7 +538,7 @@ def test_real_preset_fixtures_compose_to_their_captured_bytes() -> None:
             right_path=None if new_name is None else f"{case}/{new_name}",
             left_label="old",
             right_label="new",
-            renderer=engine("dirdiff"),
+            renderer=TextDiffEngine(),
         )
         bays = Composer().compose(left, right, context)["frames"][0]["bays"]
         assert bays[0]["bay_key"] == bay_key, case

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from dirdiff.engines import engine
+from dirdiff.engines import TextDiffEngine
 from dirdiff.formats import CapturedLink, ComposeContext, Composer
 
 
@@ -41,7 +41,7 @@ def test_link_payload_precedes_one_collapsed_text_target() -> None:
                 target_path="after.txt",
                 target_data=b"new guidance\n",
             ),
-            renderer=engine("dirdiff"),
+            renderer=TextDiffEngine(),
         ),
     )
 
@@ -95,7 +95,7 @@ def test_broken_link_puts_diagnosis_in_synthetic_target() -> None:
                 target_path=None,
                 target_data=None,
             ),
-            renderer=engine("dirdiff"),
+            renderer=TextDiffEngine(),
         ),
     )
 
@@ -171,7 +171,7 @@ def test_notebook_target_flattens_cells_and_omits_outputs() -> None:
                 target_path="after.ipynb",
                 target_data=new_notebook,
             ),
-            renderer=engine("dirdiff"),
+            renderer=TextDiffEngine(),
         ),
     )
 
