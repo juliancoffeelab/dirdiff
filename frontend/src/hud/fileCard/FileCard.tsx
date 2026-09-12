@@ -513,10 +513,12 @@ function HuskFileHeader(
   // Review tracks which persistent File header can host anchored UI. Register
   // this Husk header for its mounted lifetime and close any anchored UI before
   // the header disappears.
-  onMount(() => review.setFileHeaderMounted(header, true));
-  onCleanup(() => {
-    review.setFileHeaderMounted(header, false);
-    review.closeAnchoredUi(header);
+  onMount(() => {
+    review.setFileHeaderMounted(header, true);
+    onCleanup(() => {
+      review.setFileHeaderMounted(header, false);
+      review.closeAnchoredUi(header);
+    });
   });
   const identity: PseudoHunkIdentity = {
     fileIndex: props.file_state.fileIndex,
@@ -1079,10 +1081,12 @@ function FullFileHeader(
   const review = useReview();
   // Review anchors to this loaded File header only while the header is mounted.
   // Disposal unregisters it and closes UI that would otherwise retain its DOM.
-  onMount(() => review.setFileHeaderMounted(header, true));
-  onCleanup(() => {
-    review.setFileHeaderMounted(header, false);
-    review.closeAnchoredUi(header);
+  onMount(() => {
+    review.setFileHeaderMounted(header, true);
+    onCleanup(() => {
+      review.setFileHeaderMounted(header, false);
+      review.closeAnchoredUi(header);
+    });
   });
   /**
    * Reports whether the composed file currently contains no real hunk targets.
@@ -1296,10 +1300,12 @@ function LazyFileHeader(
   const review = useReview();
   // Review anchors to this LazyFile header only while the header is mounted.
   // Disposal unregisters it and closes UI before its DOM disappears.
-  onMount(() => review.setFileHeaderMounted(header, true));
-  onCleanup(() => {
-    review.setFileHeaderMounted(header, false);
-    review.closeAnchoredUi(header);
+  onMount(() => {
+    review.setFileHeaderMounted(header, true);
+    onCleanup(() => {
+      review.setFileHeaderMounted(header, false);
+      review.closeAnchoredUi(header);
+    });
   });
   return (
     <header ref={header} class="file-card-header lazy-file-header">
