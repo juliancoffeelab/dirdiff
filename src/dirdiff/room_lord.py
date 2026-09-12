@@ -1087,6 +1087,7 @@ class Room:
         state: Literal["all", "open"],
         through_activity_id: Optional[int],
         attention: Optional[Literal["author", "reviewer"]] = None,
+        scope: Literal["snapshot", "room"],
     ) -> tuple[tuple[Thread, ...], int, int]:
         """Return one bounded Thread page and its inclusive activity pivot.
 
@@ -1096,19 +1097,23 @@ class Room:
 
         # Parameters
 
-        - `snapshot_id`: Exact Snapshot whose placements are selected.
+        - `snapshot_id`: Exact displayed Snapshot used for Room lookup and
+          placement selection.
         - `page`: One-based page number.
         - `limit`: Positive maximum number of Threads in this page.
         - `state`: Lifecycle filter for all Threads or only open Threads.
         - `through_activity_id`: Inclusive pivot from page one, or `None` to
           choose it with this read.
         - `attention`: Optional open-Thread role filter used by agent inboxes.
+        - `scope`: Require a placement in `snapshot_id`, or include every Room
+          Thread for browser History.
 
         # Usage
 
         Start with `through_activity_id=None`, retain the concrete pivot from the
-        result, and pass it to each later page. Use the returned total to stop
-        paging rather than selecting a new pivot.
+        result, and pass it to each later page. Browser History uses Room scope;
+        agent inboxes use Snapshot scope. Use the returned total to stop paging
+        rather than selecting a new pivot.
 
         # Returns
 
@@ -1134,6 +1139,7 @@ class Room:
             limit=limit,
             state=state,
             attention=attention,
+            scope=scope,
             through_activity_id=through_activity_id,
         )
 

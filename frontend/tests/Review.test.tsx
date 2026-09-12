@@ -80,6 +80,8 @@ test("Thread creation does not enter existing-Thread lifecycle state", async () 
             const discussion = createThreadDiscussion({
               snapshotId,
               profile: () => null,
+              acceptedActivities: () => [],
+              onAcceptedActivity: () => {},
               onSubmitted: () => {},
             });
             return (

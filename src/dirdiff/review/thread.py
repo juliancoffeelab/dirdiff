@@ -68,6 +68,7 @@ from dirdiff.review.base import (
     ReviewError,
     ReviewProfileView,
     ThreadDiscussionView,
+    ThreadLocationSourceView,
     ThreadPlacementView,
     ThreadSummaryView,
     ThreadUpdateView,
@@ -495,6 +496,7 @@ class Thread:
         actions: tuple[ReviewActionRecord, ...],
         profiles: dict[int, UserProfileRecord],
         files: Optional[_ThreadFiles],
+        location_source: ThreadLocationSourceView,
     ) -> None:
         """Bind one Thread to its placement and optionally preloaded Files.
 
@@ -516,6 +518,8 @@ class Thread:
         - `profiles`: Current records for every author in `actions`.
         - `files`: Already validated referenced Files and shared cache, or
           `None` to load them only when a read interprets placement.
+        - `location_source`: Whether the placement belongs to the displayed
+          Snapshot or is the origin used for a Thread created later.
         """
         self.snapshot_id = snapshot_id
         self.thread_id = thread_id
@@ -537,6 +541,7 @@ class Thread:
         # Mutated once by `_located_files` when constructed deferred; every
         # later locating read reuses the same loaded records and cache.
         self._files = files
+        self._location_source = location_source
 
     def _records(
         self,
@@ -591,12 +596,13 @@ class Thread:
                 absent_refs = (origin_ref,)
             elif not isinstance(placement, FileUnreadablePlacement):
                 selected_ids = (placement.snapshot_file_id,)
-            origin_files, selected_files, conflicts = (
+            origin_files, selected_files, conflicts, _comparison_files = (
                 self._database.review_thread_files(
                     self.snapshot_id.hex,
                     (origin_ref,),
                     selected_ids,
                     absent_refs,
+                    (),
                 )
             )
             assert conflicts == (), (
@@ -744,6 +750,7 @@ class Thread:
             discussion_revision=len(actions) - 1,
             origin_target=origin_target,
             placement=self._placement_view(),
+            location_source=self._location_source,
             comments=comments,
         )
 
@@ -1046,21 +1053,25 @@ def thread_objects(
     limit: int,
     state: Literal["all", "open"],
     attention: Optional[Literal["author", "reviewer"]],
+    scope: Literal["snapshot", "room"],
     through_activity_id: Optional[int],
 ) -> tuple[tuple[Thread, ...], int, int]:
-    """Bulk-hydrate one bounded Thread page at one inclusive activity pivot.
+    """Bulk-hydrate one bounded Snapshot or Room Thread page.
 
     # Parameters
 
     - `database`: Room persistence supplying the bounded relational page.
     - `identity`: Room containing the selected Snapshot and discussions.
-    - `snapshot_id`: Exact code universe whose placements are bound.
+    - `snapshot_id`: Displayed code universe used for Room lookup and current
+      placement selection.
     - `lock_path`: Cross-process write lock carried by returned handles.
     - `thread_lock`: In-process write lock carried by returned handles.
     - `offset`: Zero-based number of ordered matching Threads to skip.
     - `limit`: Positive maximum number of Threads to return.
     - `state`: Include every lifecycle state or only open discussions.
     - `attention`: Optional agent-role attention filter.
+    - `scope`: Require a selected-Snapshot placement or include every Room
+      Thread for browser History.
     - `through_activity_id`: Inclusive stable page pivot, or `None` to choose
       the current Room boundary with this persistence read.
 
@@ -1072,7 +1083,8 @@ def thread_objects(
 
     # Returns
 
-    - `First`: Bound Thread handles in the store's page order.
+    - `First`: Bound Thread handles in the store's page order. A Room Thread
+      without a displayed placement is bound through its origin Snapshot.
     - `Second`: Total Threads matching the filters, independent of page length.
     - `Third`: The concrete inclusive activity pivot used for this page and any
       continuation pages.
@@ -1090,6 +1102,7 @@ def thread_objects(
         limit=limit,
         state=state,
         attention=attention,
+        scope=scope,
         through_activity_id=through_activity_id,
     )
     if result is None:
@@ -1140,6 +1153,87 @@ def _bind_threads(
     - `Order and sharing`: Handles preserve persistence order and share one
       read-scoped composed-bay cache.
     """
+
+    def same_captured_file(
+        origin_file: SnapshotFileRecord,
+        displayed_file: SnapshotFileRecord,
+    ) -> bool:
+        """Compare code-bearing File facts without comparing capture identities.
+
+        Repository paths and content digests prove ordinary sides. Symlink
+        metadata and target digests prove link sides without comparing their
+        Snapshot-specific physical paths. Capture errors always make the
+        displayed File unusable rather than equal.
+        """
+        return (
+            origin_file.error is None
+            and displayed_file.error is None
+            and (
+                None
+                if origin_file.left is None
+                else (
+                    origin_file.left.repository_path,
+                    origin_file.left.content_hash,
+                )
+            )
+            == (
+                None
+                if displayed_file.left is None
+                else (
+                    displayed_file.left.repository_path,
+                    displayed_file.left.content_hash,
+                )
+            )
+            and (
+                None
+                if origin_file.right is None
+                else (
+                    origin_file.right.repository_path,
+                    origin_file.right.content_hash,
+                )
+            )
+            == (
+                None
+                if displayed_file.right is None
+                else (
+                    displayed_file.right.repository_path,
+                    displayed_file.right.content_hash,
+                )
+            )
+            and (
+                None
+                if origin_file.left_symlink is None
+                else (
+                    origin_file.left_symlink.metadata_hash,
+                    origin_file.left_symlink.target_hash,
+                )
+            )
+            == (
+                None
+                if displayed_file.left_symlink is None
+                else (
+                    displayed_file.left_symlink.metadata_hash,
+                    displayed_file.left_symlink.target_hash,
+                )
+            )
+            and (
+                None
+                if origin_file.right_symlink is None
+                else (
+                    origin_file.right_symlink.metadata_hash,
+                    origin_file.right_symlink.target_hash,
+                )
+            )
+            == (
+                None
+                if displayed_file.right_symlink is None
+                else (
+                    displayed_file.right_symlink.metadata_hash,
+                    displayed_file.right_symlink.target_hash,
+                )
+            )
+        )
+
     placements = {row.thread_id: row for row in data.threads}
     origins = {row.thread_id: row for row in data.origins}
     actions: dict[str, list[ReviewActionRecord]] = {
@@ -1166,11 +1260,17 @@ def _bind_threads(
             if origin.snapshot_file_id is not None
         )
     )
+    displayed_thread_ids = {
+        placement.thread_id
+        for placement in data.threads
+        if not placement.is_origin
+    }
     located_file_ids = tuple(
         dict.fromkeys(
             placement.snapshot_file_id
             for placement in data.threads
-            if placement.snapshot_file_id is not None
+            if placement.thread_id in displayed_thread_ids
+            and placement.snapshot_file_id is not None
         )
     )
     absent_origin_refs = tuple(
@@ -1180,6 +1280,7 @@ def _bind_threads(
                 origin_file_id,
             )
             for placement in data.threads
+            if placement.thread_id in displayed_thread_ids
             # An unreadable File is unreferenced but present, so it is not an
             # absence to prove.
             if placement.snapshot_file_id is None
@@ -1190,11 +1291,20 @@ def _bind_threads(
             is not None
         )
     )
-    origin_files, selected_files, conflicts = database.review_thread_files(
-        snapshot_id.hex,
-        origin_refs,
-        located_file_ids,
-        absent_origin_refs,
+    comparison_origin_refs = tuple(
+        (origin.snapshot_id, origin.snapshot_file_id)
+        for origin in data.origins
+        if origin.thread_id not in displayed_thread_ids
+        and origin.snapshot_file_id is not None
+    )
+    origin_files, selected_files, conflicts, comparison_files = (
+        database.review_thread_files(
+            snapshot_id.hex,
+            origin_refs,
+            located_file_ids,
+            absent_origin_refs,
+            comparison_origin_refs,
+        )
     )
     assert conflicts == (), "file_missing placement has an exact Snapshot File"
     cache = ReviewReadCache()
@@ -1202,17 +1312,38 @@ def _bind_threads(
     for origin in data.origins:
         placement = placements[origin.thread_id]
         assert origin.snapshot_file_id is not None
+        origin_ref = (origin.snapshot_id, origin.snapshot_file_id)
+        origin_file = origin_files[origin_ref]
         selected_file: Optional[SnapshotFileRecord] = None
-        if placement.snapshot_file_id is not None:
+        if origin.thread_id not in displayed_thread_ids:
+            selected_file = origin_file
+            displayed_file = comparison_files.get(origin_ref)
+            file_state: Literal["unchanged", "changed", "missing", "unreadable"]
+            if displayed_file is None:
+                file_state = "missing"
+            elif displayed_file.error is not None:
+                file_state = "unreadable"
+            elif same_captured_file(origin_file, displayed_file):
+                file_state = "unchanged"
+            else:
+                file_state = "changed"
+            location_source: ThreadLocationSourceView = {
+                "kind": "origin-snapshot",
+                "file_state": file_state,
+            }
+        elif placement.snapshot_file_id is not None:
             selected_file = selected_files.get(placement.snapshot_file_id)
             assert selected_file is not None, (
                 "located placement has no exact Snapshot File"
             )
+            location_source = {"kind": "displayed-snapshot"}
+        else:
+            location_source = {"kind": "displayed-snapshot"}
         threads.append(
             Thread(
                 database=database,
                 identity=identity,
-                snapshot_id=snapshot_id,
+                snapshot_id=UUID(hex=placement.snapshot_id),
                 thread_id=UUID(hex=origin.thread_id),
                 lock_path=lock_path,
                 thread_lock=thread_lock,
@@ -1221,12 +1352,11 @@ def _bind_threads(
                 actions=tuple(actions[origin.thread_id]),
                 profiles=profiles,
                 files=_ThreadFiles(
-                    origin_file=origin_files[
-                        (origin.snapshot_id, origin.snapshot_file_id)
-                    ],
+                    origin_file=origin_file,
                     selected_file=selected_file,
                     cache=cache,
                 ),
+                location_source=location_source,
             )
         )
     return tuple(threads)
@@ -1296,6 +1426,7 @@ def get_thread(
         actions=data.actions,
         profiles=profiles,
         files=None,
+        location_source={"kind": "displayed-snapshot"},
     )
 
 
@@ -1384,6 +1515,7 @@ def create_thread(
                 selected_file=created_file,
                 cache=cache,
             ),
+            location_source={"kind": "displayed-snapshot"},
         )
 
 

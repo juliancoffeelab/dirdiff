@@ -108,8 +108,9 @@ export type HunkIdentity = RealHunkIdentity | PseudoHunkIdentity;
  * Describes every explicit operation supported by one Navigation instance.
  *
  * Relative operations use current selected DOM identity. File navigation selects
- * and scrolls to one manifest file's first current DOM target. Line navigation
- * requires one manifest index and one complete `LinePinTarget`.
+ * and scrolls to one manifest file's first current DOM target. File-start
+ * navigation scrolls to the FileCard itself without changing hunk selection.
+ * Line navigation requires one manifest index and one complete `LinePinTarget`.
  * The target contains the File pair, composed bay key, side, and backend line.
  * The caller also supplies the AbortSignal lifetime. Line navigation never
  * selects a hunk. Top scrolls the page.
@@ -127,6 +128,12 @@ export type NavigationCommand =
       /** Select and scroll to a FileCard's first current target. */
       kind: "file";
       /** Manifest position supplied by FileTree or another snapshot consumer. */
+      fileIndex: number;
+    }
+  | {
+      /** Scroll to a FileCard's start without changing current hunk selection. */
+      kind: "file-start";
+      /** Manifest position supplied by a File-level navigation caller. */
       fileIndex: number;
     }
   | {
@@ -1172,6 +1179,34 @@ export function NavigationProvider(
   }
 
   /**
+   * Scroll to one manifest File's actual start without selecting a hunk.
+   *
+   * The loaded FileCard is the destination itself, so its established scroll
+   * margin keeps the start below sticky application chrome. This operation does
+   * not enrich code, choose a rendered target, mutate selection, or start
+   * scroll-follow.
+   */
+  function navigateToFileStart(fileIndex: number): void {
+    assert(
+      Number.isInteger(fileIndex) && fileIndex >= 0,
+      "File-start navigation requires a valid manifest index.",
+    );
+    const root = props.root();
+    const cards = root.querySelectorAll<HTMLElement>(
+      `[data-file-card][data-file-index="${fileIndex}"]`,
+    );
+    assert(
+      cards.length === 1,
+      `File-start navigation requires one FileCard at index ${fileIndex}.`,
+    );
+    const card = expect(
+      cards[0],
+      "Indexed FileCard disappeared during File-start navigation.",
+    );
+    card.scrollIntoView({ block: "start", behavior: "instant" });
+  }
+
+  /**
    * Scrolls to one exact rendered backend line without changing hunk selection.
    *
    * The file sequence has already expanded, loaded, and admitted the target
@@ -1461,6 +1496,9 @@ export function NavigationProvider(
           case "file":
             await navigateToFile(command.fileIndex);
             return alive ? { state: "complete" } : { state: "stopped" };
+          case "file-start":
+            navigateToFileStart(command.fileIndex);
+            return { state: "complete" };
           case "line":
             return await navigateToLine(
               command.fileIndex,

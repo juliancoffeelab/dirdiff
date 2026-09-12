@@ -1,11 +1,11 @@
 /**
- * Applies Thread and Comment operations to shared draft and query data.
+ * Applies Thread and Comment operations beside immutable query pages.
  *
- * Each `createThreadDiscussion` instance observes one Snapshot's canonical Thread
- * query, uses the application draft document, and reads shared mutation state.
- * Accepted backend writes update the canonical query without letting an older
- * in-flight refetch replace them. Submission settlement notifies the host before
- * a successful draft is removed in the same Solid batch.
+ * Each `createThreadDiscussion` instance observes one Snapshot's progressive
+ * canonical Thread pages, uses the application draft document, and reads shared
+ * mutation state. Accepted backend writes publish separate post-boundary
+ * activities for immediate presentation. Submission settlement notifies the host
+ * before a successful draft is removed in the same Solid batch.
  *
  * Anchored review and History may create separate instances because neither keeps
  * a private copy of Threads, drafts, or pending state. DOM and presentation state
@@ -13,15 +13,16 @@
  */
 import { batch, createMemo, type Accessor } from "solid-js";
 import {
+  createInfiniteQuery,
   createMutation,
-  createQuery,
   useMutationState,
-  useQueryClient,
 } from "@tanstack/solid-query";
 import {
   api,
+  reviewThreadList,
   ReviewIdSchema,
   ReviewRequestError,
+  type AcceptedReviewActivity,
   type ReviewComment,
   type ReviewId,
   type ReviewThread,
@@ -51,11 +52,15 @@ export type ThreadDiscussionArgs = {
    * the Profile control; selection changes feed back through the next read.
    */
   profile: Accessor<StoredProfile | null>;
+  /** Accepted post-boundary activities shared by every review presentation. */
+  acceptedActivities: Accessor<readonly AcceptedReviewActivity[]>;
+  /** Publish one successful write without changing the bounded query pages. */
+  onAcceptedActivity(activity: AcceptedReviewActivity): void;
   /**
    * Runs once for every begun draft submission when it settles, including a Profile
    * conflict detected before any HTTP action. The host receives the persisted draft
    * identity and whether the backend accepted the write. For accepted writes, this
-   * runs after the local query update was attempted, even when that attempt raised
+   * runs after activity publication was attempted, even when that attempt raised
    * and was reported. The host may synchronously close UI referring to the draft;
    * then, in the same Solid batch, accepted settlement removes it while rejection
    * restores ordinary editing. It is not called when submission never begins, or
@@ -72,15 +77,15 @@ export type ThreadDiscussionArgs = {
  *
  * Draft accessors read the selected Profile's persisted work; write
  * operations validate availability and authorship, perform at most one HTTP
- * action after validation, and attempt to publish an accepted result into the
- * canonical query. Pending probes report in-flight work from the shared mutation
- * cache and the draft document, so Review and History see the same in-flight state.
- * The value stores no Thread data and must not be kept beyond its reactive owner.
+ * action after validation, and publish accepted results beside the immutable
+ * query pages. Pending probes report in-flight work from the shared mutation cache
+ * and draft document, so Review and History see the same in-flight state. The
+ * value stores no Thread data and must not be kept beyond its reactive owner.
  */
 export type ThreadDiscussion = {
   /**
-   * True only while the canonical Thread list is loaded and neither failing nor
-   * refetching. Write controls must not treat stale visible data as available.
+   * True after page one is loaded and while the query has no failure. Later-page
+   * loading does not disable writes against already visible Threads.
    */
   reviewAvailable: Accessor<boolean>;
   /**
@@ -187,8 +192,8 @@ export type ThreadDiscussion = {
   /**
    * Begins submission of the persisted `draftId` and performs its kind-specific
    * HTTP action only after availability, Profile, and draft validation. Returns true
-   * when the backend accepts the write, after the local query update has been
-   * attempted and successful settlement removes the draft. A query-update failure
+   * when the backend accepts the write, after post-boundary activity publication
+   * has been attempted and successful settlement removes the draft. A publication failure
    * is reported but does not turn an accepted write into failure. Returns false and
    * retains the draft for a rejected HTTP action or Profile conflict; unavailable
    * review data or Profile selection prevents a start. Concurrent calls for the same
@@ -199,9 +204,9 @@ export type ThreadDiscussion = {
   /**
    * Starts `action` for the loaded `thread` after optional delete confirmation.
    * It does nothing when review data or a writing Profile is unavailable, or
-   * deletion is cancelled. An accepted update is published to the canonical
-   * query before resolution; ordinary mutation failure is presented by the
-   * query layer and resolves without a result.
+   * deletion is cancelled. An accepted update is published beside the bounded
+   * query before resolution; ordinary mutation failure is presented by the query
+   * layer and resolves without a result.
    *
    * A typed conflict first refetches the authoritative review query. Failure of
    * that corrective refetch rejects this operation instead of being treated as
@@ -225,7 +230,7 @@ export type ThreadDiscussion = {
   openEditDraft(thread: ReviewThread, comment: ReviewComment): void;
   /**
    * After explicit confirmation, deletes `comment` from `thread` as the selected
-   * Profile and publishes the tombstone to the canonical query. It returns before
+   * Profile and publishes the tombstone beside the bounded query. It returns before
    * the HTTP action settles and does nothing when confirmation or prerequisites
    * fail. Typed conflicts start a corrective query refetch. Because this
    * callable deliberately does not expose the detached task, a failure of that
@@ -238,7 +243,7 @@ export type ThreadDiscussion = {
 };
 
 /**
- * Creates one Snapshot-scoped discussion instance under the current owner.
+ * Creates one displayed-Snapshot discussion instance under the current owner.
  *
  * The caller must run within `ReviewDraftRoot` and the application query
  * client. Observers and derived state live in the calling component's
@@ -248,9 +253,13 @@ export function createThreadDiscussion(
   args: ThreadDiscussionArgs,
 ): ThreadDiscussion {
   const draftContext = useReviewDrafts();
-  const queryClient = useQueryClient();
   const toast = useToasts();
-  const review = createQuery(() => api.review.snapshot(args.snapshotId));
+  const review = createInfiniteQuery(() =>
+    api.review.snapshot(args.snapshotId),
+  );
+  const reviewThreads = createMemo(() =>
+    reviewThreadList(review.data, args.acceptedActivities()),
+  );
   const createThread = createMutation(() => api.review.thread.create());
   const addComment = createMutation(() => api.review.comment.add());
   const editComment = createMutation(() => api.review.comment.edit());
@@ -266,7 +275,7 @@ export function createThreadDiscussion(
   );
 
   const reviewAvailable = createMemo(
-    () => review.data !== undefined && !review.isRefetching && !review.isError,
+    () => review.data !== undefined && !review.isError,
   );
   /**
    * Reads the live selected Profile identity without presenting a requirement.
@@ -504,140 +513,6 @@ export function createThreadDiscussion(
   }
 
   /**
-   * Publish one committed Thread without letting an older refetch erase it.
-   *
-   * @param thread Complete Thread returned by the successful create mutation.
-   *
-   * # Usage
-   *
-   * `submitDraft` calls this after the create mutation succeeds. It cancels the
-   * Snapshot query before writing. If the cache already contains the Thread,
-   * the equal-or-newer discussion revision wins; a disposed cache remains
-   * absent instead of being reconstructed here.
-   *
-   * # Failures
-   *
-   * Query cancellation errors propagate. Duplicate cached identities violate
-   * the canonical-query contract and throw.
-   */
-  async function acceptCreatedThread(thread: ReviewThread): Promise<void> {
-    const key = api.review.snapshot(thread.snapshot_id).queryKey;
-    // A refetch begun before the backend committed could resolve after this
-    // publication and erase the new Thread with its stale result; cancel the
-    // in-flight read so the committed response publishes last.
-    await queryClient.cancelQueries({ queryKey: key });
-    queryClient.setQueryData<ReviewThread[]>(key, (current) => {
-      if (current === undefined) {
-        return current;
-      }
-      const matches = current.filter(
-        (candidate) => candidate.thread_id === thread.thread_id,
-      );
-      if (matches.length === 0) {
-        return [...current, thread];
-      }
-      // A concurrent Reload already fetched the committed Thread: ordinary
-      // concurrency, not an error. Keep the equal-or-newer loaded entry.
-      assert(
-        matches.length === 1,
-        "Created review Thread requires one loaded entry.",
-      );
-      const existing = expect(matches[0], "Created review Thread vanished.");
-      if (existing.discussion_revision >= thread.discussion_revision) {
-        return current;
-      }
-      return current.map((candidate) =>
-        candidate.thread_id === thread.thread_id ? thread : candidate,
-      );
-    });
-  }
-
-  /**
-   * Apply one contiguous action result to its authoritative loaded Thread.
-   *
-   * @param update Accepted backend action result for one loaded Thread.
-   *
-   * # Usage
-   *
-   * Existing-Thread mutations call this only with the backend's accepted
-   * update. It cancels an older refetch first. A missing Thread or skipped
-   * discussion revision triggers a complete query refetch instead of publishing
-   * a partial history. A changed existing Comment must match one loaded identity.
-   *
-   * If disposal removed the query data, the function returns without creating
-   * another cache entry.
-   *
-   * # Failures
-   *
-   * Query cancellation or corrective refetch errors propagate. Duplicate
-   * Thread or Comment identities throw because the loaded query is not
-   * authoritative enough to update safely.
-   */
-  async function acceptThreadUpdate(update: ReviewThreadUpdate): Promise<void> {
-    const key = api.review.snapshot(update.snapshot_id).queryKey;
-    // Same publication ordering as acceptCreatedThread: a refetch begun
-    // before the backend committed this action must not resolve afterward
-    // and silently revert the applied update.
-    await queryClient.cancelQueries({ queryKey: key });
-    const current = queryClient.getQueryData<ReviewThread[]>(key);
-    if (current === undefined) {
-      return;
-    }
-    const matches = current.filter(
-      (candidate) => candidate.thread_id === update.thread_id,
-    );
-    if (matches.length === 0) {
-      await review.refetch();
-      return;
-    }
-    assert(
-      matches.length === 1,
-      "Updated review Thread requires one authoritative loaded entry.",
-    );
-    const existing = expect(matches[0], "Updated review Thread disappeared.");
-    if (update.discussion_revision !== existing.discussion_revision + 1) {
-      await review.refetch();
-      return;
-    }
-    if (
-      update.comment !== null &&
-      update.comment.sequence !== existing.comments.length
-    ) {
-      const commentMatches = existing.comments.filter(
-        (comment) => comment.comment_id === update.comment?.comment_id,
-      );
-      assert(
-        commentMatches.length === 1,
-        "Updated review Comment requires one authoritative loaded entry.",
-      );
-    }
-    let comments = existing.comments;
-    if (update.comment !== null) {
-      comments =
-        update.comment.sequence === comments.length
-          ? [...comments, update.comment]
-          : comments.map((comment) =>
-              comment.comment_id === update.comment?.comment_id
-                ? update.comment
-                : comment,
-            );
-    }
-    const updatedThread: ReviewThread = {
-      ...existing,
-      state: update.state,
-      attention: update.attention,
-      discussion_revision: update.discussion_revision,
-      comments,
-    };
-    queryClient.setQueryData<ReviewThread[]>(
-      key,
-      current.map((thread) =>
-        thread.thread_id === update.thread_id ? updatedThread : thread,
-      ),
-    );
-  }
-
-  /**
    * Refresh stale Thread state after a conflict invalidates the loaded query.
    *
    * @param error Typed backend rejection from one review mutation.
@@ -646,7 +521,7 @@ export function createThreadDiscussion(
    *
    * Mutation failure handlers pass only a parsed `ReviewRequestError`. Revision
    * and state conflicts, or missing Thread and Comment identities, refetch the
-   * complete Snapshot query before the caller settles. Other typed failures do
+   * loaded canonical pages before the caller settles. Other typed failures do
    * not imply stale query state and require no read.
    *
    * # Failures
@@ -678,7 +553,7 @@ export function createThreadDiscussion(
    * `beginSubmission` freezes that exact draft until this function settles it.
    *
    * A backend rejection retains the editable draft and returns false. Backend
-   * acceptance returns true and removes the draft even if local query
+   * acceptance returns true and removes the draft even if activity
    * publication fails; that later failure is shown as a Toast because the
    * server write cannot be undone. Settlement calls `onSubmitted` and updates
    * the draft document in one Solid batch.
@@ -689,7 +564,7 @@ export function createThreadDiscussion(
    * A cross-Snapshot new-Thread draft throws after the start and remains in
    * flight. HTTP failures are presented by the shared query boundary and return
    * false. A corrective refetch failure also propagates before settlement,
-   * leaving the draft marked in flight. Result-shape and query-publication
+   * leaving the draft marked in flight. Result-shape and activity-publication
    * failures after backend acceptance show a Toast, settle success, and return
    * true.
    */
@@ -720,6 +595,15 @@ export function createThreadDiscussion(
     }
     let thread: ReviewThread | ReviewThreadUpdate;
     try {
+      const addressedSnapshotId =
+        command.kind === "new-thread"
+          ? args.snapshotId
+          : expect(
+              reviewThreads().find(
+                (candidate) => candidate.thread_id === command.thread_id,
+              ),
+              "A submitted Thread draft requires its loaded discussion.",
+            ).snapshot_id;
       thread =
         command.kind === "new-thread"
           ? await createThread.mutateAsync({
@@ -732,7 +616,7 @@ export function createThreadDiscussion(
             })
           : command.kind === "reply"
             ? await addComment.mutateAsync({
-                snapshotId: args.snapshotId,
+                snapshotId: addressedSnapshotId,
                 threadId: command.thread_id,
                 body: {
                   profile_id: profile.id,
@@ -741,7 +625,7 @@ export function createThreadDiscussion(
                 },
               })
             : await editComment.mutateAsync({
-                snapshotId: args.snapshotId,
+                snapshotId: addressedSnapshotId,
                 threadId: command.thread_id,
                 commentId: command.comment_id,
                 body: { profile_id: profile.id, body: command.body },
@@ -757,10 +641,10 @@ export function createThreadDiscussion(
     try {
       if (command.kind === "new-thread") {
         assert("origin_target" in thread);
-        await acceptCreatedThread(thread);
+        args.onAcceptedActivity({ kind: "created", thread });
       } else {
         assert(!("origin_target" in thread));
-        await acceptThreadUpdate(thread);
+        args.onAcceptedActivity({ kind: "updated", update: thread });
       }
     } catch (error) {
       toast.showError("Could not refresh review Thread", error);
@@ -770,7 +654,7 @@ export function createThreadDiscussion(
   }
 
   /**
-   * Applies one explicit Thread state action to the canonical review query.
+   * Applies one explicit Thread state action beside the bounded review query.
    *
    * Unavailable review data shows a Toast; a missing Profile shows the shared
    * Profile Toast; cancelling delete leaves both backend and query unchanged.
@@ -785,8 +669,7 @@ export function createThreadDiscussion(
    *
    * A typed conflict triggers a corrective refetch. If that refetch fails, its
    * error propagates from this promise rather than being handled as the original
-   * mutation failure. Canonical-query invariant failures during publication
-   * also propagate.
+   * mutation failure. Activity-presentation invariant failures also propagate.
    */
   async function changeThreadState(
     thread: ReviewThread,
@@ -817,21 +700,23 @@ export function createThreadDiscussion(
         : action === "reopen"
           ? reopenThread
           : deleteThread;
+    let updated: ReviewThreadUpdate;
     try {
-      const updated = await mutation.mutateAsync({
-        snapshotId: args.snapshotId,
+      updated = await mutation.mutateAsync({
+        snapshotId: thread.snapshot_id,
         threadId: thread.thread_id,
         body: {
           profile_id: profile.id,
         },
       });
-      await acceptThreadUpdate(updated);
     } catch (error) {
       if (error instanceof ReviewRequestError) {
         await refreshReviewAfterConflict(error);
       }
       // QueryProvider presented the mutation failure through its metadata.
+      return;
     }
+    args.onAcceptedActivity({ kind: "updated", update: updated });
   }
 
   /**
@@ -897,8 +782,8 @@ export function createThreadDiscussion(
    *
    * Typed conflicts start a corrective refetch. If that refetch rejects, the
    * detached task rejects after this function has returned; callers cannot
-   * await or contain that failure through this void interface. Canonical-query
-   * invariant failures have the same detached lifetime.
+   * await or contain that failure through this void interface. Activity
+   * presentation invariant failures have the same detached lifetime.
    */
   function tombstoneComment(
     thread: ReviewThread,
@@ -919,22 +804,25 @@ export function createThreadDiscussion(
       return;
     }
     void (async () => {
+      let updated: ReviewThreadUpdate;
       try {
-        const updated = await deleteComment.mutateAsync({
-          snapshotId: args.snapshotId,
+        updated = await deleteComment.mutateAsync({
+          snapshotId: thread.snapshot_id,
           threadId: thread.thread_id,
           commentId: comment.comment_id,
           body: {
             profile_id: profile.id,
           },
         });
-        await acceptThreadUpdate(updated);
       } catch (error) {
         if (error instanceof ReviewRequestError) {
           await refreshReviewAfterConflict(error);
+          return;
         }
         // QueryProvider already presented this mutation through its metadata.
+        return;
       }
+      args.onAcceptedActivity({ kind: "updated", update: updated });
     })();
   }
 

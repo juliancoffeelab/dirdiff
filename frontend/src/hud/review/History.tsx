@@ -1,9 +1,9 @@
 /**
- * Renders Snapshot-wide review History from shared query and draft data.
+ * Renders Snapshot-wide review History from pages, activity, and draft data.
  *
- * History observes the same canonical Thread query as `ReviewProvider`, reads the
- * application draft document, and creates its own discussion operations against
- * those shared authorities. The panel keeps per-Thread expansion and reading
+ * History observes the same immutable Thread pages as `ReviewProvider`, reads
+ * provider-held post-boundary activity and the application draft document, and
+ * creates its own discussion operations against those values. The panel keeps per-Thread expansion and reading
  * position while hidden, and warms newly visible cards over animation frames.
  *
  * The Review provider supplies code navigation and anchored-input operations.
@@ -21,11 +21,14 @@ import {
   type JSX,
 } from "solid-js";
 import { Portal } from "solid-js/web";
-import { createQuery } from "@tanstack/solid-query";
+import { createInfiniteQuery } from "@tanstack/solid-query";
 import { Eye, RefreshCw } from "lucide-solid";
 import {
   api,
-  threadCodePoint,
+  reviewThreadList,
+  threadPlacementCodePoint,
+  type AcceptedReviewActivity,
+  type ReviewFilePair,
   type ReviewId,
   type ReviewThread,
   type ThreadCodePoint,
@@ -42,7 +45,7 @@ import { ThreadCard } from "./threadViews";
  * Identity-stable empty array used while History review data is unavailable.
  *
  * `reviewThreads` returns this exact array for every unavailable read, so it
- * does not manufacture a changed source identity before the canonical query
+ * does not manufacture a changed source identity before the bounded query
  * loads. `orderedThreads` copies that source only when its memo reruns. This
  * module never mutates the shared empty value.
  */
@@ -51,15 +54,15 @@ const NO_THREADS: readonly ReviewThread[] = [];
 /**
  * Defines History's host facts and the provider-owned anchored-UI behaviors.
  *
- * Data and discussion operations are deliberately absent: History reaches
- * the canonical query, the draft document, and its own discussion instance
- * directly. `closeCommentInputInThread` returns `false` when an in-flight
+ * History reaches the bounded query and draft document directly, while the
+ * provider supplies shared accepted activity. `closeCommentInputInThread`
+ * returns `false` when an in-flight
  * submission blocks the close, and the caller must then abort its action.
  */
 type ReviewHistoryProps = {
   /**
-   * Immutable Snapshot whose canonical Threads this panel observes. New-Thread
-   * drafts for other Snapshots remain visible but cannot continue here.
+   * Displayed Snapshot used to select the Room and current placement context.
+   * New-Thread drafts for other Snapshots remain visible but cannot continue here.
    */
   snapshotId: ReviewId;
   /**
@@ -67,6 +70,10 @@ type ReviewHistoryProps = {
    * Null preserves readable History while disabling actions that require authorship.
    */
   profile: StoredProfile | null;
+  /** Successful writes presented beside the immutable activity-bounded pages. */
+  acceptedActivities: Accessor<readonly AcceptedReviewActivity[]>;
+  /** Publish one successful History write without changing query data. */
+  onAcceptedActivity(activity: AcceptedReviewActivity): void;
   /**
    * Current diff layout, which chooses the inline outlet or fixed split host.
    * Changing it remounts the keyed Portal without resetting History card state.
@@ -108,6 +115,20 @@ type ReviewHistoryProps = {
    * and provider UI. Unlocated or unloaded destinations never invoke it.
    */
   viewThreadInCode(thread: ReviewThread): void;
+  /** Report whether an origin-bound Thread's displayed File is loaded. */
+  canViewFile(file: ReviewFilePair): boolean;
+  /**
+   * Navigate an origin placement exactly or to its changed File's start.
+   *
+   * @param file Exact origin File pair still present in the displayed manifest.
+   * @param point Origin code point, or null for a File-level historical Thread.
+   * @param useFileStart Whether navigation uses the displayed File start.
+   */
+  viewOriginThreadInCode(
+    file: ReviewFilePair,
+    point: ThreadCodePoint | null,
+    useFileStart: boolean,
+  ): void;
   /**
    * Called only when the user continues a draft bound to this Snapshot and
    * selected Profile, with the persisted draft and its exact code point. The
@@ -150,19 +171,31 @@ type ReviewHistoryProps = {
 export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
   const toast = useToasts();
   const draftContext = useReviewDrafts();
-  const review = createQuery(() => api.review.snapshot(props.snapshotId));
+  const review = createInfiniteQuery(() =>
+    api.review.snapshot(props.snapshotId),
+  );
   const discussion = createThreadDiscussion({
     snapshotId: props.snapshotId,
     profile: () => props.profile,
+    acceptedActivities: props.acceptedActivities,
+    onAcceptedActivity: props.onAcceptedActivity,
     // History has no settlement UI of its own: reply and edit inputs render
     // inside their ThreadCard and read the draft document directly.
     onSubmitted() {},
   });
-  /** Reads the canonical query list without allocating while it is unavailable. */
-  const reviewThreads = (): readonly ReviewThread[] =>
-    review.data ?? NO_THREADS;
-  /** Reports the loaded Thread count, using zero before the first query result. */
-  const totalThreads = (): number => review.data?.length ?? 0;
+  /** Derives loaded pages and accepted activity for History presentation. */
+  const reviewThreads = createMemo<readonly ReviewThread[]>(
+    () => reviewThreadList(review.data, props.acceptedActivities()),
+    NO_THREADS,
+  );
+  /** Reports the greatest count proven by the boundary or visible activities. */
+  const totalThreads = (): number =>
+    Math.max(review.data?.pages[0]?.total_threads ?? 0, reviewThreads().length);
+
+  /** Refetch the shared page chain through its ordinary query operation. */
+  async function reloadThreads(): Promise<void> {
+    await review.refetch();
+  }
   // History keeps its reading position itself: the closed panel is
   // display: none, whose box reads scrollTop 0, so the scroll listener in
   // the panel ref records the last real position for restoration on open.
@@ -204,7 +237,26 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
   }): JSX.Element {
     /** Reads the latest Thread prop inside card action closures. */
     const thread = () => historyProps.thread;
-    const point = threadCodePoint(historyProps.thread);
+    const point = threadPlacementCodePoint(historyProps.thread);
+    const locationSource = historyProps.thread.location_source;
+    const originFile = historyProps.thread.origin_target.file;
+    const originUnavailableNote =
+      locationSource.kind !== "origin-snapshot"
+        ? null
+        : locationSource.file_state === "missing"
+          ? "The reviewed File is not present in the displayed Snapshot."
+          : locationSource.file_state === "unreadable"
+            ? "The reviewed File could not be read in the displayed Snapshot."
+            : null;
+    const useFileStart =
+      locationSource.kind === "origin-snapshot" &&
+      (locationSource.file_state === "changed" || point === null);
+    const navigationAdvisory =
+      locationSource.kind === "origin-snapshot" &&
+      locationSource.file_state === "changed" &&
+      historyProps.thread.origin_target.kind === "text"
+        ? "This Thread has no placement in the displayed Snapshot. Go to the File start; reload the diff to locate it accurately."
+        : null;
     /** Reads the selected Profile's persisted reply for this Thread. */
     const replyDraft = () => discussion.replyDraftForThread(thread().thread_id);
     /** Reports whether any Comment in this Thread has a persisted edit input. */
@@ -226,15 +278,30 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
         expanded={expanded()}
         navigation={{
           kind: "history",
-          viewable: point !== null && props.canViewThread(point),
+          viewable:
+            originUnavailableNote === null &&
+            (locationSource.kind === "origin-snapshot"
+              ? useFileStart
+                ? props.canViewFile(originFile)
+                : point !== null && props.canViewThread(point)
+              : point !== null && props.canViewThread(point)),
+          advisory: navigationAdvisory,
+          unavailableNote: originUnavailableNote,
           onView: () => {
-            if (point === null) {
+            if (
+              originUnavailableNote !== null ||
+              (point === null && !useFileStart)
+            ) {
               return;
             }
             const next = new Map(expandedThreads());
             next.set(thread().thread_id, true);
             setExpandedThreads(next);
-            props.viewThreadInCode(thread());
+            if (locationSource.kind === "origin-snapshot") {
+              props.viewOriginThreadInCode(originFile, point, useFileStart);
+            } else {
+              props.viewThreadInCode(thread());
+            }
           },
         }}
         onToggle={() => {
@@ -340,7 +407,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                   disabled={review.isFetching}
                   onClick={(event) => {
                     event.stopPropagation();
-                    void review.refetch({ cancelRefetch: false });
+                    void reloadThreads();
                   }}
                 >
                   <RefreshCw
@@ -367,9 +434,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                     title="Failed to load review Threads"
                     error={error}
                   >
-                    <RetryButton
-                      onRetry={() => review.refetch().then(() => undefined)}
-                    />
+                    <RetryButton onRetry={reloadThreads} />
                   </ErrorPanel>
                 )}
               </Show>

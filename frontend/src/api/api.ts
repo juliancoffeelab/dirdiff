@@ -11,12 +11,14 @@
  * remain errors for the nearest query or UI boundary to present.
  */
 import {
+  infiniteQueryOptions,
   mutationOptions,
   queryOptions,
+  type InfiniteData,
   type QueryClient,
 } from "@tanstack/solid-query";
 import { z } from "zod";
-import { assert } from "../utils";
+import { assert, expect } from "../utils";
 
 /**
  * Defines the closed set of engine names accepted by frontend API definitions.
@@ -1867,7 +1869,7 @@ const ReviewCommentSchema = z
 export type ReviewComment = z.infer<typeof ReviewCommentSchema>;
 
 /**
- * Validates every current-Snapshot placement outcome for a persisted Thread.
+ * Validates every Snapshot placement outcome for a persisted Thread.
  *
  * Each arm carries only data newly determined by derivation; immutable File,
  * side, and usually bay identity remain on the origin.
@@ -1876,35 +1878,35 @@ const ThreadPlacementSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     /** Discriminant for an unchanged region whose current range remains valid. */
     kind: z.literal("region-kept"),
-    /** Current inclusive range corresponding to the immutable origin. */
+    /** Inclusive range in the Snapshot containing this placement. */
     range: ReviewLineRangeSchema,
   }),
   z.strictObject({
-    /** Discriminant for a region still found at current lines but changed in content. */
+    /** Discriminant for a region reattached with changed content. */
     kind: z.literal("region-changed"),
-    /** Current inclusive range at which the changed origin was reattached. */
+    /** Inclusive range at which the changed origin was reattached. */
     range: ReviewLineRangeSchema,
   }),
   z.strictObject({
-    /** Origin bay remains, but no current region matches the stored excerpt. */
+    /** Origin bay remains, but no region matches the stored excerpt. */
     kind: z.literal("region-lost"),
   }),
   z.strictObject({
-    /** Origin bay disappeared; `bay` is the current whole-bay landing selected by derivation. */
+    /** Origin bay disappeared; `bay` is the replacement whole-bay landing. */
     kind: z.literal("bay-lost"),
-    /** Opaque current bay used for navigation instead of the lost origin bay. */
+    /** Opaque replacement bay used instead of the lost origin bay. */
     bay: ReviewTextBaySchema,
   }),
   z.strictObject({
-    /** Origin side no longer exists in the current File pair. */
+    /** Origin side no longer exists in the placement File pair. */
     kind: z.literal("side-lost"),
   }),
   z.strictObject({
-    /** Origin File is absent from the current Snapshot. */
+    /** Origin File is absent from the Snapshot containing this placement. */
     kind: z.literal("file-absent"),
   }),
   z.strictObject({
-    /** Current File exists but could not produce reviewable content. */
+    /** Placement File exists but could not produce reviewable content. */
     kind: z.literal("file-unreadable"),
   }),
   z.strictObject({
@@ -1914,9 +1916,29 @@ const ThreadPlacementSchema = z.discriminatedUnion("kind", [
 ]);
 
 /**
+ * States whether a Thread placement describes displayed code or its origin.
+ *
+ * An origin placement is returned only when the displayed Snapshot predates
+ * the Thread. Its File state controls History navigation and never authorizes a
+ * line marker in the displayed code.
+ */
+const ThreadLocationSourceSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    /** Placement was derived for the Snapshot currently displayed by the HUD. */
+    kind: z.literal("displayed-snapshot"),
+  }),
+  z.strictObject({
+    /** The Thread's origin placement is returned because displayed placement is absent. */
+    kind: z.literal("origin-snapshot"),
+    /** Captured relation between the origin File and the displayed File pair. */
+    file_state: z.enum(["unchanged", "changed", "missing", "unreadable"]),
+  }),
+]);
+
+/**
  * Identifies where one Thread sits in a Snapshot, and what became of it.
  *
- * Each variant states only facts newly determined in the current Snapshot.
+ * Each variant states only facts determined in the Snapshot containing it.
  * Immutable File, side, and usually bay identity remain on the origin.
  */
 export type ThreadPlacement = z.infer<typeof ThreadPlacementSchema>;
@@ -1965,7 +1987,7 @@ export type ReviewExcerpt = z.infer<typeof ReviewExcerptSchema>;
 /**
  * Validates an immutable text target together with its captured origin excerpt.
  *
- * This is persistence history, not the Thread's placement in the current Snapshot.
+ * This is persistence history, not the Thread's returned placement.
  */
 const TextReviewOriginSchema = TextReviewTargetSchema.extend({
   /** Immutable selected-side context captured when the Thread was created. */
@@ -1988,7 +2010,7 @@ const FileStartReviewOriginSchema = z.strictObject({
 /**
  * Validates either immutable Thread-origin form by its target kind.
  *
- * Consumers narrow this history separately from current placement and never
+ * Consumers narrow this history separately from returned placement and never
  * merge the two into one mutable coordinate.
  */
 const ReviewOriginSchema = z.discriminatedUnion("kind", [
@@ -1999,14 +2021,14 @@ const ReviewOriginSchema = z.discriminatedUnion("kind", [
 /**
  * Identifies the immutable creation target of one Thread.
  *
- * This immutable history remains separate from current placement. Text origins
+ * This immutable history remains separate from returned placement. Text origins
  * retain their selected excerpt; File-level historical origins have no text
  * coordinate.
  */
 export type ReviewOrigin = z.infer<typeof ReviewOriginSchema>;
 
 /**
- * Validates one complete Thread, its origin, current placement, and Comments.
+ * Validates one complete Thread, its origin, returned placement, and Comments.
  *
  * Comment refinement enforces contiguous sequence order and unique identities so
  * discussion rendering never needs to sort or deduplicate backend data.
@@ -2014,7 +2036,7 @@ export type ReviewOrigin = z.infer<typeof ReviewOriginSchema>;
 const ReviewThreadSchema = z.strictObject({
   /** Opaque Thread identity used by all discussion and lifecycle actions. */
   thread_id: ReviewIdSchema,
-  /** Snapshot whose canonical query contains this current Thread representation. */
+  /** Snapshot containing `placement` and used for follow-up Thread actions. */
   snapshot_id: ReviewIdSchema,
   /** Offset-aware timestamp of Thread creation. */
   created_at: z.string().datetime({ offset: true }),
@@ -2032,8 +2054,10 @@ const ReviewThreadSchema = z.strictObject({
   discussion_revision: z.number().int().nonnegative(),
   /** Immutable creation coordinate and historical excerpt. */
   origin_target: ReviewOriginSchema,
-  /** Current-Snapshot derivation outcome interpreted relative to `origin_target`. */
+  /** Stored placement in `snapshot_id`, interpreted relative to `origin_target`. */
   placement: ThreadPlacementSchema,
+  /** Whether placement belongs to displayed code or to the Thread's origin. */
+  location_source: ThreadLocationSourceSchema,
   /** Non-empty contiguous Comment history with identities unique in this Thread. */
   comments: z
     .array(ReviewCommentSchema)
@@ -2061,31 +2085,35 @@ const ReviewThreadSchema = z.strictObject({
 });
 
 /**
- * Describes one complete runtime-validated discussion in an exact Snapshot.
+ * Describes one complete runtime-validated Room discussion and real placement.
  *
- * The Thread keeps immutable origin separate from current placement. Callers use
- * its validated Comment order and server revisions directly.
+ * `location_source` states whether that placement belongs to displayed code or
+ * to the Thread origin used when no displayed placement exists.
  */
 export type ReviewThread = z.infer<typeof ReviewThreadSchema>;
 
 /**
  * Reports whether this Snapshot changed what the Thread was written against.
  *
- * `region-kept` and `whole-file` are the placements that state nothing went
- * wrong; every other kind is one of the outdated states. Three call sites in
- * two modules ask this question, so the mapping is stated once here instead
- * of as a kind list repeated at each of them.
+ * Origin-bound results use their captured File relation because their origin
+ * placement itself cannot describe displayed-code change. Displayed placements
+ * use their derivation outcome. Marker and card presentation share this mapping.
  */
 export function threadOutdated(thread: ReviewThread): boolean {
+  if (thread.location_source.kind === "origin-snapshot") {
+    return thread.location_source.file_state !== "unchanged";
+  }
   const kind = thread.placement.kind;
   return kind !== "region-kept" && kind !== "whole-file";
 }
 
 /**
- * Addresses the exact current code landing available for one Thread.
+ * Addresses the exact code landing in the Snapshot containing `placement`.
  *
- * It combines immutable File and side origin with the bay and line chosen by
- * current placement. Threads without a code landing produce no value of this type.
+ * It combines immutable File and side origin with the bay and line chosen by the
+ * returned placement. `location_source` tells callers whether that Snapshot is
+ * currently displayed or is the Thread's origin. Threads without a code landing
+ * produce no value of this type.
  */
 export type ThreadCodePoint = {
   /**
@@ -2095,7 +2123,7 @@ export type ThreadCodePoint = {
    */
   file: ReviewFilePair;
   /**
-   * Public bay identity that currently contains the navigation landing.
+   * Public bay identity containing the placement's navigation landing.
    *
    * A `bay-lost` placement may supply this instead of the origin bay; callers
    * treat it as opaque.
@@ -2116,7 +2144,7 @@ export type ThreadCodePoint = {
 };
 
 /**
- * Returns the code this Thread navigates to, or `null` if it navigates to none.
+ * Returns the code addressed by this Thread's returned placement.
  *
  * The File pair and side are the origin's; the bay is the origin's except for
  * a `bay-lost` landing, which states the bay derivation chose instead; the
@@ -2127,11 +2155,13 @@ export type ThreadCodePoint = {
  *
  * # Returns
  *
- * - `ThreadCodePoint`: The complete current code coordinate.
+ * - `ThreadCodePoint`: Complete coordinate in `thread.snapshot_id`.
  * - `null`: The File-level origin names no bay. Callers must keep that Thread
  *   in History and omit code navigation.
  */
-export function threadCodePoint(thread: ReviewThread): ThreadCodePoint | null {
+export function threadPlacementCodePoint(
+  thread: ReviewThread,
+): ThreadCodePoint | null {
   const origin = thread.origin_target;
   if (origin.kind === "file-start") {
     return null;
@@ -2174,7 +2204,7 @@ export function threadCodePoint(thread: ReviewThread): ThreadCodePoint | null {
 const ReviewThreadUpdateSchema = z.strictObject({
   /** Thread identity repeated by the accepted action response. */
   thread_id: ReviewIdSchema,
-  /** Snapshot identity repeated for publication into the addressed query. */
+  /** Snapshot identity repeated for post-boundary activity presentation. */
   snapshot_id: ReviewIdSchema,
   /** Authoritative post-write open, resolved, or retained-deleted lifecycle state. */
   state: z.enum(["open", "resolved", "deleted"]),
@@ -2189,16 +2219,37 @@ const ReviewThreadUpdateSchema = z.strictObject({
 /**
  * Describes the authoritative Thread fragment returned by one accepted action.
  *
- * Callers verify the repeated identities and merge this authoritative fragment
- * into the addressed canonical Thread only.
+ * Callers verify the repeated identities and apply this fragment to the
+ * addressed Thread only when deriving post-boundary presentation.
  */
 export type ReviewThreadUpdate = z.infer<typeof ReviewThreadUpdateSchema>;
 
 /**
- * Validates one bounded page of Threads under a fixed Snapshot activity boundary.
+ * Records one accepted browser write that occurred after a loaded page boundary.
  *
- * Refinement rejects cross-Snapshot Threads and duplicate Thread or Comment IDs,
- * so page assembly can append without repairing backend identity.
+ * Creation carries the complete new Thread. Existing-Thread actions carry only
+ * the backend's contiguous update. These values remain separate from immutable
+ * query pages and are applied only when deriving the HUD's current presentation.
+ */
+export type AcceptedReviewActivity =
+  | {
+      /** Identify a successful Thread creation and its complete response. */
+      kind: "created";
+      /** Newly created Thread returned by the mutation endpoint. */
+      thread: ReviewThread;
+    }
+  | {
+      /** Identify a successful action on an existing visible Thread. */
+      kind: "updated";
+      /** Contiguous Thread change returned by the mutation endpoint. */
+      update: ReviewThreadUpdate;
+    };
+
+/**
+ * Validates one bounded Room Thread page under a fixed activity boundary.
+ *
+ * Refinement checks placement-source identity and duplicate Thread or Comment
+ * IDs, so page assembly can append without repairing backend identity.
  */
 const ReviewThreadPageSchema = z
   .strictObject({
@@ -2221,17 +2272,30 @@ const ReviewThreadPageSchema = z
     const threadIds = new Set<ReviewId>();
     const commentIds = new Set<ReviewId>();
     page.threads.forEach((thread, index) => {
-      if (thread.snapshot_id !== page.snapshot_id) {
+      if (
+        thread.location_source.kind === "displayed-snapshot" &&
+        thread.snapshot_id !== page.snapshot_id
+      ) {
         context.addIssue({
           code: "custom",
-          message: "Review page contains a Thread from another Snapshot.",
+          message: "Displayed placement names another Snapshot.",
+          path: ["threads", index, "snapshot_id"],
+        });
+      }
+      if (
+        thread.location_source.kind === "origin-snapshot" &&
+        thread.snapshot_id === page.snapshot_id
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Origin placement repeats the displayed Snapshot.",
           path: ["threads", index, "snapshot_id"],
         });
       }
       if (threadIds.has(thread.thread_id)) {
         context.addIssue({
           code: "custom",
-          message: "Review Snapshot Thread identities must be unique.",
+          message: "Review Room Thread identities must be unique.",
           path: ["threads", index, "thread_id"],
         });
       }
@@ -2250,12 +2314,133 @@ const ReviewThreadPageSchema = z
   });
 
 /**
- * Describes one explicitly bounded transport page for an exact Snapshot.
+ * Describes one bounded Room Thread page in a displayed Snapshot context.
  *
- * The first page establishes the activity boundary. Pagination code validates and
- * appends every later page before exposing the complete canonical Thread set.
+ * The first page establishes the activity boundary. Each later page is
+ * validated and published under that boundary as progressive query data.
  */
-type ReviewThreadPage = z.infer<typeof ReviewThreadPageSchema>;
+export type ReviewThreadPage = z.infer<typeof ReviewThreadPageSchema>;
+
+/**
+ * Addresses one page in a stable progressive Room History read.
+ *
+ * Page one carries no activity boundary. Every later parameter retains the
+ * exact boundary returned by page one so automatic loading cannot mix states.
+ */
+export type ReviewThreadPageParameter = {
+  /** Positive page number requested from the browser review endpoint. */
+  page: number;
+  /** Page-one activity boundary, or null only for the initial page. */
+  throughActivityId: number | null;
+};
+
+/**
+ * Stores the progressively published pages behind the canonical review query.
+ *
+ * TanStack retains page parameters beside their validated responses. Consumers
+ * derive their current Thread list from `pages`; they must not copy it into
+ * another store or treat a partial set as an empty Room.
+ */
+export type ReviewThreadPages = InfiniteData<
+  ReviewThreadPage,
+  ReviewThreadPageParameter
+>;
+
+/** Shared immutable result for a progressive review query with no loaded page. */
+const NO_REVIEW_THREADS: readonly ReviewThread[] = [];
+
+/**
+ * Present immutable query pages together with accepted post-boundary writes.
+ *
+ * Consumers call this from a memo. Query pages remain unchanged; successful
+ * creations append to the derived list, while contiguous update responses alter
+ * only its derived Thread value. A later query result at an equal or newer
+ * revision supersedes the corresponding accepted activity. Undefined query data
+ * requires no accepted activity and returns one stable empty value.
+ *
+ * @param data Current progressive query data, or undefined before page one.
+ * @param acceptedActivities Successful writes made after a loaded boundary.
+ * @returns Loaded Threads with accepted browser activity applied for presentation.
+ */
+export function reviewThreadList(
+  data: ReviewThreadPages | undefined,
+  acceptedActivities: readonly AcceptedReviewActivity[],
+): readonly ReviewThread[] {
+  if (data === undefined) {
+    assert(
+      acceptedActivities.length === 0,
+      "Accepted review activity requires its originating page boundary.",
+    );
+    return NO_REVIEW_THREADS;
+  }
+  const threads = data.pages.flatMap((page) => page.threads);
+  const threadIndexes = new Map(
+    threads.map((thread, index) => [thread.thread_id, index]),
+  );
+  for (const activity of acceptedActivities) {
+    if (activity.kind === "created") {
+      const existingIndex = threadIndexes.get(activity.thread.thread_id);
+      if (existingIndex === undefined) {
+        threadIndexes.set(activity.thread.thread_id, threads.length);
+        threads.push(activity.thread);
+      } else {
+        const existing = expect(
+          threads[existingIndex],
+          "Loaded review Thread disappeared during activity presentation.",
+        );
+        if (
+          activity.thread.discussion_revision > existing.discussion_revision
+        ) {
+          threads[existingIndex] = activity.thread;
+        }
+      }
+      continue;
+    }
+    const update = activity.update;
+    const threadIndex = expect(
+      threadIndexes.get(update.thread_id),
+      "Accepted review update requires its visible Thread.",
+    );
+    const existing = expect(
+      threads[threadIndex],
+      "Updated review Thread disappeared during activity presentation.",
+    );
+    if (update.discussion_revision <= existing.discussion_revision) {
+      continue;
+    }
+    assert(
+      update.discussion_revision === existing.discussion_revision + 1,
+      "Accepted review updates must remain contiguous.",
+    );
+    let comments = existing.comments;
+    if (update.comment !== null) {
+      if (update.comment.sequence === comments.length) {
+        comments = [...comments, update.comment];
+      } else {
+        const matches = comments.filter(
+          (comment) => comment.comment_id === update.comment?.comment_id,
+        );
+        assert(
+          matches.length === 1,
+          "Accepted review Comment update requires one visible Comment.",
+        );
+        comments = comments.map((comment) =>
+          comment.comment_id === update.comment?.comment_id
+            ? update.comment
+            : comment,
+        );
+      }
+    }
+    threads[threadIndex] = {
+      ...existing,
+      state: update.state,
+      attention: update.attention,
+      discussion_revision: update.discussion_revision,
+      comments,
+    };
+  }
+  return threads;
+}
 
 /**
  * Validates review input as non-empty text containing at least one non-space.
@@ -3340,89 +3525,6 @@ function requestFileDiff(
 }
 
 /**
- * Reads every bounded transport page into one complete Snapshot Thread set.
- *
- * The first page fixes the append-only activity boundary used by every later
- * page. The function rejects identity drift, duplicates, or an incomplete final
- * count instead of returning a repaired collection.
- *
- * @param snapshotId Exact Snapshot whose canonical Thread set is read.
- * @param abortSignal TanStack cancellation shared by every page in this read.
- */
-async function requestReviewThreads(
-  snapshotId: ReviewId,
-  abortSignal: AbortSignal,
-): Promise<ReviewThread[]> {
-  /**
-   * Reads and validates one transport page within this complete Snapshot read.
-   *
-   * `pageNumber` is the exact positive page requested. `throughActivityId` is
-   * `null` only for the first page; later calls pass the boundary returned by
-   * that first response. The helper shares the outer Snapshot and AbortSignal.
-   *
-   * @param pageNumber Positive transport page to request and verify.
-   * @param throughActivityId Fixed first-page activity boundary, or `null` initially.
-   */
-  async function page(
-    pageNumber: number,
-    throughActivityId: number | null,
-  ): Promise<ReviewThreadPage> {
-    const search = snapshotSearchParams(snapshotId);
-    search.set("page", String(pageNumber));
-    search.set("limit", "100");
-    if (throughActivityId !== null) {
-      search.set("through_activity_id", String(throughActivityId));
-    }
-    const response = await requestJson(
-      {
-        input: `/api/review/threads?${search.toString()}`,
-        init: {},
-        abortSignal,
-        timeoutMs: REQUEST_TIMEOUT_MS,
-      },
-      ReviewThreadPageSchema,
-    );
-    assert(
-      response.snapshot_id === snapshotId && response.page === pageNumber,
-      "Review response returned another page identity.",
-    );
-    return response;
-  }
-
-  const threads: ReviewThread[] = [];
-  const threadIds = new Set<ReviewId>();
-  let pageNumber = 1;
-  let throughActivityId: number | null = null;
-  while (true) {
-    const response = await page(pageNumber, throughActivityId);
-    if (throughActivityId === null) {
-      throughActivityId = response.through_activity_id;
-    } else {
-      assert(
-        response.through_activity_id === throughActivityId,
-        "Review transport pages use different activity pivots.",
-      );
-    }
-    for (const thread of response.threads) {
-      assert(
-        !threadIds.has(thread.thread_id),
-        "Review transport pages contain a duplicate Thread.",
-      );
-      threadIds.add(thread.thread_id);
-      threads.push(thread);
-    }
-    if (!response.has_more) {
-      assert(
-        threads.length === response.total_threads,
-        "Review transport pages do not contain every Thread.",
-      );
-      return threads;
-    }
-    pageNumber += 1;
-  }
-}
-
-/**
  * Carries one complete Thread-creation command into the private mutation function.
  *
  * Snapshot addressing stays outside the validated JSON body until transport
@@ -3447,8 +3549,8 @@ type CreateReviewThreadInput = {
 /**
  * Requires one mutation response to match the exact addressed Thread pair.
  *
- * A mismatch throws at the transport boundary so canonical query data cannot be
- * updated with a response for another Snapshot or Thread.
+ * A mismatch throws at the transport boundary so post-boundary presentation
+ * cannot receive a response for another Snapshot or Thread.
  *
  * @param thread Response fragment carrying backend Snapshot and Thread identities.
  * @param snapshotId Exact Snapshot addressed by the mutation.
@@ -3482,7 +3584,7 @@ function assertReviewThreadIdentity(
  * Creates one Snapshot-bound Thread and its first Comment atomically.
  *
  * The irreversible write has no transport timeout. Its validated response must
- * repeat the addressed Snapshot before the caller publishes it to canonical data.
+ * repeat the addressed Snapshot before post-boundary presentation uses it.
  */
 async function requestCreateReviewThread(
   input: CreateReviewThreadInput,
@@ -3657,7 +3759,7 @@ type ReviewCommentActionInput = {
   /**
    * Exact containing Thread expected in the accepted update.
    *
-   * The Thread remains part of canonical query placement after its Comment changes.
+   * The Thread identity remains stable after its Comment changes.
    */
   threadId: ReviewId;
   /**
@@ -3857,17 +3959,96 @@ export const api = {
 
   review: {
     /**
-     * Defines the complete canonical Thread-set query for an exact Snapshot.
+     * Defines the progressive Room Thread query in one Snapshot context.
      *
-     * `snapshotId` is the whole query identity. Observation reads every bounded
-     * page under one activity boundary before exposing data, and creating this
-     * definition alone starts no network work.
+     * `snapshotId` identifies the Room and displayed placement context. The
+     * first page is published immediately; later pages retain its activity
+     * boundary and may be fetched automatically by the Review provider. Creating
+     * this definition starts no work.
      */
     snapshot(snapshotId: ReviewId) {
-      return queryOptions({
-        queryKey: ["review", snapshotId] as const,
-        queryFn: ({ signal: abortSignal }) =>
-          requestReviewThreads(snapshotId, abortSignal),
+      const initialPageParam: ReviewThreadPageParameter = {
+        page: 1,
+        throughActivityId: null,
+      };
+      return infiniteQueryOptions<
+        ReviewThreadPage,
+        Error,
+        ReviewThreadPages,
+        readonly ["review", "pages", ReviewId],
+        ReviewThreadPageParameter
+      >({
+        queryKey: ["review", "pages", snapshotId] as const,
+        initialPageParam,
+        queryFn: async ({ pageParam, signal: abortSignal }) => {
+          const search = snapshotSearchParams(snapshotId);
+          search.set("page", String(pageParam.page));
+          search.set("limit", "20");
+          if (pageParam.throughActivityId !== null) {
+            search.set(
+              "through_activity_id",
+              String(pageParam.throughActivityId),
+            );
+          }
+          const response = await requestJson(
+            {
+              input: `/api/review/threads?${search.toString()}`,
+              init: {},
+              abortSignal,
+              timeoutMs: REQUEST_TIMEOUT_MS,
+            },
+            ReviewThreadPageSchema,
+          );
+          assert(
+            response.snapshot_id === snapshotId &&
+              response.page === pageParam.page,
+            "Review response returned another page identity.",
+          );
+          if (pageParam.throughActivityId !== null) {
+            assert(
+              response.through_activity_id === pageParam.throughActivityId,
+              "Review transport pages use different activity pivots.",
+            );
+          }
+          return response;
+        },
+        getNextPageParam: (lastPage, pages) => {
+          const firstPage = expect(
+            pages[0],
+            "Review pagination requires its first page.",
+          );
+          assert(
+            pages.every(
+              (page, index) =>
+                page.page === index + 1 &&
+                page.snapshot_id === firstPage.snapshot_id &&
+                page.through_activity_id === firstPage.through_activity_id &&
+                page.total_threads === firstPage.total_threads,
+            ),
+            "Review transport pages disagree about their stable boundary.",
+          );
+          const threadIds = new Set<ReviewId>();
+          for (const page of pages) {
+            for (const thread of page.threads) {
+              assert(
+                !threadIds.has(thread.thread_id),
+                "Review transport pages contain a duplicate Thread.",
+              );
+              threadIds.add(thread.thread_id);
+            }
+          }
+          if (!lastPage.has_more) {
+            assert(
+              threadIds.size === lastPage.total_threads,
+              "Review transport pages do not contain every Thread.",
+            );
+            return undefined;
+          }
+          return {
+            page: lastPage.page + 1,
+            throughActivityId: firstPage.through_activity_id,
+          } satisfies ReviewThreadPageParameter;
+        },
         meta: { errorTitle: "Failed to load review Threads" },
         ...snapshotQuery,
       });
@@ -3877,9 +4058,9 @@ export const api = {
       /**
        * Defines the mutation that creates one Thread and its first Comment.
        *
-       * The caller supplies `CreateReviewThreadInput` at execution time and must
-       * publish canonical query data after success. Creating the definition performs
-       * no write.
+       * The caller supplies `CreateReviewThreadInput` at execution time and presents
+       * the accepted result beside bounded query pages. Creating the definition
+       * performs no write.
        */
       create() {
         return mutationOptions({

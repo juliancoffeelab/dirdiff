@@ -352,7 +352,10 @@ excerpt from immutable captured Files, independently of every rendering engine.
 The module privately derives missing placements only for a genuinely new
 Snapshot; selecting an equal retained Snapshot performs no derivation. Private
 source coordinates do not cross Room, HTTP, frontend, draft, or cache
-boundaries. A read publishes each Thread as its immutable origin plus one
+boundaries. Agent reads require a selected-Snapshot placement. Browser History
+reads every Room Thread; when the displayed Snapshot has no placement, the
+Thread stays bound to its real origin and reports a captured-File comparison for
+navigation. A read publishes each Thread as its immutable origin plus one real
 placement, and the placement vocabulary is limited to `region-kept`,
 `region-changed`, `region-lost`, `bay-lost`, `side-lost`, `file-absent`,
 `file-unreadable`, and `whole-file`.
@@ -391,8 +394,8 @@ It validates HTTP inputs and outputs, constructs the concrete workspace backend,
 calls `RoomLord` for manifests and follow-up Snapshot lookup, asks
 `dirdiff.engines` for the renderer a request names, and builds one composed diff
 per File through `dirdiff.formats`, attaching the manifest's display name and
-file kind to the returned envelope. Snapshot-keyed browser review
-routes read one bounded Thread page and apply Profile-authored Thread and
+file kind to the returned envelope. Snapshot-context browser review
+routes read one bounded Room Thread page and apply Profile-authored Thread and
 Comment actions through the Room's bound Threads. Existing-Thread writes
 return only current state and the changed Comment.
 Agent review routes register an ordinary Profile with its agent UUID, capture a

@@ -1906,6 +1906,12 @@ h1 {
   background: #edf2f7;
 }
 
+.review-thread-goto-advisory {
+  border-color: #d6b86a;
+  background: #fff9e8;
+  color: #8a6414;
+}
+
 .review-thread-goto svg {
   width: 14px;
   height: 14px;

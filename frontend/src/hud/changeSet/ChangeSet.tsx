@@ -35,6 +35,7 @@ import {
   type Manifest,
   type ManifestFile,
   type ManifestSummary,
+  type ReviewFilePair,
   type ThreadCodePoint,
 } from "../../api/api";
 import {
@@ -610,11 +611,9 @@ function ReviewSnapshotBoundary(
    * review/Snapshot contradiction and throws rather than disabling navigation
    * as though the Thread were merely unlocated.
    */
-  function reviewFileIndex(point: ThreadCodePoint): number {
+  function reviewFileIndex(file: ReviewFilePair): number {
     return expect(
-      reviewFileIndexes.get(
-        JSON.stringify([point.file.left_path, point.file.right_path]),
-      ),
+      reviewFileIndexes.get(JSON.stringify([file.left_path, file.right_path])),
       "A located review Thread requires one exact manifest File.",
     );
   }
@@ -626,7 +625,12 @@ function ReviewSnapshotBoundary(
    * published by the lane and never loads, expands, or navigates the File.
    */
   function canViewReviewThread(point: ThreadCodePoint): boolean {
-    return navigableFileIndexes().has(reviewFileIndex(point));
+    return navigableFileIndexes().has(reviewFileIndex(point.file));
+  }
+
+  /** Report whether History can navigate to the start of one manifest File. */
+  function canViewReviewFile(file: ReviewFilePair): boolean {
+    return navigableFileIndexes().has(reviewFileIndex(file));
   }
 
   /**
@@ -648,7 +652,7 @@ function ReviewSnapshotBoundary(
   async function viewReviewThread(
     point: ThreadCodePoint,
   ): Promise<ReviewCodeAnchor | null> {
-    const fileIndex = reviewFileIndex(point);
+    const fileIndex = reviewFileIndex(point.file);
     if (!navigableFileIndexes().has(fileIndex)) {
       throw new Error("Review navigation requires a loaded File.");
     }
@@ -717,6 +721,46 @@ function ReviewSnapshotBoundary(
     return { codeCell, trigger };
   }
 
+  /**
+   * Navigate an origin-bound History Thread to its displayed File start.
+   *
+   * A whole-File origin uses this as its exact destination. A changed text
+   * origin uses it as a presentation-only approximation because no placement
+   * was derived in the displayed Snapshot. It never creates a review marker or
+   * opens an anchored Thread panel.
+   */
+  async function viewReviewFileStart(file: ReviewFilePair): Promise<void> {
+    const fileIndex = reviewFileIndex(file);
+    if (!navigableFileIndexes().has(fileIndex)) {
+      throw new Error("Review navigation requires a loaded File.");
+    }
+    await navigation.navigate({ kind: "file-start", fileIndex });
+  }
+
+  /** Navigate to a proven unchanged origin line without requiring a marker. */
+  async function viewReviewOrigin(point: ThreadCodePoint): Promise<void> {
+    const fileIndex = reviewFileIndex(point.file);
+    if (!navigableFileIndexes().has(fileIndex)) {
+      throw new Error("Review navigation requires a loaded File.");
+    }
+    const result = await navigation.navigate({
+      kind: "line",
+      fileIndex,
+      target: {
+        file: point.file,
+        bay: point.bay,
+        side: point.side,
+        line: String(point.line),
+      },
+      abortSignal: reviewNavigationAbort.signal,
+    });
+    if (result.state === "missing") {
+      throw new Error(
+        "The unchanged reviewed line is absent from the loaded File.",
+      );
+    }
+  }
+
   return (
     <ReviewProvider
       snapshotId={props.manifest.snapshot_id}
@@ -727,6 +771,9 @@ function ReviewSnapshotBoundary(
       inlineHistoryTarget={inlineHistoryTarget}
       canViewThread={canViewReviewThread}
       viewThread={viewReviewThread}
+      canViewFile={canViewReviewFile}
+      viewFileStart={viewReviewFileStart}
+      viewOriginThread={viewReviewOrigin}
     >
       <Show when={configuration()} keyed>
         {(engine) => (

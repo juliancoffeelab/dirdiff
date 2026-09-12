@@ -194,9 +194,9 @@ export type ReviewDraftContextValue = {
   /**
    * Settles the in-flight `draftId`; success removes it after clearing its pending
    * state, while failure leaves it editable. Callers invoke this exactly once for
-   * each successful `beginSubmission`, after the HTTP attempt and any local query
-   * update attempt finish. A backend-accepted write uses success even if that local
-   * update failed and the caller reported the error separately.
+   * each successful `beginSubmission`, after the HTTP attempt and activity
+   * publication attempt finish. A backend-accepted write uses success even if that
+   * presentation update failed and the caller reported the error separately.
    *
    * @param draftId Identity previously started and disabled for submission.
    * @param succeeded Whether the backend accepted the draft's write action.

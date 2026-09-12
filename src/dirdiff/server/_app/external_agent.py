@@ -2229,6 +2229,7 @@ class ExternalAgentRoutes:
                 page=page,
                 limit=limit,
                 state="open",
+                scope="snapshot",
                 through_activity_id=None,
             )
             views = [thread.summary() for thread in page_threads]
@@ -2308,6 +2309,7 @@ class ExternalAgentRoutes:
                 page=page,
                 limit=limit,
                 state="open",
+                scope="snapshot",
                 attention=for_role,
                 through_activity_id=through_activity_id,
             )

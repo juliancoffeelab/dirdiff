@@ -14,8 +14,9 @@ Rows sharing a `thread_id` retain independent immutable code placements. Every
 action persists `status_after` and `attention_after`; a Snapshot fixes captured
 code, while `through_activity_id` fixes the discussion outcome used by a read.
 
-History is the HUD over every Thread returned for one Snapshot. It is not a
-relation, placement kind, transition log, or separate read. Located and
+History is the HUD over every Thread in one Room. It is not a relation,
+placement kind, transition log, or separate read. The displayed Snapshot
+supplies placement context but never filters discussion membership. Located and
 unlocated Threads, including resolved and deleted discussions, remain in the
 same result.
 
@@ -32,6 +33,7 @@ threads(
     state: Literal["all", "open"],
     through_activity_id: int | None,
     attention: Literal["author", "reviewer"] | None = None,
+    scope: Literal["snapshot", "room"],
 )
     -> tuple[tuple[Thread, ...], int, int]
 get_thread(snapshot_id: UUID, thread_id: UUID) -> Thread
@@ -48,7 +50,11 @@ response. No operation changes the bound keys. Room does not interpret
 private source coordinates. `thread_for_comment` serves Comment-addressed
 writes that know only the Comment key.
 
-`threads` bulk-loads placements, origins, actions, and Profiles. Thread objects in
+`threads` bulk-loads placements, origins, actions, and Profiles. Snapshot scope
+requires a selected placement for agent reads. Room scope includes every
+discussion for browser History. When a Room Thread has no selected placement,
+its handle uses its real origin placement for discussion writes and reports the
+captured relation between the origin File and displayed File. Thread objects in
 that result load only the selected Snapshot and distinct origin Snapshots they
 reference, and share request-scoped captured-text data. `get_thread` returns a
 lightweight handle carrying the selected placement, unique origin, and that
@@ -279,7 +285,7 @@ or File references instead of repairing or substituting data.
 
 ## Browser HTTP boundary
 
-The browser API is keyed by Snapshot:
+The browser API uses the displayed Snapshot as Room and placement context:
 
 ```text
 GET  /api/review/threads?snapshot_id=...&page=...&limit=...&through_activity_id=...
@@ -291,26 +297,38 @@ POST /api/review/reopen_thread
 POST /api/review/delete_thread
 ```
 
-The first page passes no activity pivot. The persistence read chooses the
+The first page passes no activity pivot. Browser membership contains every
+Thread whose origin belongs to the Snapshot's Room. A selected-Snapshot
+placement is returned when it exists. Otherwise the response returns the real
+origin placement, its origin Snapshot id for follow-up actions, and whether the
+same captured File in the displayed Snapshot is unchanged, changed, missing, or
+unreadable. This origin placement produces no displayed-code marker. History
+uses an unchanged origin as an exact jump, a changed origin as an explicitly
+approximate File-start jump, and missing or unreadable Files as disabled jumps.
+
+The persistence read chooses the
 greatest current Room activity in the same database session as that page and
 returns the concrete inclusive `through_activity_id`; every later page repeats
 it. Membership, lifecycle ordering, count, and hydrated actions include only
 actions at or before that pivot, so concurrent review writes wait for the next
 refetch instead of moving a Thread between pages. The paged read applies stable
 open, resolved, deleted ordering and page bounds in SQLite before hydrating Threads.
-Each HTTP response is bounded. Pagination is only a transport bound: the
-canonical browser query consumes every page before publishing the complete
-Snapshot Thread set. Starting a Thread returns its bounded first
+Each HTTP response is bounded. The canonical browser query publishes page one
+immediately, then automatically reads and appends later pages under its retained
+activity boundary. The HUD therefore becomes useful before complete Room
+membership has arrived. Starting a Thread returns its bounded first
 discussion. Existing-Thread writes return the exact Thread/Snapshot IDs,
 current status, attention, discussion revision, and only the changed Comment.
 Lifecycle actions return a Comment when their optional body is present. The discussion revision is the
 accepted action's per-Thread sequence. No follow-up read is required for a
 contiguous action result.
 A returned Thread states its immutable creation target once, as
-`origin_target`, and what this Snapshot did to it once, as `placement`. The
+`origin_target`, and either what the displayed Snapshot did to it or its real
+origin placement when the displayed Snapshot predates it. `location_source`
+distinguishes those cases. The
 origin is the only place the File pair, bay, and side appear, and it carries
 the reconstructed excerpt cut from its own Snapshot; the placement adds only
-what the origin cannot say — the relocated range, the substitute bay, or the
+what the origin cannot say — the relocated range, the replacement bay, or the
 bare name of the loss. No field pairing crosses the two, so no response shape
 is valid in one field and invalid in another.
 No History endpoint exists. Expected browser review failures return a direct
@@ -341,19 +359,20 @@ The root removes empty stored input before publishing the document, validates
 the remaining values, and directly serializes later typed draft operations
 before publishing them to Solid.
 `ReviewProvider` lives for one exact Snapshot outside engine-keyed File
-rendering. It observes the complete Thread set of the canonical review query. It
-performs explicit writes and updates a contiguous cached Thread with each
-returned action. When the returned discussion revision does not immediately
-follow the loaded revision, it refetches the canonical pages instead of leaving
-any unseen Comment, Comment change, or Thread-state action absent from the HUD.
-When provider disposal has removed that cache, completion constructs no
-substitute. It does not copy backend Threads into a second client store.
+rendering. It observes the progressively loaded pages of the canonical review
+query. Those pages, their total, and their activity boundary remain immutable.
+Successful browser writes publish their mutation responses as post-boundary
+activity beside the pages, so the HUD shows the user's accepted creation,
+Comment change, or lifecycle action without rewriting historical query data.
+Presentation applies contiguous updates by discussion revision and ignores an
+activity once a later query result contains an equal or newer revision. It does
+not copy query Threads into another client store.
 
-While that bulk query is pending or failed, code markers and File actions are
-disabled rather than interpreting unavailable persisted Threads as an empty
-set, including while retained data is being refetched after invalidation.
-History presents the query state and Retry action; no review write can start
-until the authoritative Thread set is current.
+Before page one arrives, or after the progressive query fails, code markers and
+File actions are disabled rather than interpreting unavailable persisted
+Threads as an empty set. Each successful page is authoritative at the fixed
+activity boundary and becomes usable while later pages load. History presents
+query failure and Retry; retry starts a fresh page-one read.
 
 Rendered line numbers expose Comment triggers derived from the
 Snapshot query and local drafts. Text selection is one-side, one-based, and
@@ -369,9 +388,9 @@ their saved code target. Reply drafts appear only in their Thread's permanent
 reply input. Edit drafts appear only beneath their Comment. Their stable Thread
 and Comment identities carry them into a later Snapshot representation of the
 same discussion without rewriting localStorage on mount. Because the
-canonical query contains every Thread, persisted reply and edit input has
-an ordinary rendering in that Thread and requires no focused Thread read or
-separate navigation action. A new-Thread draft remains bound to its original
+progressive query eventually loads every Thread, persisted reply and edit input
+has an ordinary rendering once that Thread arrives and requires no focused
+Thread read or separate navigation action. A new-Thread draft remains bound to its original
 Snapshot. Submission disables that draft for one HTTP
 action. Success removes it; failure leaves the ordinary editable local draft.
 Thread state and Comment deletion controls send one direct action and retain no
@@ -406,15 +425,21 @@ presents a local error beside its otherwise intact rows. That failed state
 persists for the grid lifetime, so every later fold or renderer replacement
 also receives disabled review triggers.
 
-History renders the complete canonical Thread set in open, resolved, then
-deleted order and shows its Thread count. Open Threads appear directly;
+History progressively renders loaded Threads in open, resolved, then deleted
+order and shows loaded and total Thread counts. Open Threads appear directly;
 Resolved has a labelled visible group; Deleted has a labelled, counted native
 disclosure group that starts folded. Every Thread carries the small status dot
 for its open, resolved, or deleted state. Its explicit refresh control refetches
-the complete canonical query while retaining its presentation;
+the Room Thread query through its ordinary query operation;
 it does not introduce a browser activity-delta protocol. Every expanded Thread
 labels its retained excerpt with the original selected-side File path and line
-range. Inline view starts with History closed in a right-side ChangeSet grid
+range. A Thread without a displayed-Snapshot placement uses its unchanged
+origin coordinate for exact navigation. If the same File changed, a text
+origin's go-to control has a subdued warning and navigates to the File start
+without creating a marker or claiming that location as placement. A whole-File
+origin already names that exact File start and gives no reload advice. A missing
+or unreadable File disables go-to and explains why. Inline view starts with
+History closed in a right-side ChangeSet grid
 column mirroring the FileTree rail; opening it expands that same column. The
 rail carries a vertical label, Thread count, and `m` hint. Split view uses one
 right-side host below the sticky File header; its closed eye-and-`m` control and
@@ -470,14 +495,17 @@ confirmation before their HTTP action begins.
 Each History Thread header strip toggles that Thread's folded state; it has no
 separate fold control. A folded strip contains the author and location on its
 first line and a one-line Comment summary beneath it. The go-to-code icon is the
-only part of the strip that does not toggle. It expands the Thread, navigates to
-its rendered marker, and
-opens that exact Thread in the code-aligned panel. A warning icon with hover
+only part of the strip that does not toggle. For a displayed-Snapshot placement,
+it expands the Thread, navigates to its rendered marker, and opens that exact
+Thread in the code-aligned panel. Origin-bound navigation expands the Thread but
+never creates or opens a displayed-code marker or panel. A warning icon with
+hover
 text replaces a textual outdated label. Go-to is enabled only for an already
-loaded full File. It uses the existing exact-line navigation to reveal the
-selected side and first selected line, then opens only that Thread in the
-code-aligned panel. It never loads or admits a lazy File or Husk. Neither the
-navigation nor Thread opening selects a hunk or starts scroll-follow. A Thread whose
+loaded full File. A displayed placement or unchanged text origin uses exact-line
+navigation to reveal its selected side and first selected line. A changed text
+origin instead scrolls to the actual File start without selecting a hunk. It
+never loads or admits a lazy File or Husk, and neither path starts scroll-follow.
+A Thread whose
 File this Snapshot could not offer at all — `file-absent` or
 `file-unreadable` — disables the control and states on hover and in its
 expanded content which of the two happened to the reviewed File. Every other

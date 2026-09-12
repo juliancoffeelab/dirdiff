@@ -54,6 +54,8 @@ threads(
     limit: int,
     state: Literal["all", "open"],
     through_activity_id: int | None,
+    attention: Literal["author", "reviewer"] | None = None,
+    scope: Literal["snapshot", "room"],
 ) -> tuple[tuple[Thread, ...], int, int]
 get_thread(snapshot_id: UUID, thread_id: UUID) -> Thread
 thread_for_comment(snapshot_id: UUID, comment_id: UUID) -> Thread
@@ -82,9 +84,14 @@ explicit lazy override, and required-with-null `capture_error`. A non-null
 capture error is the exact persisted reason the File contents are unavailable.
 It contains no renderer output or per-File line counts.
 
-Every returned `Thread` is bound to the exact `(snapshot_id, thread_id)` pair.
-Comment and lifecycle operations belong to that object. Room neither interprets
-private source coordinates nor implements discussion state transitions.
+Snapshot-scoped `threads` results bind every `Thread` to the supplied
+`snapshot_id` and require its placement there. Room-scoped results include every
+discussion whose origin belongs to the Room. When the supplied Snapshot predates
+a Thread and therefore has no placement, that handle is bound to its actual
+origin Snapshot and reports the captured relation between its origin File and
+the displayed File. Comment and lifecycle operations use the handle's bound
+Snapshot. Room neither interprets private source coordinates nor implements
+discussion state transitions.
 
 `SnapshotMeta` exposes the containing Room's persisted Tab, the two captured
 side labels, and the backend-supplied aggregate added/removed line counts. The

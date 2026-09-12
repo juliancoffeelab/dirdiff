@@ -692,7 +692,7 @@ class ThreadSideLostPlacementResponse(ApiModel):
 
 
 class ThreadFileAbsentPlacementResponse(ApiModel):
-    """State that the Thread's exact File pair is absent from this Snapshot.
+    """State that the Thread's exact File pair is absent from its placement Snapshot.
 
     The read that loads placement Files proves that absence, so this is an
     invariant rather than a stand-in for a File that failed to load. History may
@@ -700,7 +700,7 @@ class ThreadFileAbsentPlacementResponse(ApiModel):
     """
 
     kind: Literal["file-absent"]
-    """Identify an origin File pair missing from the selected Snapshot.
+    """Identify an origin File pair missing from the placement Snapshot.
 
     No current File, bay, or line coordinate exists. Consumers may display the
     immutable origin but must disable code navigation.
@@ -727,8 +727,8 @@ class ThreadWholeFilePlacementResponse(ApiModel):
     """Locate one retained historical File-level Thread on its File.
 
     Only a `file-start` origin takes this shape, and it takes it in every
-    Snapshot holding the File pair: such a Thread names no bay in the first
-    place, so nothing about it can go outdated. Never navigable.
+    Snapshot holding the File pair. Such a Thread names no bay, so navigation
+    can only land at the actual File start.
     """
 
     kind: Literal["whole-file"]
@@ -764,6 +764,34 @@ The File pair and side always come from the immutable origin; the bay also comes
 from the origin except for `bay-lost`. Consumers must not infer a more precise
 coordinate than the selected variant provides.
 """
+
+
+class ThreadDisplayedLocationSourceResponse(ApiModel):
+    """State that placement was derived for the Snapshot displayed by the HUD."""
+
+    kind: Literal["displayed-snapshot"]
+    """Allow ordinary markers and exact History navigation from placement."""
+
+
+class ThreadOriginLocationSourceResponse(ApiModel):
+    """Describe origin placement used because displayed placement is absent.
+
+    The File state is a captured-data comparison, not a substitute placement.
+    History uses it only to choose exact, approximate, or disabled navigation.
+    """
+
+    kind: Literal["origin-snapshot"]
+    """Identify the Thread origin as the placement returned in this response."""
+
+    file_state: Literal["unchanged", "changed", "missing", "unreadable"]
+    """Relation of the origin File to the File in the displayed Snapshot."""
+
+
+ThreadLocationSourceResponse = Annotated[
+    ThreadDisplayedLocationSourceResponse | ThreadOriginLocationSourceResponse,
+    Field(discriminator="kind"),
+]
+"""State whether placement describes displayed code or the Thread origin."""
 
 
 class TextReviewOriginResponse(TextReviewTarget):
@@ -829,12 +857,12 @@ immutable facts.
 
 
 class ReviewThreadResponse(ApiModel):
-    """Return one complete live discussion through one exact Snapshot.
+    """Return one complete Room discussion in displayed Snapshot context.
 
     `origin_target` states what the Thread was written against and never
-    changes; `placement` states where that landed in this Snapshot and what
-    became of it. Nothing is stated twice, so no combination of the two needs
-    proving here.
+    changes. `location_source` states whether `placement` belongs to the
+    displayed Snapshot or to the origin used because displayed placement is
+    absent. Nothing is stated twice across those discriminated cases.
     """
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
@@ -845,10 +873,10 @@ class ReviewThreadResponse(ApiModel):
     """
 
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Captured code universe used to interpret `placement`.
+    """Captured code universe containing `placement`.
 
-    The value addresses one placement of `thread_id`; origin and Comments stay
-    logical Thread facts even when another Snapshot places them differently.
+    It is the page's displayed Snapshot for a derived placement and the origin
+    Snapshot for an origin-bound result. Follow-up actions use this exact key.
     """
 
     created_at: datetime
@@ -887,11 +915,15 @@ class ReviewThreadResponse(ApiModel):
     """
 
     placement: ThreadPlacementResponse
-    """Stored result of placing the origin into `snapshot_id`.
+    """Stored placement row belonging to `snapshot_id`.
 
-    The selected variant supplies only the current facts it can prove. Callers
-    must not infer a bay or range for variants that omit one.
+    `location_source` says whether it describes displayed code or the immutable
+    origin. Callers may navigate a `whole-file` placement to the actual File
+    start, but must not infer a bay or range for variants that omit one.
     """
+
+    location_source: ThreadLocationSourceResponse
+    """State how `placement` relates to the Snapshot requested by History."""
 
     comments: list[ReviewCommentResponse] = Field(min_length=1)
     """Complete current Comment sequence for the Thread.
@@ -955,7 +987,7 @@ class ReviewThreadUpdateResponse(ApiModel):
 
 
 class ReviewThreadPage(ApiModel):
-    """Return one activity-bounded page of discussions in a Snapshot.
+    """Return one activity-bounded Room discussion page.
 
     The first read fixes `through_activity_id`; callers repeat it for later
     pages so concurrent actions do not move the boundary. `total_threads` is
@@ -966,10 +998,11 @@ class ReviewThreadPage(ApiModel):
     """
 
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Captured code universe containing every returned placement.
+    """Displayed code universe supplying placement context for this page.
 
-    All page items are interpreted against this exact key. Callers must not mix
-    pages from another Snapshot into the same canonical Thread set.
+    Displayed placements use this key; origin-bound entries name their actual
+    origin Snapshot. Callers must not mix pages from another displayed Snapshot
+    into the same canonical Thread set.
     """
 
     through_activity_id: int = Field(ge=0)
@@ -980,10 +1013,10 @@ class ReviewThreadPage(ApiModel):
     """
 
     threads: list[ReviewThreadResponse]
-    """Complete discussions selected for this page and activity boundary.
+    """Complete Room discussions selected for this page and activity boundary.
 
     Entries follow stable lifecycle and persistence ordering. An empty list is
-    valid past the end and does not mean the Snapshot has no Threads.
+    valid past the end and does not mean the Room has no Threads.
     """
 
     page: int = Field(ge=1)
@@ -1161,19 +1194,22 @@ class ReviewRoutes:
     )
     def serve_review(
         self,
-        snapshot_id: UUID = Query(description="Exact retained Snapshot id."),
+        snapshot_id: UUID = Query(
+            description="Displayed Snapshot used to select one Room and placements."
+        ),
         page: int = Query(default=1, ge=1),
         limit: int = Query(default=20, ge=1, le=100),
         through_activity_id: int | None = Query(default=None, ge=0),
     ) -> ReviewThreadPage:
-        """Return one stable complete-Thread page for the History UI.
+        """Return one stable complete Room-Thread page for the History UI.
 
         Page one chooses the append-only review activity pivot. Later pages
         must repeat it so lifecycle changes cannot reorder the paged read.
 
         # Parameters
 
-        - `snapshot_id`: Exact Snapshot whose placements History displays.
+        - `snapshot_id`: Displayed Snapshot whose Room supplies membership and
+          whose placements History prefers.
         - `page`: Positive one-based Thread page.
         - `limit`: Maximum Threads returned, capped for the browser boundary.
         - `through_activity_id`: Absent on page one; concrete inclusive pivot
@@ -1203,6 +1239,7 @@ class ReviewRoutes:
                 page=page,
                 limit=limit,
                 state="all",
+                scope="room",
                 through_activity_id=through_activity_id,
             )
             return ReviewThreadPage(

@@ -47,6 +47,7 @@ __all__ = [
     "ReviewProfileView",
     "TextTarget",
     "ThreadDiscussionView",
+    "ThreadLocationSourceView",
     "ThreadPlacementView",
     "ThreadSummaryView",
     "ThreadUpdateView",
@@ -827,14 +828,14 @@ class ThreadRegionPlacementView(TypedDict):
     """
 
     kind: Literal["region-kept", "region-changed"]
-    """Outcome of placing the origin region in the selected Snapshot.
+    """Outcome of placing the origin region in the Snapshot containing it.
 
     `region-kept` means a unique structural and byte match; `region-changed`
     means the structural candidate remained unique but its bytes did not.
     """
 
     range: ReviewLineRangeView
-    """Inclusive bay-side range where navigation lands in this Snapshot.
+    """Inclusive bay-side range where navigation lands in its Snapshot.
 
     For changed content the range is the surviving structural candidate's first
     line; callers use `kind` to decide whether to show outdated content.
@@ -864,7 +865,7 @@ class ThreadBayLostPlacementView(TypedDict):
     """
 
     kind: Literal["bay-lost"]
-    """State that the origin bay no longer composes on the selected side.
+    """State that the origin bay no longer composes on the placement side.
 
     Navigation may use the replacement `bay`; the immutable origin continues
     to identify the bay in which the discussion began.
@@ -894,14 +895,14 @@ class ThreadSideLostPlacementView(TypedDict):
 
 
 class ThreadFileAbsentPlacementView(TypedDict):
-    """State that the Thread's exact File pair is absent from this Snapshot.
+    """State that the Thread's exact File pair is absent from its placement Snapshot.
 
     Reads still return the discussion and immutable origin. No current File,
     side, bay, or range can be exposed.
     """
 
     kind: Literal["file-absent"]
-    """State that no selected-Snapshot File has the immutable origin pair.
+    """State that no placement-Snapshot File has the immutable origin pair.
 
     The loading boundary verifies this absence. Consumers may show history but
     have no current File, side, bay, or range to navigate to.
@@ -947,7 +948,7 @@ type ThreadPlacementView = (
     | ThreadFileUnreadablePlacementView
     | ThreadWholeFilePlacementView
 )
-"""Expose where one Thread lands in the selected Snapshot.
+"""Expose where one Thread lands in the Snapshot containing its placement.
 
 - Region variants land on text or at its original bay.
 - `ThreadBayLostPlacementView` lands at another bay.
@@ -960,12 +961,53 @@ repeating File, side, and origin bay facts.
 """
 
 
-class ThreadDiscussionView(TypedDict):
-    """Return one complete discussion as observed in a bounded Snapshot.
+class ThreadDisplayedLocationSourceView(TypedDict):
+    """State that a Thread placement belongs to the displayed Snapshot.
 
-    The origin target never changes. Placement describes where it lands in the
-    selected Snapshot; state, attention, revision, and Comments are the latest
-    action reduction at the read's activity boundary.
+    Marker and History navigation may use the accompanying placement normally.
+    This variant contains no File comparison because publication already
+    derived the placement against the displayed captured code.
+    """
+
+    kind: Literal["displayed-snapshot"]
+    """Identify a placement derived for the Snapshot the HUD displays."""
+
+
+class ThreadOriginLocationSourceView(TypedDict):
+    """Describe an origin placement used when the displayed Snapshot predates it.
+
+    The File state compares the complete captured origin File with the same File
+    pair in the displayed Snapshot. History may reuse the origin line only when
+    unchanged, use File-start navigation when changed, and disable navigation
+    when the File is missing or unreadable. This never makes the origin
+    placement a displayed-Snapshot marker.
+    """
+
+    kind: Literal["origin-snapshot"]
+    """Identify the Thread's immutable origin as the available placement."""
+
+    file_state: Literal["unchanged", "changed", "missing", "unreadable"]
+    """State whether the displayed Snapshot can support History navigation."""
+
+
+type ThreadLocationSourceView = (
+    ThreadDisplayedLocationSourceView | ThreadOriginLocationSourceView
+)
+"""Explain how one History result relates its placement to displayed code.
+
+The displayed variant carries an ordinary derived placement. The origin variant
+exists only when no placement was derived for the displayed Snapshot and reports
+the captured-File comparison used by History navigation.
+"""
+
+
+class ThreadDiscussionView(TypedDict):
+    """Return one complete discussion in a displayed Snapshot context.
+
+    The origin target never changes. Placement describes either where it lands
+    in the displayed Snapshot or its real origin when no displayed placement
+    exists; `location_source` distinguishes the cases. State, attention,
+    revision, and Comments are the latest action reduction at the read boundary.
     """
 
     thread_id: str
@@ -975,10 +1017,10 @@ class ThreadDiscussionView(TypedDict):
     """
 
     snapshot_id: str
-    """Exact immutable code universe used to interpret `placement`.
+    """Exact immutable code universe containing `placement`.
 
-    The origin may belong to an earlier Snapshot; callers use this key for all
-    follow-up operations on the returned placement.
+    It is the displayed Snapshot for a derived placement and the origin Snapshot
+    for an origin-bound History result. Callers use it for follow-up actions.
     """
 
     created_at: datetime
@@ -1017,11 +1059,14 @@ class ThreadDiscussionView(TypedDict):
     """
 
     placement: ThreadPlacementView
-    """Derived landing of `origin_target` in the selected Snapshot.
+    """Derived landing of `origin_target` in `snapshot_id`.
 
     Consumers combine it with origin coordinates and honor outdated variants;
     the placement intentionally omits repeated File and side facts.
     """
+
+    location_source: ThreadLocationSourceView
+    """Relation between `placement` and the Snapshot currently shown by History."""
 
     comments: list[ReviewCommentView]
     """Current Comment views in immutable creation order.

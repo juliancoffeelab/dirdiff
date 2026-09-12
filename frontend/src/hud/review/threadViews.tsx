@@ -253,7 +253,7 @@ export function CommentInput(props: {
 }
 
 /**
- * Presents the canonical Threads selected by one active code marker.
+ * Presents the query or post-boundary Threads selected by one active code marker.
  *
  * The host must keep every selected identity resolvable in `threads`, supply the
  * connected Portal mount, and perform all discussion actions. This component owns
@@ -343,9 +343,9 @@ export function InlineThreadPanel(props: {
   onReplyChange(thread: ReviewThread, body: string): boolean;
   /**
    * Called from a valid reply submission with the exact selected `thread`.
-   * It resolves after the HTTP attempt, any local query update attempt, and draft
-   * settlement. A backend-accepted write may still be followed by a local refresh
-   * error; pending and final draft state return through the supplied accessors.
+   * It resolves after the HTTP attempt, activity publication, and draft
+   * settlement. A backend-accepted write may still be followed by an activity
+   * presentation error; pending and final draft state return through the supplied accessors.
    * Empty or submitting forms skip it.
    */
   onReplySubmit(thread: ReviewThread): Promise<boolean>;
@@ -372,8 +372,8 @@ export function InlineThreadPanel(props: {
   onEditChange(draft: ReviewDraft): boolean;
   /**
    * Called from a valid edit submission with its persisted edit `draft`. It resolves
-   * after the HTTP attempt, any local query update attempt, and settlement. Backend
-   * acceptance removes the draft even if the local update reports an error; pending
+   * after the HTTP attempt, activity publication, and settlement. Backend
+   * acceptance removes the draft even if activity presentation reports an error; pending
    * and final editor state return through the accessors. Empty, ineligible, or
    * already-submitting edits do not invoke it.
    */
@@ -544,7 +544,7 @@ export function InlineThreadPanel(props: {
 }
 
 /**
- * Presents one canonical Thread as the card shared by History and inline panels.
+ * Presents one current Thread as the card shared by History and inline panels.
  *
  * The host controls expansion, navigation, pending probes, drafts, and every
  * discussion action. This component derives eligibility and visible controls from
@@ -576,6 +576,10 @@ export function ThreadCard(props: {
         kind: "history";
         /** Whether the located Thread's File is currently loaded for navigation. */
         viewable: boolean;
+        /** Hover text for an enabled File-start approximation, or null when exact. */
+        advisory: string | null;
+        /** Exact reason no displayed File destination exists, or null when one does. */
+        unavailableNote: string | null;
         /**
          * Called only from an enabled History go-to control for this exact Thread.
          * The host may navigate and open anchored presentation; the card remains
@@ -649,7 +653,7 @@ export function ThreadCard(props: {
   onReplyChange(body: string): boolean;
   /**
    * Called from a valid reply form or keyboard shortcut for `replyDraft`. It resolves
-   * after the HTTP attempt, any local query update attempt, and settlement. Backend
+   * after the HTTP attempt, activity publication, and settlement. Backend
    * acceptance removes the reply draft even if the local update fails; pending and
    * final state return through props. Empty or already-submitting replies do not
    * invoke it.
@@ -687,7 +691,7 @@ export function ThreadCard(props: {
   onEditChange(draft: ReviewDraft): boolean;
   /**
    * Called from a valid edit form with its persisted draft. It resolves after the
-   * HTTP attempt, any local query update attempt, and settlement. Backend acceptance
+   * HTTP attempt, activity publication, and settlement. Backend acceptance
    * removes the editor even if that local update fails; pending and final state
    * return through props. Empty, ineligible, or already-submitting edits do not
    * invoke it.
@@ -772,6 +776,12 @@ export function ThreadCard(props: {
    *   must not render the unlocated notice.
    */
   function unlocatedNote(): string | null {
+    if (
+      props.navigation.kind === "history" &&
+      props.navigation.unavailableNote !== null
+    ) {
+      return props.navigation.unavailableNote;
+    }
     const kind = props.thread.placement.kind;
     return kind === "file-absent" || kind === "file-unreadable"
       ? expect(placementNote(), "An unlocated placement states its reason.")
@@ -905,14 +915,17 @@ export function ThreadCard(props: {
                 <button
                   type="button"
                   class="review-view review-thread-goto"
+                  classList={{
+                    "review-thread-goto-advisory": navigation.advisory !== null,
+                  }}
                   title={
                     navigation.viewable
-                      ? "Go to reviewed code"
+                      ? (navigation.advisory ?? "Go to reviewed code")
                       : "The reviewed File is not loaded."
                   }
                   aria-label={
                     navigation.viewable
-                      ? "Go to reviewed code"
+                      ? (navigation.advisory ?? "Go to reviewed code")
                       : "Go to code unavailable: the reviewed File is not loaded."
                   }
                   disabled={!navigation.viewable}
@@ -1187,7 +1200,7 @@ function ReviewCommentView(props: {
   onEditChange(draft: ReviewDraft): boolean;
   /**
    * Called from a valid form or keyboard shortcut with the current persisted edit
-   * draft. It resolves after the HTTP attempt, any local query update attempt, and
+   * draft. It resolves after the HTTP attempt, activity publication, and
    * settlement. Backend acceptance closes the editor even if that local update
    * fails; pending and final state return through props. Blank, noneditable, or
    * submitting forms skip it.

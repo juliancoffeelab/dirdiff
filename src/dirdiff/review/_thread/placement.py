@@ -1645,8 +1645,10 @@ def derive_room_threads(
             if origin.snapshot_file_id is not None
         )
     )
-    origin_files, _selected_files, _conflicts = database.review_thread_files(
-        target_snapshot.id, origin_refs, (), ()
+    origin_files, _selected_files, _conflicts, _comparison_files = (
+        database.review_thread_files(
+            target_snapshot.id, origin_refs, (), (), ()
+        )
     )
     target_files_by_pair = _file_indexes(target_snapshot)[1]
     cache = ReviewReadCache()

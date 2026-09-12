@@ -50,6 +50,7 @@ from sqlalchemy import (
     tuple_,
 )
 from sqlalchemy.orm import Mapped, Session, aliased, mapped_column
+from sqlalchemy.sql.elements import ColumnElement
 
 from dirdiff.db.base import (
     TableBase,
@@ -1573,20 +1574,22 @@ class ReviewActionRecord:
 
 @dataclass(frozen=True)
 class ReviewThreadsRecord:
-    """Bulk persistence result for all Threads visible in one Snapshot.
+    """Bulk persistence result for one bounded Snapshot or Room Thread read.
 
     `RoomStore` returns this value to one bounded review read. The review layer
-    combines each selected placement with its origin, authored actions, and
-    Profile attribution to build public Thread views.
+    combines each selected placement, or origin used for a missing displayed
+    placement, with its authored actions and Profile attribution to build public
+    Thread views.
 
     `total_threads` is measured before page bounds. This record contains raw
     relational facts, not materialized discussion state or excerpts.
     """
 
     threads: tuple[ReviewThreadRecord, ...]
-    """Selected-Snapshot placements in requested page order.
+    """Selected placements or explicit origin rows in requested page order.
 
-    Each entry represents one logical Thread exactly once for the page boundary.
+    `is_origin` distinguishes the Room-scope case whose displayed placement does
+    not exist. Each entry represents one logical Thread exactly once.
     """
 
     origins: tuple[ReviewThreadRecord, ...]
@@ -1608,7 +1611,7 @@ class ReviewThreadsRecord:
     """
 
     total_threads: int
-    """Number of placements before page bounds are applied.
+    """Number of matching Threads before page bounds are applied.
 
     Consumers use it for pagination independently of the current page length.
     """
@@ -3113,10 +3116,12 @@ class RoomStore:
         origin_refs: tuple[tuple[str, str], ...],
         located_file_ids: tuple[str, ...],
         absent_origin_refs: tuple[tuple[str, str], ...],
+        comparison_origin_refs: tuple[tuple[str, str], ...],
     ) -> tuple[
         dict[tuple[str, str], SnapshotFileRecord],
         dict[str, SnapshotFileRecord],
         tuple[str, ...],
+        dict[tuple[str, str], SnapshotFileRecord],
     ]:
         """Load exactly the Snapshot Files one Thread page references.
 
@@ -3127,19 +3132,24 @@ class RoomStore:
         is searched for a File with the identical left/right repository-path
         pair, and any match is returned as a conflict id so the caller can
         reject the placement invariant violation instead of substituting
-        data. Every requested origin must exist; missing rows fail the read.
+        data. `comparison_origin_refs` request the matching selected-Snapshot
+        File for origin-bound History Threads that have no selected placement.
+        Every requested origin must exist; missing rows fail the read.
         Room visibility of the Snapshot is the caller's responsibility, as
         with `review_threads`.
 
         # Parameters
 
-        - `selected_snapshot_id`: Snapshot holding all selected placements.
+        - `selected_snapshot_id`: Displayed Snapshot holding selected placements
+          and any Files compared with origin-bound Threads.
         - `origin_refs`: Exact origin Snapshot/File pairs needed to reconstruct
           original context.
         - `located_file_ids`: Selected-placement File ids in the selected
           Snapshot.
         - `absent_origin_refs`: Origin references whose supposedly absent File
           pair must be checked against the selected Snapshot.
+        - `comparison_origin_refs`: Origin references whose matching displayed
+          File, when present, is needed for an exact content comparison.
 
         # Usage
 
@@ -3156,6 +3166,8 @@ class RoomStore:
         - Third, File ids in the selected Snapshot whose path pairs conflict
           with `absent_origin_refs`. A valid file-missing placement yields an
           empty tuple here.
+        - Fourth, matching selected-Snapshot Files keyed by the origin reference
+          that requested each comparison. Missing pairs are absent.
 
         # Failures
 
@@ -3203,7 +3215,44 @@ class RoomStore:
                 if located_file_ids != ()
                 else []
             )
-            file_ids = {row[0].id for row in (*origin_rows, *selected_rows)}
+            raw_origin_files = {
+                (row[0].snapshot_id, row[0].id): row for row in origin_rows
+            }
+            assert raw_origin_files.keys() == set(origin_refs), (
+                "review origin references a missing Snapshot File"
+            )
+            pair_by_ref: dict[
+                tuple[str, str], tuple[Optional[str], Optional[str]]
+            ] = {}
+            for ref in (*absent_origin_refs, *comparison_origin_refs):
+                row = raw_origin_files[ref]
+                pair_by_ref[ref] = (row.left_path, row.right_path)
+            searched_pairs = set(pair_by_ref.values())
+            matching_rows = list(origin_rows[:0])
+            if searched_pairs != set():
+                pair_clauses = [
+                    and_(
+                        SnapshotFileLeft.file_id.is_(None)
+                        if left_path is None
+                        else SnapshotFileLeft.repository_path == left_path,
+                        SnapshotFileRight.file_id.is_(None)
+                        if right_path is None
+                        else SnapshotFileRight.repository_path == right_path,
+                    )
+                    for left_path, right_path in searched_pairs
+                ]
+                matching_rows = list(
+                    session.execute(
+                        file_query.where(
+                            SnapshotFile.snapshot_id == selected_snapshot_id,
+                            or_(*pair_clauses),
+                        )
+                    ).all()
+                )
+            file_ids = {
+                row[0].id
+                for row in (*origin_rows, *selected_rows, *matching_rows)
+            }
             symlinks = self._file_symlink_records(
                 session.execute(
                     select(SnapshotFileSymlink).where(
@@ -3214,60 +3263,32 @@ class RoomStore:
                 else ()
             )
             origin_files = {
-                (row[0].snapshot_id, row[0].id): self._file_record(
+                ref: self._file_record(
                     *row,
                     left_symlink=symlinks.get((row[0].id, "left")),
                     right_symlink=symlinks.get((row[0].id, "right")),
                 )
-                for row in origin_rows
+                for ref, row in raw_origin_files.items()
             }
-            assert origin_files.keys() == set(origin_refs), (
-                "review origin references a missing Snapshot File"
+            matching_files_by_pair: dict[
+                tuple[Optional[str], Optional[str]], SnapshotFileRecord
+            ] = {}
+            for row in matching_rows:
+                record = self._file_record(
+                    *row,
+                    left_symlink=symlinks.get((row[0].id, "left")),
+                    right_symlink=symlinks.get((row[0].id, "right")),
+                )
+                pair = (row.left_path, row.right_path)
+                assert pair not in matching_files_by_pair, (
+                    "Snapshot contains duplicate File pairs"
+                )
+                matching_files_by_pair[pair] = record
+            conflict_ids = tuple(
+                matching_files_by_pair[pair].id
+                for pair in {pair_by_ref[ref] for ref in absent_origin_refs}
+                if pair in matching_files_by_pair
             )
-            conflict_ids: tuple[str, ...] = ()
-            absent_pairs: set[tuple[Optional[str], Optional[str]]] = set()
-            for ref in absent_origin_refs:
-                origin_left = origin_files[ref].left
-                origin_right = origin_files[ref].right
-                absent_pairs.add(
-                    (
-                        origin_left.repository_path
-                        if origin_left is not None
-                        else None,
-                        origin_right.repository_path
-                        if origin_right is not None
-                        else None,
-                    )
-                )
-            if absent_pairs != set():
-                pair_clauses = [
-                    and_(
-                        SnapshotFileLeft.file_id.is_(None)
-                        if left_path is None
-                        else SnapshotFileLeft.repository_path == left_path,
-                        SnapshotFileRight.file_id.is_(None)
-                        if right_path is None
-                        else SnapshotFileRight.repository_path == right_path,
-                    )
-                    for left_path, right_path in absent_pairs
-                ]
-                conflict_ids = tuple(
-                    session.execute(
-                        select(SnapshotFile.id)
-                        .outerjoin(
-                            SnapshotFileLeft,
-                            SnapshotFileLeft.file_id == SnapshotFile.id,
-                        )
-                        .outerjoin(
-                            SnapshotFileRight,
-                            SnapshotFileRight.file_id == SnapshotFile.id,
-                        )
-                        .where(
-                            SnapshotFile.snapshot_id == selected_snapshot_id,
-                            or_(*pair_clauses),
-                        )
-                    ).scalars()
-                )
         return (
             origin_files,
             {
@@ -3279,6 +3300,11 @@ class RoomStore:
                 for row in selected_rows
             },
             conflict_ids,
+            {
+                ref: matching_files_by_pair[pair_by_ref[ref]]
+                for ref in comparison_origin_refs
+                if pair_by_ref[ref] in matching_files_by_pair
+            },
         )
 
     def review_threads(
@@ -3290,12 +3316,16 @@ class RoomStore:
         state: Literal["all", "open"] = "all",
         attention: Optional[Literal["author", "reviewer"]] = None,
         *,
+        scope: Literal["snapshot", "room"],
         through_activity_id: Optional[int],
     ) -> Optional[tuple[ReviewThreadsRecord, int]]:
-        """Load one ordered, bounded set of Threads from a Snapshot.
+        """Load one ordered, bounded set of Snapshot or Room Threads.
 
         `identity` must identify the Room containing `snapshot_id`.
-        `offset` and `limit` select a slice after ordering open, resolved, and
+        `scope="snapshot"` requires a placement in `snapshot_id`.
+        `scope="room"` includes every Thread whose origin belongs to the Room
+        and returns its origin row when no displayed placement exists. `offset`
+        and `limit` select a slice after ordering open, resolved, and
         deleted Threads  by lifecycle state and creation activity.
         `state="open"` excludes resolved and deleted Threads.
 
@@ -3309,17 +3339,21 @@ class RoomStore:
 
         This function returns `None` when the Snapshot does not belong to the
         supplied Room.
-        Otherwise returns the selected placements, origins, actions, Profiles,
-        total matching Thread count, and concrete inclusive pivot.
+        Otherwise returns the selected placements or origin rows, unique
+        origins, actions, Profiles, total matching Thread count, and concrete
+        inclusive pivot.
 
         # Parameters
 
         - `identity`: Room containing the selected Snapshot and discussions.
-        - `snapshot_id`: Exact code universe whose placements are returned.
+        - `snapshot_id`: Displayed code universe used to select placements and,
+          in Room scope, identify discussion membership.
         - `offset`: Zero-based number of ordered matching Threads to skip.
         - `limit`: Maximum Threads to hydrate, or `None` for no SQL limit.
         - `state`: `all` for every lifecycle state or `open` for open Threads.
         - `attention`: Optional actionable role filter for open agent inboxes.
+        - `scope`: Snapshot placement membership for agents or complete Room
+          membership for browser History.
         - `through_activity_id`: Inclusive discussion pivot, or `None` to choose
           the current Room boundary in this read transaction.
 
@@ -3331,8 +3365,9 @@ class RoomStore:
 
         # Returns
 
-        - First, the selected placements, origins, ordered actions, authors, and
-          count before pagination in one `ReviewThreadsRecord`.
+        - First, the selected placements or origin rows, unique origins, ordered
+          actions, authors, and count before pagination in one
+          `ReviewThreadsRecord`.
         - Second, the concrete inclusive activity pivot used for every row in
           that record; later pages must repeat it.
         - `None`: The Snapshot is missing or belongs to another Room. The
@@ -3406,10 +3441,15 @@ class RoomStore:
                 (last_action.status_after == "resolved", 1),
                 else_=0,
             )
-            selected_where = [
-                ReviewThreadPlacement.snapshot_id == snapshot_id,
-                latest.c.first_activity.is_not(None),
+            selected_where: list[ColumnElement[bool]] = [
+                latest.c.first_activity.is_not(None)
             ]
+            if scope == "snapshot":
+                selected_where.append(
+                    ReviewThreadPlacement.thread_id.is_not(None)
+                )
+            else:
+                assert scope == "room"
             if state == "open":
                 selected_where.append(last_action.status_after == "open")
             else:
@@ -3422,10 +3462,11 @@ class RoomStore:
             def filtered[*T](
                 query: Select[tuple[*T]],
             ) -> Select[tuple[*T]]:
-                """Select from placements joined to their latest actions.
+                """Select Room Threads joined to their latest actions.
 
-                The relation supplies one boundary state per Thread while
-                retaining placement columns needed by the outer page query.
+                The relation supplies one boundary state per Thread and an
+                optional placement in the displayed Snapshot. A Thread created
+                after that Snapshot remains part of the Room result.
 
                 # Returns
 
@@ -3435,47 +3476,56 @@ class RoomStore:
                   latest-action joins plus the page's state and attention filters.
                 """
                 return (
-                    query.select_from(ReviewThreadPlacement)
+                    query.select_from(ReviewThread)
+                    .join(
+                        Snapshot,
+                        Snapshot.id == ReviewThread.origin_snapshot_id,
+                    )
+                    .outerjoin(
+                        ReviewThreadPlacement,
+                        (
+                            ReviewThreadPlacement.thread_id
+                            == ReviewThread.thread_id
+                        )
+                        & (ReviewThreadPlacement.snapshot_id == snapshot_id),
+                    )
                     .join(
                         latest,
-                        latest.c.thread_id == ReviewThreadPlacement.thread_id,
+                        latest.c.thread_id == ReviewThread.thread_id,
                     )
                     .join(
                         last_action,
-                        (
-                            last_action.thread_id
-                            == ReviewThreadPlacement.thread_id
-                        )
+                        (last_action.thread_id == ReviewThread.thread_id)
                         & (
                             last_action.activity_id == latest.c.last_activity_id
                         ),
                     )
-                    .where(*selected_where)
+                    .where(Snapshot.room_id == room_id, *selected_where)
                 )
 
             total_threads = session.execute(
                 select(func.count()).select_from(
-                    filtered(select(ReviewThreadPlacement.thread_id)).subquery()
+                    filtered(select(ReviewThread.thread_id)).subquery()
                 )
             ).scalar_one()
             selected_query = (
                 filtered(
                     select(
+                        ReviewThread.thread_id,
                         ReviewThreadPlacement,
-                        literal(False).label("is_origin"),
                     )
                 )
                 .order_by(
                     state_rank,
                     latest.c.first_activity,
-                    ReviewThreadPlacement.thread_id,
+                    ReviewThread.thread_id,
                 )
                 .offset(offset)
             )
             if limit is not None:
                 selected_query = selected_query.limit(limit)
             selected_rows = session.execute(selected_query).all()
-            thread_ids = [row[0].thread_id for row in selected_rows]
+            thread_ids = [row[0] for row in selected_rows]
             if thread_ids == []:
                 return (
                     ReviewThreadsRecord((), (), (), (), total_threads),
@@ -3503,6 +3553,12 @@ class RoomStore:
             origin_rows = [
                 origins_by_thread[thread_id] for thread_id in thread_ids
             ]
+            selected_records = [
+                self._thread_record(placement, False)
+                if placement is not None
+                else self._thread_record(*origins_by_thread[thread_id])
+                for thread_id, placement in selected_rows
+            ]
             actions = session.scalars(
                 select(ReviewAction)
                 .where(
@@ -3526,9 +3582,7 @@ class RoomStore:
         )
         return (
             ReviewThreadsRecord(
-                threads=tuple(
-                    self._thread_record(*row) for row in selected_rows
-                ),
+                threads=tuple(selected_records),
                 origins=tuple(self._thread_record(*row) for row in origin_rows),
                 actions=tuple(
                     self._action_record(action) for action in actions

@@ -4,8 +4,8 @@
  * `ReviewProvider` observes the canonical Thread set, derives line-marker
  * descriptions, registers connected renderer anchors, and holds the single active
  * anchored input or Thread panel. Persisted input comes from the application draft
- * document, while discussion operations publish accepted writes back to the
- * canonical query.
+ * document, while discussion operations present accepted post-boundary writes
+ * beside the immutable query pages.
  *
  * Renderers retain their own rows and Files. Review never selects hunks or follows
  * scrolling, and Profile identity remains controlled by the application.
@@ -24,12 +24,14 @@ import {
   type Accessor,
   type JSX,
 } from "solid-js";
-import { createQuery, useQueryClient } from "@tanstack/solid-query";
+import { createInfiniteQuery } from "@tanstack/solid-query";
 import { Portal } from "solid-js/web";
 import {
   api,
-  threadCodePoint,
+  reviewThreadList,
+  threadPlacementCodePoint,
   threadOutdated,
+  type AcceptedReviewActivity,
   type ReviewComment,
   type ReviewFilePair,
   type ReviewId,
@@ -190,14 +192,14 @@ export type ActiveCommentInput = {
 };
 
 /**
- * Keeps one marker's selected canonical Thread identities beside their code line.
- * The query remains authoritative for Thread bodies and state; this value carries
- * only panel selection and the connected anchor needed for presentation.
+ * Keeps one marker's selected visible Thread identities beside their code line.
+ * Query pages and accepted activity supply Thread bodies and state; this value
+ * carries only panel selection and the connected anchor needed for presentation.
  */
 export type ActiveThreadPanel = {
   /**
    * Canonical Thread identities selected by one state marker at the line. Each
-   * identity must resolve exactly once from the current canonical query list.
+   * identity must resolve exactly once from the current presented Thread list.
    */
   threadIds: readonly ReviewId[];
   /**
@@ -464,6 +466,12 @@ type ReviewProviderProps = {
    *   the Thread in History instead of opening anchored UI.
    */
   viewThread(point: ThreadCodePoint): Promise<ReviewCodeAnchor | null>;
+  /** Report whether an origin-bound History Thread's File is loaded. */
+  canViewFile(file: ReviewFilePair): boolean;
+  /** Navigate to a loaded File's actual start without opening a marker. */
+  viewFileStart(file: ReviewFilePair): Promise<void>;
+  /** Navigate to an exact origin line without requiring a displayed marker. */
+  viewOriginThread(point: ThreadCodePoint): Promise<void>;
 };
 
 /**
@@ -499,9 +507,9 @@ export type LineMarkerKey = z.infer<typeof LineMarkerKeySchema>;
  *
  * Snapshot replacement disposes this boundary. File rendering and engine
  * replacement remain below it. It consumes the application-owned draft
- * document, so persisted drafts and backend Threads survive renderer
- * replacement. Marker indexes are memoized derivations of those two
- * authorities, not another writable store.
+ * document, so persisted drafts, query pages, and accepted post-boundary activity
+ * survive renderer replacement. Marker indexes are memoized derivations of those
+ * values, not another writable store.
  */
 export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   /**
@@ -527,9 +535,29 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   }
 
   const draftContext = useReviewDrafts();
-  const queryClient = useQueryClient();
   const toast = useToasts();
-  const review = createQuery(() => api.review.snapshot(props.snapshotId));
+  const review = createInfiniteQuery(() =>
+    api.review.snapshot(props.snapshotId),
+  );
+  // This provider is the sole driver for the shared progressive query. Each
+  // successful page is already authoritative and visible to all observers
+  // before the next page begins; disposal cancels the observer-owned chain.
+  createEffect(
+    on(
+      () =>
+        [
+          review.data?.pages.length ?? 0,
+          review.hasNextPage,
+          review.isFetchingNextPage,
+          review.isError,
+        ] as const,
+      ([loadedPages, hasNextPage, isFetchingNextPage, isError]) => {
+        if (loadedPages > 0 && hasNextPage && !isFetchingNextPage && !isError) {
+          void review.fetchNextPage();
+        }
+      },
+    ),
+  );
   const drafts = draftContext.drafts;
   const draftError = draftContext.error;
   const submittingDraftIds = draftContext.submittingDraftIds;
@@ -537,9 +565,23 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     createSignal<ActiveCommentInput | null>(null);
   const [activeThreadPanel, setActiveThreadPanel] =
     createSignal<ActiveThreadPanel | null>(null);
+  // The Snapshot provider retains only successful mutation responses that occur
+  // after its query boundary. Disposal drops them; query pages are never copied
+  // or changed, and the presentation memo ignores activity already in later pages.
+  const [acceptedActivities, setAcceptedActivities] = createSignal<
+    readonly AcceptedReviewActivity[]
+  >([]);
+
+  /** Retain one successful post-boundary write for every review presentation. */
+  function recordAcceptedActivity(activity: AcceptedReviewActivity): void {
+    setAcceptedActivities((current) => [...current, activity]);
+  }
+
   const discussion = createThreadDiscussion({
     snapshotId: props.snapshotId,
     profile: () => props.profile,
+    acceptedActivities,
+    onAcceptedActivity: recordAcceptedActivity,
     onSubmitted(draftId, succeeded) {
       // Close the anchored input whose submitted draft is about to leave the
       // draft document; reply and edit submissions never match it.
@@ -582,11 +624,13 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   let fileHeaderObserver: ResizeObserver | null = null;
   let splitHistoryFrame: number | null = null;
   let splitHistoryGeometryFailed = false;
-  /** Reads canonical query data through an identity-stable empty initial value. */
-  const reviewThreads = (): readonly ReviewThread[] =>
-    review.data ?? NO_THREADS;
+  /** Derives query pages and accepted activity through a stable empty initial value. */
+  const reviewThreads = createMemo<readonly ReviewThread[]>(
+    () => reviewThreadList(review.data, acceptedActivities()),
+    NO_THREADS,
+  );
   const reviewAvailable = createMemo(
-    () => review.data !== undefined && !review.isRefetching && !review.isError,
+    () => review.data !== undefined && !review.isError,
   );
   const draftMarkers = createMemo<readonly ReviewDraftMarker[]>(
     () =>
@@ -623,7 +667,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         ),
     },
   );
-  // Each revision element is itself identity-stable (canonical query data,
+  // Each revision element is itself identity-stable (presented Thread data,
   // the equality-guarded draft markers, a boolean), so element identity is
   // content identity: when nothing changed, the memo returns the previous
   // wrapper array and the default reference equality suppresses the
@@ -728,7 +772,10 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     // A Thread naming no code contributes no marker: there is no bay to mark,
     // and only History presents such Threads.
     for (const thread of revision[0]) {
-      const point = threadCodePoint(thread);
+      if (thread.location_source.kind === "origin-snapshot") {
+        continue;
+      }
+      const point = threadPlacementCodePoint(thread);
       if (point === null) {
         continue;
       }
@@ -1300,7 +1347,11 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
    * @param thread Loaded canonical Thread selected from History.
    */
   function viewThreadInCode(thread: ReviewThread): void {
-    const point = threadCodePoint(thread);
+    assert(
+      thread.location_source.kind === "displayed-snapshot",
+      "Anchored Thread navigation requires a displayed placement.",
+    );
+    const point = threadPlacementCodePoint(thread);
     if (point === null) {
       return;
     }
@@ -1322,6 +1373,33 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         anchor: { codeCell: anchor.codeCell, trigger },
       });
     })().catch((error: unknown) =>
+      toast.showError("Could not view Thread", error),
+    );
+  }
+
+  /**
+   * Navigate an origin-bound History Thread without inventing a line marker.
+   *
+   * The ChangeSet chooses either its exact origin point or the File's ordinary
+   * first target before this callback. Failures stay inside the review boundary
+   * and use the same Toast title as ordinary History navigation.
+   *
+   * @param file Exact origin File pair still present in the displayed manifest.
+   * @param point Origin code point, or null for a File-level historical Thread.
+   * @param useFileStart Whether navigation uses the displayed File start.
+   */
+  function viewOriginThreadInCode(
+    file: ReviewFilePair,
+    point: ThreadCodePoint | null,
+    useFileStart: boolean,
+  ): void {
+    void (
+      useFileStart
+        ? props.viewFileStart(file)
+        : props.viewOriginThread(
+            expect(point, "Exact origin navigation requires its code point."),
+          )
+    ).catch((error: unknown) =>
       toast.showError("Could not view Thread", error),
     );
   }
@@ -1698,6 +1776,8 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         <ReviewHistory
           snapshotId={props.snapshotId}
           profile={props.profile}
+          acceptedActivities={acceptedActivities}
+          onAcceptedActivity={recordAcceptedActivity}
           view={props.view}
           historyOpen={props.historyOpen}
           onHistoryOpenChange={props.onHistoryOpenChange}
@@ -1705,6 +1785,8 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
           splitHistoryTop={splitHistoryTop}
           canViewThread={props.canViewThread}
           viewThreadInCode={viewThreadInCode}
+          canViewFile={props.canViewFile}
+          viewOriginThreadInCode={viewOriginThreadInCode}
           continueDraftInCode={continueDraftInCode}
           closeCommentInputInThread={closeCommentInputInThread}
           discardNewThreadDraft={removeDraft}

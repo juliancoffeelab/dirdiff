@@ -986,14 +986,15 @@ ActiveCommentInput
 ActiveThreadPanel
 ```
 
-`ReviewProvider` observes the complete canonical Thread set for one exact
-Snapshot, receives the selected `StoredProfile` and ChangeSet-owned History
+`ReviewProvider` observes the progressively loaded canonical Room Thread pages
+in one displayed Snapshot context, receives the selected `StoredProfile` and
+ChangeSet-owned History
 visibility, owns the anchored Comment input and inline-Thread presentation
 with their discussion instance, computes split-History placement geometry,
 and mounts `ReviewHistory` with its host facts and the anchored-UI behaviors
-only the provider can perform. HTTP pagination is a private transport detail
-of the canonical Snapshot query; every page uses the append-only activity
-boundary returned by its first page.
+only the provider can perform. It publishes page one immediately and then
+automatically requests later pages using the append-only activity boundary
+returned by page one.
 
 `ReviewBinding` is the narrow renderer interface. FileCard reports mounted File
 headers used by History placement and File-start targets. TextDiffGrid reads compact
@@ -1033,16 +1034,15 @@ ThreadDiscussion
 ThreadDiscussionArgs
 ```
 
-`createThreadDiscussion` builds one Snapshot-scoped discussion instance over
-the three shared authorities: the persisted draft document, the canonical
-Snapshot query cache, and the TanStack mutation cache. It owns its own
-mutation and query observers (the cache deduplicates the query against every
-other observer of the same Snapshot), the cancel-then-publish protocol that
-keeps an in-flight refetch from reverting a committed write, and pending
-probes read from the shared mutation cache, so concurrent instances see one
-another's in-flight work. The single outward call is the required
-`onSubmitted` construction behavior, batched with submission settlement.
-The module owns no presentation, anchored-UI state, or Thread data.
+`createThreadDiscussion` builds one displayed-Snapshot discussion instance over
+the persisted draft document, immutable progressive review pages, accepted
+post-boundary activity, and the TanStack mutation cache. It owns its mutation
+and query observers; the query cache deduplicates page reads against every other
+observer of the same Snapshot. Successful writes publish their returned activity
+beside the pages, and pending probes read the shared mutation cache so concurrent
+instances see one another's in-flight work. Its outward calls publish accepted
+activity and report draft submission settlement. The module owns no presentation,
+anchored-UI state, or Thread data.
 
 ### `hud/review/History.tsx`
 
@@ -1053,12 +1053,14 @@ ReviewHistory
 ```
 
 History is an independent consumer of the shared authorities: it observes the
-canonical Snapshot review query itself (deduplicated by the cache), reads the
-application draft document, and creates its own Thread discussion instance,
-so no action callbacks cross its boundary. Its props are host facts —
+canonical Room Thread query itself (deduplicated by its displayed-Snapshot
+cache key), reads the application draft document and provider-held accepted
+activity, and creates its own Thread discussion instance. Its props are host facts —
 Snapshot identity, selected Profile, view and visibility, mount targets,
 split placement — plus the anchored-UI behaviors only the review provider
-can perform: viewing a Thread or continuing a draft at its rendered line,
+can perform: viewing a currently placed Thread, navigating an origin-bound
+Thread to its unchanged line or changed File start, continuing a draft at its
+rendered line,
 closing a Comment input mounted in a History card, discarding a new-Thread
 draft, and clearing the draft document. It owns per-Thread expansion, the
 keep-mounted reading position, and idle warming.
@@ -1220,9 +1222,9 @@ type LinePins = {
 | `changeSet/ChangeSet.tsx` | `linePins.ts` | one line-pin interface per snapshot |
 | `changeSet/ChangeSet.tsx` | `review/Review.tsx` | one exact Snapshot review boundary and explicit File jump |
 | `review/Review.tsx` | `review/History.tsx` | host facts, split placement, and the provider's anchored-UI behaviors |
-| `review/Review.tsx` | `review/discussion.ts` | one Snapshot-scoped discussion instance and its submission reaction |
-| `review/History.tsx` | `review/discussion.ts` | History's own Snapshot-scoped discussion instance |
-| `review/discussion.ts` | `api.ts` | canonical Snapshot review query and Profile-authored Thread and Comment mutations |
+| `review/Review.tsx` | `review/discussion.ts` | one displayed-Snapshot discussion instance and its submission reaction |
+| `review/History.tsx` | `review/discussion.ts` | History's own displayed-Snapshot discussion instance |
+| `review/discussion.ts` | `api.ts` | canonical Room Thread query in displayed-Snapshot context and Profile-authored Thread and Comment mutations |
 | `fileCard/FileCard.tsx` | `review/Review.tsx` | File marker state and File Comment-input activation |
 | `fileCard/grids/text/TextDiffGrid.tsx` | `review/Review.tsx` | line marker state and text Comment-input activation |
 | `fileCard/FileCard.tsx` | `fileCard/FrameView.tsx` | complete composed-diff rendering inputs |
