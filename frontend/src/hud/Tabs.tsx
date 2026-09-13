@@ -42,7 +42,6 @@ import {
   PreparedPullRequestSchema,
   type RefChoices,
   type RefsDiffParams,
-  type RepoMark,
 } from "../api/api";
 import { AutocompleteInput } from "../comp/AutocompleteInput";
 import {

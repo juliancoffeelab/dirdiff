@@ -247,7 +247,6 @@ type FileCardProps = {
  */
 export function FileCard(props: FileCardProps): JSX.Element {
   let card!: HTMLElement;
-  const review = useReview();
   // Derived from the composed diff rather than sent with it, and memoized so
   // the card and its header share one count instead of walking per read. The
   // renderers below run their own walks: they need the per-bay stop map, which

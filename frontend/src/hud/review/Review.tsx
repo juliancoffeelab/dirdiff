@@ -11,7 +11,6 @@
  * scrolling, and Profile identity remains controlled by the application.
  */
 import {
-  Show,
   batch,
   createContext,
   createEffect,
@@ -25,14 +24,12 @@ import {
   type JSX,
 } from "solid-js";
 import { createInfiniteQuery } from "@tanstack/solid-query";
-import { Portal } from "solid-js/web";
 import {
   api,
   reviewThreadList,
   threadPlacementCodePoint,
   threadOutdated,
   type AcceptedReviewActivity,
-  type ReviewComment,
   type ReviewFilePair,
   type ReviewId,
   type ReviewTarget,

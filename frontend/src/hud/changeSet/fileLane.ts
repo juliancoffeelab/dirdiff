@@ -989,10 +989,7 @@ export function createFileLane(args: FileLaneArgs): FileLane {
     // A stopped lane is being disposed or replaced; accepting the operation
     // would silently drop it, so the broken expectation stays visible.
     assert(!stopped, "Cannot load a file after its lane stopped.");
-    const file = expect(
-      files[fileIndex],
-      `Cannot load unknown file index ${fileIndex}.`,
-    );
+    expect(files[fileIndex], `Cannot load unknown file index ${fileIndex}.`);
     if (fileView(fileIndex).phase === "success" || activeIndex === fileIndex) {
       return;
     }

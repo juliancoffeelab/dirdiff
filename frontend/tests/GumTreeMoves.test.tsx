@@ -67,7 +67,8 @@ test.each(
       for (const side of ["left", "right"] as const) {
         let column = 0;
         for (const part of side === "left" ? row.left_parts : row.right_parts) {
-          for (const character of part.text) {
+          const characters = [...part.text];
+          for (const characterIndex of characters.keys()) {
             if (part.move !== undefined) {
               expect(part.move).toBeDefined();
               const key = [part.move!.left, part.move!.right]
@@ -80,11 +81,11 @@ test.each(
                 .join(":");
               relationships.set(key, part.move);
               expected.push(
-                `${side}:${side === "left" ? row.left_no : row.right_no}:${column}:${key}`,
+                `${side}:${side === "left" ? row.left_no : row.right_no}:${column + characterIndex}:${key}`,
               );
             }
-            column += 1;
           }
+          column += characters.length;
         }
       }
     }
