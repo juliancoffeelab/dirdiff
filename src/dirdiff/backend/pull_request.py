@@ -20,6 +20,7 @@ the result without repeating forge work.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess
 import urllib.error
@@ -32,6 +33,9 @@ from typing import Protocol
 
 from dirdiff.backend.base import git_executable
 from dirdiff.engines import DirdiffError
+
+LOGGER = logging.getLogger(__name__)
+"""Module logger for unavailable repository marks skipped during matching."""
 
 __all__ = [
     "PreparedPullRequest",
@@ -349,6 +353,12 @@ def _prepare_github_pull_request(
     pull_request = _load_github_pull_request(url)
     for mark in repo_marks:
         repo_path = Path(mark.path)
+        if not repo_path.is_dir():
+            LOGGER.warning(
+                "Skipping unavailable marked repository during PR preparation: %s",
+                repo_path,
+            )
+            continue
         remote = _matching_remote(
             repo_path=repo_path,
             remote_repo_key=pull_request.base_repo_key,
@@ -403,6 +413,12 @@ def _prepare_gitlab_merge_request(
     merge_request = _load_gitlab_merge_request(url)
     for mark in repo_marks:
         repo_path = Path(mark.path)
+        if not repo_path.is_dir():
+            LOGGER.warning(
+                "Skipping unavailable marked repository during PR preparation: %s",
+                repo_path,
+            )
+            continue
         remote = _matching_remote(
             repo_path=repo_path,
             remote_repo_key=merge_request.target_repo_key,

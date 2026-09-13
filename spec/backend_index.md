@@ -37,8 +37,10 @@ retains the forge's recorded target and head SHAs, and fetches those object ids
 directly without moving tracking refs. Content-addressed local refs retain every
 prepared revision against Git garbage collection, including after a refresh.
 Preparation computes the recorded commits' merge base locally, never selecting
-sides from tracking refs after fetching. Missing objects, unavailable forge
-metadata, and missing history fail explicitly. The result includes the URL,
+sides from tracking refs after fetching. Missing or non-directory marks are
+logged and skipped while searching for the matching remote; other inspection
+failures remain visible. Missing objects, unavailable forge metadata, and
+missing history fail explicitly. The result includes the URL,
 exact merge-base and head commits, and observed branch names for HUD display.
 Additional untracked Files need not participate in those backend totals. Loading a listed
 File either returns its complete contents or raises `DirdiffError` with the

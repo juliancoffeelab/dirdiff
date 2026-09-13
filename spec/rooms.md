@@ -305,6 +305,8 @@ parses the URL, finds the marked repository and forge remote, fetches the
 forge-recorded target and head objects directly by SHA, and computes their
 merge base locally. It returns the repository id, Pull Request URL, merge-base
 commit, and Pull Request head commit, plus observed source/target branch names.
+Missing or non-directory marks are logged and skipped while searching; they do
+not prevent a later available mark from matching the Pull Request.
 Preparation retains each observed target/head under `refs/dirdiff/prepared/<sha>`
 in the marked repository's shared Git directory, keeping the capture sides and
 their history reachable after refreshes and Git garbage collection. These refs
