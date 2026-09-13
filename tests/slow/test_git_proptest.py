@@ -1,10 +1,9 @@
 """Compare the Git row adapter with sources and real Git preset output.
 
 The tests expose independent engine invariants: rows replay every preset in
-both directions, row coordinates reproduce Git's alignment, changed-row
+both directions, word rows reproduce Git's exact color body, changed-row
 classification reproduces Git's controlled color facts, and generated
-whitespace mutations reproduce Git's ``--ignore-space-change`` alignment. A
-separate replay invariant covers Git's porcelain word representation.
+whitespace mutations preserve Git's ``--ignore-space-change`` behavior.
 Word-diff row status is independently derived from its non-whitespace tokens.
 Each oracle invokes Git separately from ``GitDiffEngine`` and never calls the
 adapter's private patch parser.
@@ -23,11 +22,13 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from dirdiff.engines import (
+    DiffEngineResult,
     DiffSide,
     GitAlgorithm,
     GitColorMoved,
     GitColorMovedWs,
     GitDiffEngine,
+    InlineTokenStatus,
     UnpairedMove,
     git_executable,
 )
@@ -39,6 +40,166 @@ PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "git"
 
 PRESETS = sorted(PRESETS_ROOT.glob("*/*"))
 """Every Git preset directory in stable pytest display order."""
+
+WORD_DIFF_PRESETS = sorted(
+    [*PRESETS, *(Path(__file__).parents[1] / "presets" / "diff").glob("*/*")]
+)
+"""Git and Difftastic source pairs used by the Git word-body oracle."""
+
+
+def git_word_diff_body_from_result(result: DiffEngineResult) -> str:
+    """Serialize public rows as Git's controlled color-word hunk body.
+
+    Each decorated public row becomes exactly one Git display line. New-side
+    whitespace separates aligned words, deleted words precede inserted words,
+    and a changed span continuing onto the next row colors its leading
+    whitespace. The conversion is pure and cannot repair engine alignment.
+
+    # Parameters
+
+    - `result`: Complete public result returned by ``render_diff()`` in Git word
+      mode. Its decorated rows must already preserve Git's display lines.
+
+    # Returns
+
+    The concatenated color-word hunk bodies, including their exact ANSI escapes,
+    spaces, and newlines, but excluding file metadata and `@@` headers.
+    """
+    body: list[str] = []
+    continuing_status: InlineTokenStatus | None = None
+    for row in result["rows"]:
+        outside_hunk = (
+            row["status"] == "equal"
+            and row["left_no"] is not None
+            and row["right_no"] is not None
+            and row["left_tokens"] == []
+            and row["right_tokens"] == []
+        )
+        if outside_hunk:
+            continuing_status = None
+            continue
+
+        left_words: list[tuple[str, str, InlineTokenStatus]] = []
+        right_words: list[tuple[str, str, InlineTokenStatus]] = []
+        left_trailing = ""
+        right_trailing = ""
+        for token in row["left_tokens"]:
+            if token["is_ws"]:
+                left_trailing += token["text"]
+            else:
+                left_words.append(
+                    (left_trailing, token["text"], token["status"])
+                )
+                left_trailing = ""
+        for token in row["right_tokens"]:
+            if token["is_ws"]:
+                right_trailing += token["text"]
+            else:
+                right_words.append(
+                    (right_trailing, token["text"], token["status"])
+                )
+                right_trailing = ""
+
+        pieces: list[tuple[InlineTokenStatus, str]] = []
+        left_index = 0
+        right_index = 0
+        last_word_status: InlineTokenStatus | None = None
+        while left_index < len(left_words) or right_index < len(right_words):
+            left_unchanged = next(
+                (
+                    index
+                    for index in range(left_index, len(left_words))
+                    if left_words[index][2] == "unchanged"
+                ),
+                len(left_words),
+            )
+            right_unchanged = next(
+                (
+                    index
+                    for index in range(right_index, len(right_words))
+                    if right_words[index][2] == "unchanged"
+                ),
+                len(right_words),
+            )
+            deleted = left_words[left_index:left_unchanged]
+            inserted = right_words[right_index:right_unchanged]
+            if inserted != []:
+                prefix_status = (
+                    continuing_status
+                    if pieces == []
+                    and continuing_status in {"delete", "insert"}
+                    else "unchanged"
+                )
+                pieces.append((prefix_status, inserted[0][0]))
+            elif deleted != [] and row["right_no"] is None:
+                prefix_status = (
+                    "delete"
+                    if pieces == [] and continuing_status == "delete"
+                    else "unchanged"
+                )
+                pieces.append((prefix_status, deleted[0][0]))
+            if deleted != []:
+                pieces.append(
+                    (
+                        "delete",
+                        deleted[0][1]
+                        + "".join(
+                            prefix + word for prefix, word, _ in deleted[1:]
+                        ),
+                    )
+                )
+                last_word_status = "delete"
+            if inserted != []:
+                pieces.append(
+                    (
+                        "insert",
+                        inserted[0][1]
+                        + "".join(
+                            prefix + word for prefix, word, _ in inserted[1:]
+                        ),
+                    )
+                )
+                last_word_status = "insert"
+            left_index = left_unchanged
+            right_index = right_unchanged
+            if left_index == len(left_words) or right_index == len(right_words):
+                break
+            left_word = left_words[left_index]
+            right_word = right_words[right_index]
+            assert left_word[1] == right_word[1]
+            pieces.append(("unchanged", right_word[0] + right_word[1]))
+            left_index += 1
+            right_index += 1
+            last_word_status = "unchanged"
+
+        compact_pieces: list[tuple[InlineTokenStatus, str]] = []
+        for status, text in pieces:
+            if text == "":
+                continue
+            if compact_pieces != [] and compact_pieces[-1][0] == status:
+                compact_pieces[-1] = (status, compact_pieces[-1][1] + text)
+            else:
+                compact_pieces.append((status, text))
+        for status, text in compact_pieces:
+            match status:
+                case "delete":
+                    body.append(f"\x1b[38;5;31m{text}\x1b[m")
+                case "insert":
+                    body.append(f"\x1b[38;5;32m{text}\x1b[m")
+                case "unchanged":
+                    body.append(text)
+                case _:
+                    raise AssertionError(status)
+        body.append(
+            right_trailing if row["right_no"] is not None else left_trailing
+        )
+        body.append("\n")
+        continuing_status = (
+            last_word_status
+            if last_word_status in {"delete", "insert"}
+            else None
+        )
+    return "".join(body)
 
 
 @pytest.mark.parametrize(
@@ -138,9 +299,6 @@ def test_git_preset_diff_replays_both_directions(
     assert "\n".join(replayed_old) + "\n" == old_text
 
 
-@pytest.mark.parametrize(
-    "algorithm", ["myers", "minimal", "patience", "histogram"]
-)
 @pytest.mark.parametrize("preset", PRESETS, ids=str)
 def test_git_preset_word_diff_replays_both_directions(
     preset: Path,
@@ -229,30 +387,23 @@ def test_git_preset_word_diff_replays_both_directions(
     assert "\n".join(replayed_old) + "\n" == old_text
 
 
-@pytest.mark.parametrize(
-    "algorithm", ["myers", "minimal", "patience", "histogram"]
-)
-@pytest.mark.parametrize("preset", PRESETS, ids=str)
-def test_git_preset_word_diff_alignment_matches_color_patch(
+@pytest.mark.parametrize("preset", WORD_DIFF_PRESETS, ids=str)
+def test_git_preset_word_diff_round_trips_color_body(
     preset: Path,
-    algorithm: GitAlgorithm,
     tmp_path: Path,
 ) -> None:
-    """Word rows pair corresponding physical lines from Git's color hunks.
+    """Public word rows round-trip to Git's exact color-word hunk body.
 
-    A separate ``--word-diff=color`` invocation supplies each hunk's old and new
-    coordinates. Equal gaps pair directly; within a changed hunk, physical lines
-    pair by offset and only the longer side has an unpaired tail. The complete
-    coordinate sequence must equal the porcelain adapter's rows.
+    One Git invocation renders the original preset. The engine independently
+    renders porcelain into public rows, and the round-trip function converts
+    only that result back through Git's color-word format. After file metadata
+    and hunk headers are excluded, the bodies must match verbatim.
 
     # Parameters
 
-    - `preset`: Readable source pair supplied to both Git invocations.
-    - `algorithm`: Exact Git line-matching algorithm used by both invocations.
-    - `tmp_path`: Isolated directory containing the color oracle's source files.
+    - `preset`: Readable source pair supplied to Git and the engine.
+    - `tmp_path`: Isolated directory containing the direct Git source files.
     """
-
-    # Stage 1: load the preset and materialize it for the independent Git call.
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     old_text = old_path.read_text()
@@ -262,15 +413,28 @@ def test_git_preset_word_diff_alignment_matches_color_patch(
     oracle_old.write_text(old_text)
     oracle_new.write_text(new_text)
 
-    # Stage 2: ask Git's color word format for authoritative hunk coordinates.
     completed = subprocess.run(
         [
             git_executable(),
             "-c",
+            "color.diff.meta=normal",
+            "-c",
+            "color.diff.frag=36",
+            "-c",
+            "color.diff.func=normal",
+            "-c",
+            "color.diff.context=normal",
+            "-c",
+            "color.diff.old=31",
+            "-c",
+            "color.diff.new=32",
+            "-c",
+            "color.diff.whitespace=normal",
+            "-c",
             "diff.suppressBlankEmpty=false",
             "diff",
             "--no-index",
-            f"--diff-algorithm={algorithm}",
+            "--diff-algorithm=myers",
             "--word-diff=color",
             "--word-diff-regex=[^[:space:]]+",
             "--color=always",
@@ -287,54 +451,21 @@ def test_git_preset_word_diff_alignment_matches_color_patch(
     )
     assert completed.returncode in {0, 1}, completed.stderr.decode()
 
-    # Stage 3: expand sparse Git hunks into the complete expected alignment.
-    expected: list[tuple[int | None, int | None]] = []
-    old_no = 1
-    new_no = 1
-    for raw_line in completed.stdout.decode().splitlines():
-        line = re.sub(r"\x1b\[[0-9;]*m", "", raw_line)
-        hunk_match = re.match(
-            r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@",
-            line,
-        )
-        if hunk_match is None:
+    expected_body: list[str] = []
+    in_hunk = False
+    for line in completed.stdout.decode().splitlines(keepends=True):
+        plain_line = re.sub(r"\x1b\[[0-9;]*m", "", line)
+        if plain_line.startswith("@@ "):
+            in_hunk = True
             continue
-        old_count = 1 if hunk_match[2] is None else int(hunk_match[2])
-        new_count = 1 if hunk_match[4] is None else int(hunk_match[4])
-        old_start = int(hunk_match[1]) + (old_count == 0)
-        new_start = int(hunk_match[3]) + (new_count == 0)
-        while old_no < old_start and new_no < new_start:
-            expected.append((old_no, new_no))
-            old_no += 1
-            new_no += 1
-        assert old_no == old_start
-        assert new_no == new_start
-        for offset in range(max(old_count, new_count)):
-            expected.append(
-                (
-                    old_start + offset if offset < old_count else None,
-                    new_start + offset if offset < new_count else None,
-                )
-            )
-        old_no += old_count
-        new_no += new_count
-    while old_no <= len(old_text.splitlines()) and new_no <= len(
-        new_text.splitlines()
-    ):
-        expected.append((old_no, new_no))
-        old_no += 1
-        new_no += 1
-    assert old_no == len(old_text.splitlines()) + 1
-    assert new_no == len(new_text.splitlines()) + 1
+        if in_hunk:
+            expected_body.append(line)
 
-    # Stage 4: render the same sources through the porcelain adapter.
-    rows = GitDiffEngine(algorithm=algorithm, word_diff=True).render_diff(
+    result = GitDiffEngine(word_diff=True).render_diff(
         old=DiffSide(exists=True, text=old_text, path_hint=old_path.name),
         new=DiffSide(exists=True, text=new_text, path_hint=new_path.name),
-    )["rows"]
-
-    # Stage 5: compare every adapter coordinate pair with Git's alignment.
-    assert [(row["left_no"], row["right_no"]) for row in rows] == expected
+    )
+    assert git_word_diff_body_from_result(result) == "".join(expected_body)
 
 
 @pytest.mark.parametrize(
@@ -1082,7 +1213,7 @@ def test_git_preset_word_diff_ignore_space_change_replays_whitespace_mutation(
     algorithm=st.sampled_from(("myers", "minimal", "patience", "histogram")),
 )
 @settings(max_examples=20, deadline=None)
-def test_git_preset_word_diff_ignore_space_change_alignment_matches_color_patch(
+def test_git_preset_word_diff_ignore_space_change_reproduces_color_word_stream(
     preset: Path,
     source_side: str,
     data: st.DataObject,
@@ -1091,12 +1222,12 @@ def test_git_preset_word_diff_ignore_space_change_alignment_matches_color_patch(
     reverse: bool,
     algorithm: GitAlgorithm,
 ) -> None:
-    """Combined-mode row coordinates equal an independent Git color diff.
+    """Combined-mode rows reproduce an independent Git color word stream.
 
     Hypothesis changes horizontal and trailing whitespace throughout one preset
     source, then inserts a real word edit into one physical line. A separate
-    ``--word-diff=color --ignore-space-change`` invocation supplies the hunk
-    coordinates. Expanding those hunks must reproduce every adapter row pair.
+    ``--word-diff=color --ignore-space-change`` invocation supplies the word
+    facts that the adapter's ordered line queues must reproduce.
 
     # Parameters
 
@@ -1160,7 +1291,7 @@ def test_git_preset_word_diff_ignore_space_change_alignment_matches_color_patch(
     else:
         old_text, new_text = source_text, mutated_text
 
-    # Stage 1: ask Git's color word format for authoritative hunk coordinates.
+    # Stage 1: ask Git's color word format for an independent word-edit stream.
     with tempfile.TemporaryDirectory(prefix="dirdiff-git-proptest-") as raw_tmp:
         tmp = Path(raw_tmp)
         oracle_old = tmp / f"old{source_path.suffix}"
@@ -1170,6 +1301,20 @@ def test_git_preset_word_diff_ignore_space_change_alignment_matches_color_patch(
         completed = subprocess.run(
             [
                 git_executable(),
+                "-c",
+                "color.diff.meta=normal",
+                "-c",
+                "color.diff.frag=36",
+                "-c",
+                "color.diff.func=normal",
+                "-c",
+                "color.diff.context=normal",
+                "-c",
+                "color.diff.old=31",
+                "-c",
+                "color.diff.new=32",
+                "-c",
+                "color.diff.whitespace=normal",
                 "-c",
                 "diff.suppressBlankEmpty=false",
                 "diff",
@@ -1192,47 +1337,34 @@ def test_git_preset_word_diff_ignore_space_change_alignment_matches_color_patch(
         )
         assert completed.returncode == 1, completed.stderr.decode()
 
-    # Stage 2: expand sparse Git hunks into the complete expected alignment.
-    expected: list[tuple[int | None, int | None]] = []
-    old_no = 1
-    new_no = 1
+    # Stage 2: decode the controlled colors into meaningful Git word facts.
+    expected_events: list[tuple[str, InlineTokenStatus]] = []
+    in_hunk = False
     for raw_line in completed.stdout.decode().splitlines():
-        line = re.sub(r"\x1b\[[0-9;]*m", "", raw_line)
-        hunk_match = re.match(
-            r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@",
-            line,
-        )
-        if hunk_match is None:
+        plain_line = re.sub(r"\x1b\[[0-9;]*m", "", raw_line)
+        if plain_line.startswith("@@ "):
+            in_hunk = True
             continue
-        old_count = 1 if hunk_match[2] is None else int(hunk_match[2])
-        new_count = 1 if hunk_match[4] is None else int(hunk_match[4])
-        old_start = int(hunk_match[1]) + (old_count == 0)
-        new_start = int(hunk_match[3]) + (new_count == 0)
-        while old_no < old_start and new_no < new_start:
-            expected.append((old_no, new_no))
-            old_no += 1
-            new_no += 1
-        assert old_no == old_start
-        assert new_no == new_start
-        for offset in range(max(old_count, new_count)):
-            expected.append(
-                (
-                    old_start + offset if offset < old_count else None,
-                    new_start + offset if offset < new_count else None,
-                )
+        if not in_hunk:
+            continue
+        status: InlineTokenStatus = "unchanged"
+        for part in re.split(r"(\x1b\[[0-9;]*m)", raw_line):
+            if part.startswith("\x1b[") is True:
+                final_color = part[2:-1].split(";")[-1]
+                match final_color:
+                    case "31":
+                        status = "delete"
+                    case "32":
+                        status = "insert"
+                    case _:
+                        status = "unchanged"
+                continue
+            expected_events.extend(
+                (word, status) for word in re.findall(r"\S+", part)
             )
-        old_no += old_count
-        new_no += new_count
-    while old_no <= len(old_text.splitlines()) and new_no <= len(
-        new_text.splitlines()
-    ):
-        expected.append((old_no, new_no))
-        old_no += 1
-        new_no += 1
-    assert old_no == len(old_text.splitlines()) + 1
-    assert new_no == len(new_text.splitlines()) + 1
 
-    # Stage 3: render the generated pair through the porcelain adapter.
+    # Stage 3: render through the combined-mode adapter, then replay its aligned
+    # line queues into the same inline word stream.
     rows = GitDiffEngine(
         algorithm=algorithm,
         ignore_space_change=True,
@@ -1241,6 +1373,91 @@ def test_git_preset_word_diff_ignore_space_change_alignment_matches_color_patch(
         old=DiffSide(exists=True, text=old_text, path_hint=source_path.name),
         new=DiffSide(exists=True, text=new_text, path_hint=source_path.name),
     )["rows"]
+    left_pending: list[list[tuple[str, InlineTokenStatus]]] = []
+    right_pending: list[list[tuple[str, InlineTokenStatus]]] = []
+    actual_events: list[tuple[str, InlineTokenStatus]] = []
+    for row in rows:
+        left_words = [
+            (token["text"], token["status"])
+            for token in row["left_tokens"]
+            if not token["is_ws"]
+        ]
+        right_words = [
+            (token["text"], token["status"])
+            for token in row["right_tokens"]
+            if not token["is_ws"]
+        ]
+        if left_words != []:
+            left_pending.append(left_words)
+        if right_words != []:
+            right_pending.append(right_words)
+        while True:
+            while left_pending != [] and left_pending[0] == []:
+                left_pending.pop(0)
+            while right_pending != [] and right_pending[0] == []:
+                right_pending.pop(0)
+            left_word = None if left_pending == [] else left_pending[0][0]
+            right_word = None if right_pending == [] else right_pending[0][0]
+            if (
+                left_word is not None
+                and right_word is not None
+                and left_word[1] == "unchanged"
+                and right_word[1] == "unchanged"
+            ):
+                assert left_word == right_word
+                actual_events.append(left_word)
+                left_pending[0].pop(0)
+                right_pending[0].pop(0)
+            elif left_word is not None and left_word[1] == "delete":
+                actual_events.append(left_word)
+                left_pending[0].pop(0)
+            elif right_word is not None and right_word[1] == "insert":
+                actual_events.append(right_word)
+                right_pending[0].pop(0)
+            else:
+                break
+        assert len(left_pending) <= 1
+        assert len(right_pending) <= 1
+    while left_pending != [] and left_pending[0] == []:
+        left_pending.pop(0)
+    while right_pending != [] and right_pending[0] == []:
+        right_pending.pop(0)
+    assert left_pending == []
+    assert right_pending == []
 
-    # Stage 4: compare every adapter coordinate pair with Git's alignment.
-    assert [(row["left_no"], row["right_no"]) for row in rows] == expected
+    # Stage 4: normalize inline ordering within each changed run, then compare.
+    expected: list[tuple[tuple[str, ...], tuple[str, ...], str | None]] = []
+    deleted: list[str] = []
+    inserted: list[str] = []
+    for word, status in expected_events:
+        match status:
+            case "delete":
+                deleted.append(word)
+            case "insert":
+                inserted.append(word)
+            case "unchanged":
+                expected.append((tuple(deleted), tuple(inserted), word))
+                deleted = []
+                inserted = []
+            case _:
+                raise AssertionError(status)
+    expected.append((tuple(deleted), tuple(inserted), None))
+
+    actual: list[tuple[tuple[str, ...], tuple[str, ...], str | None]] = []
+    deleted = []
+    inserted = []
+    for word, status in actual_events:
+        match status:
+            case "delete":
+                deleted.append(word)
+            case "insert":
+                inserted.append(word)
+            case "unchanged":
+                actual.append((tuple(deleted), tuple(inserted), word))
+                deleted = []
+                inserted = []
+            case _:
+                raise AssertionError(status)
+    actual.append((tuple(deleted), tuple(inserted), None))
+
+    assert actual == expected

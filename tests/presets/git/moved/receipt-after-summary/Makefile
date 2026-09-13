@@ -29,7 +29,10 @@ bat:
 diffs:
 	diffsitter --no-config $(OLD) $(NEW)
 
-.PHONY: git-moved git-moved-indent
+.PHONY: git-word git-moved git-moved-indent
+
+git-word:
+	git --no-pager diff --no-index --color=always --no-color-moved --word-diff=color $(OLD) $(NEW)
 
 git-moved:
 	git --no-pager diff --no-index --color=always --color-moved=zebra --color-moved-ws=no $(OLD) $(NEW)
