@@ -1131,13 +1131,13 @@ export type TextFileSummary = z.infer<typeof TextFileSummarySchema>;
  * presence or text equality.
  */
 const RowStatusSchema = z.enum([
-  /** Both aligned source lines have equal content. */
+  /** No explicit replacement relationship; mixed token changes may remain. */
   "equal",
-  /** Both source lines are present and their content differs. */
+  /** The engine explicitly relates the displayed sides as a replacement. */
   "replace",
-  /** Only the new-side source line is present. */
+  /** The engine classifies the complete display row as inserted. */
   "insert",
-  /** Only the old-side source line is present. */
+  /** The engine classifies the complete display row as deleted. */
   "delete",
   /** The renderer matched content that changed position. */
   "move",
@@ -1206,10 +1206,11 @@ const DecoratedPartSchema = z.strictObject({
 export type DecoratedPart = z.infer<typeof DecoratedPartSchema>;
 
 /**
- * Validates one complete aligned text row and its optional hunk stop.
+ * Validates one engine display row and its optional hunk stop.
  *
- * Nullable side values represent genuine one-sided rows. The browser consumes
- * this alignment without constructing substitute counterparts.
+ * A null source coordinate may accompany a wordless Git display fragment;
+ * null plus empty text and parts represents a genuinely absent side. The
+ * browser consumes this alignment without constructing substitute counterparts.
  */
 const DiffRowSchema = z.strictObject({
   /** Unpaired row move presentation; the populated source side supplies old/new. */
@@ -1222,27 +1223,28 @@ const DiffRowSchema = z.strictObject({
     .optional(),
   /** Backend alignment classification for the complete row. */
   status: RowStatusSchema,
-  /** Positive old-side line number, or null when that side is absent. */
+  /** Positive old-source line number, or null when the engine identifies none. */
   left_no: z.number().int().positive().nullable(),
-  /** Positive new-side line number, or null when that side is absent. */
+  /** Positive new-source line number, or null when the engine identifies none. */
   right_no: z.number().int().positive().nullable(),
-  /** Exact old-side text, or null together with an absent old-side line. */
+  /** Exact old-side display text, including an optional source fragment. */
   left_text: z.string().nullable(),
-  /** Exact new-side text, or null together with an absent new-side line. */
+  /** Exact new-side display text, including an optional source fragment. */
   right_text: z.string().nullable(),
-  /** Ordered lossless decoration for the present old side; absent sides use no parts. */
+  /** Ordered lossless decoration for the old display text. */
   left_parts: z.array(DecoratedPartSchema),
-  /** Ordered lossless decoration for the present new side; absent sides use no parts. */
+  /** Ordered lossless decoration for the new display text. */
   right_parts: z.array(DecoratedPartSchema),
   /** Bay-local hunk index on its first row, otherwise null. */
   hunk_index: z.number().int().nonnegative().nullable(),
 });
 
 /**
- * Contains one complete backend-aligned row for text or notebook source.
+ * Contains one complete backend display row for text or notebook source.
  *
- * Nullable side values represent genuinely absent lines. Alignment and hunk
- * identity come from the renderer and must not be reconstructed in the browser.
+ * A nullable source coordinate may accompany a wordless Git fragment; absence
+ * requires null together with empty text and parts. Alignment and hunk identity
+ * come from the renderer and must not be reconstructed in the browser.
  */
 export type DiffRow = z.infer<typeof DiffRowSchema>;
 

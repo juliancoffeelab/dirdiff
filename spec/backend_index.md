@@ -89,13 +89,19 @@ Equal rows retain both original source spellings, including ignored spacing in
 patch context and omitted gaps.
 
 Its `word_diff` boolean requests Git's porcelain word output with the default
-non-whitespace word boundary. Zero-context hunk coordinates determine changed
-lines; porcelain records classify their words. Rows and whitespace retain the
-exact supplied sources because porcelain may print only one whitespace spelling.
+non-whitespace word boundary. The adapter copies the porcelain patch rather than
+reconstructing a physical-line diff. Every `~` record ends one row. A space
+record becomes one unchanged token on both sides; `-` and `+` records become one
+token on their reported side. Tokens retain the complete record payload, including
+Git's whitespace spelling. Hunk coordinates locate unchanged source gaps and
+validate the order of meaningful source words. They do not align changed rows.
+Git may split one physical source line across several rows or combine fragments
+of several physical lines in one row; the HUD shows that upstream behavior.
 A nonempty row whose every token, including whitespace, is deleted or inserted
 retains that status. Every other mixture is an equal aligned row carrying Git's
-token facts. Summary categories retain Git's meaningful-word accounting. Git
-itself suppresses moved-line colors while word diff is active.
+token facts. Summary categories count those row statuses; equal rows carrying a
+changed token count as modified. Git itself suppresses moved-line colors while
+word diff is active.
 
 Git's required `color_moved` and `color_moved_ws` settings pass the exact
 upstream choices, including `default`, independently of diff whitespace.
@@ -219,7 +225,10 @@ Enriches neutral engine rows for display.
 It defines `DiffRow`, `SyntaxClass`, `SyntaxSpan`, `DecoratedPart`, and
 `FoldHint`. It combines engine inline tokens with syntax spans into one lossless
 part sequence per row side, then attaches fold hints and hunk indexes without
-changing the engine's alignment or summary.
+changing the engine's alignment or summary. Complete physical-line rows reuse
+syntax parsed from their source. A fragment-bearing row stream, such as Git
+word diff, is instead parsed exactly as sent to the HUD so its offsets remain
+valid. Fold discovery continues to use the complete new source.
 
 Its public interface is exported from `dirdiff.rendering`.
 

@@ -453,8 +453,10 @@ class DiffEngineRow(TypedDict):
     Engines return these rows in source order through `DiffEngineResult`.
     Composer then sends them through display enrichment before HTTP validation.
 
-    A row describes aligned source text only. It has no syntax classes, fold
-    policy, bay identity, hunk number, or HTTP fields.
+    Most engines align complete physical source lines. Git word mode instead
+    preserves each upstream porcelain display line, which may contain a source
+    line fragment. A row has no syntax classes, fold policy, bay identity, hunk
+    number, or HTTP fields.
     """
 
     move: NotRequired[UnpairedMove]
@@ -469,33 +471,37 @@ class DiffEngineRow(TypedDict):
     """
 
     left_no: int | None
-    """One-based old-side source line represented by this aligned row.
+    """One-based old-side source line identified for this display row.
 
-    It is `None` when this row has no old-side line. Structural row status
-    describes token semantics independently of that alignment gap.
+    It is `None` when this row has no old-side source word. Git word rows use the
+    line containing their first old-side word, so a number may repeat when Git
+    splits one physical line. Row status describes token semantics independently
+    of this location.
     """
 
     right_no: int | None
-    """One-based new-side source line represented by this aligned row.
+    """One-based new-side source line identified for this display row.
 
-    It is `None` when this row has no new-side line. Structural context and
-    mixed-change rows may be unpaired after source wrapping.
+    It is `None` when this row has no new-side source word. Git word rows use the
+    line containing their first new-side word, so a number may repeat when Git
+    splits one physical line. Row status describes token semantics independently
+    of this location.
     """
 
     left_text: str
-    """Complete old-side line text without its newline terminator.
+    """Old-side text for this display row without its newline terminator.
 
-    An insert row uses `""` because it has no old line. For every present
-    `left_no`, this is the exact source line later reconstructed by decorated
-    parts; empty source lines remain distinguishable through the line number.
+    Most engines return a complete source line. Git word mode returns the exact
+    concatenation of old-side porcelain record payloads before one `~` boundary.
+    An insert row uses `""` because it has no old text.
     """
 
     right_text: str
-    """Complete new-side line text without its newline terminator.
+    """New-side text for this display row without its newline terminator.
 
-    A delete row uses `""` because it has no new line. For every present
-    `right_no`, this is the exact source line later reconstructed by decorated
-    parts; empty source lines remain distinguishable through the line number.
+    Most engines return a complete source line. Git word mode returns the exact
+    concatenation of new-side porcelain record payloads before one `~` boundary.
+    A delete row uses `""` because it has no new text.
     """
 
     left_tokens: NotRequired[list[InlineToken]]
@@ -569,11 +575,13 @@ class DiffEngineResult(TypedDict):
     """
 
     rows: list[DiffEngineRow]
-    """Complete aligned source rows in monotonically increasing side order.
+    """Complete display rows in monotonically increasing source order.
 
-    The sequence must cover every present source line exactly once. Composer
-    passes it unchanged to display enrichment, which may decorate but never
-    repair invalid alignment or invent omitted source.
+    Physical-line engines cover every present source line exactly once. Git
+    word mode instead covers every meaningful source word in order while
+    preserving upstream display fragments, so source numbers may repeat or be
+    absent on wordless fragments. Composer passes the sequence unchanged to
+    display enrichment, which decorates but never repairs its alignment.
     """
 
     engine_warning: NotRequired[EngineWarning]

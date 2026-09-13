@@ -299,11 +299,13 @@ class FoldHintResponse(ApiModel):
 
 
 class DiffRowResponse(ApiModel):
-    """Return one aligned row with complete display decoration.
+    """Return one engine row with complete display decoration.
 
-    Present sides carry their source line number, text, and lossless ordered
-    parts. An absent side has no line number or decorated parts. Current
-    renderers encode its text as an empty string, while the transport model
+    Each side carries display text and its lossless ordered parts. A source line
+    number is present when the engine identifies one for that display row. Git
+    word fragments containing only whitespace may have text and parts without
+    a number. A genuinely absent side has no number, text, or parts. Current
+    renderers encode absent text as an empty string, while the transport model
     also accepts `None`. `status` summarizes the row relationship.
     """
 
@@ -329,51 +331,53 @@ class DiffRowResponse(ApiModel):
     """
 
     left_no: int | None
-    """One-based left source coordinate represented by this row.
+    """One-based left source coordinate identified for this display row.
 
-    `None` means the alignment has no left line. Current renderer output pairs
-    it with empty text and no left parts. A present value identifies source,
-    not rendered order.
+    `None` means the engine supplied no coordinate. Git word mode may still
+    carry a wordless left fragment. A present value identifies source, not
+    rendered order, and may repeat across Git word fragments.
     """
 
     right_no: int | None
-    """One-based right source coordinate represented by this row.
+    """One-based right source coordinate identified for this display row.
 
-    `None` means the alignment has no right line. Current renderer output pairs
-    it with empty text and no right parts. A present value identifies source,
-    not rendered order.
+    `None` means the engine supplied no coordinate. Git word mode may still
+    carry a wordless right fragment. A present value identifies source, not
+    rendered order, and may repeat across Git word fragments.
     """
 
     left_text: str | None
-    """Complete left source line without a newline, when one is aligned.
+    """Complete left display text for this row, without a newline.
 
-    With a present `left_no`, concatenating `left_parts` reproduces this exact
-    string. Current renderer output uses `""` when `left_no` is absent; the
-    nullable model also accepts `None` from other constructors.
+    Concatenating `left_parts` reproduces this exact string. Physical-line
+    engines supply source lines; Git word mode may supply a source fragment or
+    Git-authored whitespace. The nullable model also accepts `None` from other
+    constructors.
     """
 
     right_text: str | None
-    """Complete right source line without a newline, when one is aligned.
+    """Complete right display text for this row, without a newline.
 
-    With a present `right_no`, concatenating `right_parts` reproduces this exact
-    string. Current renderer output uses `""` when `right_no` is absent; the
-    nullable model also accepts `None` from other constructors.
+    Concatenating `right_parts` reproduces this exact string. Physical-line
+    engines supply source lines; Git word mode may supply a source fragment or
+    Git-authored whitespace. The nullable model also accepts `None` from other
+    constructors.
     """
 
     left_parts: list[DecoratedPartResponse]
-    """Ordered decoration slices covering the entire present left line.
+    """Ordered decoration slices covering the entire left display text.
 
-    For a present side, their text concatenates to `left_text` without loss or
-    overlap. Current renderer output leaves the list empty when `left_no` is
-    absent.
+    Their text concatenates to `left_text` without loss or overlap. An empty
+    string has no parts; a Git word fragment may have parts without a line
+    number.
     """
 
     right_parts: list[DecoratedPartResponse]
-    """Ordered decoration slices covering the entire present right line.
+    """Ordered decoration slices covering the entire right display text.
 
-    For a present side, their text concatenates to `right_text` without loss or
-    overlap. Current renderer output leaves the list empty when `right_no` is
-    absent.
+    Their text concatenates to `right_text` without loss or overlap. An empty
+    string has no parts; a Git word fragment may have parts without a line
+    number.
     """
     hunk_index: int | None
     """

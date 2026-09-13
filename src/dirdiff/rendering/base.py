@@ -1133,8 +1133,9 @@ def enrich_rows_for_display(
     # Parameters
 
     - `rows`: Complete neutral engine rows to enrich without reordering.
-    - `left_text`: Complete old text used for syntax span lookup.
-    - `right_text`: Complete new text used for syntax and fold discovery.
+    - `left_text`: Complete old source corresponding to the left row stream.
+      Fold discovery currently reads only the new side.
+    - `right_text`: Complete new source used for fold discovery.
     - `left_path_hint`: Optional old path selecting a syntax grammar.
     - `right_path_hint`: Optional new path selecting syntax and fold grammars.
 
@@ -1149,8 +1150,82 @@ def enrich_rows_for_display(
     its text or syntax decoration violates the span contract. Unsupported
     syntax and fold grammars are omitted instead of raised.
     """
-    left_syntax_lines = highlight_lines_for_path(left_path_hint, left_text)
-    right_syntax_lines = highlight_lines_for_path(
+
+    def _syntax_for_side(
+        side: Literal["left", "right"],
+        path_hint: str | None,
+        source_text: str,
+    ) -> tuple[list[list[SyntaxSpan]] | None, bool]:
+        """Parse source-backed rows directly and fragment rows as displayed.
+
+        The boolean is true when syntax lines retain source-line coordinates;
+        otherwise each syntax line has the index of its displayed engine row.
+
+        # Parameters
+
+        - `side`: Exact row side whose text and coordinates are inspected.
+        - `path_hint`: Optional source name selecting the syntax grammar.
+        - `source_text`: Complete physical source for this side.
+
+        # Returns
+
+        - `First`: Syntax spans parsed from either the source or display stream.
+        - `Second`: Whether those spans use one-based source-line coordinates.
+        """
+        source_backed = True
+        source_cursor = 0
+        expected_number = 1
+        for row in rows:
+            match side:
+                case "left":
+                    number = row["left_no"]
+                    row_text = row["left_text"]
+                case "right":
+                    number = row["right_no"]
+                    row_text = row["right_text"]
+            if number is None:
+                if row_text != "":
+                    source_backed = False
+                    break
+                continue
+            if (
+                number != expected_number
+                or source_cursor == len(source_text)
+                or not source_text.startswith(row_text, source_cursor)
+            ):
+                source_backed = False
+                break
+            source_cursor += len(row_text)
+            expected_number += 1
+            if source_cursor == len(source_text):
+                continue
+            if source_text.startswith("\r\n", source_cursor):
+                source_cursor += 2
+            elif (
+                source_text[source_cursor]
+                in "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+            ):
+                source_cursor += 1
+            else:
+                source_backed = False
+                break
+        source_backed = source_backed and source_cursor == len(source_text)
+        if source_backed:
+            return highlight_lines_for_path(path_hint, source_text), True
+        match side:
+            case "left":
+                display_text = "\n".join(row["left_text"] for row in rows)
+            case "right":
+                display_text = "\n".join(row["right_text"] for row in rows)
+        return highlight_lines_for_path(path_hint, display_text), False
+
+    left_syntax_lines, left_syntax_uses_source_lines = _syntax_for_side(
+        "left",
+        left_path_hint,
+        left_text,
+    )
+    right_syntax_lines, right_syntax_uses_source_lines = _syntax_for_side(
+        "right",
         right_path_hint,
         right_text,
     )
@@ -1158,31 +1233,42 @@ def enrich_rows_for_display(
     enriched_rows: list[DiffRow] = []
     hunk_count = 0
     previous_changed = False
-    for row in rows:
+    for row_index, row in enumerate(rows):
         changed = engine_row_has_change(row)
         hunk_index = hunk_count if changed and not previous_changed else None
         if hunk_index is not None:
             hunk_count += 1
         previous_changed = changed
-
         left_no = row["left_no"]
-        left_syntax: list[SyntaxSpan] = []
-        if (
-            left_no is not None
-            and left_syntax_lines is not None
-            and left_no - 1 < len(left_syntax_lines)
-        ):
-            left_syntax = left_syntax_lines[left_no - 1]
-
         right_no = row["right_no"]
-        right_syntax: list[SyntaxSpan] = []
-        if (
-            right_no is not None
-            and right_syntax_lines is not None
-            and right_no - 1 < len(right_syntax_lines)
-        ):
-            right_syntax = right_syntax_lines[right_no - 1]
 
+        left_syntax: list[SyntaxSpan] = []
+        if left_syntax_lines is not None:
+            match left_syntax_uses_source_lines, left_no:
+                case True, None:
+                    left_syntax_index = None
+                case True, int(number):
+                    left_syntax_index = number - 1
+                case False, _:
+                    left_syntax_index = row_index
+            if left_syntax_index is not None and left_syntax_index < len(
+                left_syntax_lines
+            ):
+                left_syntax = left_syntax_lines[left_syntax_index]
+
+        right_syntax: list[SyntaxSpan] = []
+        if right_syntax_lines is not None:
+            match right_syntax_uses_source_lines, right_no:
+                case True, None:
+                    right_syntax_index = None
+                case True, int(number):
+                    right_syntax_index = number - 1
+                case False, _:
+                    right_syntax_index = row_index
+            if right_syntax_index is not None and right_syntax_index < len(
+                right_syntax_lines
+            ):
+                right_syntax = right_syntax_lines[right_syntax_index]
         left_text_value = row["left_text"]
         right_text_value = row["right_text"]
         enriched_rows.append(

@@ -142,9 +142,11 @@ groups and dimmed interiors. Syntax colors remain readable.
 These rows have no paired hover, outlines, or counterpart navigation, and
 each old-only or new-only row counts once toward moved lines.
 
-The rendering layer combines each engine token partition with the syntax spans
-for the same row side. The resulting ordered parts preserve every source
-character and carry `syntax_classes`, `diff_status`, whitespace status, and
+The rendering layer parses complete physical-line rows from their source. When
+an engine instead supplies source fragments, it parses the exact row-side
+stream shown by the HUD. It then combines each engine token partition with the
+syntax spans for that same row side. The resulting ordered parts preserve every
+displayed character and carry `syntax_classes`, `diff_status`, whitespace status, and
 leading-whitespace status. Structural tokens also carry their containing move's
 `paired` kind and old and new source spans. Syntax splitting preserves those
 endpoints and never

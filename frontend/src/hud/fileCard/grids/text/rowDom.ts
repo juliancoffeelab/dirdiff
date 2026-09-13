@@ -755,7 +755,7 @@ function renderInlineDiffRowsDom(
    * Null plus empty text is the only absent-side representation; zero and an
    * empty line with a number remain present.
    *
-   * @param lineNo Backend number for the selected side, or null if absent.
+   * @param lineNo Backend source number, or null when none was identified.
    * @param text Normalized text for the same selected side.
    */
   function inlineSideExists(lineNo: number | null, text: string): boolean {

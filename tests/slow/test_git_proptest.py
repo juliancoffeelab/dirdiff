@@ -1,10 +1,11 @@
 """Compare the Git row adapter with sources and real Git preset output.
 
-The tests expose independent engine invariants: rows replay every preset in
-both directions, word rows reproduce Git's exact color body, changed-row
-classification reproduces Git's controlled color facts, and generated
-whitespace mutations preserve Git's ``--ignore-space-change`` behavior.
-Word-diff row status is independently derived from its non-whitespace tokens.
+The tests expose independent engine invariants: physical-line rows replay every
+Git preset exactly, word rows preserve each source's ordered split words and
+reproduce Git's exact color body, changed-row classification reproduces Git's
+controlled color facts, and generated whitespace mutations preserve Git's
+``--ignore-space-change`` behavior. Word-diff row status is independently
+derived from all its tokens.
 Each oracle invokes Git separately from ``GitDiffEngine`` and never calls the
 adapter's private patch parser.
 
@@ -32,6 +33,7 @@ from dirdiff.engines import (
     UnpairedMove,
     git_executable,
 )
+from dirdiff.rendering import enrich_rows_for_display
 
 __all__: list[str] = []
 
@@ -299,16 +301,19 @@ def test_git_preset_diff_replays_both_directions(
     assert "\n".join(replayed_old) + "\n" == old_text
 
 
+@pytest.mark.parametrize(
+    "algorithm", ["myers", "minimal", "patience", "histogram"]
+)
 @pytest.mark.parametrize("preset", PRESETS, ids=str)
 def test_git_preset_word_diff_replays_both_directions(
     preset: Path,
     algorithm: GitAlgorithm,
 ) -> None:
-    """Porcelain word rows replay either exact source into the other.
+    """Porcelain word rows preserve every source word in order.
 
-    Row coordinates determine line insertion, removal, and replacement because
-    a word-status insert or delete may still have a whitespace-only counterpart.
-    Token partitions must independently reconstruct every decorated row.
+    Git's configured word regex discards physical line and whitespace spelling.
+    Undecorated source gaps and patch-backed token fragments must still contain
+    every non-whitespace source word exactly once and in source order.
 
     # Parameters
 
@@ -327,64 +332,48 @@ def test_git_preset_word_diff_replays_both_directions(
         old=DiffSide(exists=True, text=old_text, path_hint=old_path.name),
         new=DiffSide(exists=True, text=new_text, path_hint=new_path.name),
     )["rows"]
+    display = enrich_rows_for_display(
+        rows=rows,
+        left_text=old_text,
+        right_text=new_text,
+        left_path_hint=old_path.name,
+        right_path_hint=new_path.name,
+    )
+    assert len(display["rows"]) == len(rows)
+    for row, display_row in zip(rows, display["rows"], strict=True):
+        assert (
+            "".join(part["text"] for part in display_row["left_parts"])
+            == row["left_text"]
+        )
+        assert (
+            "".join(part["text"] for part in display_row["right_parts"])
+            == row["right_text"]
+        )
 
-    # Stage 2: reconstruct decorated lines from their token partitions, then
-    # translate row-side presence into left-to-right operations. Row status has
-    # its own independent invariant.
-    operations: list[tuple[str, str, str]] = []
+    # Stage 2: flatten each side's unchanged source gaps and patch fragments.
+    actual_left_words: list[str] = []
+    actual_right_words: list[str] = []
     for row in rows:
-        left_text = row["left_text"]
         if row["left_tokens"] != []:
-            left_text = "".join(token["text"] for token in row["left_tokens"])
-        right_text = row["right_text"]
-        if row["right_tokens"] != []:
-            right_text = "".join(token["text"] for token in row["right_tokens"])
-        if row["left_no"] is not None and row["right_no"] is not None:
-            operations.append(("replace", left_text, right_text))
+            actual_left_words.extend(
+                word
+                for token in row["left_tokens"]
+                for word in token["text"].split()
+            )
         elif row["left_no"] is not None:
-            operations.append(("remove", left_text, ""))
+            actual_left_words.extend(row["left_text"].split())
+        if row["right_tokens"] != []:
+            actual_right_words.extend(
+                word
+                for token in row["right_tokens"]
+                for word in token["text"].split()
+            )
         elif row["right_no"] is not None:
-            operations.append(("insert", "", right_text))
-        else:
-            raise AssertionError(row)
+            actual_right_words.extend(row["right_text"].split())
 
-    # Stage 3: apply the operation stream from old to new.
-    old_lines = old_text.splitlines()
-    forward_cursor = 0
-    replayed_new: list[str] = []
-    for operation, left_text, right_text in operations:
-        if operation == "insert":
-            replayed_new.append(right_text)
-            continue
-        assert old_lines[forward_cursor] == left_text
-        forward_cursor += 1
-        if operation == "replace":
-            replayed_new.append(right_text)
-        else:
-            assert operation == "remove"
-
-    # Stage 4: compare the forward replay with the exact new source.
-    assert forward_cursor == len(old_lines)
-    assert "\n".join(replayed_new) + "\n" == new_text
-
-    # Stage 5: apply the same operation stream from new to old.
-    new_lines = new_text.splitlines()
-    reverse_cursor = 0
-    replayed_old: list[str] = []
-    for operation, left_text, right_text in operations:
-        if operation == "remove":
-            replayed_old.append(left_text)
-            continue
-        assert new_lines[reverse_cursor] == right_text
-        reverse_cursor += 1
-        if operation == "replace":
-            replayed_old.append(left_text)
-        else:
-            assert operation == "insert"
-
-    # Stage 6: compare the reverse replay with the exact old source.
-    assert reverse_cursor == len(new_lines)
-    assert "\n".join(replayed_old) + "\n" == old_text
+    # Stage 3: compare the exact word sequences retained by Git's regex.
+    assert actual_left_words == old_text.split()
+    assert actual_right_words == new_text.split()
 
 
 @pytest.mark.parametrize("preset", WORD_DIFF_PRESETS, ids=str)
@@ -491,7 +480,7 @@ def test_git_preset_word_diff_row_status_preserves_complete_token_facts(
     # Stage 1: render the preset into porcelain-backed word rows.
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
-    rows = GitDiffEngine(algorithm=algorithm, word_diff=True).render_diff(
+    result = GitDiffEngine(algorithm=algorithm, word_diff=True).render_diff(
         old=DiffSide(
             exists=True,
             text=old_path.read_text(),
@@ -502,7 +491,8 @@ def test_git_preset_word_diff_row_status_preserves_complete_token_facts(
             text=new_path.read_text(),
             path_hint=new_path.name,
         ),
-    )["rows"]
+    )
+    rows = result["rows"]
 
     # Stage 2: derive every expected row status from every token.
     expected: list[str] = []
@@ -524,6 +514,24 @@ def test_git_preset_word_diff_row_status_preserves_complete_token_facts(
 
     # Stage 4: compare the complete status stream with the token-derived facts.
     assert actual == expected, preset
+    added = expected.count("insert")
+    removed = expected.count("delete")
+    modified = sum(
+        1
+        for status, row in zip(expected, rows, strict=True)
+        if status == "equal"
+        and any(
+            token["status"] != "unchanged"
+            for token in [*row["left_tokens"], *row["right_tokens"]]
+        )
+    )
+    assert result["summary"] == {
+        "changed_lines": added + removed + modified,
+        "modified_lines": modified,
+        "added_lines": added,
+        "removed_lines": removed,
+        "moved_lines": 0,
+    }
 
 
 @pytest.mark.parametrize(
@@ -1064,13 +1072,13 @@ def test_git_preset_word_diff_ignore_space_change_replays_whitespace_mutation(
     reverse: bool,
     algorithm: GitAlgorithm,
 ) -> None:
-    """Word rows replay exact sources when Git ignores generated whitespace.
+    """Combined-mode rows preserve generated source words in order.
 
     Hypothesis changes every horizontal-whitespace run in one preset source,
     may add trailing whitespace, and inserts a non-whitespace edit into one
-    physical line so Git must emit a word hunk. Row-side presence forms an edit
-    script that must reproduce the exact generated sources in either direction,
-    including whitespace that Git deliberately excludes from comparison.
+    physical line so Git must emit a word hunk. Git may discard the exact
+    whitespace spelling, but its patch fragments must retain every word from
+    both generated sources exactly once and in order.
 
     # Parameters
 
@@ -1144,63 +1152,30 @@ def test_git_preset_word_diff_ignore_space_change_replays_whitespace_mutation(
         new=DiffSide(exists=True, text=new_text, path_hint=source_path.name),
     )["rows"]
 
-    # Stage 2: reconstruct decorated lines from their token partitions, then
-    # translate row-side presence into left-to-right operations. Row status has
-    # its own independent invariant.
-    operations: list[tuple[str, str, str]] = []
+    # Stage 2: flatten each side's unchanged source gaps and patch fragments.
+    actual_left_words: list[str] = []
+    actual_right_words: list[str] = []
     for row in rows:
-        left_text = row["left_text"]
         if row["left_tokens"] != []:
-            left_text = "".join(token["text"] for token in row["left_tokens"])
-        right_text = row["right_text"]
-        if row["right_tokens"] != []:
-            right_text = "".join(token["text"] for token in row["right_tokens"])
-        if row["left_no"] is not None and row["right_no"] is not None:
-            operations.append(("replace", left_text, right_text))
+            actual_left_words.extend(
+                word
+                for token in row["left_tokens"]
+                for word in token["text"].split()
+            )
         elif row["left_no"] is not None:
-            operations.append(("remove", left_text, ""))
+            actual_left_words.extend(row["left_text"].split())
+        if row["right_tokens"] != []:
+            actual_right_words.extend(
+                word
+                for token in row["right_tokens"]
+                for word in token["text"].split()
+            )
         elif row["right_no"] is not None:
-            operations.append(("insert", "", right_text))
-        else:
-            raise AssertionError(row)
+            actual_right_words.extend(row["right_text"].split())
 
-    # Stage 3: apply the operation stream from old to new.
-    old_lines = old_text.splitlines()
-    forward_cursor = 0
-    replayed_new: list[str] = []
-    for operation, left_text, right_text in operations:
-        if operation == "insert":
-            replayed_new.append(right_text)
-            continue
-        assert old_lines[forward_cursor] == left_text
-        forward_cursor += 1
-        if operation == "replace":
-            replayed_new.append(right_text)
-        else:
-            assert operation == "remove"
-
-    # Stage 4: compare the forward replay with the exact generated new source.
-    assert forward_cursor == len(old_lines)
-    assert "\n".join(replayed_new) + "\n" == new_text
-
-    # Stage 5: apply the same operation stream from new to old.
-    new_lines = new_text.splitlines()
-    reverse_cursor = 0
-    replayed_old: list[str] = []
-    for operation, left_text, right_text in operations:
-        if operation == "remove":
-            replayed_old.append(left_text)
-            continue
-        assert new_lines[reverse_cursor] == right_text
-        reverse_cursor += 1
-        if operation == "replace":
-            replayed_old.append(left_text)
-        else:
-            assert operation == "insert"
-
-    # Stage 6: compare the reverse replay with the exact generated old source.
-    assert reverse_cursor == len(new_lines)
-    assert "\n".join(replayed_old) + "\n" == old_text
+    # Stage 3: compare the exact word sequences retained by Git's regex.
+    assert actual_left_words == old_text.split()
+    assert actual_right_words == new_text.split()
 
 
 @pytest.mark.parametrize("source_side", ["old", "new"])
@@ -1378,14 +1353,16 @@ def test_git_preset_word_diff_ignore_space_change_reproduces_color_word_stream(
     actual_events: list[tuple[str, InlineTokenStatus]] = []
     for row in rows:
         left_words = [
-            (token["text"], token["status"])
+            (word, token["status"])
             for token in row["left_tokens"]
             if not token["is_ws"]
+            for word in re.findall(r"\S+", token["text"])
         ]
         right_words = [
-            (token["text"], token["status"])
+            (word, token["status"])
             for token in row["right_tokens"]
             if not token["is_ws"]
+            for word in re.findall(r"\S+", token["text"])
         ]
         if left_words != []:
             left_pending.append(left_words)

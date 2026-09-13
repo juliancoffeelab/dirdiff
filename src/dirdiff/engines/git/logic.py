@@ -1,18 +1,19 @@
-"""Convert Git line and word patches into complete engine rows.
+"""Convert Git line patches and word-display patches into engine rows.
 
 ## Public interface
 
 `GitDiffEngine` runs Git through its private driver and returns the common
-engine result. Its row builders reconstruct complete sources from Git's colored
-unified or porcelain word patch, or from one present side.
+engine result. Its line-row builders reconstruct complete sources from Git's
+colored unified patch or from one present side. Word mode preserves porcelain
+display fragments between Git's explicit row boundaries.
 
 ## Purpose and boundaries
 
-Git patches omit unchanged text outside their hunks, while dirdiff rows must
-cover both complete sources. This module restores those gaps from the supplied
-strings, rejects patches that contradict them, and calculates the result
-summary. Git color slots become row presentation data without paired move
-identities; porcelain records become inline word statuses. The private driver
+Git patches omit unchanged text outside their hunks, so this module restores
+those gaps from the supplied strings. It rejects patches that contradict the
+source and calculates the result summary. Git color slots become row
+presentation data without paired move identities; porcelain records become
+inline word statuses without physical-line reconstruction. The private driver
 contains executable and temporary-file mechanics; syntax enrichment remains
 outside the engine.
 """
@@ -356,60 +357,79 @@ def git_word_diff_rows_from_patch(
     left_text: str,
     right_text: str,
 ) -> list[DiffEngineRow]:
-    """Convert Git's zero-context porcelain word diff into complete rows.
+    """Translate Git's porcelain word patch directly into engine rows.
 
-    Hunk coordinates supply line alignment, while porcelain body records supply
-    the status of each non-whitespace word. Exact row text and whitespace always
-    come from the supplied sources because porcelain deliberately treats text
-    between words as insignificant and may print only one side's spelling.
+    Each ``~`` record terminates one upstream display row. Records beginning
+    with a space are copied to both sides as unchanged text; ``-`` and ``+``
+    records are copied only to their reported side. Hunk coordinates supply
+    source ranges and validate the meaningful words attached to each fragment.
+    The adapter does not realign, regroup, or infer relationships between rows.
 
     # Parameters
 
-    - `patch`: Output from Git's porcelain word-diff mode with zero context.
-    - `ignore_space_change`: Whitespace policy used to produce the patch.
-    - `left_text`: Complete old source passed to Git.
-    - `right_text`: Complete new source passed to Git.
+    - `patch`: Exact zero-context ``--word-diff=porcelain`` output from Git.
+    - `ignore_space_change`: Whitespace policy used for unchanged source gaps.
+    - `left_text`: Complete old source supplied to Git.
+    - `right_text`: Complete new source supplied to Git.
 
     # Returns
 
-    Complete source-backed rows. Changed rows carry a lossless token partition
-    whose non-whitespace statuses exactly reproduce Git's porcelain facts.
+    Complete unchanged source gaps surrounding patch-backed display rows. Every
+    decorated row preserves one upstream ``~`` boundary and the record order,
+    text, whitespace, and statuses Git emitted inside it.
 
     # Failures
 
-    Raises `AssertionError` when hunk coordinates, word facts, or source text
-    disagree. No partial decoration is returned for malformed Git output.
+    Raises `AssertionError` when a record kind, hunk range, or meaningful patch
+    word contradicts the source supplied to Git.
     """
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
-    hunks: list[tuple[int, int, int, int, list[str]]] = []
-    current_body: list[str] | None = None
+    hunks: list[tuple[int, int, int, int, list[list[str]]]] = []
+    current_groups: list[list[str]] | None = None
+    current_group: list[str] = []
     for line in patch.split("\n"):
         hunk_match = GIT_HUNK_HEADER_PATTERN.match(line)
         if hunk_match is not None:
-            left_start = int(hunk_match.group("left_start"))
-            right_start = int(hunk_match.group("right_start"))
+            if current_groups is not None and current_group != []:
+                current_groups.append(current_group)
             left_count_text = hunk_match.group("left_count")
             right_count_text = hunk_match.group("right_count")
             left_count = 1 if left_count_text is None else int(left_count_text)
             right_count = (
                 1 if right_count_text is None else int(right_count_text)
             )
-            left_start += left_count == 0
-            right_start += right_count == 0
-            current_body = []
+            left_start = int(hunk_match.group("left_start")) + (left_count == 0)
+            right_start = int(hunk_match.group("right_start")) + (
+                right_count == 0
+            )
+            current_groups = []
+            current_group = []
             hunks.append(
-                (left_start, left_count, right_start, right_count, current_body)
+                (
+                    left_start,
+                    left_count,
+                    right_start,
+                    right_count,
+                    current_groups,
+                )
             )
             continue
-        if current_body is not None and line != "":
-            current_body.append(line)
+        if current_groups is None or line.startswith("\\"):
+            continue
+        if line == "~":
+            current_groups.append(current_group)
+            current_group = []
+        elif line != "":
+            current_group.append(line)
+    if current_groups is not None and current_group != []:
+        current_groups.append(current_group)
 
     rows: list[DiffEngineRow] = []
     left_no = 1
     right_no = 1
     word_pattern = re.compile(r"\S+")
-    for left_start, left_count, right_start, right_count, body in hunks:
+    for left_start, left_count, right_start, right_count, groups in hunks:
         left_no, right_no = _append_equal_rows(
             rows=rows,
             left_lines=left_lines,
@@ -420,103 +440,87 @@ def git_word_diff_rows_from_patch(
             target_right_no=right_start,
             ignore_space_change=ignore_space_change,
         )
-        left_facts: list[tuple[str, Literal["unchanged", "delete"]]] = []
-        right_facts: list[tuple[str, Literal["unchanged", "insert"]]] = []
-        for line in body:
-            if line == "~" or line.startswith("\\"):
-                continue
-            assert line[0] in {" ", "-", "+"}, (
-                f"Unsupported Git word-diff record: {line!r}"
+        left_source_words = [
+            (word, source_no)
+            for source_no, source_line in enumerate(
+                left_lines[left_start - 1 : left_start - 1 + left_count],
+                start=left_start,
             )
-            words = word_pattern.findall(line[1:])
-            if line[0] == " ":
-                left_facts.extend((word, "unchanged") for word in words)
-                right_facts.extend((word, "unchanged") for word in words)
-            elif line[0] == "-":
-                left_facts.extend((word, "delete") for word in words)
-            else:
-                right_facts.extend((word, "insert") for word in words)
+            for word in word_pattern.findall(source_line)
+        ]
+        right_source_words = [
+            (word, source_no)
+            for source_no, source_line in enumerate(
+                right_lines[right_start - 1 : right_start - 1 + right_count],
+                start=right_start,
+            )
+            for word in word_pattern.findall(source_line)
+        ]
+        left_word_index = 0
+        right_word_index = 0
 
-        left_hunk_rows: list[tuple[int, str, list[InlineToken]]] = []
-        right_hunk_rows: list[tuple[int, str, list[InlineToken]]] = []
-        for side, source_lines, start, count, facts, side_rows in (
-            (
-                "left",
-                left_lines,
-                left_start,
-                left_count,
-                left_facts,
-                left_hunk_rows,
-            ),
-            (
-                "right",
-                right_lines,
-                right_start,
-                right_count,
-                right_facts,
-                right_hunk_rows,
-            ),
-        ):
-            fact_index = 0
-            for line_offset, text in enumerate(
-                source_lines[start - 1 : start - 1 + count]
-            ):
-                tokens: list[InlineToken] = []
-                cursor = 0
-                for word_match in word_pattern.finditer(text):
-                    if cursor < word_match.start():
-                        gap = text[cursor : word_match.start()]
-                        tokens.append(
+        for group in groups:
+            left_tokens: list[InlineToken] = []
+            right_tokens: list[InlineToken] = []
+            left_numbers: list[int] = []
+            right_numbers: list[int] = []
+            for record in group:
+                assert record[0] in {" ", "-", "+"}, (
+                    f"Unsupported Git word-diff record: {record!r}"
+                )
+                match record[0]:
+                    case " ":
+                        left_status: Literal["unchanged", "delete"] | None = (
+                            "unchanged"
+                        )
+                        right_status: Literal["unchanged", "insert"] | None = (
+                            "unchanged"
+                        )
+                    case "-":
+                        left_status = "delete"
+                        right_status = None
+                    case "+":
+                        left_status = None
+                        right_status = "insert"
+                    case _:
+                        raise AssertionError(record)
+
+                payload = record[1:]
+                if left_status is not None:
+                    for word in word_pattern.findall(payload):
+                        assert left_word_index < len(left_source_words)
+                        source_word, source_no = left_source_words[
+                            left_word_index
+                        ]
+                        assert word == source_word
+                        left_numbers.append(source_no)
+                        left_word_index += 1
+                    if payload != "":
+                        left_tokens.append(
                             {
-                                "text": gap,
-                                "is_ws": gap.isspace(),
-                                "status": "unchanged",
+                                "text": payload,
+                                "is_ws": payload.isspace(),
+                                "status": left_status,
                             }
                         )
-                    assert fact_index < len(facts), (
-                        f"Git word diff omitted {side} source words."
-                    )
-                    word, status = facts[fact_index]
-                    assert word_match[0] == word, (
-                        f"Git word diff contradicts {side} source at line "
-                        f"{start + line_offset}."
-                    )
-                    tokens.append(
-                        {
-                            "text": word_match[0],
-                            "is_ws": False,
-                            "status": status,
-                        }
-                    )
-                    fact_index += 1
-                    cursor = word_match.end()
-                if cursor < len(text):
-                    tail = text[cursor:]
-                    tokens.append(
-                        {
-                            "text": tail,
-                            "is_ws": tail.isspace(),
-                            "status": "unchanged",
-                        }
-                    )
-                side_rows.append((start + line_offset, text, tokens))
-            assert fact_index == len(facts), (
-                f"Git word diff reported extra {side} source words."
-            )
+                if right_status is not None:
+                    for word in word_pattern.findall(payload):
+                        assert right_word_index < len(right_source_words)
+                        source_word, source_no = right_source_words[
+                            right_word_index
+                        ]
+                        assert word == source_word
+                        right_numbers.append(source_no)
+                        right_word_index += 1
+                    if payload != "":
+                        right_tokens.append(
+                            {
+                                "text": payload,
+                                "is_ws": payload.isspace(),
+                                "status": right_status,
+                            }
+                        )
 
-        for line_offset in range(max(left_count, right_count)):
-            left_row = (
-                left_hunk_rows[line_offset]
-                if line_offset < len(left_hunk_rows)
-                else None
-            )
-            right_row = (
-                right_hunk_rows[line_offset]
-                if line_offset < len(right_hunk_rows)
-                else None
-            )
-            left_tokens = [] if left_row is None else left_row[2]
-            right_tokens = [] if right_row is None else right_row[2]
             statuses = [
                 token["status"] for token in [*left_tokens, *right_tokens]
             ]
@@ -529,22 +533,29 @@ def git_word_diff_rows_from_patch(
             ):
                 row_status = "insert"
             else:
-                # Git reports word facts, not a replacement relationship.
-                # Mixed and partially unchanged token rows remain aligned context.
                 row_status = "equal"
             rows.append(
                 {
                     "status": row_status,
-                    "left_no": None if left_row is None else left_row[0],
-                    "right_no": None if right_row is None else right_row[0],
-                    "left_text": "" if left_row is None else left_row[1],
-                    "right_text": "" if right_row is None else right_row[1],
+                    "left_no": None if left_numbers == [] else left_numbers[0],
+                    "right_no": None
+                    if right_numbers == []
+                    else right_numbers[0],
+                    "left_text": "".join(
+                        token["text"] for token in left_tokens
+                    ),
+                    "right_text": "".join(
+                        token["text"] for token in right_tokens
+                    ),
                     "left_tokens": left_tokens,
                     "right_tokens": right_tokens,
                 }
             )
-        left_no += left_count
-        right_no += right_count
+
+        assert left_word_index == len(left_source_words)
+        assert right_word_index == len(right_source_words)
+        left_no = left_start + left_count
+        right_no = right_start + right_count
 
     left_no, right_no = _append_equal_rows(
         rows=rows,
@@ -652,38 +663,22 @@ class GitDiffEngine(DiffEngineProtocol):
                 text=right_text_value,
                 side="right",
             )
+        added_lines = sum(1 for row in rows if row["status"] == "insert")
+        removed_lines = sum(1 for row in rows if row["status"] == "delete")
         if self.word_diff:
-            added_lines = removed_lines = modified_lines = 0
-            for row in rows:
-                tokens = [
-                    *row.get("left_tokens", []),
-                    *row.get("right_tokens", []),
-                ]
-                if tokens == []:
-                    if row["status"] == "insert":
-                        added_lines += 1
-                    elif row["status"] == "delete":
-                        removed_lines += 1
-                    continue
-                meaningful_statuses = [
-                    token["status"] for token in tokens if not token["is_ws"]
-                ]
-                changed_statuses = [
-                    status
-                    for status in meaningful_statuses
-                    if status != "unchanged"
-                ]
-                if changed_statuses == []:
-                    continue
-                if all(status == "insert" for status in meaningful_statuses):
-                    added_lines += 1
-                elif all(status == "delete" for status in meaningful_statuses):
-                    removed_lines += 1
-                else:
-                    modified_lines += 1
+            modified_lines = sum(
+                1
+                for row in rows
+                if row["status"] == "equal"
+                and any(
+                    token["status"] != "unchanged"
+                    for token in [
+                        *row.get("left_tokens", []),
+                        *row.get("right_tokens", []),
+                    ]
+                )
+            )
         else:
-            added_lines = sum(1 for row in rows if row["status"] == "insert")
-            removed_lines = sum(1 for row in rows if row["status"] == "delete")
             modified_lines = 0
         moved_lines = sum(1 for row in rows if row["status"] == "move")
         return {
