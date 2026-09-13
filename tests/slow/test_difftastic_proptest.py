@@ -561,8 +561,6 @@ def test_difftastic_preset_line_status_matches_token_statuses(
     for row_index, row in enumerate(rows, start=1):
         has_token_data = False
         token_statuses: list[str] = []
-        changed_tokens_are_ws = True
-        has_unchanged_text = False
         for side in ("left", "right"):
             tokens = (
                 row.get("left_tokens")
@@ -576,24 +574,15 @@ def test_difftastic_preset_line_status_matches_token_statuses(
             for token in tokens:
                 status = token["status"]
                 token_statuses.append(status)
-                if status == "unchanged" and not token["is_ws"]:
-                    has_unchanged_text = True
-                if status != "unchanged" and not token["is_ws"]:
-                    changed_tokens_are_ws = False
         if token_statuses == [] and not has_token_data:
             continue
 
-        changed_statuses = {
-            status for status in token_statuses if status != "unchanged"
-        }
-        if changed_statuses == set() or changed_tokens_are_ws:
-            expected = "equal"
-        elif changed_statuses == {"delete"} and not has_unchanged_text:
+        if all(status == "delete" for status in token_statuses):
             expected = "delete"
-        elif changed_statuses == {"insert"} and not has_unchanged_text:
+        elif all(status == "insert" for status in token_statuses):
             expected = "insert"
         else:
-            expected = "replace"
+            expected = "equal"
 
         actual = row["status"]
         if actual != expected:

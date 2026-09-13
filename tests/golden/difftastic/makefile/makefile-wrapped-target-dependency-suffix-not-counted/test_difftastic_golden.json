@@ -46,7 +46,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "uv --no-cache run flake8 --jobs 1 --select SBT001 src"
       }
     ],
@@ -60,11 +60,11 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "uv --no-cache run flake8 --jobs 1 --select SBT001 src tests"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 6,
@@ -95,7 +95,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "uv --no-cache run flake8 --jobs 1 --select SBT002 src"
       }
     ],
@@ -109,11 +109,11 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "uv --no-cache run flake8 --jobs 1 --select SBT002 src tests"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 9,

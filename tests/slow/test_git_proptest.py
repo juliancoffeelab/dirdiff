@@ -341,15 +341,15 @@ def test_git_preset_word_diff_alignment_matches_color_patch(
     "algorithm", ["myers", "minimal", "patience", "histogram"]
 )
 @pytest.mark.parametrize("preset", PRESETS, ids=str)
-def test_git_preset_word_diff_row_status_derives_from_tokens(
+def test_git_preset_word_diff_row_status_preserves_complete_token_facts(
     preset: Path,
     algorithm: GitAlgorithm,
 ) -> None:
-    """Every word-diff row status must summarize its non-whitespace tokens.
+    """Every word-diff row status must preserve its complete token facts.
 
-    A row with no changed non-whitespace token is equal. A row whose meaningful
-    tokens are all inserted or all deleted keeps that one-sided status. Any
-    mixture of changed and unchanged meaningful tokens is a replacement.
+    A nonempty row whose every token, including whitespace, is inserted or
+    deleted keeps that status. Every other token mixture remains equal because
+    Git did not report a replacement relationship.
 
     # Parameters
 
@@ -373,23 +373,19 @@ def test_git_preset_word_diff_row_status_derives_from_tokens(
         ),
     )["rows"]
 
-    # Stage 2: derive every expected row status from its meaningful tokens.
+    # Stage 2: derive every expected row status from every token.
     expected: list[str] = []
     for row in rows:
         statuses = [
             token["status"]
             for token in [*row["left_tokens"], *row["right_tokens"]]
-            if not token["is_ws"]
         ]
-        changed = {status for status in statuses if status != "unchanged"}
-        if changed == set():
-            expected_status = "equal"
-        elif all(status == "insert" for status in statuses):
+        if statuses != [] and all(status == "insert" for status in statuses):
             expected_status = "insert"
-        elif all(status == "delete" for status in statuses):
+        elif statuses != [] and all(status == "delete" for status in statuses):
             expected_status = "delete"
         else:
-            expected_status = "replace"
+            expected_status = "equal"
         expected.append(expected_status)
 
     # Stage 3: collect the statuses reported by the adapter.

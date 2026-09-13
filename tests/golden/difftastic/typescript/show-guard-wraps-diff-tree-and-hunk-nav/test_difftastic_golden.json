@@ -122,7 +122,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 5,
@@ -285,7 +285,7 @@
         "text": "}"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 16,
@@ -388,12 +388,12 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "<"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "GracefulErrorBoundary"
       },
       {
@@ -403,22 +403,22 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "title"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "\"Could not render file tree\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ">"
       }
     ],
@@ -432,12 +432,12 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "<"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "GracefulErrorBoundary"
       },
       {
@@ -447,26 +447,26 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "title"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "\"Could not render file tree\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ">"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 27,
@@ -479,12 +479,12 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "<"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "FileTreeSidebar"
       }
     ],
@@ -498,16 +498,16 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "<"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "FileTreeSidebar"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 28,
@@ -520,47 +520,47 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "files"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "displayFiles"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -574,51 +574,51 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "files"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "displayFiles"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 29,
@@ -631,47 +631,47 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "directoryExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "directoryExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -685,51 +685,51 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "directoryExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "directoryExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 30,
@@ -742,47 +742,47 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "fileExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "fileExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -796,51 +796,51 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "fileExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "fileExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 31,
@@ -853,47 +853,47 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "activeHunkFileId"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "activeHunkFileId"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -907,51 +907,51 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "activeHunkFileId"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "activeHunkFileId"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 32,
@@ -964,47 +964,47 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "virtualizedFileIds"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "virtualizedFileIds"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -1018,51 +1018,51 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "virtualizedFileIds"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "virtualizedFileIds"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 33,
@@ -1075,47 +1075,47 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "open"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "fileTreeOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -1129,51 +1129,51 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "open"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "fileTreeOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 34,
@@ -1186,37 +1186,37 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "onOpenChange"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "setFileTreeOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -1230,41 +1230,41 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "onOpenChange"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "setFileTreeOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 35,
@@ -1277,37 +1277,37 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "setDirectoryExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "setDirectoryExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -1321,41 +1321,41 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "setDirectoryExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "setDirectoryExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 36,
@@ -1368,37 +1368,37 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "setFileExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "setFileExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -1412,41 +1412,41 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "setFileExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "ui"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "setFileExpansion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 37,
@@ -1459,37 +1459,37 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "onScrollToDirectory"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "scrollToDirectory"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -1503,41 +1503,41 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "onScrollToDirectory"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "scrollToDirectory"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 38,
@@ -1550,37 +1550,37 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "onScrollToFile"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "scrollToFile"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -1594,41 +1594,41 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "onScrollToFile"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "scrollToFile"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 39,
@@ -1641,7 +1641,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "/>"
       }
     ],
@@ -1655,11 +1655,11 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "/>"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 40,
@@ -1672,17 +1672,17 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "</"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "GracefulErrorBoundary"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ">"
       }
     ],
@@ -1696,21 +1696,21 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "</"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "GracefulErrorBoundary"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ">"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 41,
@@ -1723,12 +1723,12 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "<"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "HunkNav"
       }
     ],
@@ -1742,16 +1742,16 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "<"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "HunkNav"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 42,
@@ -1764,47 +1764,47 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "debugOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "debugMenuOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -1818,51 +1818,51 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "debugOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "debugMenuOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 43,
@@ -1875,47 +1875,47 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "helpOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "helpOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -1929,51 +1929,51 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "helpOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "helpOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 44,
@@ -1986,47 +1986,47 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "hunkPosition"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "hunkPosition"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -2040,51 +2040,51 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "hunkPosition"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "hunkPosition"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ")"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 45,
@@ -2097,37 +2097,37 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "onHelpOpenChange"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "setHelpOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -2141,41 +2141,41 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "onHelpOpenChange"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "setHelpOpen"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 46,
@@ -2188,37 +2188,37 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "onNext"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "scrollNext"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -2232,41 +2232,41 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "onNext"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "scrollNext"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 47,
@@ -2279,37 +2279,37 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "onPrev"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "scrollPrev"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -2323,41 +2323,41 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "onPrev"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "{"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "navigation"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "scrollPrev"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 48,
@@ -2370,7 +2370,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "/>"
       }
     ],
@@ -2384,11 +2384,11 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "/>"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2417,7 +2417,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 49,

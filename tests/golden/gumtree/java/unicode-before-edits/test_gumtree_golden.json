@@ -38,6 +38,6 @@
         "text": "; }"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   }
 ]

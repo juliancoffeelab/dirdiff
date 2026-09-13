@@ -1,6 +1,6 @@
 [
   {
-    "status": "move",
+    "status": "equal",
     "left_no": 1,
     "right_no": null,
     "left_text": "def first():",
@@ -103,7 +103,7 @@
     "hunk_index": 0
   },
   {
-    "status": "move",
+    "status": "equal",
     "left_no": 2,
     "right_no": null,
     "left_text": "    return 1",
@@ -378,7 +378,7 @@
     "hunk_index": null
   },
   {
-    "status": "move",
+    "status": "equal",
     "left_no": null,
     "right_no": 4,
     "left_text": "",
@@ -481,7 +481,7 @@
     "hunk_index": 1
   },
   {
-    "status": "move",
+    "status": "equal",
     "left_no": null,
     "right_no": 5,
     "left_text": "",

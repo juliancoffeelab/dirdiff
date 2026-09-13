@@ -308,7 +308,7 @@
     "hunk_index": null
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": null,
     "right_no": 6,
     "left_text": "",

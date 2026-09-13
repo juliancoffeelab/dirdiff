@@ -372,35 +372,23 @@ def build_gumtree_rows_from_json(
         for left, right in pairs:
             old_text = "" if left is None else left_lines[left].text
             new_text = "" if right is None else right_lines[right].text
-            # Alignment gaps do not imply edits. Only GumTree's token facts
-            # determine whether a row is context, a complete change, or a mix.
+            # Alignment gaps do not imply edits. Only a complete insertion or
+            # deletion gives a row changed status; other GumTree facts remain
+            # on their exact token ranges.
             tokens = ([] if left is None else left_tokens[left]) + (
                 [] if right is None else right_tokens[right]
             )
-            changes = {
-                token["status"]
-                for token in tokens
-                if token["status"] != "unchanged"
-            }
-            has_changed_text = any(
-                token["status"] != "unchanged" and not token["is_ws"]
-                for token in tokens
-            )
-            has_context = any(
-                token["status"] == "unchanged" and not token["is_ws"]
-                for token in tokens
-            )
-            row_status: Literal["equal", "insert", "delete", "move", "replace"]
-            if not has_changed_text:
-                row_status = "equal"
-            elif not has_context and changes == {"insert"}:
+            row_status: Literal["equal", "insert", "delete"]
+            if tokens != [] and all(
+                token["status"] == "insert" for token in tokens
+            ):
                 row_status = "insert"
-            elif not has_context and changes == {"delete"}:
+            elif tokens != [] and all(
+                token["status"] == "delete" for token in tokens
+            ):
                 row_status = "delete"
-            elif not has_context and changes == {"move"}:
-                row_status = "move"
             else:
-                row_status = "replace"
+                row_status = "equal"
             rows.append(
                 {
                     "status": row_status,
@@ -750,21 +738,50 @@ def _summary(rows: list[DiffEngineRow]) -> DiffSummary:
         "removed_lines": 0,
         "moved_lines": 0,
     }
-    categories: dict[
-        str,
-        Literal[
-            "modified_lines", "added_lines", "removed_lines", "moved_lines"
-        ],
-    ] = {
-        "replace": "modified_lines",
-        "insert": "added_lines",
-        "delete": "removed_lines",
-        "move": "moved_lines",
-    }
     for row in rows:
-        status = row["status"]
-        if status != "equal":
-            summary[categories[status]] += 1
+        category: (
+            Literal[
+                "modified_lines", "added_lines", "removed_lines", "moved_lines"
+            ]
+            | None
+        )
+        tokens = [
+            *row.get("left_tokens", []),
+            *row.get("right_tokens", []),
+        ]
+        if tokens == []:
+            if row["status"] == "insert":
+                category = "added_lines"
+            elif row["status"] == "delete":
+                category = "removed_lines"
+            else:
+                category = None
+        else:
+            changes = {
+                token["status"]
+                for token in tokens
+                if token["status"] != "unchanged"
+            }
+            has_changed_text = any(
+                token["status"] != "unchanged" and not token["is_ws"]
+                for token in tokens
+            )
+            has_context = any(
+                token["status"] == "unchanged" and not token["is_ws"]
+                for token in tokens
+            )
+            if not has_changed_text:
+                category = None
+            elif not has_context and changes == {"insert"}:
+                category = "added_lines"
+            elif not has_context and changes == {"delete"}:
+                category = "removed_lines"
+            elif not has_context and changes == {"move"}:
+                category = "moved_lines"
+            else:
+                category = "modified_lines"
+        if category is not None:
+            summary[category] += 1
             summary["changed_lines"] += 1
     return summary
 

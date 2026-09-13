@@ -38,7 +38,7 @@
         "text": "let value = call("
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -63,7 +63,7 @@
         "text": ","
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,

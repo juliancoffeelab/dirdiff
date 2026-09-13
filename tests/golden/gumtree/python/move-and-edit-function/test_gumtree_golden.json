@@ -27,7 +27,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 2,
@@ -57,7 +57,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 3,
@@ -107,7 +107,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 4,
@@ -269,7 +269,7 @@
         "text": "def first():"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -299,7 +299,7 @@
         "text": "    print(\"starting\")"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -349,6 +349,6 @@
         "text": "10"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   }
 ]

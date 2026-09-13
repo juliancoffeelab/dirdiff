@@ -49,6 +49,6 @@
         "text": "4"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   }
 ]

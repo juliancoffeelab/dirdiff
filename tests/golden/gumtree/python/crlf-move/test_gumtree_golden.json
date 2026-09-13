@@ -27,7 +27,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 2,
@@ -57,7 +57,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 3,
@@ -147,7 +147,7 @@
         "text": "def first():"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -177,6 +177,6 @@
         "text": "    return 1"
       }
     ],
-    "status": "move"
+    "status": "equal"
   }
 ]

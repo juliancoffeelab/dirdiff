@@ -51,15 +51,15 @@ __all__ = [
     "is_diffsitter_json",
 ]
 
-type DiffsitterRowStatus = Literal["equal", "replace", "insert", "delete"]
+type DiffsitterRowStatus = Literal["equal", "insert", "delete"]
 """Row statuses Diffsitter row building can produce.
 
-- `equal` rows carry no changed non-whitespace token.
-- `delete` and `insert` rows carry only one kind of changed token and no
-  unchanged non-whitespace context.
-- `replace` rows carry any other changed mixture.
+- `equal` carries every mixed or partially unchanged token partition.
+- `delete` and `insert` require every token in a nonempty row to have that
+  status, or represent a one-sided blank line whose presence is the change.
 
-Diffsitter reports no moves, so the public `move` status never appears.
+Diffsitter reports no replacement or move relationships, so neither public
+status appears.
 """
 type DiffsitterTokenStatus = Literal["unchanged", "insert", "delete"]
 """Classification of one exact text slice while building Diffsitter rows.
@@ -171,11 +171,11 @@ def _row_status(
 ) -> DiffsitterRowStatus:
     """Derive one row's status from its tokens with the Difftastic rule.
 
-    Rows with tokens classify purely by token statuses: no changed
-    non-whitespace token means `equal`; only deletions or only insertions
-    without unchanged non-whitespace context keep their one-sided status;
-    every other mix is `replace`. A row without any tokens is unchanged
-    context, except a one-sided line with no non-whitespace content, which
+    A nonempty row whose every token is deleted or inserted keeps that status,
+    including whitespace tokens. Every other token mixture is `equal`; the
+    inline facts carry its changes without inventing a replacement relationship.
+    A row without any tokens is unchanged context, except a one-sided line with
+    no non-whitespace content, which
     Diffsitter cannot report at all because it strips whitespace and whose
     very presence is the change, so it renders as its side's insertion or
     deletion. Token statuses are read, never altered.
@@ -200,22 +200,11 @@ def _row_status(
         ):
             return "insert"
         return "equal"
-    changed = {
-        token["status"] for token in tokens if token["status"] != "unchanged"
-    }
-    if changed == set() or all(
-        token["is_ws"] for token in tokens if token["status"] != "unchanged"
-    ):
-        return "equal"
-    has_unchanged_text = any(
-        token["status"] == "unchanged" and not token["is_ws"]
-        for token in tokens
-    )
-    if changed == {"delete"} and not has_unchanged_text:
+    if all(token["status"] == "delete" for token in tokens):
         return "delete"
-    if changed == {"insert"} and not has_unchanged_text:
+    if all(token["status"] == "insert" for token in tokens):
         return "insert"
-    return "replace"
+    return "equal"
 
 
 def build_diffsitter_rows_from_json(
@@ -557,9 +546,40 @@ class DiffsitterDiffEngine(DiffEngineProtocol):
                     }
                 )
 
-        modified_lines = sum(1 for row in rows if row["status"] == "replace")
-        added_lines = sum(1 for row in rows if row["status"] == "insert")
-        removed_lines = sum(1 for row in rows if row["status"] == "delete")
+        modified_lines = added_lines = removed_lines = 0
+        for row in rows:
+            tokens = [
+                *row.get("left_tokens", []),
+                *row.get("right_tokens", []),
+            ]
+            if tokens == []:
+                if row["status"] == "insert":
+                    added_lines += 1
+                elif row["status"] == "delete":
+                    removed_lines += 1
+                continue
+            changed = {
+                token["status"]
+                for token in tokens
+                if token["status"] != "unchanged"
+            }
+            changed_meaningful = [
+                token
+                for token in tokens
+                if token["status"] != "unchanged" and not token["is_ws"]
+            ]
+            unchanged_meaningful = any(
+                token["status"] == "unchanged" and not token["is_ws"]
+                for token in tokens
+            )
+            if changed_meaningful == []:
+                continue
+            if changed == {"delete"} and not unchanged_meaningful:
+                removed_lines += 1
+            elif changed == {"insert"} and not unchanged_meaningful:
+                added_lines += 1
+            else:
+                modified_lines += 1
         payload: DiffEngineResult = {
             "summary": {
                 "changed_lines": modified_lines + added_lines + removed_lines,

@@ -111,7 +111,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 2,
@@ -258,7 +258,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 4,
@@ -372,7 +372,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 5,
@@ -407,7 +407,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "syntax"
       },
       {
@@ -417,7 +417,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "SyntaxSpan"
       },
       {
@@ -436,7 +436,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "sortedBoundaries"
       },
       {
@@ -446,7 +446,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "number"
       },
       {
@@ -455,7 +455,7 @@
         "text": "[]): string[] {"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 8,
@@ -625,7 +625,7 @@
         "text": " {"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 10,
@@ -699,7 +699,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 11,
@@ -820,7 +820,7 @@
         "text": ";"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -909,7 +909,7 @@
         "text": ";"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 12,
@@ -922,12 +922,12 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "cursor"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ","
       },
       {
@@ -946,7 +946,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ","
       },
       {
@@ -956,7 +956,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "end"
       },
       {
@@ -965,7 +965,7 @@
         "text": "));"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 13,
@@ -1019,7 +1019,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 14,

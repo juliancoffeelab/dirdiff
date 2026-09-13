@@ -1,6 +1,6 @@
 [
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": 1,
     "right_no": 1,
     "left_text": "let value = input |> step keep |> tail",
@@ -219,7 +219,7 @@
     "hunk_index": null
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": null,
     "right_no": 3,
     "left_text": "",

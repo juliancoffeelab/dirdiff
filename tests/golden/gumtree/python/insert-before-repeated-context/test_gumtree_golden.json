@@ -62,7 +62,7 @@
         "text": "logging.info(\"begin\")"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 2,

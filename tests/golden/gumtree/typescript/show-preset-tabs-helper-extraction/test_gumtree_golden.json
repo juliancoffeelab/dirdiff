@@ -78,7 +78,7 @@
         "text": "{"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -148,7 +148,7 @@
         "text": ";"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -288,7 +288,7 @@
         "text": "("
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -318,7 +318,7 @@
         "text": "      <fieldset class=\"mode-tabs preset-tabs\">"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -348,7 +348,7 @@
         "text": "        <legend>Presets</legend>"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -418,7 +418,7 @@
         "text": "[draft().presetType].groups}>"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -448,7 +448,7 @@
         "text": "          {(group) => ("
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -478,7 +478,7 @@
         "text": "            <button"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -508,7 +508,7 @@
         "text": "              type=\"button\""
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -538,7 +538,7 @@
         "text": "              onClick={() => {"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -568,7 +568,7 @@
         "text": "                const nextDraft = { ...draft(), preset: group.name };"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -598,7 +598,7 @@
         "text": "                setDraft(nextDraft);"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -628,7 +628,7 @@
         "text": "                loadDraft(nextDraft);"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -658,7 +658,7 @@
         "text": "              }}"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -688,7 +688,7 @@
         "text": "              classList={{ \"is-active\": draft().preset === group.name }}"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -718,7 +718,7 @@
         "text": "              aria-pressed={draft().preset === group.name}"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -748,7 +748,7 @@
         "text": "            >"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -778,7 +778,7 @@
         "text": "              {group.display_name}"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -808,7 +808,7 @@
         "text": "            </button>"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -838,7 +838,7 @@
         "text": "          )}"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -868,7 +868,7 @@
         "text": "        </For>"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -898,7 +898,7 @@
         "text": "      </fieldset>"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -948,7 +948,7 @@
         "text": ";"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -1471,7 +1471,7 @@
         "text": "}"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 21,
@@ -1566,7 +1566,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 22,
@@ -1596,7 +1596,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 23,
@@ -1626,7 +1626,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 24,
@@ -1716,7 +1716,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 25,
@@ -1746,7 +1746,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 26,
@@ -1776,7 +1776,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 27,
@@ -1806,7 +1806,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 28,
@@ -1836,7 +1836,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 29,
@@ -1866,7 +1866,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 30,
@@ -1896,7 +1896,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 31,
@@ -1926,7 +1926,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 32,
@@ -1956,7 +1956,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 33,
@@ -1986,7 +1986,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 34,
@@ -2016,7 +2016,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 35,
@@ -2046,7 +2046,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 36,
@@ -2076,7 +2076,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 37,
@@ -2106,7 +2106,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 38,
@@ -2136,7 +2136,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 39,
@@ -2166,7 +2166,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 40,
@@ -2196,7 +2196,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 41,
@@ -2231,7 +2231,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 42,

@@ -235,8 +235,8 @@ def test_unicode_byte_columns_land_on_the_addressed_characters() -> None:
     prefix; a character-offset reading of the byte columns would paint the
     wrong characters or fail to slice. The old side loses `p`, `l`, `n` of
     `plain` while `a` and `i` survive as unchanged context. The local unified
-    alignment never pairs differing lines, so each side is its own row and
-    both rows are replacements because they mix changed and unchanged text.
+    alignment never pairs differing lines, so each side is its own equal row
+    carrying the reported changed and unchanged token facts.
     """
     preset = PRESETS_ROOT / UNICODE_PRESET
     left, right = next(preset.glob("old.*")), next(preset.glob("new.*"))
@@ -250,7 +250,7 @@ def test_unicode_byte_columns_land_on_the_addressed_characters() -> None:
     old_row, new_row = rows
     assert (old_row["left_no"], old_row["right_no"]) == (1, None)
     assert (new_row["left_no"], new_row["right_no"]) == (None, 1)
-    assert old_row["status"] == new_row["status"] == "replace"
+    assert old_row["status"] == new_row["status"] == "equal"
     assert "right_tokens" not in old_row and "left_tokens" not in new_row
     assert [
         (token["status"], token["text"]) for token in old_row["left_tokens"]
@@ -392,8 +392,8 @@ def test_engine_result_matches_builder_rows_and_counts() -> None:
 
     The rust preset wraps a call over several lines, so the local alignment
     leaves one-sided new rows beside rows that carry tokens; the ones Diffsitter
-    never mentioned stay equal by the Difftastic rule. The engine adds nothing
-    beyond the builder's rows plus a summary consistent with their statuses.
+    never mentioned stay equal. The engine adds nothing beyond the builder's
+    rows plus a summary derived independently from reported token facts.
     """
     preset = (
         PRESETS_ROOT / "rust/rust-range-tail-after-wrap-should-stay-right-only"
@@ -420,14 +420,14 @@ def test_engine_result_matches_builder_rows_and_counts() -> None:
     assert "engine_warning" not in result
     assert result["rows"] == rows
     statuses = [row["status"] for row in rows]
-    assert "replace" in statuses
+    assert "replace" not in statuses
     assert any(
         row["status"] == "equal" and row["left_no"] is None for row in rows
     )
     assert result["summary"] == {
-        "changed_lines": sum(status != "equal" for status in statuses),
-        "modified_lines": statuses.count("replace"),
-        "added_lines": statuses.count("insert"),
-        "removed_lines": statuses.count("delete"),
+        "changed_lines": 3,
+        "modified_lines": 3,
+        "added_lines": 0,
+        "removed_lines": 0,
         "moved_lines": 0,
     }

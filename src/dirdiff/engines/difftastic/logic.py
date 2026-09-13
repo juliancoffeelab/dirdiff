@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from difflib import unified_diff
-from typing import Literal, final, override
+from typing import Literal, TypedDict, final, override
 
 from dirdiff.engines.base import (
     DiffEngineProtocol,
@@ -37,25 +37,32 @@ from dirdiff.engines.difftastic._logic.driver import (
     run_difftastic_json,
 )
 
-type DifftasticRowStatus = Literal["equal", "replace", "insert", "delete"]
+type DifftasticRowStatus = Literal["equal", "insert", "delete"]
 """Row statuses that Difftastic row building can produce.
 
-- `equal` pairs lines without changed spans.
-- `replace` pairs lines carrying changed spans.
-- `insert` and `delete` are one-sided.
+- `equal` carries every mixed reported token partition.
+- `insert` and `delete` require at least one public token and every public token
+  to have that status, or represent a blank line whose presence is the change.
+  An aligned source line with no reported spans contributes no implicit token
+  status.
 
 Row building uses these values when producing public engine rows. Difftastic does
-not produce dirdiff's separate `move` row classification.
+not report replacement or move relationships, so the adapter produces neither
+row status.
 """
-type DifftasticTokenStatus = Literal["unchanged", "replace", "insert", "delete"]
-"""Classify one exact text span while building Difftastic rows.
+type _DifftasticNovelStatus = Literal["insert", "delete"]
+"""Classify one exact novel span reported by Difftastic.
 
-- `unchanged` fills gaps around reported spans.
-- `replace` pairs changed spans across sides.
-- `insert` and `delete` classify one-sided changed spans.
+Left-side spans are deletions and right-side spans are insertions. Difftastic
+does not report unchanged spans, replacements, or moves through this input.
+"""
+type _DifftasticPartitionStatus = Literal["synthesised", "insert", "delete"]
+"""Classify slices in Difftastic's private lossless line partition.
 
-These values become `InlineToken.status`; they do not classify complete rows or
-represent Difftastic syntax nodes.
+`insert` and `delete` transcribe reported novel spans. `synthesised` marks source
+gaps that Difftastic did not report; it deliberately makes no unchanged claim.
+The private value is converted to a public token status while constructing the
+engine row and never crosses that boundary.
 """
 
 __all__ = [
@@ -117,12 +124,30 @@ class _Span:
     so row building may slice source text without clipping or repair.
     """
 
-    status: DifftasticTokenStatus
+    status: _DifftasticNovelStatus
     """Side-appropriate inline novelty assigned to the complete range.
 
     Row building converts it to public token status without subdividing the span;
     unchanged source between spans is emitted separately.
     """
+
+
+class _DifftasticPartitionToken(TypedDict):
+    """Represent one slice of Difftastic's private lossless line partition.
+
+    Instances distinguish upstream novel spans from source gaps synthesised only
+    to reconstruct the complete line. They must be converted to `InlineToken`
+    values before leaving this module.
+    """
+
+    text: str
+    """Non-empty exact source slice represented by this partition entry."""
+
+    is_ws: bool
+    """Whether every character in the exact source slice is whitespace."""
+
+    status: _DifftasticPartitionStatus
+    """Upstream novelty or private synthesised provenance for this slice."""
 
 
 def difftastic_engine_warning(
@@ -188,7 +213,7 @@ def _line_spans(
     side: DifftasticJsonSide,
     *,
     source_lines: list[str],
-    status: DifftasticTokenStatus,
+    status: _DifftasticNovelStatus,
 ) -> list[_Span]:
     """Convert one JSON side's novel spans to string-offset `_Span` values.
 
@@ -270,8 +295,8 @@ class _SpanIndex:
     right: dict[int, list[_Span]]
     """Validated new-side novel spans keyed by zero-based source line.
 
-    It is independent of `left`: paired status is chosen only when Difftastic
-    reports equal span counts for the two sides of one aligned chunk entry.
+    It is independent of `left`; Difftastic reports novelty separately for each
+    side and the adapter preserves that delete/insert distinction.
     """
 
 
@@ -283,9 +308,7 @@ def _span_index(
 ) -> _SpanIndex:
     """Index every chunk entry's novel spans by side and line.
 
-    Statuses are decided per entry: spans on both sides of one aligned pair
-    with equal counts render as paired `replace` tokens, unequal counts as
-    `delete`/`insert`, and one-sided spans as that side's plain status. With
+    Left spans become deletions and right spans become insertions. With
     whole-file context every hunk repeats the complete entry list, so an
     already-indexed identical line is accepted and a contradictory repeat is
     rejected.
@@ -310,7 +333,7 @@ def _span_index(
         side: DifftasticJsonSide,
         *,
         source_lines: list[str],
-        status: DifftasticTokenStatus,
+        status: _DifftasticNovelStatus,
     ) -> None:
         """Store one line's converted spans, rejecting contradictions.
 
@@ -352,36 +375,33 @@ def _span_index(
         for entry in chunk:
             lhs = entry.get("lhs")
             rhs = entry.get("rhs")
-            lhs_count = 0 if lhs is None else len(lhs["changes"])
-            rhs_count = 0 if rhs is None else len(rhs["changes"])
-            # Difftastic pairs both sides' spans syntactically only when it
-            # reports the same number of spans; unequal counts render as an
-            # ordinary deletion beside an ordinary insertion.
-            paired = lhs_count > 0 and rhs_count > 0 and lhs_count == rhs_count
             if lhs is not None:
                 record(
                     index.left,
                     lhs,
                     source_lines=left_lines,
-                    status="replace" if paired else "delete",
+                    status="delete",
                 )
             if rhs is not None:
                 record(
                     index.right,
                     rhs,
                     source_lines=right_lines,
-                    status="replace" if paired else "insert",
+                    status="insert",
                 )
     return index
 
 
-def _line_tokens(line: str, spans: list[_Span]) -> list[InlineToken]:
-    """Partition one source line into tokens at difftastic's span boundaries.
+def _line_tokens(
+    line: str, spans: list[_Span]
+) -> list[_DifftasticPartitionToken]:
+    """Partition one source line at Difftastic's span boundaries.
 
     Each novel span becomes one changed token and each non-empty gap becomes
-    one unchanged token, so concatenated token text reproduces the line
-    exactly. A line without novel spans returns no tokens: absent decoration
-    is represented by the empty list, not by one synthetic unchanged token.
+    one private `synthesised` token, so concatenated token text reproduces the
+    line exactly without claiming Difftastic classified an omitted gap as
+    unchanged. A line without novel spans returns no tokens: absent decoration
+    is represented by the empty list, not by one synthesised token.
 
     # Parameters
 
@@ -392,25 +412,27 @@ def _line_tokens(line: str, spans: list[_Span]) -> list[InlineToken]:
     if spans == []:
         return []
 
-    def token(text: str, status: DifftasticTokenStatus) -> InlineToken:
-        """Build one token and derive whitespace from its exact slice.
+    def token(
+        text: str, status: _DifftasticPartitionStatus
+    ) -> _DifftasticPartitionToken:
+        """Build one private partition token from an exact source slice.
 
         # Parameters
 
         - `text`: Non-empty source slice represented by the token.
-        - `status`: Difftastic classification for that slice.
+        - `status`: Difftastic novelty or private gap provenance for the slice.
         """
         return {"text": text, "status": status, "is_ws": text.isspace()}
 
-    tokens: list[InlineToken] = []
+    tokens: list[_DifftasticPartitionToken] = []
     cursor = 0
     for span in spans:
         if span.start > cursor:
-            tokens.append(token(line[cursor : span.start], "unchanged"))
+            tokens.append(token(line[cursor : span.start], "synthesised"))
         tokens.append(token(line[span.start : span.end], span.status))
         cursor = span.end
     if cursor < len(line):
-        tokens.append(token(line[cursor:], "unchanged"))
+        tokens.append(token(line[cursor:], "synthesised"))
     return tokens
 
 
@@ -425,10 +447,14 @@ def _row_status(
 ) -> DifftasticRowStatus:
     """Derive one row's status from its tokens.
 
-    Rows with tokens classify purely by token statuses: no changed non-white
-    space means `equal`; only deletions or only insertions without unchanged
-    non-whitespace context keep their one-sided status; every other mix is
-    `replace`. A row without any tokens is unchanged context, except a
+    A row with public tokens keeps `delete` or `insert` when every token has that
+    status. Source gaps that Difftastic did not classify have already become
+    public `unchanged` tokens and therefore prevent a uniform insertion or
+    deletion. A source line for which Difftastic reports no spans contributes no
+    implicit unchanged token, even when Difftastic aligns it beside a changed
+    line. Every other mixture is `equal`; the inline facts carry its changes
+    without inventing a replacement relationship.
+    A row without any tokens is unchanged context, except a
     one-sided line with no non-whitespace content, which difftastic cannot
     mark with spans at all and whose very presence is the change, so it
     renders as its side's insertion or deletion.
@@ -453,22 +479,11 @@ def _row_status(
         ):
             return "insert"
         return "equal"
-    changed = {
-        token["status"] for token in tokens if token["status"] != "unchanged"
-    }
-    if changed == set() or all(
-        token["is_ws"] for token in tokens if token["status"] != "unchanged"
-    ):
-        return "equal"
-    has_unchanged_text = any(
-        token["status"] == "unchanged" and not token["is_ws"]
-        for token in tokens
-    )
-    if changed == {"delete"} and not has_unchanged_text:
+    if all(token["status"] == "delete" for token in tokens):
         return "delete"
-    if changed == {"insert"} and not has_unchanged_text:
+    if all(token["status"] == "insert" for token in tokens):
         return "insert"
-    return "replace"
+    return "equal"
 
 
 def difftastic_rows_from_json(
@@ -507,6 +522,38 @@ def difftastic_rows_from_json(
         left_lines=left_lines,
         right_lines=right_lines,
     )
+
+    def public_tokens(
+        tokens: list[_DifftasticPartitionToken],
+    ) -> list[InlineToken]:
+        """Convert private partition provenance at the engine-row boundary.
+
+        Every synthesised gap becomes a public unchanged slice because
+        Difftastic reported no classification for it. Reported novelty passes
+        through unchanged. No private status may escape this conversion.
+
+        # Parameters
+
+        - `tokens`: Private lossless partition for one source line.
+        """
+        result: list[InlineToken] = []
+        for token in tokens:
+            public_status: Literal["unchanged", "insert", "delete"]
+            match token["status"]:
+                case "synthesised":
+                    public_status = "unchanged"
+                case "insert":
+                    public_status = "insert"
+                case "delete":
+                    public_status = "delete"
+            result.append(
+                {
+                    "text": token["text"],
+                    "status": public_status,
+                    "is_ws": token["is_ws"],
+                }
+            )
+        return result
 
     rows: list[DiffEngineRow] = []
     next_left = 0
@@ -558,24 +605,27 @@ def difftastic_rows_from_json(
             if right_index is None
             else _line_tokens(right_line, spans.right.get(right_index, []))
         )
+        public_left_tokens = public_tokens(left_tokens)
+        public_right_tokens = public_tokens(right_tokens)
+        row_status = _row_status(
+            left_no=None if left_index is None else left_index + 1,
+            right_no=None if right_index is None else right_index + 1,
+            left_text=left_line,
+            right_text=right_line,
+            left_tokens=public_left_tokens,
+            right_tokens=public_right_tokens,
+        )
         row: DiffEngineRow = {
-            "status": _row_status(
-                left_no=None if left_index is None else left_index + 1,
-                right_no=None if right_index is None else right_index + 1,
-                left_text=left_line,
-                right_text=right_line,
-                left_tokens=left_tokens,
-                right_tokens=right_tokens,
-            ),
+            "status": row_status,
             "left_no": None if left_index is None else left_index + 1,
             "right_no": None if right_index is None else right_index + 1,
             "left_text": left_line,
             "right_text": right_line,
         }
         if left_index is not None:
-            row["left_tokens"] = left_tokens
+            row["left_tokens"] = public_left_tokens
         if right_index is not None:
-            row["right_tokens"] = right_tokens
+            row["right_tokens"] = public_right_tokens
         rows.append(row)
 
     if next_left != len(left_lines) or next_right != len(right_lines):
@@ -905,10 +955,41 @@ class DifftasticDiffEngine(DiffEngineProtocol):
                 side="right",
             )
 
-        modified_lines = sum(1 for row in rows if row["status"] == "replace")
-        added_lines = sum(1 for row in rows if row["status"] == "insert")
-        removed_lines = sum(1 for row in rows if row["status"] == "delete")
-        moved_lines = sum(1 for row in rows if row["status"] == "move")
+        modified_lines = added_lines = removed_lines = 0
+        for row in rows:
+            tokens = [
+                *row.get("left_tokens", []),
+                *row.get("right_tokens", []),
+            ]
+            if tokens == []:
+                if row["status"] == "insert":
+                    added_lines += 1
+                elif row["status"] == "delete":
+                    removed_lines += 1
+                continue
+            changed = {
+                token["status"]
+                for token in tokens
+                if token["status"] != "unchanged"
+            }
+            changed_meaningful = [
+                token
+                for token in tokens
+                if token["status"] != "unchanged" and not token["is_ws"]
+            ]
+            unchanged_meaningful = any(
+                token["status"] == "unchanged" and not token["is_ws"]
+                for token in tokens
+            )
+            if changed_meaningful == []:
+                continue
+            if changed == {"delete"} and not unchanged_meaningful:
+                removed_lines += 1
+            elif changed == {"insert"} and not unchanged_meaningful:
+                added_lines += 1
+            else:
+                modified_lines += 1
+        moved_lines = 0
         payload: DiffEngineResult = {
             "summary": {
                 "changed_lines": (

@@ -88,7 +88,7 @@
         "text": "):"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 6,
@@ -164,7 +164,7 @@
         "text": "},"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,

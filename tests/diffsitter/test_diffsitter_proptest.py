@@ -173,24 +173,35 @@ def test_preset_tokens_replay_every_diffsitter_entry(preset: Path) -> None:
     # Every corpus pair differs visibly, so the engine would never have taken
     # the empty-result path for it.
     assert reported > 0, preset
-    # Rows never contradict their own tokens: equal rows carry no changed
-    # visible text, one-sided statuses carry only their own kind of change,
-    # and a replacement always has visible changed text.
+    # Only a nonempty partition made entirely from one side's status changes
+    # the row status. Every other reported token mixture remains equal.
     for row in rows:
         tokens = row.get("left_tokens", []) + row.get("right_tokens", [])
-        changed = {
-            token["status"]
-            for token in tokens
-            if token["status"] != "unchanged" and not token["is_ws"]
-        }
-        if row["status"] == "equal":
-            assert changed == set(), (preset, row)
-        elif row["status"] == "replace":
-            assert changed != set(), (preset, row)
+        if tokens != [] and all(
+            token["status"] == "delete" for token in tokens
+        ):
+            expected_status = "delete"
+        elif tokens != [] and all(
+            token["status"] == "insert" for token in tokens
+        ):
+            expected_status = "insert"
+        elif (
+            tokens == []
+            and row["left_no"] is not None
+            and row["right_no"] is None
+            and row["left_text"].strip() == ""
+        ):
+            expected_status = "delete"
+        elif (
+            tokens == []
+            and row["right_no"] is not None
+            and row["left_no"] is None
+            and row["right_text"].strip() == ""
+        ):
+            expected_status = "insert"
         else:
-            assert changed <= {row["status"]}, (preset, row)
-            if changed == set():
-                assert None in (row["left_no"], row["right_no"]), (preset, row)
+            expected_status = "equal"
+        assert row["status"] == expected_status, (preset, row)
 
 
 @given(
@@ -328,22 +339,20 @@ def test_byte_columns_slice_unicode_graphemes_exactly(
         if (row["left_no"] if old_side else row["right_no"]) == 2
     ]
     tokens = row["left_tokens"] if old_side else row["right_tokens"]
+    changed_status = "delete" if old_side else "insert"
     if chosen == []:
         # An unmentioned one-sided line is context unless it is blank, whose
         # presence alone is the change Diffsitter cannot report.
         assert tokens == []
-        assert row["status"] == (
-            ("delete" if old_side else "insert")
-            if line.strip() == ""
-            else "equal"
-        )
+        expected_status = changed_status if line.strip() == "" else "equal"
+        assert row["status"] == expected_status
         return
     assert "".join(token["text"] for token in tokens) == line
     assert [
         token["text"] for token in tokens if token["status"] != "unchanged"
     ] == [character for _, character in chosen]
     assert all(
-        token["status"] == ("delete" if old_side else "insert")
+        token["status"] == changed_status
         for token in tokens
         if token["status"] != "unchanged"
     )
@@ -357,10 +366,9 @@ def test_byte_columns_slice_unicode_graphemes_exactly(
         )
         if current - previous > 1
     )
-    assert row["status"] == (
-        ("delete" if old_side else "insert")
-        if all(
-            token["status"] != "unchanged" or token["is_ws"] for token in tokens
-        )
-        else "replace"
+    expected_status = (
+        changed_status
+        if all(token["status"] == changed_status for token in tokens)
+        else "equal"
     )
+    assert row["status"] == expected_status

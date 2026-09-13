@@ -50,7 +50,7 @@
         "text": "{"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -84,7 +84,7 @@
         "text": "{"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -123,7 +123,7 @@
         "text": ";"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -162,7 +162,7 @@
         "text": ";"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -201,7 +201,7 @@
         "text": ";"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -245,7 +245,7 @@
         "text": ";"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -304,7 +304,7 @@
         "text": ";"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -343,7 +343,7 @@
         "text": ";"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -382,7 +382,7 @@
         "text": ";"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -474,7 +474,7 @@
         "text": "{"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 6,
@@ -600,7 +600,7 @@
         "text": ","
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -639,7 +639,7 @@
         "text": ","
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -673,7 +673,7 @@
         "text": ","
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -712,7 +712,7 @@
         "text": ","
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -736,7 +736,7 @@
         "text": ");"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 7,
@@ -841,7 +841,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 17,
@@ -865,7 +865,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 18,

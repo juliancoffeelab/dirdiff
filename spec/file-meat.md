@@ -129,9 +129,11 @@ The grid renders:
 - one Comment trigger on every real line number, with persisted, draft, and
   outdated marker state from the Snapshot review boundary.
 
-Backend row order is authoritative. Inline view combines insert-only
-replacement rows into one presented row regardless of engine, but hunk
-identity remains attached to the backend boundary that produced it.
+Backend row order is authoritative. Inline view uses changed token facts to
+show both sides of equal aligned rows when content changed. It combines rows
+whose changed tokens are insert-only into one presented row, regardless of
+whether the engine reports an explicit replacement, but hunk identity remains
+attached to the backend boundary that produced it.
 
 Moved rows may carry an unpaired `move` record with a presentation group and
 dimmed state, independent of structural move endpoints. The populated row side

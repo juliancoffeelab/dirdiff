@@ -17,6 +17,6 @@
         "text": "pytest"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   }
 ]

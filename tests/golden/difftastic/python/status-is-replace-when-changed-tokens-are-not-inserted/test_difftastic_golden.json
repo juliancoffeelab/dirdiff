@@ -10,7 +10,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "old"
       }
     ],
@@ -24,10 +24,10 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "new"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   }
 ]

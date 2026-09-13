@@ -200,12 +200,18 @@ type DiffEngineRowStatus = Literal[
     "delete",
     "move",
 ]
-"""Row-level relationship between the aligned left and right source lines.
+"""Row-level classification attached to one aligned display position.
 
 - `equal` describes semantic context, including unpaired wrapped lines.
-- `replace` describes mixed context and changes or multiple change kinds.
-- `insert` and `delete` describe complete insertions and deletions.
+- `replace` records an engine's explicit whole-row replacement classification.
+- `insert` and `delete` describe a uniform public-token verdict.
 - `move` describes source text classified as moved.
+
+Adapters do not promote mixed inline facts to `replace`. A row with at least
+one public token gets `insert` or `delete` only when every public token has that
+status; an aligned source line with an empty token list contributes no implicit
+`unchanged` token. Other token mixtures give the row `equal`. Native engines
+may define and emit stronger row semantics themselves.
 
 Use this on `DiffEngineRow.status`. Inline spans keep a separate
 `InlineTokenStatus`, and fold placeholders are not engine rows.

@@ -48,7 +48,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 4,
@@ -254,7 +254,7 @@
         "text": ":"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -348,7 +348,7 @@
         "text": "}"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -463,7 +463,7 @@
         "text": ":"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -527,7 +527,7 @@
         "text": ":"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -556,7 +556,7 @@
         "text": "None"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -585,7 +585,7 @@
         "text": "f\"{entry.display_name} has {entry.changed_lines} changed lines\""
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 13,
@@ -720,7 +720,7 @@
         "text": ","
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 20,
@@ -759,7 +759,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 21,
@@ -822,7 +822,7 @@
         "text": ")"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 22,
@@ -835,7 +835,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       }
     ],
@@ -849,7 +849,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "lazy"
       },
       {
@@ -858,7 +858,7 @@
         "text": " is not None:"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 23,
@@ -892,7 +892,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 24,
@@ -951,7 +951,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 25,
@@ -975,7 +975,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 26,
@@ -988,7 +988,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "\"lazy_reason\""
       },
       {
@@ -998,7 +998,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       }
     ],
@@ -1012,7 +1012,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "\"lazy\""
       },
       {
@@ -1022,11 +1022,11 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "lazy"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 27,
@@ -1045,7 +1045,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 28,
@@ -1064,7 +1064,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 29,
@@ -1083,7 +1083,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 30,

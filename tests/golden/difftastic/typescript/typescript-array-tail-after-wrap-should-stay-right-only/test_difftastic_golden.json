@@ -37,7 +37,7 @@
     "right_no": 1,
     "right_text": "const x = make([",
     "right_tokens": [],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -76,7 +76,7 @@
         "text": ","
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -95,7 +95,7 @@
         "text": ","
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,

@@ -78,7 +78,7 @@
         "text": ":"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -137,7 +137,7 @@
         "text": "lines: list[str] = []"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -172,7 +172,7 @@
         "text": "for item in normalized_items:"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -202,7 +202,7 @@
         "text": "        lines.append(f\"{item['quantity']}x {item['name']}\")"
       }
     ],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -237,7 +237,7 @@
         "text": "return \"\\n\".join(lines)"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -290,7 +290,7 @@
         "text": ":"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 2,
@@ -520,7 +520,7 @@
         "text": "return normalized_items"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 13,
@@ -555,7 +555,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 14,
@@ -590,7 +590,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 15,
@@ -620,7 +620,7 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   },
   {
     "left_no": 16,
@@ -655,6 +655,6 @@
     "right_no": null,
     "right_text": "",
     "right_tokens": [],
-    "status": "move"
+    "status": "equal"
   }
 ]

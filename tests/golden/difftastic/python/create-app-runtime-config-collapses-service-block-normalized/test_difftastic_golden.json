@@ -27,7 +27,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "typing"
       },
       {
@@ -37,7 +37,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "Any"
       }
     ],
@@ -51,7 +51,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "fastapi"
       },
       {
@@ -61,11 +61,11 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "FastAPI"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 3,
@@ -96,7 +96,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "Any"
       },
       {
@@ -115,7 +115,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "FastAPI"
       },
       {
@@ -124,7 +124,7 @@
         "text": ":"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 6,
@@ -137,7 +137,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "config"
       },
       {
@@ -147,7 +147,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
@@ -157,17 +157,17 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "load_runtime_config"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ")"
       }
     ],
@@ -181,7 +181,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "config"
       },
       {
@@ -191,7 +191,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "="
       },
       {
@@ -201,21 +201,21 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "load_runtime_config"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "("
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ")"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -304,7 +304,7 @@
         "text": ")"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -371,7 +371,7 @@
         "text": ")"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -440,7 +440,7 @@
         "text": ":"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -474,7 +474,7 @@
         "text": "("
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -493,7 +493,7 @@
         "text": "\"No marked repos. Run: dirdiff mark /path/to/repo \""
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -512,7 +512,7 @@
         "text": "\"--db-path /path/to/db.sqlite\""
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -531,7 +531,7 @@
         "text": ")"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -610,7 +610,7 @@
         "text": ")"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -737,7 +737,7 @@
         "text": ":"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 8,
@@ -851,7 +851,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 9,
@@ -995,7 +995,7 @@
         "text": ")"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 11,
@@ -1061,7 +1061,7 @@
         "text": ")"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 12,
@@ -1165,7 +1165,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 13,
@@ -1184,7 +1184,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 14,
@@ -1315,7 +1315,7 @@
         "text": ":"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 15,
@@ -1421,7 +1421,7 @@
         "text": ")"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 16,
@@ -1497,7 +1497,7 @@
         "text": "name"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 17,
@@ -1588,7 +1588,7 @@
         "text": ":"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 18,
@@ -1669,7 +1669,7 @@
         "text": "("
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -1688,7 +1688,7 @@
         "text": "f\"Cannot derive a repo name from path: {resolved_path}\""
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -1720,7 +1720,7 @@
         "text": ":"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 19,
@@ -1796,7 +1796,7 @@
         "text": "name"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 20,
@@ -1867,7 +1867,7 @@
         "text": ":"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 21,
@@ -1911,7 +1911,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 22,
@@ -1935,7 +1935,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 23,
@@ -2071,7 +2071,7 @@
         "text": ")"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 24,
@@ -2084,17 +2084,17 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "right"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "="
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "config"
       },
       {
@@ -2104,12 +2104,12 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "right"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ","
       }
     ],
@@ -2123,7 +2123,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "except"
       },
       {
@@ -2133,7 +2133,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "RepoRegistryError"
       },
       {
@@ -2143,7 +2143,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "as"
       },
       {
@@ -2153,16 +2153,16 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "exc"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ":"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 25,
@@ -2278,7 +2278,7 @@
         "text": "exc"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 26,
@@ -2317,7 +2317,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 27,
@@ -2336,7 +2336,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 28,
@@ -2427,7 +2427,7 @@
         "text": ")"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 29,
@@ -2451,7 +2451,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 30,
@@ -2475,7 +2475,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 31,
@@ -2564,7 +2564,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 32,
@@ -2593,7 +2593,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 33,
@@ -2632,7 +2632,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 34,
@@ -2671,7 +2671,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 35,
@@ -2705,7 +2705,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 36,
@@ -2724,7 +2724,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 37,

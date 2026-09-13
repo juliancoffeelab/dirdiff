@@ -154,7 +154,7 @@
     "hunk_index": null
   },
   {
-    "status": "insert",
+    "status": "equal",
     "left_no": null,
     "right_no": 4,
     "left_text": "",

@@ -1,6 +1,6 @@
 [
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": 1,
     "right_no": 1,
     "left_text": "let value = call(5..10, keep, tail);",
@@ -170,7 +170,7 @@
     "hunk_index": 0
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": null,
     "right_no": 2,
     "left_text": "",

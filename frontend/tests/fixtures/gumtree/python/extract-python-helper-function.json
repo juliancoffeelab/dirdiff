@@ -1,6 +1,6 @@
 [
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": 1,
     "right_no": 1,
     "left_text": "def render_order(order: dict[str, object]) -> str:",
@@ -390,7 +390,7 @@
     "hunk_index": null
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": null,
     "right_no": 4,
     "left_text": "",
@@ -592,7 +592,7 @@
     "hunk_index": 1
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": null,
     "right_no": 5,
     "left_text": "",
@@ -794,7 +794,7 @@
     "hunk_index": null
   },
   {
-    "status": "move",
+    "status": "equal",
     "left_no": null,
     "right_no": 6,
     "left_text": "",
@@ -1306,7 +1306,7 @@
     "hunk_index": null
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": null,
     "right_no": 7,
     "left_text": "",
@@ -1577,7 +1577,7 @@
     "hunk_index": null
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": null,
     "right_no": 10,
     "left_text": "",
@@ -2967,7 +2967,7 @@
     "hunk_index": null
   },
   {
-    "status": "insert",
+    "status": "equal",
     "left_no": 12,
     "right_no": 21,
     "left_text": "",
@@ -3010,7 +3010,7 @@
     "hunk_index": 3
   },
   {
-    "status": "move",
+    "status": "equal",
     "left_no": 13,
     "right_no": null,
     "left_text": "    lines: list[str] = []",
@@ -3212,7 +3212,7 @@
     "hunk_index": null
   },
   {
-    "status": "move",
+    "status": "equal",
     "left_no": 14,
     "right_no": null,
     "left_text": "    for item in normalized_items:",
@@ -3414,7 +3414,7 @@
     "hunk_index": null
   },
   {
-    "status": "move",
+    "status": "equal",
     "left_no": 15,
     "right_no": null,
     "left_text": "        lines.append(f\"{item['quantity']}x {item['name']}\")",
@@ -3926,7 +3926,7 @@
     "hunk_index": null
   },
   {
-    "status": "move",
+    "status": "equal",
     "left_no": 16,
     "right_no": null,
     "left_text": "    return \"\\n\".join(lines)",

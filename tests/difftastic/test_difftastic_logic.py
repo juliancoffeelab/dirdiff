@@ -12,7 +12,7 @@ from pathlib import Path
 from helpers import ToolText, tool_json
 
 from dirdiff.engines import DiffEngineRow, DiffSide, InlineToken
-from dirdiff.engines.difftastic import DifftasticDiffEngine
+from dirdiff.engines.difftastic import DifftasticDiffEngine, DifftasticJson
 from dirdiff.engines.difftastic.logic import (
     difftastic_engine_warning,
     difftastic_rows_from_json,
@@ -238,7 +238,7 @@ def test_difftastic_rows_classify_makefile_target_suffix_insert() -> None:
         right_text=new_path.read_bytes().decode("utf-8"),
     )
 
-    assert [row["status"] for row in rows].count("replace") == 1
+    assert [row["status"] for row in rows] == ["equal"]
 
 
 def test_difftastic_makefile_plain_render_keeps_inline_tokens() -> None:
@@ -324,7 +324,18 @@ def test_difftastic_rows_classify_makefile_wrapped_command_suffix_inserts() -> (
         right_text=new_path.read_bytes().decode("utf-8"),
     )
 
-    assert [row["status"] for row in rows].count("replace") == 2
+    assert all(row["status"] != "replace" for row in rows)
+    assert (
+        sum(
+            token["status"] != "unchanged"
+            for row in rows
+            for token in [
+                *row.get("left_tokens", []),
+                *row.get("right_tokens", []),
+            ]
+        )
+        > 0
+    )
 
 
 def test_difftastic_z_enum_expansion_does_not_render_existing_members_as_one_sided_change() -> (
@@ -445,14 +456,14 @@ def beta():
     # change, so it renders as an insertion rather than unchanged context.
     assert [row["status"] for row in rows] == [
         "equal",
-        "replace",
+        "equal",
         "insert",
-        "insert",
-        "insert",
+        "equal",
+        "equal",
     ]
     assert rows[1]["left_tokens"] == [
         {"text": "    return ", "status": "unchanged", "is_ws": False},
-        {"text": "1", "status": "replace", "is_ws": False},
+        {"text": "1", "status": "delete", "is_ws": False},
     ]
     assert rows[3]["right_text"] == "def beta():"
     assert rows[3]["right_tokens"] == [
@@ -493,7 +504,7 @@ def test_difftastic_rows_do_not_reconstruct_unchanged_tail_after_split_call_chan
         right_text=right_text,
     )
 
-    assert rows[0]["status"] == "replace"
+    assert rows[0]["status"] == "equal"
     assert rows[0]["left_text"] == "return compute(foo.bar, baz);"
     assert rows[0]["right_text"] == "return compute("
     assert rows[0]["left_tokens"] == [
@@ -501,7 +512,7 @@ def test_difftastic_rows_do_not_reconstruct_unchanged_tail_after_split_call_chan
         {"text": "bar", "status": "delete", "is_ws": False},
         {"text": ", baz);", "status": "unchanged", "is_ws": False},
     ]
-    assert rows[1]["status"] == "replace"
+    assert rows[1]["status"] == "equal"
     assert rows[1]["left_no"] is None
     assert rows[1]["right_no"] == 2
     assert rows[1]["left_text"] == ""
@@ -554,7 +565,7 @@ def test_difftastic_rows_do_not_reconstruct_typescript_array_tail_after_wrap() -
         right_text=new_text,
     )
 
-    assert rows[2]["status"] == "replace"
+    assert rows[2]["status"] == "equal"
     assert rows[2]["left_no"] is None
     assert rows[2]["right_no"] == 3
     assert rows[2]["left_text"] == ""
@@ -786,7 +797,7 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_tail_after_wrap() -> (
     assert rows[1]["right_no"] == 2
     assert rows[1]["left_text"] == ""
     assert rows[1]["right_text"] == "  render"
-    assert rows[2]["status"] == "replace"
+    assert rows[2]["status"] == "equal"
     assert rows[2]["left_no"] is None
     assert rows[2]["right_no"] == 3
     assert rows[2]["left_text"] == ""
@@ -839,7 +850,7 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_nested_tail_after_wrap() 
     assert rows[1]["right_no"] == 2
     assert rows[1]["left_text"] == ""
     assert rows[1]["right_text"] == "  outer"
-    assert rows[2]["status"] == "replace"
+    assert rows[2]["status"] == "equal"
     assert rows[2]["left_no"] is None
     assert rows[2]["right_no"] == 3
     assert rows[2]["left_text"] == ""
@@ -892,7 +903,7 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_tail_after_wrap() -> (
     assert rows[1]["right_no"] == 2
     assert rows[1]["left_text"] == ""
     assert rows[1]["right_text"] == "  input"
-    assert rows[2]["status"] == "replace"
+    assert rows[2]["status"] == "equal"
     assert rows[2]["left_no"] is None
     assert rows[2]["right_no"] == 3
     assert rows[2]["left_text"] == ""
@@ -945,7 +956,7 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_double_tail_after_wrap() 
     assert rows[1]["right_no"] == 2
     assert rows[1]["left_text"] == ""
     assert rows[1]["right_text"] == "  input"
-    assert rows[2]["status"] == "replace"
+    assert rows[2]["status"] == "equal"
     assert rows[2]["left_no"] is None
     assert rows[2]["right_no"] == 3
     assert rows[2]["left_text"] == ""
@@ -989,9 +1000,9 @@ def test_difftastic_does_not_pair_bare_brace_residual_fragment() -> None:
         right_text=right_text,
     )
 
-    assert rows[0]["status"] == "replace"
+    assert rows[0]["status"] == "equal"
     assert rows[0]["right_text"].endswith(") {")
-    assert rows[1]["status"] == "replace"
+    assert rows[1]["status"] == "equal"
     assert rows[1]["left_text"] == "  for (const span of syntax) {"
     assert rows[1]["right_no"] is None
     assert rows[1]["right_text"] == ""
@@ -1094,7 +1105,7 @@ def test_difftastic_rows_follow_changed_condition_ranges_in_partial_context() ->
 
     condition_row = next(row for row in rows if row.get("right_no") == 5)
 
-    assert condition_row["status"] == "replace"
+    assert condition_row["status"] == "equal"
     assert condition_row["right_tokens"] == [
         {"text": " ", "status": "insert", "is_ws": True},
         {"text": " ", "status": "insert", "is_ws": True},
@@ -1156,7 +1167,7 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
             "right_tokens": [],
         },
         {
-            "status": "replace",
+            "status": "equal",
             "left_no": 2,
             "right_no": 2,
             "left_text": '        payload["change_type"] = change_type',
@@ -1372,10 +1383,10 @@ def test_difftastic_rows_status_is_equal_for_real_right_only_context_line() -> (
     }
 
 
-def test_difftastic_rows_status_is_replace_for_real_mixed_unchanged_and_insert_tokens() -> (
+def test_difftastic_rows_status_is_equal_for_real_mixed_unchanged_and_insert_tokens() -> (
     None
 ):
-    """Classify mixed unchanged and inserted token context as replacement.
+    """Keep mixed unchanged and inserted token context on an equal row.
 
     A line retaining meaningful old context is not a pure insertion even when
     every changed token appears on the right.
@@ -1401,7 +1412,7 @@ def test_difftastic_rows_status_is_replace_for_real_mixed_unchanged_and_insert_t
     )
 
     assert rows[1] == {
-        "status": "replace",
+        "status": "equal",
         "left_no": None,
         "right_no": 2,
         "left_text": "",
@@ -1463,10 +1474,79 @@ new_value
     ]
 
 
-def test_difftastic_rows_status_is_replace_when_changed_tokens_are_not_inserted() -> (
+def test_difftastic_omitted_gaps_become_unchanged_at_public_boundary() -> None:
+    """Expose omitted Difftastic gaps without inventing a change status.
+
+    Difftastic reports sparse syntax spans and omits the separating whitespace.
+    The private lossless partition must retain that omission as provenance until
+    the public boundary, then expose the gap as unchanged without leaking an
+    internal status. That mixed public partition keeps the row equal.
+    """
+    text = "export async\n"
+    diff_json: DifftasticJson = {
+        "aligned_lines": [[0, None], [None, 0]],
+        "chunks": [
+            [
+                {
+                    "lhs": {
+                        "line_number": 0,
+                        "changes": [
+                            {"start": 0, "end": 6, "content": "export"},
+                            {"start": 7, "end": 12, "content": "async"},
+                        ],
+                    }
+                },
+                {
+                    "rhs": {
+                        "line_number": 0,
+                        "changes": [
+                            {"start": 0, "end": 6, "content": "export"},
+                            {"start": 7, "end": 12, "content": "async"},
+                        ],
+                    }
+                },
+            ]
+        ],
+    }
+
+    rows = difftastic_rows_from_json(
+        diff_json,
+        left_text=text,
+        right_text=text,
+    )
+
+    assert rows == [
+        {
+            "status": "equal",
+            "left_no": 1,
+            "right_no": None,
+            "left_text": "export async",
+            "right_text": "",
+            "left_tokens": [
+                {"text": "export", "status": "delete", "is_ws": False},
+                {"text": " ", "status": "unchanged", "is_ws": True},
+                {"text": "async", "status": "delete", "is_ws": False},
+            ],
+        },
+        {
+            "status": "equal",
+            "left_no": None,
+            "right_no": 1,
+            "left_text": "",
+            "right_text": "export async",
+            "right_tokens": [
+                {"text": "export", "status": "insert", "is_ws": False},
+                {"text": " ", "status": "unchanged", "is_ws": True},
+                {"text": "async", "status": "insert", "is_ws": False},
+            ],
+        },
+    ]
+
+
+def test_difftastic_rows_status_is_equal_when_changed_tokens_are_mixed() -> (
     None
 ):
-    """Use replacement when changed tokens do not form a pure insertion.
+    """Keep the row equal when changed tokens do not form a pure insertion.
 
     Mixed or paired changed classifications must not combine into a one-sided
     row status merely because the alignment is asymmetric.
@@ -1490,18 +1570,18 @@ def test_difftastic_rows_status_is_replace_when_changed_tokens_are_not_inserted(
 
     assert rows == [
         {
-            "status": "replace",
+            "status": "equal",
             "left_no": 1,
             "right_no": 1,
             "left_text": "value = old",
             "right_text": "value = new",
             "left_tokens": [
                 {"text": "value = ", "status": "unchanged", "is_ws": False},
-                {"text": "old", "status": "replace", "is_ws": False},
+                {"text": "old", "status": "delete", "is_ws": False},
             ],
             "right_tokens": [
                 {"text": "value = ", "status": "unchanged", "is_ws": False},
-                {"text": "new", "status": "replace", "is_ws": False},
+                {"text": "new", "status": "insert", "is_ws": False},
             ],
         },
     ]
@@ -1602,18 +1682,18 @@ def test_difftastic_rows_statuses_for_real_lazy_manifest_hunk() -> None:
     assert [row["status"] for row in rows] == [
         "equal",
         "equal",
-        "replace",
-        "delete",
         "equal",
-        "insert",
-        "replace",
-        "replace",
-        "delete",
-        "replace",
-        "replace",
-        "delete",
-        "delete",
-        "delete",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
         "equal",
     ]
     condition_row = next(
@@ -1623,7 +1703,7 @@ def test_difftastic_rows_statuses_for_real_lazy_manifest_hunk() -> None:
     )
     assert condition_row["right_tokens"] == [
         {"text": "    if ", "status": "unchanged", "is_ws": False},
-        {"text": "lazy", "status": "replace", "is_ws": False},
+        {"text": "lazy", "status": "insert", "is_ws": False},
         {"text": " is not None:", "status": "unchanged", "is_ws": False},
     ]
 
@@ -1680,7 +1760,7 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
             "right_tokens": [],
         },
         {
-            "status": "replace",
+            "status": "equal",
             "left_no": 3,
             "right_no": 3,
             "left_text": '        payload["change_type"] = change_type',
@@ -1810,11 +1890,12 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
     ]
 
 
-def test_difftastic_rows_mark_runtime_config_service_tail_context() -> None:
-    """Keep the runtime-config service tail as unchanged context.
+def test_difftastic_rows_classify_runtime_config_service_tail_tokens() -> None:
+    """Classify runtime-config tail rows from reported and synthesised tokens.
 
-    The shared closing portion remains readable context and must not inherit the
-    changed status of the preceding structural fragment.
+    Synthesised whitespace becomes unchanged and therefore prevents a uniform
+    deletion verdict. Omitted punctuation or absent spans likewise keep the
+    remaining rows equal.
     """
     old_path = (
         PRESETS_ROOT
@@ -1857,14 +1938,14 @@ def test_difftastic_rows_mark_runtime_config_service_tail_context() -> None:
     ]
 
     assert [row["status"] for row in deleted_tail] == [
-        "delete",
-        "delete",
-        "replace",
-        "replace",
-        "delete",
-        "delete",
-        "delete",
-        "delete",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
+        "equal",
         "equal",
     ]
     assert all(row["right_no"] is None for row in deleted_tail)
@@ -1934,7 +2015,7 @@ def test_difftastic_rows_keep_member_access_dot_unchanged_across_wrapped_pair() 
         {"text": " ", "status": "unchanged", "is_ws": True},
         {"text": "None", "status": "delete", "is_ws": False},
     ]
-    assert left_row["status"] == "replace"
+    assert left_row["status"] == "equal"
     assert {"text": ".", "status": "unchanged", "is_ws": False} in right_row[
         "right_tokens"
     ]
@@ -2086,7 +2167,7 @@ def test_difftastic_rows_do_not_paint_defaults_right_comma_as_delete() -> None:
         "status": "unchanged",
         "is_ws": False,
     }
-    assert row["status"] == "replace"
+    assert row["status"] == "equal"
 
 
 def test_difftastic_rows_do_not_paint_review_branch_equals_as_delete() -> None:
@@ -2128,7 +2209,7 @@ def test_difftastic_rows_do_not_paint_review_branch_equals_as_delete() -> None:
         "status": "unchanged",
         "is_ws": False,
     }
-    assert row["status"] == "replace"
+    assert row["status"] == "equal"
 
 
 def test_difftastic_rows_keep_normalized_base_branch_comma_unchanged() -> None:

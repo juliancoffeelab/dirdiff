@@ -35,7 +35,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 3,
@@ -191,7 +191,7 @@
         "text": "{"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 4,
@@ -292,7 +292,7 @@
         "text": ";"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 5,
@@ -361,7 +361,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 6,
@@ -390,7 +390,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 7,
@@ -526,7 +526,7 @@
         "text": " {"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 8,
@@ -602,7 +602,7 @@
         "text": ";"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 9,
@@ -657,7 +657,7 @@
     "right_no": 6,
     "right_text": "    }",
     "right_tokens": [],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 10,
@@ -686,7 +686,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 11,
@@ -715,7 +715,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 12,
@@ -764,7 +764,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 13,
@@ -813,7 +813,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 14,
@@ -872,7 +872,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 15,
@@ -926,7 +926,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 16,
@@ -1020,7 +1020,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 17,
@@ -1044,7 +1044,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 18,
@@ -1073,7 +1073,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 19,
@@ -1102,7 +1102,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 20,
@@ -1171,7 +1171,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 21,
@@ -1237,7 +1237,7 @@
         "text": " ("
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 22,
@@ -1285,7 +1285,7 @@
     "right_no": 10,
     "right_text": "        <For each={catalogs[draft().presetType].groups}>",
     "right_tokens": [],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 25,
@@ -1442,7 +1442,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "}"
       }
     ],
@@ -1456,11 +1456,11 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ";"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 42,
@@ -1489,7 +1489,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 43,
@@ -1518,7 +1518,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 44,
@@ -1531,7 +1531,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ")"
       },
       {
@@ -1550,7 +1550,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "}"
       },
       {
@@ -1559,7 +1559,7 @@
         "text": ";"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -1596,7 +1596,7 @@
         "text": "("
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -1695,7 +1695,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -1764,7 +1764,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -1833,7 +1833,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -1862,7 +1862,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -1951,7 +1951,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2000,7 +2000,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2083,7 +2083,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2112,7 +2112,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2161,7 +2161,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2210,7 +2210,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2269,7 +2269,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2323,7 +2323,7 @@
         "text": "("
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2417,7 +2417,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2441,7 +2441,7 @@
         "text": "}"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2470,7 +2470,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2499,7 +2499,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2538,7 +2538,7 @@
         "text": "}"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2567,7 +2567,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -2591,7 +2591,7 @@
         "text": ";"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 45,

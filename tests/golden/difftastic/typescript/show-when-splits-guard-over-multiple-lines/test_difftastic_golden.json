@@ -149,7 +149,7 @@
         "text": "&&"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -208,7 +208,7 @@
         "text": "null"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,

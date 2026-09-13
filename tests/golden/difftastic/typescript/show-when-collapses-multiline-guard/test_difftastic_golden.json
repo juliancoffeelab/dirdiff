@@ -149,7 +149,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 17,
@@ -208,7 +208,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 18,

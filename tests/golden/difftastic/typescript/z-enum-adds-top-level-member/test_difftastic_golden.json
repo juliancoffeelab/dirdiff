@@ -76,7 +76,7 @@
         "text": ","
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -100,7 +100,7 @@
         "text": ","
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,

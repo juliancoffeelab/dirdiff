@@ -38,7 +38,7 @@
         "text": "let value ="
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -83,7 +83,7 @@
         "text": "changed"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,

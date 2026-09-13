@@ -1,6 +1,6 @@
 [
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": 1,
     "right_no": 1,
     "left_text": "value = make({\"left\": thing, \"mid\": keep, \"right\": done})",
@@ -222,7 +222,7 @@
     "hunk_index": null
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": null,
     "right_no": 3,
     "left_text": "",

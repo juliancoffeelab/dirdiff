@@ -313,13 +313,13 @@ def test_preset_actions_and_moves_match_gumtree_facts(preset: Path) -> None:
         assert operation in {"insert", "delete", "update", "move"}, action
         status = "replace" if operation == "update" else operation
         tree = action["tree"]
-        trees = (
-            [None, tree]
-            if operation == "insert"
-            else [tree, None]
-            if operation == "delete"
-            else [tree, destinations[tree]]
-        )
+        match operation:
+            case "insert":
+                trees = [None, tree]
+            case "delete":
+                trees = [tree, None]
+            case "update" | "move":
+                trees = [tree, destinations[tree]]
         ranges: list[tuple[int, int] | None] = []
         for description in trees:
             if description is None:
@@ -435,14 +435,15 @@ def test_preset_actions_and_moves_match_gumtree_facts(preset: Path) -> None:
 
 
 @pytest.mark.parametrize("preset", sorted(PRESETS_ROOT.glob("*/*")), ids=str)
-def test_preset_row_status_matches_token_semantics(preset: Path) -> None:
-    """Row classification must preserve semantic changes regardless of alignment gaps.
+def test_preset_row_status_preserves_complete_insert_or_delete(
+    preset: Path,
+) -> None:
+    """Only complete insertion or deletion changes an adapter row's status.
 
-    As in Difftastic's corpus invariant, context-only and whitespace-only rows
-    are equal; insertion or deletion requires no unchanged non-whitespace text.
-    GumTree additionally permits a pure move row. Mixed changes or changes
-    sharing a row with context are replacements. Exact token classifications
-    are checked independently against raw GumTree actions by the span property.
+    A nonempty row whose every token, including whitespace, is inserted or
+    deleted keeps that status. Every other mixture remains equal. Exact token
+    classifications are checked independently against raw GumTree actions by
+    the span property.
     """
     left, right = next(preset.glob("old.*")), next(preset.glob("new.*"))
     rows = build_gumtree_rows_from_json(
@@ -460,25 +461,16 @@ def test_preset_row_status_matches_token_semantics(preset: Path) -> None:
     mismatches = []
     for row in rows:
         tokens = row["left_tokens"] + row["right_tokens"]
-        changes = {
-            token["status"]
-            for token in tokens
-            if token["status"] != "unchanged"
-        }
-        has_changed_text = any(
-            token["status"] != "unchanged" and not token["is_ws"]
-            for token in tokens
-        )
-        has_context = any(
-            token["status"] == "unchanged" and not token["is_ws"]
-            for token in tokens
-        )
-        if not has_changed_text:
-            expected = "equal"
-        elif not has_context and changes in ({"insert"}, {"delete"}, {"move"}):
-            expected = next(iter(changes))
+        if tokens != [] and all(
+            token["status"] == "insert" for token in tokens
+        ):
+            expected = "insert"
+        elif tokens != [] and all(
+            token["status"] == "delete" for token in tokens
+        ):
+            expected = "delete"
         else:
-            expected = "replace"
+            expected = "equal"
         if row["status"] != expected:
             mismatches.append(
                 (row["left_no"], row["right_no"], row["status"], expected)

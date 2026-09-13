@@ -42,7 +42,7 @@
     "right_no": 1,
     "right_text": "(render {",
     "right_tokens": [],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -81,7 +81,7 @@
         "text": ")"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,

@@ -86,15 +86,16 @@ type InlineLineNumberState = {
 // contributes one visible bar. Expanding a fold larger than the threshold
 // re-enters the renderer with the folded range and deliberately chunks it, so
 // a small file's zero-chunk guarantee holds until such an expansion. The chunk
-// size counts emitted row ELEMENTS (an inline replace
-// row emits two), so 50 elements ≈ 1100px ≈ one viewport and each chunk
+// size counts emitted row ELEMENTS (an inline changed row may emit two), so
+// 50 elements ≈ 1100px ≈ one viewport and each chunk
 // entering view renders within a frame budget.
 /**
  * Sets the emitted-row target at which the next append starts a new chunk.
  *
- * This counts DOM rows rather than backend rows because an inline replacement
- * can emit two elements. Such a fragment stays intact and may take a chunk one
- * row past the target; the value still keeps each chunk near one viewport.
+ * This counts DOM rows rather than backend rows because one changed backend row
+ * can emit two Inline elements. Such a fragment stays intact and may take a
+ * chunk one row past the target; the value still keeps each chunk near one
+ * viewport.
  */
 const ROW_CHUNK_SIZE = 50;
 
@@ -279,8 +280,8 @@ function createRowChunkAppender(
         // the idle pass finds them once the caller mounts the fragment.
         requestChunkWarming();
       }
-      // Count emitted elements, not append calls: an inline replace row
-      // arrives as a two-element fragment, and the chunk's intrinsic-height
+      // Count emitted elements, not append calls: an inline changed row may
+      // arrive as a two-element fragment, and the chunk's intrinsic-height
       // estimate assumes ROW_CHUNK_SIZE uniform row elements.
       chunkCount +=
         element instanceof DocumentFragment ? element.childElementCount : 1;
@@ -720,10 +721,11 @@ function renderSplitDiffRowDom(
 /**
  * Renders one backend row as the one or two elements required by inline view.
  *
- * Equal, insert, and delete rows emit one element; replace and move rows may
+ * Equal rows without changed content, insert rows, and delete rows emit one
+ * element. Equal rows with changed content, replace rows, and move rows may
  * emit both sides while transferring hunk identity to the first visible side.
- * Replace rows satisfying the insert-only combination predicate emit one
- * element retaining both backend line numbers and hunk identity.
+ * Rows satisfying the insert-only combination predicate emit one element
+ * retaining both backend line numbers and hunk identity.
  * Unsupported backend statuses throw exhaustively.
  *
  * @param row Validated ordinary backend row to render.
@@ -734,11 +736,11 @@ function renderSplitDiffRowDom(
  *
  * # Returns
  *
- * - `HTMLElement` for equal, insert, delete, and combinable replace rows. It is
- *   the sole rendered row and carries the source hunk identity when present.
- * - `DocumentFragment` for other replace and move rows. It contains their
- *   present sides in left-then-right order, with hunk identity on only the
- *   first emitted side.
+ * - `HTMLElement` for unchanged equal, insert, delete, and combinable changed
+ *   rows. It is the sole rendered row and carries the source hunk identity.
+ * - `DocumentFragment` for other changed equal, replace, and move rows. It
+ *   contains their present sides in left-then-right order, with hunk identity
+ *   on only the first emitted side.
  */
 function renderInlineDiffRowsDom(
   row: DiffRow,
@@ -767,8 +769,86 @@ function renderInlineDiffRowsDom(
   const sharedParts =
     row.right_parts.length > 0 ? row.right_parts : row.left_parts;
 
+  /**
+   * Preserve the established two-sided Inline presentation for an explicit
+   * replacement or an equal row whose engine supplied changed content tokens.
+   *
+   * # Returns
+   *
+   * - `HTMLElement` when insert-only content combines into one physical row.
+   * - `DocumentFragment` containing each present side otherwise.
+   */
+  function renderChangedRow(): DocumentFragment | HTMLElement {
+    const statusIsEqual = row.status === "equal";
+    if (canCombineInsertOnlyChangedRow(row)) {
+      return renderInlineDiffRowDom({
+        status: statusIsEqual ? "equal" : "replace",
+        marker: " ",
+        leftNo: row.left_no,
+        rightNo: row.right_no,
+        text: rightText,
+        parts: row.right_parts,
+        rowIndex,
+        fileIndex,
+        bayKey,
+        sourceRow: row,
+        lineNumberState,
+        tokenRowStatus: null,
+      });
+    }
+    const fragment = document.createDocumentFragment();
+    const hasLeftSide = inlineSideExists(row.left_no, leftText);
+    const hasRightSide = inlineSideExists(row.right_no, rightText);
+    if (hasLeftSide) {
+      fragment.append(
+        renderInlineDiffRowDom({
+          status: statusIsEqual ? "equal" : "delete",
+          marker: "-",
+          leftNo: row.left_no,
+          rightNo: null,
+          text: leftText,
+          parts: row.left_parts,
+          rowIndex,
+          fileIndex,
+          bayKey,
+          sourceRow: row,
+          lineNumberState,
+          tokenRowStatus: statusIsEqual ? "equal" : "replace",
+        }),
+      );
+    }
+    if (hasRightSide) {
+      fragment.append(
+        renderInlineDiffRowDom({
+          status: statusIsEqual ? "equal" : "insert",
+          marker: "+",
+          leftNo: null,
+          rightNo: row.right_no,
+          text: rightText,
+          parts: row.right_parts,
+          rowIndex,
+          fileIndex,
+          bayKey,
+          sourceRow: {
+            ...row,
+            hunk_index: hasLeftSide ? null : row.hunk_index,
+          },
+          lineNumberState,
+          tokenRowStatus: statusIsEqual ? "equal" : "replace",
+        }),
+      );
+    }
+    return fragment;
+  }
+
   switch (row.status) {
-    case "equal":
+    case "equal": {
+      const hasChangedContent = [...row.left_parts, ...row.right_parts].some(
+        (part) => part.diff_status !== "unchanged" && !part.is_whitespace,
+      );
+      if (hasChangedContent) {
+        return renderChangedRow();
+      }
       return renderInlineDiffRowDom({
         status: "equal",
         marker: " ",
@@ -783,6 +863,7 @@ function renderInlineDiffRowsDom(
         lineNumberState,
         tokenRowStatus: null,
       });
+    }
     case "delete":
       return renderInlineDiffRowDom({
         status: "delete",
@@ -813,67 +894,8 @@ function renderInlineDiffRowsDom(
         lineNumberState,
         tokenRowStatus: null,
       });
-    case "replace": {
-      if (canCombineInsertOnlyReplaceRow(row)) {
-        return renderInlineDiffRowDom({
-          status: "replace",
-          marker: " ",
-          leftNo: row.left_no,
-          rightNo: row.right_no,
-          text: rightText,
-          parts: row.right_parts,
-          rowIndex,
-          fileIndex,
-          bayKey,
-          sourceRow: row,
-          lineNumberState,
-          tokenRowStatus: null,
-        });
-      }
-      const fragment = document.createDocumentFragment();
-      const hasLeftSide = inlineSideExists(row.left_no, leftText);
-      const hasRightSide = inlineSideExists(row.right_no, rightText);
-      if (hasLeftSide) {
-        fragment.append(
-          renderInlineDiffRowDom({
-            status: "delete",
-            marker: "-",
-            leftNo: row.left_no,
-            rightNo: null,
-            text: leftText,
-            parts: row.left_parts,
-            rowIndex,
-            fileIndex,
-            bayKey,
-            sourceRow: row,
-            lineNumberState,
-            tokenRowStatus: "replace",
-          }),
-        );
-      }
-      if (hasRightSide) {
-        fragment.append(
-          renderInlineDiffRowDom({
-            status: "insert",
-            marker: "+",
-            leftNo: null,
-            rightNo: row.right_no,
-            text: rightText,
-            parts: row.right_parts,
-            rowIndex,
-            fileIndex,
-            bayKey,
-            sourceRow: {
-              ...row,
-              hunk_index: hasLeftSide ? null : row.hunk_index,
-            },
-            lineNumberState,
-            tokenRowStatus: "replace",
-          }),
-        );
-      }
-      return fragment;
-    }
+    case "replace":
+      return renderChangedRow();
     case "move": {
       const fragment = document.createDocumentFragment();
       const hasLeftSide = inlineSideExists(row.left_no, leftText);
@@ -928,17 +950,14 @@ function renderInlineDiffRowsDom(
 }
 
 /**
- * Recognizes replacement rows whose changed tokens exist only as insertions.
+ * Recognizes changed rows whose changed tokens exist only as insertions.
  *
  * The predicate is deliberately strict: any changed old-side token or any
  * non-insert new-side token preserves the ordinary two-line representation.
  *
  * @param row Backend row being considered for the combined representation.
  */
-function canCombineInsertOnlyReplaceRow(row: DiffRow): boolean {
-  if (row.status !== "replace") {
-    return false;
-  }
+function canCombineInsertOnlyChangedRow(row: DiffRow): boolean {
   const oldSideHasChanges = row.left_parts.some(
     (part) => part.diff_status !== "unchanged",
   );
@@ -1001,7 +1020,7 @@ function renderInlineDiffRowDom(props: {
 
   /**
    * Identifies the backend source row represented by this element.
-   * Both elements produced by one inline replacement share this coordinate.
+   * Both elements produced from one backend row share this coordinate.
    */
   rowIndex: number;
 
@@ -1019,7 +1038,7 @@ function renderInlineDiffRowDom(props: {
 
   /**
    * Preserves original backend identity and token facts for this emitted side.
-   * Its status may differ from `status` when a replacement becomes two rows.
+   * Its status may differ from `status` when one backend row becomes two rows.
    */
   sourceRow: DiffRow;
 
@@ -1031,7 +1050,8 @@ function renderInlineDiffRowDom(props: {
 
   /**
    * Selects token-change semantics independently of the visible row status.
-   * Null uses `status`; replacement halves pass `replace` to retain token diffs.
+   * Null uses `status`; two-sided changed rows pass the backend semantic status
+   * to retain token diffs independently of their physical row presentation.
    */
   tokenRowStatus: InlineRowStatus | null;
 }): HTMLElement {

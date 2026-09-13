@@ -62,7 +62,7 @@
     "right_no": 6,
     "right_text": "  SyntaxSpan",
     "right_tokens": [],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 7,

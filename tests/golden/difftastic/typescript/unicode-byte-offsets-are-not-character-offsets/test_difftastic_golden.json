@@ -10,7 +10,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "\"plain\""
       },
       {
@@ -29,7 +29,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "\"\u201cbeware unicode quotes, they screw up byte/character offsets\u201d\""
       },
       {
@@ -38,6 +38,6 @@
         "text": ";"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   }
 ]

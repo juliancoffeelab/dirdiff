@@ -517,26 +517,21 @@ def git_word_diff_rows_from_patch(
             )
             left_tokens = [] if left_row is None else left_row[2]
             right_tokens = [] if right_row is None else right_row[2]
-            meaningful_statuses = [
-                token["status"]
-                for token in [*left_tokens, *right_tokens]
-                if not token["is_ws"]
+            statuses = [
+                token["status"] for token in [*left_tokens, *right_tokens]
             ]
-            changed_statuses = {
-                status
-                for status in meaningful_statuses
-                if status != "unchanged"
-            }
-            if changed_statuses == set():
-                row_status: Literal["equal", "replace", "insert", "delete"] = (
-                    "equal"
-                )
-            elif all(status == "delete" for status in meaningful_statuses):
-                row_status = "delete"
-            elif all(status == "insert" for status in meaningful_statuses):
+            if statuses != [] and all(
+                status == "delete" for status in statuses
+            ):
+                row_status: Literal["equal", "insert", "delete"] = "delete"
+            elif statuses != [] and all(
+                status == "insert" for status in statuses
+            ):
                 row_status = "insert"
             else:
-                row_status = "replace"
+                # Git reports word facts, not a replacement relationship.
+                # Mixed and partially unchanged token rows remain aligned context.
+                row_status = "equal"
             rows.append(
                 {
                     "status": row_status,
@@ -657,9 +652,39 @@ class GitDiffEngine(DiffEngineProtocol):
                 text=right_text_value,
                 side="right",
             )
-        added_lines = sum(1 for row in rows if row["status"] == "insert")
-        removed_lines = sum(1 for row in rows if row["status"] == "delete")
-        modified_lines = sum(1 for row in rows if row["status"] == "replace")
+        if self.word_diff:
+            added_lines = removed_lines = modified_lines = 0
+            for row in rows:
+                tokens = [
+                    *row.get("left_tokens", []),
+                    *row.get("right_tokens", []),
+                ]
+                if tokens == []:
+                    if row["status"] == "insert":
+                        added_lines += 1
+                    elif row["status"] == "delete":
+                        removed_lines += 1
+                    continue
+                meaningful_statuses = [
+                    token["status"] for token in tokens if not token["is_ws"]
+                ]
+                changed_statuses = [
+                    status
+                    for status in meaningful_statuses
+                    if status != "unchanged"
+                ]
+                if changed_statuses == []:
+                    continue
+                if all(status == "insert" for status in meaningful_statuses):
+                    added_lines += 1
+                elif all(status == "delete" for status in meaningful_statuses):
+                    removed_lines += 1
+                else:
+                    modified_lines += 1
+        else:
+            added_lines = sum(1 for row in rows if row["status"] == "insert")
+            removed_lines = sum(1 for row in rows if row["status"] == "delete")
+            modified_lines = 0
         moved_lines = sum(1 for row in rows if row["status"] == "move")
         return {
             "summary": {

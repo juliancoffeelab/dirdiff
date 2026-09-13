@@ -290,7 +290,7 @@
     "hunk_index": null
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": 3,
     "right_no": 3,
     "left_text": "  changed: boolean;",
@@ -502,7 +502,7 @@
     "hunk_index": 0
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": 4,
     "right_no": 4,
     "left_text": "  is_ws: boolean;",

@@ -92,9 +92,10 @@ Its `word_diff` boolean requests Git's porcelain word output with the default
 non-whitespace word boundary. Zero-context hunk coordinates determine changed
 lines; porcelain records classify their words. Rows and whitespace retain the
 exact supplied sources because porcelain may print only one whitespace spelling.
-Rows with only inserted or deleted non-whitespace tokens retain that status;
-mixed meaningful tokens are replacements, and rows without a changed meaningful
-token are equal. Git itself suppresses moved-line colors while word diff is active.
+A nonempty row whose every token, including whitespace, is deleted or inserted
+retains that status. Every other mixture is an equal aligned row carrying Git's
+token facts. Summary categories retain Git's meaningful-word accounting. Git
+itself suppresses moved-line colors while word diff is active.
 
 Git's required `color_moved` and `color_moved_ws` settings pass the exact
 upstream choices, including `default`, independently of diff whitespace.
@@ -119,11 +120,12 @@ corpus property tests in `tests/tokendiff/`.
 
 GumTree aligns the sequences of unchanged complete lines and pairs changed
 intervening lines in source order. It preserves every line exactly once per
-side. GumTree actions classify inline changes, and row statuses summarize
-those token semantics independently of alignment gaps. Context-only rows are
-equal; pure insertions, deletions, and moves retain their kind only without
-unchanged non-whitespace context. Mixed rows are replacements. Summary counts
-follow these row classifications.
+side. GumTree actions classify inline changes. The adapter maps update, insert,
+delete, and move actions directly to replace, insert, delete, and move tokens.
+A nonempty row whose every token, including whitespace, is inserted or deleted
+retains that status; every other mixture is an equal aligned row. Summary
+categories remain derived from GumTree's meaningful token facts rather than the
+neutral row status.
 Narrower actions win overlapping status; edits beat equally wide moves.
 The innermost containing move supplies
 both old and new source spans even when a descendant is edited. Move spans use
@@ -153,12 +155,12 @@ replacement, or reads syntax kinds. Whitespace never appears in a report
 because Diffsitter strips it. Physical rows come from a local
 `difflib.unified_diff` over `\n`-split lines inside the Diffsitter
 implementation, so every line of both sides appears exactly once in order and
-differing lines are one-sided rows. Row status follows the Difftastic rule
-over the row's tokens: no changed non-whitespace token means equal, a single
-kind of change without unchanged non-whitespace context keeps that kind, and
-any other mix is a replacement. A one-sided line Diffsitter never mentioned
+differing lines are one-sided rows. A nonempty row whose every token, including
+whitespace, is inserted or deleted retains that status; every other mixture is
+an equal aligned row. A one-sided line Diffsitter never mentioned
 carries no tokens and stays equal, except a blank line, whose presence is the
-change and which takes its side's status. Summary counts follow row statuses.
+change and which takes its side's status. Summary categories remain derived
+from the reported meaningful graphemes.
 Column coordinates are UTF-8 byte offsets; the adapter validates every line
 index, row, column, and entry text against the exact supplied source and
 rejects the echoed documents when they differ from dirdiff's inputs.
@@ -175,7 +177,16 @@ discovery, temporary files, and raw JSON validation.
 Difftastic's `ignore_comments` option passes `--ignore-comments`. An upstream
 `unchanged` result with this option uses local line alignment to retain both
 source texts as equal rows, including comment-only edits. Other structural
-results retain the normal alignment and span validation.
+results retain the normal alignment and span validation. Novel left spans map
+to delete tokens and novel right spans map to insert tokens; the adapter does
+not infer replacements from paired spans. Source gaps omitted from Difftastic's
+novel spans remain private `synthesised` partition slices while row status is
+derived. Every synthesised gap becomes a public unchanged token because
+Difftastic reported no classification for it. A row with at least one public
+token takes the inserted or deleted status when every public token has that
+status. An aligned source line with no reported spans has an empty token list and
+contributes no implicit unchanged status. Other mixtures remain equal. Summary
+categories retain meaningful-span accounting.
 
 GumTree's `matcher` option passes an explicit `-m` ID: Simple, Classic, Hybrid,
 Stable, or Auto. Simple is the initial preference.

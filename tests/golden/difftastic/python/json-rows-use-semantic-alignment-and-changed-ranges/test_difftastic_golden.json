@@ -19,7 +19,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "1"
       }
     ],
@@ -33,11 +33,11 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "2"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -92,7 +92,7 @@
         "text": ":"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -121,6 +121,6 @@
         "text": "3"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   }
 ]

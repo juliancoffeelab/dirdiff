@@ -84,7 +84,7 @@
         "text": "Show"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -163,7 +163,7 @@
         "text": "}"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -252,7 +252,7 @@
         "text": "}"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": null,
@@ -271,7 +271,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 8,
@@ -504,7 +504,7 @@
         "text": ">"
       }
     ],
-    "status": "insert"
+    "status": "equal"
   },
   {
     "left_no": 28,

@@ -364,7 +364,7 @@
     "hunk_index": null
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": 5,
     "right_no": 5,
     "left_text": "def preset(service, defaults, git_service):",
@@ -799,7 +799,7 @@
     "hunk_index": null
   },
   {
-    "status": "replace",
+    "status": "equal",
     "left_no": null,
     "right_no": 9,
     "left_text": "",

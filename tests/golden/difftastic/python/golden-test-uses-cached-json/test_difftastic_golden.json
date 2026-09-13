@@ -136,127 +136,127 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "Freeze"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "exact"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "projected"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "rows"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "for"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "every"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "valid"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "two"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "-"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "sided"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "diff"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "preset"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       }
     ],
@@ -270,131 +270,131 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "Freeze"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "exact"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "projected"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "rows"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "for"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "every"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "valid"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "two"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "-"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "sided"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "diff"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "preset"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 16,
@@ -744,7 +744,7 @@
         "text": "real"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 18,
@@ -1015,7 +1015,7 @@
         "text": "the"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 19,
@@ -1023,92 +1023,92 @@
     "left_tokens": [
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "snapshot"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "by"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "the"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "human"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "-"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "readable"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "preset"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "path"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       }
     ],
@@ -1117,96 +1117,96 @@
     "right_tokens": [
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "snapshot"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "by"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "the"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "human"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "-"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "readable"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "preset"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "path"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 20,
@@ -1223,37 +1223,37 @@
     "left_tokens": [
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "#"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "Parameters"
       }
     ],
@@ -1262,41 +1262,41 @@
     "right_tokens": [
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "#"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "Parameters"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 22,
@@ -1313,137 +1313,137 @@
     "left_tokens": [
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "-"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "preset_dir"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ":"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "One"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "parametrized"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "source"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "-"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "pair"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "directory"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "from"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "PRESETS_ROOT"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       }
     ],
@@ -1452,141 +1452,141 @@
     "right_tokens": [
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "-"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "preset_dir"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ":"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "One"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "parametrized"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "source"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "-"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "pair"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "directory"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "from"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "PRESETS_ROOT"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 24,
@@ -1594,97 +1594,97 @@
     "left_tokens": [
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "-"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "snapshot_json"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": ":"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "Difftastic"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "-"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "configured"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "snapshot"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "assertion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "."
       }
     ],
@@ -1693,101 +1693,101 @@
     "right_tokens": [
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "-"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "snapshot_json"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "`"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": ":"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "Difftastic"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "-"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "configured"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "snapshot"
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "assertion"
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "."
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 25,
@@ -1795,37 +1795,37 @@
     "left_tokens": [
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "delete",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "\""
       }
     ],
@@ -1834,41 +1834,41 @@
     "right_tokens": [
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": true,
-        "status": "replace",
+        "status": "insert",
         "text": " "
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "\""
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "\""
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 26,
@@ -1971,7 +1971,7 @@
     ],
     "right_no": null,
     "right_text": "",
-    "status": "delete"
+    "status": "equal"
   },
   {
     "left_no": 33,
@@ -2037,7 +2037,7 @@
         "text": ")"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 34,
@@ -2103,7 +2103,7 @@
         "text": ")"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 35,
@@ -2163,7 +2163,7 @@
         "text": "("
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 37,
@@ -2214,7 +2214,7 @@
         "text": ","
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 38,
@@ -2265,7 +2265,7 @@
         "text": ","
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 39,
@@ -2321,7 +2321,7 @@
         "text": "=old_path,"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 40,
@@ -2377,7 +2377,7 @@
         "text": "=new_path,"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   },
   {
     "left_no": 41,

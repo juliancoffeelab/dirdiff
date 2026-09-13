@@ -10,7 +10,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "delete",
         "text": "\" \u00b7 \""
       },
       {
@@ -29,7 +29,7 @@
       },
       {
         "is_ws": false,
-        "status": "replace",
+        "status": "insert",
         "text": "\"\u2014\""
       },
       {
@@ -38,6 +38,6 @@
         "text": ";"
       }
     ],
-    "status": "replace"
+    "status": "equal"
   }
 ]
