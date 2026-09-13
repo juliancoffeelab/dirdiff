@@ -1316,6 +1316,45 @@ def test_agent_batch_applies_set_reads_across_threads(tmp_path: Path) -> None:
     )
 
 
+def test_agent_join_normalizes_canonical_hyphenated_uuid(
+    tmp_path: Path,
+) -> None:
+    """Canonical UUID input shares one registration identity with compact hex.
+
+    The first join exercises the HTTP validation boundary with the conventional
+    hyphenated spelling. A second join uses the same UUID in stored compact form
+    and must reach duplicate detection rather than create another Profile.
+
+    # Parameters
+
+    - `tmp_path`: Isolated marked repository and database root for both joins.
+    """
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "alpha.txt").write_text("changed\n", encoding="utf-8")
+    client, _project_id = create_repo_client(tmp_path)
+
+    joined = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "name": "hyphenated reviewer",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    )
+    assert joined.status_code == 200
+
+    duplicate = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa",
+            "name": "compact duplicate reviewer",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    )
+    assert duplicate.status_code == 400
+    assert duplicate.text == "Agent UUID already exists."
+
+
 def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
     """A batch with one invalid action leaves zero review rows behind.
 

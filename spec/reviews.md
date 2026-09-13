@@ -541,10 +541,11 @@ join-review `tab`, and absolute paths to the installed `review-patch`,
 `round-review`, and `babysit-patch` `SKILL.md` files. Onboarding creates no
 Profile, Room, Snapshot, or review activity.
 
-Join review accepts an agent UUID, display name, and an explicit HEAD, refs,
-Branch Review, or Pull Request Tab. Repository-backed Tabs name the exact
-path of an active Mark; nothing marks a path implicitly. Registration creates
-one ordinary `user_profile` and its one-to-one `agent_profile` UUID binding.
+Join review accepts a compact lowercase or canonical hyphenated agent UUID,
+normalizes it to compact lowercase, and accepts a display name plus an explicit
+HEAD, refs, Branch Review, or Pull Request Tab. Repository-backed Tabs name the
+exact path of an active Mark; nothing marks a path implicitly. Registration
+creates one ordinary `user_profile` and its one-to-one `agent_profile` UUID binding.
 The response contains only the Profile id, Snapshot id, current activity
 boundary, actionable author/reviewer/both counts, and absolute filesystem
 Snapshot path.

@@ -324,10 +324,11 @@ Room correspondence and the two commits only for capture. It does not parse a
 Pull Request URL, contact a forge, fetch refs, derive commits, or apply Branch
 Review selection logic.
 
-`POST /api/agent/join_review` registers one disposable ordinary Profile, maps
-the supplied Tab into the shared capture operation, and returns the resulting
-Snapshot id, Profile id, activity boundary, and the existing durable Snapshot
-directory.
+`POST /api/agent/join_review` registers one disposable ordinary Profile,
+normalizing either compact lowercase or canonical hyphenated UUID input to the
+compact stored identity. It maps the supplied Tab into the shared capture
+operation and returns the resulting Snapshot id, Profile id, activity boundary,
+and the existing durable Snapshot directory.
 `POST /api/agent/continue_review` recovers the exact Room and persisted Tab from
 the supplied Snapshot and passes the new captured state through the same
 publication path. Neither operation introduces another Room identity or

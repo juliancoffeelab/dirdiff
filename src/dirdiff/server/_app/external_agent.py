@@ -82,6 +82,7 @@ from dirdiff.server.base import (
     ReviewExcerptResponse,
     capture_snapshot,
 )
+from dirdiff.util import JsonValue
 
 __all__ = ["ExternalAgentRoutes"]
 
@@ -317,8 +318,9 @@ class NewAgentReviewRequest(ApiModel):
     agent_uuid: str = Field(pattern=r"^[0-9a-f]{32}$")
     """Agent-supplied registration identity for the new ordinary Profile.
 
-    It must be 32 lowercase hexadecimal characters and unused. Repeating a
-    prior value is an error rather than a way to resume that registration.
+    It accepts a compact lowercase hexadecimal UUID or a canonical hyphenated
+    UUID. Validation stores the compact lowercase form. Repeating either form
+    of a prior value is an error rather than a way to resume that registration.
     """
 
     name: str = Field(min_length=1)
@@ -334,6 +336,22 @@ class NewAgentReviewRequest(ApiModel):
     Join review records this exact context with the Room. Continuation recaptures
     it rather than accepting replacement Tab parameters.
     """
+
+    @field_validator("agent_uuid", mode="before")
+    @classmethod
+    def normalize_agent_uuid(cls, value: JsonValue) -> JsonValue:
+        """Normalize a canonical hyphenated UUID to the stored compact form.
+
+        Pydantic subsequently applies the compact lowercase field pattern, so
+        non-strings, malformed UUIDs, and unsupported textual forms remain
+        ordinary validation failures.
+        """
+        if isinstance(value, str) and len(value) == 36:
+            try:
+                return UUID(value).hex
+            except ValueError:
+                return value
+        return value
 
     @field_validator("name")
     @classmethod
