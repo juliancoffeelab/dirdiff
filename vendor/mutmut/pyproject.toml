@@ -1,0 +1,93 @@
+[project]
+name = "mutmut"
+version = "3.8.0"
+description = "mutation testing for Python 3"
+keywords = ["mutmut", "mutant", "mutation", "test", "testing"]
+authors = [
+    { name = "Anders Hovmöller", email = "boxed@killingar.net" },
+]
+requires-python = ">=3.10"
+readme = "README.rst"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+]
+
+dependencies = [
+    "click>=8.4.2",
+    "coverage>=7.3.0",
+    "libcst>=1.9.0",
+    "pytest>=6.2.5",
+    "setproctitle>=1.3.7",
+    "textual>=1.0.0",
+    "toml>=0.10.2 ; python_full_version < '3.11'",
+]
+
+[project.urls]
+Homepage = "https://github.com/boxed/mutmut"
+Documentation = "https://mutmut.readthedocs.io/en/latest/"
+Repository = "https://github.com/boxed/mutmut"
+Issues = "https://github.com/boxed/mutmut/issues"
+Changelog = "https://github.com/boxed/mutmut/blob/main/HISTORY.rst"
+
+
+[project.scripts]
+mutmut = "mutmut.__main__:cli"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<1"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+source-include = ["HISTORY.rst"]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.inline-snapshot]
+format-command="ruff format --stdin-filename {filename}"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = [
+    "docs/_themes/",
+    "docs/conf.py",
+    "e2e_projects/",
+    "tests/data/test_generation/",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "C4", "UP", "I"]
+ignore = [
+    "E501",  # line too long - handled by formatter
+    "B007",  # unused loop control variable
+    "B018",  # useless expression
+    "B024",  # abstract base class without abstract methods
+    "B027",  # empty method in abstract base class without abstract decorator
+    "B028",  # no explicit stacklevel in warnings.warn
+    "B904",  # raise without from in except
+    "C405",  # unnecessary list literal
+    "C408",  # unnecessary dict() call
+    "C416",  # unnecessary list comprehension
+    "F402",  # import shadowed by loop variable
+    "F841",  # local variable assigned but never used
+    "UP007", # use X | Y for type annotations
+]
+
+[tool.ruff.lint.isort]
+force-single-line = true
