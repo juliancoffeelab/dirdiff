@@ -1398,6 +1398,9 @@ function appendDecoratedText(
   // A line-local enclosure groups syntax fragments with the same move. It
   // belongs to this code cell; no DOM or move state survives row replacement.
   let enclosure: HTMLSpanElement | null = null;
+  const rowAlreadyShowsEveryTokenChange =
+    (rowStatus === "insert" || rowStatus === "delete") &&
+    parts.every((part) => part.diff_status === rowStatus);
   for (const part of parts) {
     if (part.move === undefined) {
       enclosure = null;
@@ -1435,10 +1438,7 @@ function appendDecoratedText(
     const classes = syntaxClasses.length
       ? ["ts-token", ...new Set(syntaxClasses)]
       : [];
-    const rowAlreadyShowsTokenChange =
-      (rowStatus === "insert" || rowStatus === "delete") &&
-      rowStatus === part.diff_status;
-    const showTokenChange = tokenChanged && !rowAlreadyShowsTokenChange;
+    const showTokenChange = tokenChanged && !rowAlreadyShowsEveryTokenChange;
     if (showTokenChange) {
       classes.push("token-changed", `token-${part.diff_status}`);
     }

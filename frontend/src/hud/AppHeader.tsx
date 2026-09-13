@@ -689,9 +689,10 @@ type EngineOptionsProps = {
 /**
  * Renders the persistent engine options trigger and popup configuration menu.
  *
- * The component observes canonical preferences for Git algorithm and whitespace,
- * Difftastic comments, and GumTree matcher choices. Engines without options show
- * an explicit empty state. Saving never copies preferences into component state.
+ * The component observes canonical preferences for Git algorithm, whitespace,
+ * word and moved-code output, Difftastic comments, and GumTree matcher choices.
+ * Engines without options show an explicit empty state. Saving never copies
+ * preferences into component state.
  *
  * @param props Component properties containing current engine and profile selection.
  * The native popover handles dismissal and focus; opening positions it below the trigger.
@@ -737,6 +738,7 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
       gumtreeMatcher: current.gumtree_matcher,
       gitAlgorithm: GitAlgorithmSchema.parse(value),
       gitIgnoreSpaceChange: current.git_ignore_space_change,
+      gitWordDiff: current.git_word_diff,
       gitColorMoved: current.git_color_moved,
       gitColorMovedWs: current.git_color_moved_ws,
     });
@@ -757,6 +759,26 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
       gumtreeMatcher: current.gumtree_matcher,
       gitAlgorithm: current.git_algorithm,
       gitIgnoreSpaceChange: !current.git_ignore_space_change,
+      gitWordDiff: current.git_word_diff,
+      gitColorMoved: current.git_color_moved,
+      gitColorMovedWs: current.git_color_moved_ws,
+    });
+  }
+
+  /** Inverts and persists Git's word-level decoration preference. */
+  function toggleWordDiff(): void {
+    const current = expect(
+      preferences.data,
+      "Changing word diff requires loaded preferences.",
+    );
+    savePreferences.mutate({
+      profileId: props.selectedProfile?.id ?? null,
+      aggressiveFolds: current.aggressive_folds,
+      difftasticIgnoreComments: current.difftastic_ignore_comments,
+      gumtreeMatcher: current.gumtree_matcher,
+      gitAlgorithm: current.git_algorithm,
+      gitIgnoreSpaceChange: current.git_ignore_space_change,
+      gitWordDiff: !current.git_word_diff,
       gitColorMoved: current.git_color_moved,
       gitColorMovedWs: current.git_color_moved_ws,
     });
@@ -954,6 +976,7 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                                       gitAlgorithm: current.git_algorithm,
                                       gitIgnoreSpaceChange:
                                         current.git_ignore_space_change,
+                                      gitWordDiff: current.git_word_diff,
                                       gitColorMoved: GitColorMovedSchema.parse(
                                         setting.field === "git_color_moved"
                                           ? value
@@ -1046,6 +1069,49 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                   <div class="engine-options-section">
                     <label class="engine-options-checkbox-row">
                       <span class="engine-options-checkbox-copy">
+                        <strong>Word diff</strong>
+                        <span>
+                          Highlight changed words (
+                          <code>--word-diff=porcelain</code>). Git does not emit
+                          moved-line colors in this mode.
+                        </span>
+                      </span>
+                      <span class="profile-checkbox-control">
+                        <input
+                          class="profile-checkbox-input"
+                          type="checkbox"
+                          checked={prefs().git_word_diff}
+                          aria-disabled={
+                            preferences.isPending ||
+                            preferences.error !== null ||
+                            savePreferences.isPending
+                          }
+                          onChange={(event) => {
+                            // Restore the confirmed value after native activation;
+                            // the successful save updates it through preferences.
+                            event.currentTarget.checked = prefs().git_word_diff;
+                            if (
+                              preferences.isPending ||
+                              preferences.error !== null ||
+                              savePreferences.isPending
+                            ) {
+                              return;
+                            }
+                            toggleWordDiff();
+                          }}
+                        />
+                        <span
+                          class="visibility-indicator large profile-checkbox-indicator"
+                          classList={{ visible: prefs().git_word_diff }}
+                          aria-hidden="true"
+                        />
+                      </span>
+                    </label>
+                  </div>
+                  <div class="engine-options-popover-divider" />
+                  <div class="engine-options-section">
+                    <label class="engine-options-checkbox-row">
+                      <span class="engine-options-checkbox-copy">
                         <strong>Ignore space changes</strong>
                         <span>
                           Ignore amount of whitespace and trailing space
@@ -1124,6 +1190,7 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                               gitColorMovedWs: current.git_color_moved_ws,
                               gitIgnoreSpaceChange:
                                 current.git_ignore_space_change,
+                              gitWordDiff: current.git_word_diff,
                               difftasticIgnoreComments:
                                 !current.difftastic_ignore_comments,
                               gumtreeMatcher: current.gumtree_matcher,
@@ -1201,6 +1268,7 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                                   gitColorMovedWs: current.git_color_moved_ws,
                                   gitIgnoreSpaceChange:
                                     current.git_ignore_space_change,
+                                  gitWordDiff: current.git_word_diff,
                                   difftasticIgnoreComments:
                                     current.difftastic_ignore_comments,
                                   gumtreeMatcher: GumTreeMatcherSchema.parse(

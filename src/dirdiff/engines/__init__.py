@@ -77,6 +77,7 @@ def engine(config: EngineConfig) -> DiffEngineProtocol:
         case GitEngineConfig(
             algorithm=algorithm,
             ignore_space_change=ignore_space_change,
+            word_diff=word_diff,
             color_moved=color_moved,
             color_moved_ws=color_moved_ws,
         ):
@@ -85,6 +86,7 @@ def engine(config: EngineConfig) -> DiffEngineProtocol:
                 color_moved=color_moved,
                 color_moved_ws=color_moved_ws,
                 ignore_space_change=ignore_space_change,
+                word_diff=word_diff,
             )
         case DifftasticEngineConfig(ignore_comments=ignore_comments):
             return DifftasticDiffEngine(ignore_comments=ignore_comments)

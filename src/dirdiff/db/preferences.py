@@ -73,6 +73,9 @@ class UserPreferences(TableBase):
     )
     """Whether the Git engine ignores changes in whitespace amount."""
 
+    git_word_diff: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    """Whether the Git engine decorates changed lines at word granularity."""
+
     difftastic_ignore_comments: Mapped[bool] = mapped_column(
         Boolean, nullable=False
     )
@@ -118,6 +121,9 @@ class PreferencesRecord:
 
     git_ignore_space_change: bool
     """Remembered Git whitespace policy, independent of the active engine."""
+
+    git_word_diff: bool
+    """Remembered Git word-decoration choice, independent of the active engine."""
 
     difftastic_ignore_comments: bool
     """Stored Difftastic comment policy, without UI interpretation."""
@@ -186,6 +192,7 @@ class PreferencesStore:
                     UserPreferences.aggressive_folds,
                     UserPreferences.git_algorithm,
                     UserPreferences.git_ignore_space_change,
+                    UserPreferences.git_word_diff,
                     UserPreferences.difftastic_ignore_comments,
                     UserPreferences.gumtree_matcher,
                     UserPreferences.git_color_moved,
@@ -199,10 +206,11 @@ class PreferencesStore:
                 aggressive_folds=row[1],
                 git_algorithm=row[2],
                 git_ignore_space_change=row[3],
-                difftastic_ignore_comments=row[4],
-                gumtree_matcher=row[5],
-                git_color_moved=row[6],
-                git_color_moved_ws=row[7],
+                git_word_diff=row[4],
+                difftastic_ignore_comments=row[5],
+                gumtree_matcher=row[6],
+                git_color_moved=row[7],
+                git_color_moved_ws=row[8],
             )
 
     def get_or_create(self, user_profile_id: int) -> PreferencesRecord:
@@ -240,6 +248,7 @@ class PreferencesStore:
                     aggressive_folds=True,
                     git_algorithm="myers",
                     git_ignore_space_change=False,
+                    git_word_diff=False,
                     difftastic_ignore_comments=False,
                     gumtree_matcher="gumtree-simple",
                     git_color_moved="no",
@@ -258,6 +267,7 @@ class PreferencesStore:
                     UserPreferences.aggressive_folds,
                     UserPreferences.git_algorithm,
                     UserPreferences.git_ignore_space_change,
+                    UserPreferences.git_word_diff,
                     UserPreferences.difftastic_ignore_comments,
                     UserPreferences.gumtree_matcher,
                     UserPreferences.git_color_moved,
@@ -269,10 +279,11 @@ class PreferencesStore:
                 aggressive_folds=row[1],
                 git_algorithm=row[2],
                 git_ignore_space_change=row[3],
-                difftastic_ignore_comments=row[4],
-                gumtree_matcher=row[5],
-                git_color_moved=row[6],
-                git_color_moved_ws=row[7],
+                git_word_diff=row[4],
+                difftastic_ignore_comments=row[5],
+                gumtree_matcher=row[6],
+                git_color_moved=row[7],
+                git_color_moved_ws=row[8],
             )
 
     def save(
@@ -281,6 +292,7 @@ class PreferencesStore:
         aggressive_folds: bool,
         git_algorithm: str,
         git_ignore_space_change: bool,
+        git_word_diff: bool,
         difftastic_ignore_comments: bool,
         gumtree_matcher: str,
         git_color_moved: str,
@@ -297,6 +309,7 @@ class PreferencesStore:
         - `aggressive_folds`: Exact value later returned to the HUD.
         - `git_algorithm`: Validated Git algorithm to remember.
         - `git_ignore_space_change`: Whether Git ignores whitespace amount changes.
+        - `git_word_diff`: Whether Git decorates changed lines by word.
         - `difftastic_ignore_comments`: Whether Difftastic ignores comments.
         - `gumtree_matcher`: Validated upstream matcher ID.
         - `git_color_moved`: Exact Git move-color selection.
@@ -319,6 +332,7 @@ class PreferencesStore:
                     aggressive_folds=aggressive_folds,
                     git_algorithm=git_algorithm,
                     git_ignore_space_change=git_ignore_space_change,
+                    git_word_diff=git_word_diff,
                     difftastic_ignore_comments=difftastic_ignore_comments,
                     gumtree_matcher=gumtree_matcher,
                     git_color_moved=git_color_moved,
@@ -330,6 +344,7 @@ class PreferencesStore:
                         "aggressive_folds": aggressive_folds,
                         "git_algorithm": git_algorithm,
                         "git_ignore_space_change": git_ignore_space_change,
+                        "git_word_diff": git_word_diff,
                         "difftastic_ignore_comments": difftastic_ignore_comments,
                         "gumtree_matcher": gumtree_matcher,
                         "git_color_moved": git_color_moved,
@@ -341,6 +356,7 @@ class PreferencesStore:
                     UserPreferences.aggressive_folds,
                     UserPreferences.git_algorithm,
                     UserPreferences.git_ignore_space_change,
+                    UserPreferences.git_word_diff,
                     UserPreferences.difftastic_ignore_comments,
                     UserPreferences.gumtree_matcher,
                     UserPreferences.git_color_moved,
@@ -352,8 +368,9 @@ class PreferencesStore:
                 aggressive_folds=row[1],
                 git_algorithm=row[2],
                 git_ignore_space_change=row[3],
-                difftastic_ignore_comments=row[4],
-                gumtree_matcher=row[5],
-                git_color_moved=row[6],
-                git_color_moved_ws=row[7],
+                git_word_diff=row[4],
+                difftastic_ignore_comments=row[5],
+                gumtree_matcher=row[6],
+                git_color_moved=row[7],
+                git_color_moved_ws=row[8],
             )

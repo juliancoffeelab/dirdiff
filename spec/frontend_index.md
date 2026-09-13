@@ -179,7 +179,7 @@ api.pullRequest.prepare()
 Each facade operation returns a TanStack query or mutation definition. HUD modules decide when to observe, prefetch, refetch, or execute it.
 
 File rendering accepts a complete `EngineConfig`: Git carries its engine tag and
-required algorithm, `ignore_space_change` boolean, `color_moved`, and
+required algorithm, `ignore_space_change` and `word_diff` booleans, `color_moved`, and
 `color_moved_ws`. Difftastic carries its
 required `ignore_comments` boolean; GumTree carries its required `matcher`. Engines without options carry just their name as the `engine` tag. The File HTTP parameter is JSON, and the complete value participates in query identity.
 Workspace URLs continue to store only the selected engine name.
@@ -188,15 +188,15 @@ Workspace URLs continue to store only the selected engine name.
 use. Profile reads load the database value directly into the localStorage
 preference cache. Anonymous reads use that cache, creating initial preferences
 only when the key is absent. At this localStorage boundary, an absent
-`git_ignore_space_change` field starts off. HTTP values still require every
-field. This boundary initializes missing `git_color_moved` and
+`git_ignore_space_change` or `git_word_diff` field starts off. HTTP values still require every
+field. This boundary initializes those booleans to false, missing `git_color_moved` and
 `git_color_moved_ws` to `no`, and missing Difftastic and GumTree
 options to false and `gumtree-simple`; database migration preserves those values
 for existing Profiles. Validation and storage failures remain errors.
-Preferences contain `aggressive_folds`, `git_algorithm`, and
-`git_ignore_space_change`, `difftastic_ignore_comments`, `gumtree_matcher`,
+Preferences contain `aggressive_folds`, `git_algorithm`,
+`git_ignore_space_change`, `git_word_diff`, `difftastic_ignore_comments`, `gumtree_matcher`,
 `git_color_moved`, and `git_color_moved_ws`, initially true, Myers, false,
-false, `gumtree-simple`, `no`, and `no`. The active TanStack
+false, false, `gumtree-simple`, `no`, and `no`. The active TanStack
 query is the sole reactive representation; localStorage contains only the
 preference values, with no Profile identity or version.
 

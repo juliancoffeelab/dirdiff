@@ -97,6 +97,7 @@ export const EngineConfigSchema = z.discriminatedUnion("engine", [
     engine: z.literal("git"),
     algorithm: GitAlgorithmSchema,
     ignore_space_change: z.boolean(),
+    word_diff: z.boolean(),
     color_moved: GitColorMovedSchema,
     color_moved_ws: GitColorMovedWsSchema,
   }),
@@ -228,6 +229,7 @@ const PreferenceValuesSchema = z.strictObject({
   git_color_moved: GitColorMovedSchema,
   git_color_moved_ws: GitColorMovedWsSchema,
   git_ignore_space_change: z.boolean(),
+  git_word_diff: z.boolean(),
   difftastic_ignore_comments: z.boolean(),
   gumtree_matcher: GumTreeMatcherSchema,
 });
@@ -3252,6 +3254,7 @@ async function requestPreferences(
             git_color_moved: "no" as const,
             git_color_moved_ws: "no" as const,
             git_ignore_space_change: false,
+            git_word_diff: false,
             difftastic_ignore_comments: false,
             gumtree_matcher: "gumtree-simple" as const,
           }
@@ -3263,6 +3266,7 @@ async function requestPreferences(
             // The alternative would be to pretty much erase it, which
             // is not the right trade-off here.
             git_ignore_space_change: z.boolean().default(false),
+            git_word_diff: z.boolean().default(false),
             git_color_moved: GitColorMovedSchema.default("no"),
             git_color_moved_ws: GitColorMovedWsSchema.default("no"),
             difftastic_ignore_comments: z.boolean().default(false),
@@ -3293,6 +3297,7 @@ async function requestPreferences(
       git_color_moved: preferences.git_color_moved,
       git_color_moved_ws: preferences.git_color_moved_ws,
       git_ignore_space_change: preferences.git_ignore_space_change,
+      git_word_diff: preferences.git_word_diff,
       difftastic_ignore_comments: preferences.difftastic_ignore_comments,
       gumtree_matcher: preferences.gumtree_matcher,
     }),
@@ -3317,6 +3322,8 @@ async function requestSavePreferences(input: {
   gitColorMovedWs: Preferences["git_color_moved_ws"];
   /** Whether Git should ignore changes in whitespace amount. */
   gitIgnoreSpaceChange: boolean;
+  /** Whether Git should decorate changed lines at word granularity. */
+  gitWordDiff: boolean;
   /** Whether Difftastic excludes comments from change detection. */
   difftasticIgnoreComments: boolean;
   /** Exact upstream GumTree matcher selection. */
@@ -3328,6 +3335,7 @@ async function requestSavePreferences(input: {
     git_color_moved: input.gitColorMoved,
     git_color_moved_ws: input.gitColorMovedWs,
     git_ignore_space_change: input.gitIgnoreSpaceChange,
+    git_word_diff: input.gitWordDiff,
     difftastic_ignore_comments: input.difftasticIgnoreComments,
     gumtree_matcher: input.gumtreeMatcher,
   });
@@ -4317,6 +4325,7 @@ export const api = {
                 git_color_moved: saved.git_color_moved,
                 git_color_moved_ws: saved.git_color_moved_ws,
                 git_ignore_space_change: saved.git_ignore_space_change,
+                git_word_diff: saved.git_word_diff,
                 difftastic_ignore_comments: saved.difftastic_ignore_comments,
                 gumtree_matcher: saved.gumtree_matcher,
               }),

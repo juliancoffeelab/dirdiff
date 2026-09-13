@@ -88,6 +88,14 @@ whitespace. Adding whitespace where there was none still counts as a change.
 Equal rows retain both original source spellings, including ignored spacing in
 patch context and omitted gaps.
 
+Its `word_diff` boolean requests Git's porcelain word output with the default
+non-whitespace word boundary. Zero-context hunk coordinates determine changed
+lines; porcelain records classify their words. Rows and whitespace retain the
+exact supplied sources because porcelain may print only one whitespace spelling.
+Rows with only inserted or deleted non-whitespace tokens retain that status;
+mixed meaningful tokens are replacements, and rows without a changed meaningful
+token are equal. Git itself suppresses moved-line colors while word diff is active.
+
 Git's required `color_moved` and `color_moved_ws` settings pass the exact
 upstream choices, including `default`, independently of diff whitespace.
 Both initially use `no`. Controlled Git color slots become optional

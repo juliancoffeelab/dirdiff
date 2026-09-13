@@ -2,7 +2,8 @@
 
 ## Public interface
 
-`run_git_no_index_diff` returns a unified patch for two strings.
+`run_git_no_index_diff` returns either a controlled colored unified patch or a
+porcelain word patch for two strings.
 
 ## Purpose and boundaries
 
@@ -35,6 +36,7 @@ __all__ = [
 def run_git_no_index_diff(
     *,
     algorithm: GitAlgorithm,
+    word_diff: bool,
     ignore_space_change: bool,
     color_moved: GitColorMoved,
     color_moved_ws: GitColorMovedWs,
@@ -53,6 +55,7 @@ def run_git_no_index_diff(
     # Parameters
 
     - `algorithm`: Validated line-matching choice, overriding Git configuration.
+    - `word_diff`: Ask Git for machine-readable word classifications.
     - `ignore_space_change`: Pass `--ignore-space-change` when enabled.
     - `color_moved`: Exact move-color mode to apply.
     - `color_moved_ws`: Whitespace policy used only for move detection.
@@ -133,7 +136,16 @@ def run_git_no_index_diff(
                     "--no-index",
                     f"--diff-algorithm={algorithm}",
                     *(["--ignore-space-change"] if ignore_space_change else []),
-                    "--color=always",
+                    *(
+                        [
+                            "--word-diff=porcelain",
+                            "--word-diff-regex=[^[:space:]]+",
+                            "--unified=0",
+                            "--no-color",
+                        ]
+                        if word_diff
+                        else ["--color=always"]
+                    ),
                     f"--color-moved={color_moved}",
                     f"--color-moved-ws={color_moved_ws}",
                     "--no-relative",

@@ -147,6 +147,9 @@ class PreferencesResponse(ApiModel):
     git_ignore_space_change: bool
     """Whether Git ignores changes in whitespace amount for future rendering."""
 
+    git_word_diff: bool
+    """Whether Git decorates changed lines with word-level classifications."""
+
 
 class PreferencesUpdateRequest(ApiModel):
     """Supply the mutable preference values to store for one Profile.
@@ -181,6 +184,9 @@ class PreferencesUpdateRequest(ApiModel):
 
     git_ignore_space_change: bool
     """Required replacement for the Profile's Git whitespace preference."""
+
+    git_word_diff: bool
+    """Required replacement for the Profile's Git word-diff preference."""
 
 
 class _ApplicationRoutes:
@@ -425,6 +431,7 @@ class _ApplicationRoutes:
                 request.aggressive_folds,
                 request.git_algorithm,
                 request.git_ignore_space_change,
+                request.git_word_diff,
                 request.difftastic_ignore_comments,
                 request.gumtree_matcher,
                 request.git_color_moved,

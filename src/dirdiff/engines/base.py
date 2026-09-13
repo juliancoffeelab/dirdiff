@@ -87,6 +87,8 @@ class GitEngineConfig(BaseModel):
     """Required line-matching algorithm passed explicitly to Git."""
     ignore_space_change: bool
     """Whether Git ignores changes in whitespace amount with `--ignore-space-change`."""
+    word_diff: bool
+    """Whether Git classifies non-whitespace words inside changed lines."""
     color_moved: GitColorMoved
     """Required move highlighting mode passed unchanged to Git."""
     color_moved_ws: GitColorMovedWs
