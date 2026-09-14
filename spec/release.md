@@ -126,8 +126,9 @@ Python reload. `--no-frontend-dev` keeps the reloadable API and diagnostic root.
 Missing Bun retains the same diagnostic path. The CLI terminates a started Vite
 child after uvicorn exits.
 
-Release probes only `--port`, opens that server URL unless headless, and runs
-uvicorn without reload. It never starts Vite. Release rejects
+Release selects the first available server port from `--port` through the next
+19 ports, opens that server URL unless headless, and runs uvicorn without
+reload. It never starts Vite. Release rejects
 `--no-frontend-dev` and any non-default `--frontend-port` value because neither
 option describes its one-server topology.
 
