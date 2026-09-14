@@ -345,6 +345,10 @@ function Workspace(props: WorkspaceProps): JSX.Element {
     createSignal<HTMLDivElement | null>(null);
   const [changeSetSummaryTarget, setChangeSetSummaryTarget] =
     createSignal<HTMLDivElement | null>(null);
+  // Registered once by AppHeader during setup; read by the ChangeSet `o` hotkey.
+  const [engineOptionsToggle, setEngineOptionsToggle] = createSignal<
+    (() => void) | null
+  >(null);
 
   /**
    * Returns the mounted AppHeader status outlet for active ChangeSet content.
@@ -375,6 +379,11 @@ function Workspace(props: WorkspaceProps): JSX.Element {
   const appHeaderOutlets: AppHeaderOutlets = {
     status: statusOutlet,
     summary: summaryOutlet,
+    toggleEngineOptions: () =>
+      expect(
+        engineOptionsToggle(),
+        "The AppHeader engine options toggle is not registered.",
+      )(),
   };
 
   /**
@@ -745,6 +754,7 @@ function Workspace(props: WorkspaceProps): JSX.Element {
         onEngineSelected={selectEngine}
         onViewSelected={selectView}
         onChangeSetStatusTarget={setChangeSetStatusTarget}
+        onEngineOptionsToggle={(toggle) => setEngineOptionsToggle(() => toggle)}
         onChangeSetSummaryTarget={setChangeSetSummaryTarget}
         onMetadataStatusTarget={setMetadataTarget}
       />

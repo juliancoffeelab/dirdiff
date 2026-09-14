@@ -105,6 +105,9 @@ test("renders every repo-backed Tab gate after visiting Preset", async () => {
           appHeaderOutlets={{
             status: () => statusOutlet,
             summary: () => summaryOutlet,
+            toggleEngineOptions: () => {
+              throw new Error("Engine options are not toggled here.");
+            },
           }}
           metadataTarget={null}
           onRepoSelected={() => {
@@ -212,6 +215,9 @@ test("selects Presets and renders Pull Request without a repo", async () => {
           appHeaderOutlets={{
             status: () => statusOutlet,
             summary: () => summaryOutlet,
+            toggleEngineOptions: () => {
+              throw new Error("Engine options are not toggled here.");
+            },
           }}
           metadataTarget={null}
           onRepoSelected={() => {

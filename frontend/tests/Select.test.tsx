@@ -23,8 +23,8 @@ test("selects a different option and restores trigger focus", () => {
       label="Engine"
       valueLabel="Difftastic"
       options={[
-        { value: "difftastic", label: "Difftastic" },
-        { value: "token", label: "Token diff" },
+        { value: "difftastic", label: "Difftastic", description: null },
+        { value: "token", label: "Token diff", description: null },
       ]}
       selectedValue="difftastic"
       disabled={false}

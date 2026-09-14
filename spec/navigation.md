@@ -290,6 +290,7 @@ Hotkeys are attached to the mounted ChangeSet shell:
 | `t` | Toggle FileTree |
 | `i` | Toggle inline/split view |
 | `m` | Toggle review History |
+| `o` | Toggle the AppHeader engine options popover |
 | `r` | Reload the ChangeSet snapshot |
 | `d` | Toggle DebugHud |
 | `h` | Toggle HelpModal |

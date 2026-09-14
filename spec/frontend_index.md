@@ -256,7 +256,7 @@ Inputs:
 
 - label;
 - selected value and its visible label;
-- options;
+- options, each with a label and an optional description rendered under it;
 - disabled state;
 - optional open notification;
 - optional per-option action;
@@ -358,24 +358,30 @@ Private components:
 - view selection.
 
 An engine options button beside the engine selector opens a popup menu for
-engine-specific configuration. A native auto popover handles opening, outside-click
-dismissal, and Escape. Opening sets fixed viewport coordinates below the trigger;
-scrolling does not re-anchor the popup. No popup state or document listeners are needed. For Git, the popup displays the algorithm choices
-(Myers as the default, Minimal, Patience, Histogram) and the Ignore space changes
-toggle for Git's `--ignore-space-change` flag. Git also shows all six moved-color modes and five exclusive
-move-whitespace modes as radio cards with explanations. The latter is disabled
-while moved-color is `no`, retaining its selection. These options do not
-disable or replace Ignore space changes. The popup scrolls within the desktop
-viewport. Difftastic shows an Ignore comments
-toggle; GumTree uses the same radio cards for its matcher, with Simple, Classic, Hybrid, Stable,
-and Auto choices. For engines without options, the popup
-indicates that no options are implemented for that engine. The button displays an indicator badge whenever the engine has options,
-including when all settings have their default values. Controls are disabled while
-preferences save without losing keyboard focus. Native radio inputs provide
-arrow-key selection; option controls display only confirmed saves. Save
-errors offer a retry of the original values for the same Profile. The component
-observes and saves canonical preferences directly; option values are not copied
-into workspace state.
+engine-specific configuration; the ChangeSet `o` hotkey toggles the same popup
+through `AppHeaderOutlets.toggleEngineOptions`. A native auto popover handles
+opening, outside-click dismissal, and Escape. Opening sets fixed viewport
+coordinates below the trigger; scrolling does not re-anchor the popup. No popup
+state or document listeners are needed. Exclusive choices are `Select`
+controls whose trigger shows only the selected value and whose options carry
+the explanation as a description. For Git, the popup shows the Algorithm
+select (Myers as the default, Minimal, Patience, Histogram), the Word diff
+toggle, the Moved code (all six `--color-moved` modes) and Move whitespace
+(five `--color-moved-ws` modes) selects, and the Ignore space changes toggle,
+in that order so each cause sits above its effect. Git suppresses moved-line
+colors in word-diff mode, so both moved-code selects are disabled while Word
+diff is on; Move whitespace is also disabled while Moved code is `no`. A
+disabled select retains its value, and a caption under the selects names the
+active cause. These options do not disable or replace Ignore space changes. Difftastic shows an
+Ignore comments toggle; GumTree shows a Matcher select with Simple, Classic,
+Hybrid, Stable, and Auto choices. For engines without options, the popup
+indicates that no options are implemented for that engine. The button displays
+an indicator badge whenever the engine has options, including when all
+settings have their default values. Controls are disabled while preferences
+load, fail, or save; option controls display only confirmed saves. Save errors
+offer a retry of the original values for the same Profile. The component
+observes and saves canonical preferences directly; option values are not
+copied into workspace state.
 
 It observes the canonical repository-list query.
 
@@ -385,6 +391,7 @@ It observes the canonical repository-list query.
 type AppHeaderOutlets = {
   status(): HTMLDivElement;
   summary(): HTMLDivElement;
+  toggleEngineOptions(): void;
 };
 ```
 

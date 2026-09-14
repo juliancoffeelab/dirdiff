@@ -37,6 +37,13 @@ export type SelectOption = {
    * when labelling the optional action beside the same option.
    */
   label: string;
+  /**
+   * Secondary explanation rendered under the label inside the option row.
+   *
+   * It never appears in the trigger, which shows only `valueLabel`. `null`
+   * renders a plain single-line option.
+   */
+  description: string | null;
 };
 
 /**
@@ -243,7 +250,12 @@ export function Select(props: SelectProps): JSX.Element {
                   aria-selected={option.value === props.selectedValue}
                   onClick={() => select(option.value)}
                 >
-                  {option.label}
+                  <span class="ui-select-option-label">{option.label}</span>
+                  <Show when={option.description !== null}>
+                    <span class="ui-select-option-desc">
+                      {option.description}
+                    </span>
+                  </Show>
                 </button>
                 <Show when={props.optionAction !== null}>
                   {props.optionAction?.(option)}

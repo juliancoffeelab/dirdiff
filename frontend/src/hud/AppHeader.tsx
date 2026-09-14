@@ -10,7 +10,6 @@
  * their own data, and the header never reconstructs ChangeSet status or summary.
  */
 import {
-  For,
   Show,
   createMemo,
   createSignal,
@@ -55,63 +54,121 @@ const engineLabels: Record<DiffEngine, string> = {
   diffsitter: "Diffsitter",
 };
 
-/** Header labels for the Git algorithm, with explanations in the choice menu. */
-const gitAlgorithms = [
+/** Git algorithm choices; the option description carries the explanation. */
+const gitAlgorithms: readonly SelectOption[] = [
   {
     value: "myers",
     label: "Myers",
-    explanation: "Standard greedy diff.",
+    description: "Standard greedy diff. Git's default.",
   },
   {
     value: "minimal",
     label: "Minimal",
-    explanation: "Spend more time finding the smallest diff.",
+    description: "Spend more time finding the smallest diff.",
   },
   {
     value: "patience",
     label: "Patience",
-    explanation: "Match lines with the patience algorithm.",
+    description: "Match lines with the patience algorithm.",
   },
   {
     value: "histogram",
     label: "Histogram",
-    explanation: "Extend patience using low-occurrence common lines.",
+    description: "Extend patience using low-occurrence common lines.",
   },
-] as const;
+];
+
+/** Git `--color-moved` modes, labelled by their exact flag values. */
+const gitColorMovedModes: readonly SelectOption[] = [
+  { value: "no", label: "no", description: "Do not highlight moved code." },
+  {
+    value: "plain",
+    label: "plain",
+    description: "Highlight individual removed and added lines that match.",
+  },
+  {
+    value: "blocks",
+    label: "blocks",
+    description:
+      "Highlight greedy moved blocks with at least 20 alphanumeric characters.",
+  },
+  {
+    value: "zebra",
+    label: "zebra",
+    description: "Alternate colors between adjacent detected blocks.",
+  },
+  {
+    value: "dimmed-zebra",
+    label: "dimmed-zebra",
+    description: "Alternate blocks, dim interiors and emphasize boundaries.",
+  },
+  {
+    value: "default",
+    label: "default",
+    description: "Use Git's default mode, currently zebra.",
+  },
+];
+
+/** Git `--color-moved-ws` modes, labelled by their exact flag values. */
+const gitColorMovedWsModes: readonly SelectOption[] = [
+  { value: "no", label: "no", description: "Require exact whitespace." },
+  {
+    value: "ignore-space-at-eol",
+    label: "ignore-space-at-eol",
+    description: "Ignore trailing whitespace differences.",
+  },
+  {
+    value: "ignore-space-change",
+    label: "ignore-space-change",
+    description:
+      "Ignore changes in existing whitespace amount and trailing space.",
+  },
+  {
+    value: "ignore-all-space",
+    label: "ignore-all-space",
+    description: "Ignore all whitespace, including newly added spaces.",
+  },
+  {
+    value: "allow-indentation-change",
+    label: "allow-indentation-change",
+    description:
+      "Match ignoring whitespace, then group lines with the same indentation change.",
+  },
+];
 
 /** Matcher descriptions follow CompositeMatchers and AutoMatchers in GumTree. */
-const gumtreeMatchers = [
+const gumtreeMatchers: readonly SelectOption[] = [
   {
     value: "gumtree-simple",
     label: "Simple",
-    explanation:
-      "Match similar code structures, then align their remaining children.",
+    description:
+      "Match similar code structures, then align their remaining children. GumTree's default.",
   },
   {
     value: "gumtree-classic",
     label: "Classic",
-    explanation:
+    description:
       "Original GumTree matcher. Use tree edit distance to recover unmatched nodes.",
   },
   {
     value: "gumtree-hybrid",
     label: "Hybrid",
-    explanation:
+    description:
       "Use tree edit distance for small structures and simpler matching for larger ones.",
   },
   {
     value: "gumtree-simple-stable",
     label: "Stable",
-    explanation:
+    description:
       "Like Simple, but pair similar structures only when each is the other's best match.",
   },
   {
     value: "gumtree-simple-auto",
     label: "Auto",
-    explanation:
+    description:
       "Try 25 Stable configurations in parallel and keep the fewest edits. Uses more CPU.",
   },
-] as const;
+];
 
 /**
  * Exhaustive user-visible labels for the client text presentation modes.
@@ -226,6 +283,13 @@ type AppHeaderProps = {
    */
   onChangeSetSummaryTarget: (element: HTMLDivElement) => void;
   /**
+   * Receives the engine options popover toggle once during header setup.
+   *
+   * The caller stores it behind `AppHeaderOutlets.toggleEngineOptions` so the
+   * ChangeSet `o` hotkey toggles the same popover as the header trigger.
+   */
+  onEngineOptionsToggle: (toggle: () => void) => void;
+  /**
    * Receives the mounted stable outlet for repository, Tab, and Profile metadata.
    *
    * The ref callback establishes the shared Portal destination. AppHeader does
@@ -255,6 +319,13 @@ export type AppHeaderOutlets = {
    * summary data and never creates an element.
    */
   summary: () => HTMLDivElement;
+  /**
+   * Toggles the engine options popover exactly as its header trigger does.
+   *
+   * Calling before AppHeader registers the operation is a lifecycle error. The
+   * operation reads no preferences and returns nothing.
+   */
+  toggleEngineOptions: () => void;
 };
 
 /**
@@ -453,6 +524,7 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
               options={Object.entries(engineLabels).map(([value, label]) => ({
                 value,
                 label,
+                description: null,
               }))}
               selectedValue={props.engine}
               disabled={false}
@@ -465,14 +537,19 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
             <EngineOptions
               engine={props.engine}
               selectedProfile={props.selectedProfile}
+              registerToggle={props.onEngineOptionsToggle}
             />
             <Select
               class="header-engine-select view-select"
               label="View"
               valueLabel={viewLabels[props.view]}
               options={[
-                { value: "split", label: viewLabels.split },
-                { value: "inline", label: viewLabels.inline },
+                { value: "split", label: viewLabels.split, description: null },
+                {
+                  value: "inline",
+                  label: viewLabels.inline,
+                  description: null,
+                },
               ]}
               selectedValue={props.view}
               disabled={false}
@@ -639,6 +716,7 @@ function RepoSelect(props: RepoSelectProps): JSX.Element {
         const options: SelectOption[] = repos.map((repo) => ({
           value: String(repo.id),
           label: repo.name,
+          description: null,
         }));
         return (
           <Select
@@ -684,6 +762,14 @@ type EngineOptionsProps = {
   engine: DiffEngine;
   /** Confirmed Profile shown and used by preferences, or genuine absence. */
   selectedProfile: StoredProfile | null;
+  /**
+   * Receives the popover toggle once during component setup.
+   *
+   * The caller stores the operation so the `o` hotkey can toggle the popover
+   * exactly as the trigger click does. It is called before the trigger mounts
+   * and the stored operation is valid for the whole component lifetime.
+   */
+  registerToggle: (toggle: () => void) => void;
 };
 
 /**
@@ -691,8 +777,9 @@ type EngineOptionsProps = {
  *
  * The component observes canonical preferences for Git algorithm, whitespace,
  * word and moved-code output, Difftastic comments, and GumTree matcher choices.
- * Engines without options show an explicit empty state. Saving never copies
- * preferences into component state.
+ * Exclusive choices are compact Selects whose options carry the explanation;
+ * boolean choices are checkbox rows. Engines without options show an explicit
+ * empty state. Saving never copies preferences into component state.
  *
  * @param props Component properties containing current engine and profile selection.
  * The native popover handles dismissal and focus; opening positions it below the trigger.
@@ -719,57 +806,55 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
     );
   }
 
+  let trigger!: HTMLButtonElement;
+
   /**
-   * Persists a chosen Git diff algorithm to the canonical preferences cache.
+   * Places the popover in viewport coordinates below the trigger and toggles it.
    *
-   * @param value Validated algorithm choice.
+   * Fixed coordinates are set before native opening because CSS anchor tracking
+   * against the sticky header flickers during scrolling.
+   * Related: https://bugzilla.mozilla.org/show_bug.cgi?id=1999954
    */
-  function selectAlgorithm(
-    value: (typeof gitAlgorithms)[number]["value"],
+  function togglePopover(): void {
+    const popup = expect(
+      document.getElementById(optionsId),
+      "The options trigger requires its mounted popover.",
+    );
+    const button = trigger.getBoundingClientRect();
+    popup.style.top = `${button.bottom + 4}px`;
+    popup.style.left = `${button.left}px`;
+    popup.togglePopover();
+  }
+  props.registerToggle(togglePopover);
+
+  /**
+   * Reports whether option controls must reject changes right now.
+   *
+   * Preferences that are still loading or failed cannot be patched, and one
+   * pending save must finish before another starts so retries keep exact values.
+   */
+  function busy(): boolean {
+    return (
+      preferences.isPending ||
+      preferences.error !== null ||
+      savePreferences.isPending
+    );
+  }
+
+  /**
+   * Persists one changed preference field over the loaded canonical values.
+   *
+   * Callers pass only the field they changed; every other field is copied from
+   * the loaded preferences so the complete save matches what the user sees.
+   */
+  function save(
+    patch: Partial<
+      Omit<Parameters<typeof savePreferences.mutate>[0], "profileId">
+    >,
   ): void {
     const current = expect(
       preferences.data,
-      "Changing an algorithm requires loaded preferences.",
-    );
-    savePreferences.mutate({
-      profileId: props.selectedProfile?.id ?? null,
-      aggressiveFolds: current.aggressive_folds,
-      difftasticIgnoreComments: current.difftastic_ignore_comments,
-      gumtreeMatcher: current.gumtree_matcher,
-      gitAlgorithm: GitAlgorithmSchema.parse(value),
-      gitIgnoreSpaceChange: current.git_ignore_space_change,
-      gitWordDiff: current.git_word_diff,
-      gitColorMoved: current.git_color_moved,
-      gitColorMovedWs: current.git_color_moved_ws,
-    });
-  }
-
-  /**
-   * Inverts and persists Git's ignore-space-change preference.
-   */
-  function toggleWhitespace(): void {
-    const current = expect(
-      preferences.data,
-      "Changing whitespace handling requires loaded preferences.",
-    );
-    savePreferences.mutate({
-      profileId: props.selectedProfile?.id ?? null,
-      aggressiveFolds: current.aggressive_folds,
-      difftasticIgnoreComments: current.difftastic_ignore_comments,
-      gumtreeMatcher: current.gumtree_matcher,
-      gitAlgorithm: current.git_algorithm,
-      gitIgnoreSpaceChange: !current.git_ignore_space_change,
-      gitWordDiff: current.git_word_diff,
-      gitColorMoved: current.git_color_moved,
-      gitColorMovedWs: current.git_color_moved_ws,
-    });
-  }
-
-  /** Inverts and persists Git's word-level decoration preference. */
-  function toggleWordDiff(): void {
-    const current = expect(
-      preferences.data,
-      "Changing word diff requires loaded preferences.",
+      "Changing an option requires loaded preferences.",
     );
     savePreferences.mutate({
       profileId: props.selectedProfile?.id ?? null,
@@ -778,32 +863,22 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
       gumtreeMatcher: current.gumtree_matcher,
       gitAlgorithm: current.git_algorithm,
       gitIgnoreSpaceChange: current.git_ignore_space_change,
-      gitWordDiff: !current.git_word_diff,
+      gitWordDiff: current.git_word_diff,
       gitColorMoved: current.git_color_moved,
       gitColorMovedWs: current.git_color_moved_ws,
+      ...patch,
     });
   }
 
   return (
     <div class="engine-options-menu">
       <button
+        ref={trigger}
         type="button"
         class="engine-options-trigger"
-        popovertarget={optionsId}
         aria-label={`${engineLabels[props.engine]} engine options`}
-        title={`${engineLabels[props.engine]} options`}
-        onClick={(event) => {
-          // Fix the top-layer popup in viewport coordinates before native opening.
-          // CSS anchor tracking against the sticky header flickers during scrolling.
-          // Related: https://bugzilla.mozilla.org/show_bug.cgi?id=1999954
-          const popup = expect(
-            document.getElementById(optionsId),
-            "The options trigger requires its mounted popover.",
-          );
-          const button = event.currentTarget.getBoundingClientRect();
-          popup.style.top = `${button.bottom + 4}px`;
-          popup.style.left = `${button.left}px`;
-        }}
+        title={`${engineLabels[props.engine]} options (o)`}
+        onClick={togglePopover}
       >
         <SlidersHorizontal
           class="engine-options-trigger-icon"
@@ -863,207 +938,27 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
             {(prefs) => (
               <div class="engine-options-content">
                 <Show when={props.engine === "git"}>
-                  <For
-                    each={[
-                      {
-                        field: "git_color_moved" as const,
-                        label: "Moved-code mode",
-                        options: [
-                          ["no", "Do not highlight moved code."],
-                          [
-                            "plain",
-                            "Highlight individual removed and added lines that match.",
-                          ],
-                          [
-                            "blocks",
-                            "Highlight greedy moved blocks with at least 20 alphanumeric characters.",
-                          ],
-                          [
-                            "zebra",
-                            "Alternate colors between adjacent detected blocks.",
-                          ],
-                          [
-                            "dimmed-zebra",
-                            "Alternate blocks, dim interiors and emphasize boundaries.",
-                          ],
-                          [
-                            "default",
-                            "Use Git's default mode, currently zebra.",
-                          ],
-                        ],
-                      },
-                      {
-                        field: "git_color_moved_ws" as const,
-                        label: "Whitespace during move detection",
-                        options: [
-                          ["no", "Require exact whitespace."],
-                          [
-                            "ignore-space-at-eol",
-                            "Ignore trailing whitespace differences.",
-                          ],
-                          [
-                            "ignore-space-change",
-                            "Ignore changes in existing whitespace amount and trailing space.",
-                          ],
-                          [
-                            "ignore-all-space",
-                            "Ignore all whitespace, including newly added spaces.",
-                          ],
-                          [
-                            "allow-indentation-change",
-                            "Match ignoring whitespace, then group lines with the same indentation change.",
-                          ],
-                        ],
-                      },
-                    ]}
-                  >
-                    {(setting) => (
-                      <div class="engine-options-section">
-                        <span class="engine-options-section-label">
-                          {setting.label}
-                        </span>
-                        <div
-                          class="engine-algorithm-list"
-                          role="radiogroup"
-                          aria-label={setting.label}
-                        >
-                          <For each={setting.options}>
-                            {([value, explanation]) => (
-                              <label
-                                class="engine-algorithm-item"
-                                classList={{
-                                  selected: prefs()[setting.field] === value,
-                                }}
-                              >
-                                <input
-                                  class="engine-algorithm-input"
-                                  type="radio"
-                                  name={`${optionsId}-${setting.field}`}
-                                  value={value}
-                                  checked={prefs()[setting.field] === value}
-                                  disabled={
-                                    setting.field === "git_color_moved_ws" &&
-                                    prefs().git_color_moved === "no"
-                                  }
-                                  aria-disabled={savePreferences.isPending}
-                                  onChange={(event) => {
-                                    // Native activation has finished. Restore confirmed
-                                    // selection before saving, so cancellation cannot
-                                    // undo a synchronous anonymous preference update.
-                                    const group = expect(
-                                      event.currentTarget.closest(
-                                        '[role="radiogroup"]',
-                                      ),
-                                      "Move options require their radio group.",
-                                    );
-                                    for (const input of group.querySelectorAll<HTMLInputElement>(
-                                      'input[type="radio"]',
-                                    )) {
-                                      input.checked =
-                                        input.value === prefs()[setting.field];
-                                    }
-                                    if (
-                                      savePreferences.isPending ||
-                                      prefs()[setting.field] === value
-                                    ) {
-                                      return;
-                                    }
-                                    const current = prefs();
-                                    savePreferences.mutate({
-                                      profileId:
-                                        props.selectedProfile?.id ?? null,
-                                      aggressiveFolds: current.aggressive_folds,
-                                      gitAlgorithm: current.git_algorithm,
-                                      gitIgnoreSpaceChange:
-                                        current.git_ignore_space_change,
-                                      gitWordDiff: current.git_word_diff,
-                                      gitColorMoved: GitColorMovedSchema.parse(
-                                        setting.field === "git_color_moved"
-                                          ? value
-                                          : current.git_color_moved,
-                                      ),
-                                      gitColorMovedWs:
-                                        GitColorMovedWsSchema.parse(
-                                          setting.field === "git_color_moved_ws"
-                                            ? value
-                                            : current.git_color_moved_ws,
-                                        ),
-                                      difftasticIgnoreComments:
-                                        current.difftastic_ignore_comments,
-                                      gumtreeMatcher: current.gumtree_matcher,
-                                    });
-                                  }}
-                                />
-                                <span class="engine-algorithm-item-header">
-                                  <strong>{value}</strong>
-                                </span>
-                                <span class="engine-algorithm-item-desc">
-                                  {explanation}
-                                </span>
-                              </label>
-                            )}
-                          </For>
-                        </div>
-                      </div>
-                    )}
-                  </For>
-                  <div class="engine-options-popover-divider" />
                   <div class="engine-options-section">
-                    <span class="engine-options-section-label">Algorithm</span>
-                    <div
-                      class="engine-algorithm-list"
-                      role="radiogroup"
-                      aria-label="Git algorithm"
-                    >
-                      <For each={gitAlgorithms}>
-                        {(algo) => (
-                          <label
-                            class="engine-algorithm-item"
-                            classList={{
-                              selected: prefs().git_algorithm === algo.value,
-                            }}
-                          >
-                            <input
-                              class="engine-algorithm-input"
-                              type="radio"
-                              name={`${optionsId}-algorithm`}
-                              value={algo.value}
-                              checked={prefs().git_algorithm === algo.value}
-                              aria-disabled={
-                                preferences.isPending ||
-                                preferences.error !== null ||
-                                savePreferences.isPending
-                              }
-                              onClick={(event) => {
-                                // Keep selection tied to confirmed preferences. Native
-                                // activation must not display an unsuccessful save.
-                                event.preventDefault();
-                                if (
-                                  preferences.isPending ||
-                                  preferences.error !== null ||
-                                  savePreferences.isPending ||
-                                  prefs().git_algorithm === algo.value
-                                ) {
-                                  return;
-                                }
-                                selectAlgorithm(algo.value);
-                              }}
-                            />
-                            <span class="engine-algorithm-item-header">
-                              <strong>{algo.label}</strong>
-                              <Show when={algo.value === "myers"}>
-                                <span class="engine-algorithm-default-badge">
-                                  default
-                                </span>
-                              </Show>
-                            </span>
-                            <span class="engine-algorithm-item-desc">
-                              {algo.explanation}
-                            </span>
-                          </label>
-                        )}
-                      </For>
-                    </div>
+                    <Select
+                      class="engine-options-select"
+                      label="Algorithm"
+                      valueLabel={
+                        expect(
+                          gitAlgorithms.find(
+                            (algo) => algo.value === prefs().git_algorithm,
+                          ),
+                          "Loaded preferences name a known Git algorithm.",
+                        ).label
+                      }
+                      options={gitAlgorithms}
+                      selectedValue={prefs().git_algorithm}
+                      disabled={busy()}
+                      onOpen={null}
+                      onChange={(value) =>
+                        save({ gitAlgorithm: GitAlgorithmSchema.parse(value) })
+                      }
+                      optionAction={null}
+                    />
                   </div>
                   <div class="engine-options-popover-divider" />
                   <div class="engine-options-section">
@@ -1081,23 +976,15 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                           class="profile-checkbox-input"
                           type="checkbox"
                           checked={prefs().git_word_diff}
-                          aria-disabled={
-                            preferences.isPending ||
-                            preferences.error !== null ||
-                            savePreferences.isPending
-                          }
-                          onChange={(event) => {
-                            // Restore the confirmed value after native activation;
-                            // the successful save updates it through preferences.
-                            event.currentTarget.checked = prefs().git_word_diff;
-                            if (
-                              preferences.isPending ||
-                              preferences.error !== null ||
-                              savePreferences.isPending
-                            ) {
+                          aria-disabled={busy()}
+                          onClick={(event) => {
+                            // The native check changes only when the save succeeds.
+                            // aria-disabled preserves keyboard focus while saving.
+                            event.preventDefault();
+                            if (busy()) {
                               return;
                             }
-                            toggleWordDiff();
+                            save({ gitWordDiff: !prefs().git_word_diff });
                           }}
                         />
                         <span
@@ -1107,6 +994,62 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                         />
                       </span>
                     </label>
+                  </div>
+                  <div class="engine-options-popover-divider" />
+                  <div class="engine-options-section">
+                    <Select
+                      class="engine-options-select"
+                      label="Moved code"
+                      valueLabel={prefs().git_color_moved}
+                      options={gitColorMovedModes}
+                      selectedValue={prefs().git_color_moved}
+                      // Git suppresses moved-line colors in word-diff mode. The
+                      // value persists and applies again once Word diff is off.
+                      disabled={busy() || prefs().git_word_diff}
+                      onOpen={null}
+                      onChange={(value) =>
+                        save({
+                          gitColorMoved: GitColorMovedSchema.parse(value),
+                        })
+                      }
+                      optionAction={null}
+                    />
+                    <Select
+                      class="engine-options-select"
+                      label="Move whitespace"
+                      valueLabel={prefs().git_color_moved_ws}
+                      options={gitColorMovedWsModes}
+                      selectedValue={prefs().git_color_moved_ws}
+                      // Git ignores this flag without move detection, and word
+                      // diff disables move detection. The value persists.
+                      disabled={
+                        busy() ||
+                        prefs().git_word_diff ||
+                        prefs().git_color_moved === "no"
+                      }
+                      onOpen={null}
+                      onChange={(value) =>
+                        save({
+                          gitColorMovedWs: GitColorMovedWsSchema.parse(value),
+                        })
+                      }
+                      optionAction={null}
+                    />
+                    <Show when={prefs().git_word_diff}>
+                      <span class="engine-options-inactive-note">
+                        Moved code is inactive while Word diff is on.
+                      </span>
+                    </Show>
+                    <Show
+                      when={
+                        !prefs().git_word_diff &&
+                        prefs().git_color_moved === "no"
+                      }
+                    >
+                      <span class="engine-options-inactive-note">
+                        Move whitespace is inactive while Moved code is no.
+                      </span>
+                    </Show>
                   </div>
                   <div class="engine-options-popover-divider" />
                   <div class="engine-options-section">
@@ -1123,23 +1066,18 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                           class="profile-checkbox-input"
                           type="checkbox"
                           checked={prefs().git_ignore_space_change}
-                          aria-disabled={
-                            preferences.isPending ||
-                            preferences.error !== null ||
-                            savePreferences.isPending
-                          }
+                          aria-disabled={busy()}
                           onClick={(event) => {
                             // The native check changes only when the save succeeds.
                             // aria-disabled preserves keyboard focus while saving.
                             event.preventDefault();
-                            if (
-                              preferences.isPending ||
-                              preferences.error !== null ||
-                              savePreferences.isPending
-                            ) {
+                            if (busy()) {
                               return;
                             }
-                            toggleWhitespace();
+                            save({
+                              gitIgnoreSpaceChange:
+                                !prefs().git_ignore_space_change,
+                            });
                           }}
                         />
                         <span
@@ -1168,32 +1106,16 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                           class="profile-checkbox-input"
                           type="checkbox"
                           checked={prefs().difftastic_ignore_comments}
-                          aria-disabled={
-                            preferences.error !== null ||
-                            savePreferences.isPending
-                          }
+                          aria-disabled={busy()}
                           onClick={(event) => {
                             // Only confirmed saves change the native check state.
                             event.preventDefault();
-                            if (
-                              preferences.error !== null ||
-                              savePreferences.isPending
-                            ) {
+                            if (busy()) {
                               return;
                             }
-                            const current = prefs();
-                            savePreferences.mutate({
-                              profileId: props.selectedProfile?.id ?? null,
-                              aggressiveFolds: current.aggressive_folds,
-                              gitAlgorithm: current.git_algorithm,
-                              gitColorMoved: current.git_color_moved,
-                              gitColorMovedWs: current.git_color_moved_ws,
-                              gitIgnoreSpaceChange:
-                                current.git_ignore_space_change,
-                              gitWordDiff: current.git_word_diff,
+                            save({
                               difftasticIgnoreComments:
-                                !current.difftastic_ignore_comments,
-                              gumtreeMatcher: current.gumtree_matcher,
+                                !prefs().difftastic_ignore_comments,
                             });
                           }}
                         />
@@ -1210,88 +1132,29 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                 </Show>
                 <Show when={props.engine === "gumtree"}>
                   <div class="engine-options-section">
-                    <span class="engine-options-section-label">Matcher</span>
-                    <div
-                      class="engine-algorithm-list"
-                      role="radiogroup"
-                      aria-label="GumTree matcher"
-                    >
-                      <For each={gumtreeMatchers}>
-                        {(matcher) => (
-                          <label
-                            class="engine-algorithm-item"
-                            classList={{
-                              selected:
-                                prefs().gumtree_matcher === matcher.value,
-                            }}
-                          >
-                            <input
-                              class="engine-algorithm-input"
-                              type="radio"
-                              name={`${optionsId}-matcher`}
-                              value={matcher.value}
-                              checked={
-                                prefs().gumtree_matcher === matcher.value
-                              }
-                              aria-disabled={
-                                preferences.error !== null ||
-                                savePreferences.isPending
-                              }
-                              onChange={(event) => {
-                                // Restore the confirmed group before starting the save.
-                                // Cancelling a click can undo a fast successful save.
-                                const group = expect(
-                                  event.currentTarget.closest(
-                                    '[role="radiogroup"]',
-                                  ),
-                                  "Matcher radios require their group.",
-                                );
-                                for (const input of group.querySelectorAll<HTMLInputElement>(
-                                  'input[type="radio"]',
-                                )) {
-                                  input.checked =
-                                    input.value === prefs().gumtree_matcher;
-                                }
-                                if (
-                                  preferences.error !== null ||
-                                  savePreferences.isPending ||
-                                  prefs().gumtree_matcher === matcher.value
-                                ) {
-                                  return;
-                                }
-                                const current = prefs();
-                                savePreferences.mutate({
-                                  profileId: props.selectedProfile?.id ?? null,
-                                  aggressiveFolds: current.aggressive_folds,
-                                  gitAlgorithm: current.git_algorithm,
-                                  gitColorMoved: current.git_color_moved,
-                                  gitColorMovedWs: current.git_color_moved_ws,
-                                  gitIgnoreSpaceChange:
-                                    current.git_ignore_space_change,
-                                  gitWordDiff: current.git_word_diff,
-                                  difftasticIgnoreComments:
-                                    current.difftastic_ignore_comments,
-                                  gumtreeMatcher: GumTreeMatcherSchema.parse(
-                                    matcher.value,
-                                  ),
-                                });
-                              }}
-                            />
-                            <span class="engine-algorithm-item-header">
-                              <strong>{matcher.label}</strong>
-                              <Show when={matcher.value === "gumtree-simple"}>
-                                <span class="engine-algorithm-default-badge">
-                                  default
-                                </span>
-                              </Show>
-                            </span>
-                            <span class="engine-algorithm-item-desc">
-                              {matcher.explanation}
-                            </span>
-                          </label>
-                        )}
-                      </For>
-                    </div>
+                    <Select
+                      class="engine-options-select"
+                      label="Matcher"
+                      valueLabel={
+                        expect(
+                          gumtreeMatchers.find(
+                            (matcher) =>
+                              matcher.value === prefs().gumtree_matcher,
+                          ),
+                          "Loaded preferences name a known GumTree matcher.",
+                        ).label
+                      }
+                      options={gumtreeMatchers}
+                      selectedValue={prefs().gumtree_matcher}
+                      disabled={busy()}
+                      onOpen={null}
+                      onChange={(value) =>
+                        save({
+                          gumtreeMatcher: GumTreeMatcherSchema.parse(value),
+                        })
+                      }
+                      optionAction={null}
+                    />
                   </div>
                 </Show>
                 <Show

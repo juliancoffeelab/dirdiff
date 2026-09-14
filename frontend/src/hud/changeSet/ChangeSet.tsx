@@ -352,6 +352,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
             onToggleDebug={() =>
               props.onDebugHudOpenChange(!props.debugHudOpen)
             }
+            onToggleOptions={props.appHeaderOutlets.toggleEngineOptions}
           >
             {() => (
               <>
@@ -392,6 +393,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
             onToggleDebug={() =>
               props.onDebugHudOpenChange(!props.debugHudOpen)
             }
+            onToggleOptions={props.appHeaderOutlets.toggleEngineOptions}
           >
             {(hunkDisplay) => (
               <UnexpectedErrorBoundary

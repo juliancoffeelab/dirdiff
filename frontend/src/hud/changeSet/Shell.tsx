@@ -102,6 +102,12 @@ type ChangeSetShellProps = {
    */
   onToggleDebug: () => void;
   /**
+   * Toggles the AppHeader engine options popover for `o`.
+   * The native popover holds its own open state, so nothing returns through
+   * props; the caller forwards to the header outlet.
+   */
+  onToggleOptions: () => void;
+  /**
    * Renders the current ChangeSet body inside the shell's NavigationProvider.
    *
    * The shell invokes it during render with its read-only `HunkDisplay`
@@ -178,6 +184,7 @@ export function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
           onReload={props.onReload}
           onToggleHelp={props.onToggleHelp}
           onToggleDebug={props.onToggleDebug}
+          onToggleOptions={props.onToggleOptions}
         />
         {props.children(hunkDisplay)}
         <HunkDisplayObserver
@@ -259,6 +266,13 @@ type HotkeysProps = {
    * metric ticks and ignored keyboard events never invoke this callback.
    */
   onToggleDebug: () => void;
+  /**
+   * Handles an unmodified, non-editable `o` key after default is prevented.
+   *
+   * The caller toggles the AppHeader engine options popover, which stores its
+   * own open state natively. Ignored keys and editable targets never invoke it.
+   */
+  onToggleOptions: () => void;
 };
 
 /**
@@ -366,6 +380,11 @@ function Hotkeys(props: HotkeysProps): null {
       if (event.code === "KeyH") {
         event.preventDefault();
         props.onToggleHelp();
+        return;
+      }
+      if (event.code === "KeyO") {
+        event.preventDefault();
+        props.onToggleOptions();
       }
     }
 
@@ -1026,6 +1045,7 @@ function HelpModal(props: {
             <HotkeyHelpRow keys="t" label="Toggle the file tree" />
             <HotkeyHelpRow keys="i" label="Toggle inline diff view" />
             <HotkeyHelpRow keys="m" label="Toggle review History" />
+            <HotkeyHelpRow keys="o" label="Toggle engine options" />
           </HotkeyHelpSection>
           <HotkeyHelpSection title="Misc">
             <HotkeyHelpRow keys="r" label="Reload the current diff" />
