@@ -12,7 +12,7 @@
  * Delegated pin and review activation, reactive lifetimes, and File loading stay
  * in TextDiffGrid and its callers.
  */
-import type { DecoratedPart, DiffRow, RowStatus } from "../../../../api/api";
+import type { DecoratedPart, DiffRow } from "../../../../api/api";
 import { isFoldRow, type FoldRow, type RenderRow } from "./folds";
 import type { RealHunkIdentity } from "../../../navigation";
 import { assert } from "../../../../utils";
@@ -55,6 +55,53 @@ type InlineMarker = " " | "-" | "+" | "*";
  * the complete set that inline rendering may emit.
  */
 type InlineRowStatus = "equal" | "delete" | "insert" | "replace" | "move";
+
+/**
+ * Names the one change status shared by every token of a uniformly changed
+ * side. Such a side is filled as a whole instead of token by token, so a fully
+ * inserted, deleted, or replaced line looks the same whichever engine produced
+ * it and however finely that engine tokenized it.
+ */
+type UniformSideStatus = "insert" | "delete" | "replace";
+
+/**
+ * Finds the single change status every token of one side carries, if any.
+ *
+ * A side is uniform when it has at least one non-whitespace part, no part
+ * carries a move or move status, every non-whitespace part has the same
+ * insert, delete, or replace status, and every whitespace part either shares that status or is
+ * unchanged. Engines such as Git word mode report the whitespace between
+ * changed words as shared, so unchanged whitespace never breaks uniformity.
+ *
+ * @param parts Ordered backend decoration spans of one side.
+ *
+ * # Returns
+ *
+ * - `UniformSideStatus`: the one change status every token carries; the
+ *   caller fills the whole cell with it and paints no token spans.
+ * - `null`: the side is unchanged, mixes statuses, or carries moves; the
+ *   caller paints each changed token on its own.
+ */
+function uniformPartStatus(parts: DecoratedPart[]): UniformSideStatus | null {
+  let status: UniformSideStatus | null = null;
+  for (const part of parts) {
+    if (part.move !== undefined) {
+      return null;
+    }
+    if (part.is_whitespace && part.diff_status === "unchanged") {
+      continue;
+    }
+    if (part.diff_status === "unchanged" || part.diff_status === "move") {
+      return null;
+    }
+    if (status === null) {
+      status = part.diff_status;
+    } else if (status !== part.diff_status) {
+      return null;
+    }
+  }
+  return status;
+}
 
 /**
  * Tracks the most recently rendered number on each inline side.
@@ -807,7 +854,6 @@ function renderInlineDiffRowsDom(
         bayKey,
         sourceRow: row,
         lineNumberState,
-        tokenRowStatus: null,
       });
     }
     if (canCombineInsertOnlyChangedRow(row)) {
@@ -823,7 +869,6 @@ function renderInlineDiffRowsDom(
         bayKey,
         sourceRow: row,
         lineNumberState,
-        tokenRowStatus: null,
       });
     }
     const fragment = document.createDocumentFragment();
@@ -843,7 +888,6 @@ function renderInlineDiffRowsDom(
           bayKey,
           sourceRow: row,
           lineNumberState,
-          tokenRowStatus: statusIsEqual ? "equal" : "replace",
         }),
       );
     }
@@ -864,7 +908,6 @@ function renderInlineDiffRowsDom(
             hunk_index: hasLeftSide ? null : row.hunk_index,
           },
           lineNumberState,
-          tokenRowStatus: statusIsEqual ? "equal" : "replace",
         }),
       );
     }
@@ -891,7 +934,6 @@ function renderInlineDiffRowsDom(
         bayKey,
         sourceRow: row,
         lineNumberState,
-        tokenRowStatus: null,
       });
     }
     case "delete":
@@ -907,7 +949,6 @@ function renderInlineDiffRowsDom(
         bayKey,
         sourceRow: row,
         lineNumberState,
-        tokenRowStatus: null,
       });
     case "insert":
       return renderInlineDiffRowDom({
@@ -922,7 +963,6 @@ function renderInlineDiffRowsDom(
         bayKey,
         sourceRow: row,
         lineNumberState,
-        tokenRowStatus: null,
       });
     case "replace":
       return renderChangedRow();
@@ -944,7 +984,6 @@ function renderInlineDiffRowsDom(
             bayKey,
             sourceRow: row,
             lineNumberState,
-            tokenRowStatus: null,
           }),
         );
       }
@@ -965,7 +1004,6 @@ function renderInlineDiffRowsDom(
               hunk_index: hasLeftSide ? null : row.hunk_index,
             },
             lineNumberState,
-            tokenRowStatus: null,
           }),
         );
       }
@@ -1145,13 +1183,6 @@ function renderInlineDiffRowDom(props: {
    * Rendering this element mutates the relevant entries for non-null numbers.
    */
   lineNumberState: InlineLineNumberState;
-
-  /**
-   * Selects token-change semantics independently of the visible row status.
-   * Null uses `status`; two-sided changed rows pass the backend semantic status
-   * to retain token diffs independently of their physical row presentation.
-   */
-  tokenRowStatus: InlineRowStatus | null;
 }): HTMLElement {
   const element = document.createElement("div");
   const displayedLeftNo = inlineDisplayLineNo(
@@ -1188,7 +1219,7 @@ function renderInlineDiffRowDom(props: {
     props.text,
     props.parts,
     props.parts === props.sourceRow.left_parts ? "left" : "right",
-    props.tokenRowStatus === null ? props.status : props.tokenRowStatus,
+    props.sourceRow.status === "move" ? null : uniformPartStatus(props.parts),
   );
   const sourceSide =
     props.parts === props.sourceRow.left_parts ? "left" : "right";
@@ -1295,6 +1326,9 @@ function diffRowClass(
  *
  * Callers supply a validated backend row and exact side. Null line numbers and
  * empty text produce the established empty-side treatment rather than a husk.
+ * A side whose every token carries one change status is filled as a whole
+ * through its `uniform-*` class instead of per-token spans; move rows keep
+ * their own presentation.
  *
  * @param row Backend row supplying side content and decoration.
  * @param side Exact side to extract and identify in the returned element.
@@ -1303,17 +1337,18 @@ function createDiffSideDom(row: DiffRow, side: Side): HTMLElement {
   const lineNo = side === "left" ? row.left_no : row.right_no;
   const text = sideText(row, side);
   const parts = side === "left" ? row.left_parts : row.right_parts;
+  const uniformStatus = row.status === "move" ? null : uniformPartStatus(parts);
   const element = document.createElement("div");
   element.className = `diff-side side-${side}${
     lineNo === null && text === "" ? " empty-side" : ""
-  }`;
+  }${uniformStatus === null ? "" : ` uniform-${uniformStatus}`}`;
   const codeElement = document.createElement("code");
   codeElement.className = "line-code";
   codeElement.dataset.sourceSide = side;
   if (lineNo !== null) {
     codeElement.dataset.sourceLine = String(lineNo);
   }
-  appendDecoratedText(codeElement, text, parts, side, row.status);
+  appendDecoratedText(codeElement, text, parts, side, uniformStatus !== null);
   element.append(createLineNumberDom(lineNo, side), codeElement);
   return element;
 }
@@ -1437,52 +1472,55 @@ function createFoldToggleButtonDom(foldToggle: FoldToggle): HTMLButtonElement {
  * Creates one inline-view code cell including its visible change marker.
  *
  * The marker is aria-hidden, while all supplied text remains native searchable
- * content. Token decoration uses the inline status mapped to backend semantics.
+ * content. A uniformly changed side is filled as a whole through its
+ * `uniform-*` class instead of per-token spans.
  *
  * @param marker Visible change prefix for this emitted inline side.
  * @param text Complete code text that `parts` must reconstruct.
  * @param parts Ordered backend decoration spans for `text`.
  * @param side Source side supplying the displayed parts and move direction.
- * @param rowStatus Status controlling token-change suppression and classes.
+ * @param uniformStatus Single change status shared by every token of the side,
+ *   or null when the side mixes statuses or is unchanged.
  */
 function createInlineLineCodeDom(
   marker: InlineMarker,
   text: string,
   parts: DecoratedPart[],
   side: Side,
-  rowStatus: InlineRowStatus,
+  uniformStatus: UniformSideStatus | null,
 ): HTMLElement {
   const element = document.createElement("code");
-  element.className = "line-code inline-line-code";
+  element.className = `line-code inline-line-code${
+    uniformStatus === null ? "" : ` uniform-${uniformStatus}`
+  }`;
   const markerElement = document.createElement("span");
   markerElement.className = "inline-marker";
   markerElement.ariaHidden = "true";
   markerElement.textContent = marker;
   element.append(markerElement);
-  const inlineTokenRowStatus =
-    rowStatus === "insert" || rowStatus === "delete" ? "replace" : rowStatus;
-  appendDecoratedText(element, text, parts, side, inlineTokenRowStatus);
+  appendDecoratedText(element, text, parts, side, uniformStatus !== null);
   return element;
 }
 
 /**
  * Appends native-searchable text from its backend-woven decoration parts.
  *
- * The parts must reconstruct `text` exactly. The function suppresses redundant
- * diff coloring already expressed by the row and mutates only `element`.
+ * The parts must reconstruct `text` exactly. The function mutates only
+ * `element` and paints no change spans when the cell already carries the fill.
  *
  * @param element Newly created code element that receives text and spans.
  * @param text Complete backend text expected from all `parts`.
  * @param parts Ordered backend decoration spans to append.
  * @param side Source side used for directional move descriptions.
- * @param rowStatus Row treatment used to avoid redundant token coloring.
+ * @param cellCarriesFill Whether the enclosing cell paints the one change
+ *   status every token shares, making per-token change fills redundant.
  */
 function appendDecoratedText(
   element: HTMLElement,
   text: string,
   parts: DecoratedPart[],
   side: Side,
-  rowStatus: RowStatus,
+  cellCarriesFill: boolean,
 ) {
   /**
    * Recognizes tree-sitter syntax classes hidden by the established diff theme.
@@ -1516,10 +1554,7 @@ function appendDecoratedText(
   // A line-local enclosure groups syntax fragments with the same move. It
   // belongs to this code cell; no DOM or move state survives row replacement.
   let enclosure: HTMLSpanElement | null = null;
-  const rowAlreadyShowsEveryTokenChange =
-    (rowStatus === "insert" || rowStatus === "delete") &&
-    parts.every((part) => part.diff_status === rowStatus);
-  for (const part of parts) {
+  for (const [index, part] of parts.entries()) {
     if (part.move === undefined) {
       enclosure = null;
     } else {
@@ -1543,10 +1578,29 @@ function appendDecoratedText(
       }
     }
     const tokenChanged = part.diff_status !== "unchanged";
+    // An unchanged whitespace part between two changed parts of one status is
+    // painted with that status, so a run of changed words reads as one band
+    // instead of a checkerboard. The part's data is untouched: it keeps no
+    // change class of its own beyond the paint, and no title.
+    const previous = index > 0 ? parts[index - 1] : undefined;
+    const next = parts[index + 1];
+    const bridgedStatus =
+      !tokenChanged &&
+      part.is_whitespace &&
+      part.move === undefined &&
+      previous !== undefined &&
+      next !== undefined &&
+      previous.diff_status !== "unchanged" &&
+      previous.diff_status === next.diff_status &&
+      previous.move === undefined &&
+      next.move === undefined
+        ? previous.diff_status
+        : null;
     const syntaxClasses = visibleSyntaxClasses(part.syntax_classes);
     if (
       syntaxClasses.length === 0 &&
       !tokenChanged &&
+      bridgedStatus === null &&
       part.move === undefined
     ) {
       element.append(part.text);
@@ -1556,9 +1610,11 @@ function appendDecoratedText(
     const classes = syntaxClasses.length
       ? ["ts-token", ...new Set(syntaxClasses)]
       : [];
-    const showTokenChange = tokenChanged && !rowAlreadyShowsEveryTokenChange;
+    const paintedStatus = bridgedStatus ?? part.diff_status;
+    const showTokenChange =
+      (tokenChanged || bridgedStatus !== null) && !cellCarriesFill;
     if (showTokenChange) {
-      classes.push("token-changed", `token-${part.diff_status}`);
+      classes.push("token-changed", `token-${paintedStatus}`);
     }
     if (showTokenChange && part.is_whitespace) {
       classes.push("whitespace");
@@ -1567,7 +1623,12 @@ function appendDecoratedText(
       classes.push("whitespace-leading");
     }
     span.className = classes.join(" ");
-    if (showTokenChange && part.is_whitespace && part.move === undefined) {
+    if (
+      tokenChanged &&
+      showTokenChange &&
+      part.is_whitespace &&
+      part.move === undefined
+    ) {
       span.title = "Whitespace changed";
     }
     span.textContent = part.text;

@@ -172,6 +172,19 @@ Invalid engine tokens or syntax spans fail at this
 backend boundary. `TextDiffGrid` renders these parts directly; it does not intersect
 parallel token and syntax ranges or slice source text by backend offsets.
 
+Change paint keeps one intensity per row side. A row's status tints the whole
+row lightly. A changed token carries the darker fill for its own status, and
+that fill covers the full line box rather than the glyph box, so a token never
+shows as a strip inside its row. An unchanged whitespace token between two
+tokens that share one insert, delete, or replace status, none of them moved,
+takes that same darker fill, so the words of one edit read as one run. When
+every non-whitespace token of a side carries the same insert, delete, or
+replace status and none is moved, the side takes that status's light row tint
+as a whole and its tokens carry no fill of their own; a moved row never takes
+this uniform fill. In inline view the same rules apply to the line-code cell.
+Unchanged tokens between changed tokens stay unpainted, since the engine
+reported them unchanged.
+
 Each real hunk target contains all of:
 
 - `data-file-index`;
