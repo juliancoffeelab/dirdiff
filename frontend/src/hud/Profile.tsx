@@ -28,6 +28,7 @@ import {
 import { CircleUserRound } from "lucide-solid";
 import { z } from "zod";
 import { api, type Preferences, type UserProfile } from "../api/api";
+import { Checkbox } from "../comp/Checkbox";
 import { ErrorPopover, useToasts } from "../comp/Toasts";
 import { assert, expect } from "../utils";
 
@@ -1023,26 +1024,14 @@ function PreferencesEditor(props: PreferencesEditorProps): JSX.Element {
         submitPreferences();
       }}
     >
-      <label class="profile-checkbox-row">
-        <span class="profile-checkbox-copy">
-          <strong>Aggressive folds</strong>
-          <span>Fold unchanged regions when fold hints exist.</span>
-        </span>
-        <span class="profile-checkbox-control">
-          <input
-            class="profile-checkbox-input"
-            type="checkbox"
-            checked={aggressiveFolds()}
-            disabled={savePreferences.isPending}
-            onInput={(event) => setAggressiveFolds(event.currentTarget.checked)}
-          />
-          <span
-            class="visibility-indicator large profile-checkbox-indicator"
-            classList={{ visible: aggressiveFolds() }}
-            aria-hidden="true"
-          />
-        </span>
-      </label>
+      <Checkbox
+        class="profile-checkbox"
+        label="Aggressive folds"
+        description="Fold unchanged regions when fold hints exist."
+        checked={aggressiveFolds()}
+        busy={savePreferences.isPending}
+        onToggle={setAggressiveFolds}
+      />
       <Show when={savePreferences.error} keyed>
         {(error) => (
           <ErrorPopover

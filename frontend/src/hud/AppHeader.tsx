@@ -33,6 +33,7 @@ import {
   type ProjectId,
   type RepoMark,
 } from "../api/api";
+import { Checkbox } from "../comp/Checkbox";
 import { Select, type SelectOption } from "../comp/Select";
 import { ErrorPopover } from "../comp/Toasts";
 import { assert, expect } from "../utils";
@@ -962,38 +963,20 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                   </div>
                   <div class="engine-options-popover-divider" />
                   <div class="engine-options-section">
-                    <label class="engine-options-checkbox-row">
-                      <span class="engine-options-checkbox-copy">
-                        <strong>Word diff</strong>
-                        <span>
+                    <Checkbox
+                      class="engine-options-checkbox"
+                      label="Word diff"
+                      description={
+                        <>
                           Highlight changed words (
                           <code>--word-diff=porcelain</code>). Git does not emit
                           moved-line colors in this mode.
-                        </span>
-                      </span>
-                      <span class="profile-checkbox-control">
-                        <input
-                          class="profile-checkbox-input"
-                          type="checkbox"
-                          checked={prefs().git_word_diff}
-                          aria-disabled={busy()}
-                          onClick={(event) => {
-                            // The native check changes only when the save succeeds.
-                            // aria-disabled preserves keyboard focus while saving.
-                            event.preventDefault();
-                            if (busy()) {
-                              return;
-                            }
-                            save({ gitWordDiff: !prefs().git_word_diff });
-                          }}
-                        />
-                        <span
-                          class="visibility-indicator large profile-checkbox-indicator"
-                          classList={{ visible: prefs().git_word_diff }}
-                          aria-hidden="true"
-                        />
-                      </span>
-                    </label>
+                        </>
+                      }
+                      checked={prefs().git_word_diff}
+                      busy={busy()}
+                      onToggle={(next) => save({ gitWordDiff: next })}
+                    />
                   </div>
                   <div class="engine-options-popover-divider" />
                   <div class="engine-options-section">
@@ -1053,81 +1036,38 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                   </div>
                   <div class="engine-options-popover-divider" />
                   <div class="engine-options-section">
-                    <label class="engine-options-checkbox-row">
-                      <span class="engine-options-checkbox-copy">
-                        <strong>Ignore space changes</strong>
-                        <span>
+                    <Checkbox
+                      class="engine-options-checkbox"
+                      label="Ignore space changes"
+                      description={
+                        <>
                           Ignore amount of whitespace and trailing space
                           differences (<code>--ignore-space-change</code>).
-                        </span>
-                      </span>
-                      <span class="profile-checkbox-control">
-                        <input
-                          class="profile-checkbox-input"
-                          type="checkbox"
-                          checked={prefs().git_ignore_space_change}
-                          aria-disabled={busy()}
-                          onClick={(event) => {
-                            // The native check changes only when the save succeeds.
-                            // aria-disabled preserves keyboard focus while saving.
-                            event.preventDefault();
-                            if (busy()) {
-                              return;
-                            }
-                            save({
-                              gitIgnoreSpaceChange:
-                                !prefs().git_ignore_space_change,
-                            });
-                          }}
-                        />
-                        <span
-                          class="visibility-indicator large profile-checkbox-indicator"
-                          classList={{
-                            visible: prefs().git_ignore_space_change,
-                          }}
-                          aria-hidden="true"
-                        />
-                      </span>
-                    </label>
+                        </>
+                      }
+                      checked={prefs().git_ignore_space_change}
+                      busy={busy()}
+                      onToggle={(next) => save({ gitIgnoreSpaceChange: next })}
+                    />
                   </div>
                 </Show>
                 <Show when={props.engine === "difftastic"}>
                   <div class="engine-options-section">
-                    <label class="engine-options-checkbox-row">
-                      <span class="engine-options-checkbox-copy">
-                        <strong>Ignore comments</strong>
-                        <span>
+                    <Checkbox
+                      class="engine-options-checkbox"
+                      label="Ignore comments"
+                      description={
+                        <>
                           Exclude comments from change detection (
                           <code>--ignore-comments</code>).
-                        </span>
-                      </span>
-                      <span class="profile-checkbox-control">
-                        <input
-                          class="profile-checkbox-input"
-                          type="checkbox"
-                          checked={prefs().difftastic_ignore_comments}
-                          aria-disabled={busy()}
-                          onClick={(event) => {
-                            // Only confirmed saves change the native check state.
-                            event.preventDefault();
-                            if (busy()) {
-                              return;
-                            }
-                            save({
-                              difftasticIgnoreComments:
-                                !prefs().difftastic_ignore_comments,
-                            });
-                          }}
-                        />
-                        <span
-                          class="visibility-indicator large profile-checkbox-indicator"
-                          classList={{
-                            visible: prefs().difftastic_ignore_comments,
-                          }}
-                          aria-hidden="true"
-                        />
-                      </span>
-                    </label>
+                        </>
+                      }
+                      checked={prefs().difftastic_ignore_comments}
+                      busy={busy()}
+                      onToggle={(next) =>
+                        save({ difftasticIgnoreComments: next })
+                      }
+                    />
                   </div>
                 </Show>
                 <Show when={props.engine === "gumtree"}>

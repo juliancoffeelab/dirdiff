@@ -13,6 +13,7 @@ frontend/src/
 │   └── queryClient.tsx
 ├── comp/
 │   ├── AutocompleteInput.tsx
+│   ├── Checkbox.tsx
 │   ├── Select.tsx
 │   └── Toasts.tsx
 ├── hud/
@@ -242,6 +243,29 @@ Inputs:
 - `onDone(value)`.
 
 The component stores its own input, popup, focus, and highlighted-choice state. The caller receives completed user input through `onDone`.
+
+### `comp/Checkbox.tsx`
+
+Exports:
+
+```ts
+Checkbox
+```
+
+Inputs:
+
+- modifier class;
+- label and description;
+- controlled checked value;
+- busy state, reported as `aria-disabled` so focus survives a pending save;
+- `onToggle(next)`.
+
+The component stores nothing. The native input mirrors the controlled value
+alone: a click writes that value back over the browser's pre-dispatch flip and
+reports the opposite value, so the check visibly changes only when the caller
+changes it. The click is never canceled, because a canceled click restores the
+old native state after dispatch and would undo a write that lands inside the
+same dispatch.
 
 ### `comp/Select.tsx`
 
@@ -1245,6 +1269,7 @@ type LinePins = {
 | `fileCard/grids/text/TextDiffGrid.tsx` | `linePins.ts` | URL parsing and direct pin toggling |
 | `linePins.ts` | `navigation.tsx` | exact line navigation |
 | `AppHeader.tsx` | `Select.tsx` | engine, view, and repository controls |
+| `AppHeader.tsx`, `Profile.tsx` | `Checkbox.tsx` | preference checkboxes |
 | `Tabs.tsx` | `AutocompleteInput.tsx` | refs and branch input |
 | HUD modules | `Toasts.tsx` | Toast commands and local error presentation |
 | HUD modules | `api.ts` | validated backend query and mutation definitions |
