@@ -787,6 +787,7 @@ Inputs:
 - old and new labels;
 - validated diff rows;
 - fold hints;
+- the bay's `interleave_inline_rows` statement;
 - view mode;
 - fold policies;
 - `LinePins`;

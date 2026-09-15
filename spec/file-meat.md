@@ -133,7 +133,12 @@ Backend row order is authoritative. Inline view uses changed token facts to
 show both sides of equal aligned rows when content changed. It combines rows
 whose changed tokens are insert-only into one presented row, regardless of
 whether the engine reports an explicit replacement, but hunk identity remains
-attached to the backend boundary that produced it.
+attached to the backend boundary that produced it. When the bay's
+`interleave_inline_rows` is true, every changed equal row is instead one presented
+row painted in the tool's own order: each shared stretch, then the left side's
+deletions, then the right side's insertions. The shared text anchors the two
+sides and a disagreement throws. Split view ignores the statement, since one
+printed line cannot occupy two columns.
 
 Moved rows may carry an unpaired `move` record with a presentation group and
 dimmed state, independent of structural move endpoints. The populated row side

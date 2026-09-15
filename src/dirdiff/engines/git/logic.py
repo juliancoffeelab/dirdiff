@@ -692,4 +692,7 @@ class GitDiffEngine(DiffEngineProtocol):
                 "moved_lines": moved_lines,
             },
             "rows": rows,
+            # Word mode copies Git's own `~`-terminated display lines; every
+            # other mode emits physical source lines.
+            "interleave_inline_rows": self.word_diff,
         }

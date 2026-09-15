@@ -1379,6 +1379,12 @@ const TextKindPayloadSchema = z.strictObject({
   fold_hints: z.array(FoldHintSchema),
   /** Engine line totals for this bay before File aggregation. */
   stats: BayStatsSchema,
+  /**
+   * True when the inline grid must interleave a changed equal row's two sides
+   * into one line, because each row is one line the engine's tool printed, as
+   * in Git word mode. False when rows are aligned physical source lines.
+   */
+  interleave_inline_rows: z.boolean(),
 });
 
 /**

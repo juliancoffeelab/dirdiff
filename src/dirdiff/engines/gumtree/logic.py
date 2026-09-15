@@ -653,7 +653,11 @@ class GumTreeDiffEngine(DiffEngineProtocol):
                 left_label=left_label,
                 right_label=right_label,
             )
-            return {"rows": rows, "summary": _summary(rows)}
+            return {
+                "rows": rows,
+                "summary": _summary(rows),
+                "interleave_inline_rows": False,
+            }
         assert old.text is not None and new.text is not None
         try:
             diff_json = self._run_gumtree_json(
@@ -679,6 +683,7 @@ class GumTreeDiffEngine(DiffEngineProtocol):
             return {
                 "rows": rows,
                 "summary": _summary(rows),
+                "interleave_inline_rows": False,
                 "engine_warning": {
                     "type": (
                         "gumtree_ambiguous_offsets"
@@ -692,6 +697,7 @@ class GumTreeDiffEngine(DiffEngineProtocol):
         return {
             "summary": _summary(rows),
             "rows": rows,
+            "interleave_inline_rows": False,
         }
 
     def _run_gumtree_json(

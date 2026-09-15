@@ -107,6 +107,12 @@ export function TextDiffGrid(props: {
   foldHints: FoldHint[];
 
   /**
+   * States whether inline view interleaves a changed equal row's sides into
+   * one line, as each row is one line the tool printed in Git word mode.
+   */
+  interleaveInlineRows: boolean;
+
+  /**
    * Selects the current Tab-wide split or inline text presentation.
    * Changing it rebuilds the row DOM and clears local fold expansion.
    */
@@ -157,6 +163,7 @@ export function TextDiffGrid(props: {
         bayKey={props.bayKey}
         rows={props.rows}
         foldHints={props.foldHints}
+        interleaveInlineRows={props.interleaveInlineRows}
         leftLabel={props.leftLabel}
         rightLabel={props.rightLabel}
         viewMode={props.viewMode}
@@ -301,6 +308,12 @@ function ImperativeDiffLines(props: {
    * The fold builder validates their ordering before imperative rendering.
    */
   foldHints: FoldHint[];
+  /**
+   * States whether inline view interleaves changed equal rows. It arrives
+   * with `rows` from the same bay payload, so a change always accompanies a
+   * new `rows` array and needs no separate fold-expansion reset.
+   */
+  interleaveInlineRows: boolean;
   /**
    * Provides the complete left-side label to split rows and fold bars.
    * Inline row content does not use this as identity.
@@ -1053,6 +1066,7 @@ function ImperativeDiffLines(props: {
       props.viewMode === "inline"
         ? renderInlineRowsDom(
             rows,
+            props.interleaveInlineRows,
             expandedFolds,
             props.fileIndex,
             props.bayKey,

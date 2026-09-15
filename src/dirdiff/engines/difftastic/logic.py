@@ -1001,6 +1001,7 @@ class DifftasticDiffEngine(DiffEngineProtocol):
                 "moved_lines": moved_lines,
             },
             "rows": rows,
+            "interleave_inline_rows": False,
         }
         if engine_warning is not None:
             payload["engine_warning"] = engine_warning

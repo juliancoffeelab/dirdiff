@@ -780,6 +780,15 @@ class TextKindResponse(ApiModel):
     existence or image-byte facts.
     """
 
+    interleave_inline_rows: bool
+    """Whether the inline grid interleaves a changed equal row's sides into one line.
+
+    True, which Git word mode sets, means each row is one line the tool printed
+    and the inline grid interleaves an equal row's two sides back into it. False
+    means rows are aligned physical source lines shown one line per side. It is
+    required so the HUD never guesses the row shape from content.
+    """
+
 
 class MediaRefResponse(ApiModel):
     """One composed image side, described without its bytes.

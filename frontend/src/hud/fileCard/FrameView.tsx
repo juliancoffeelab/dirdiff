@@ -780,6 +780,7 @@ function TextBayView(props: {
           rightLabel={props.content.right_label}
           rows={props.content.rows}
           foldHints={props.content.fold_hints}
+          interleaveInlineRows={props.content.interleave_inline_rows}
           viewMode={props.view}
           aggressiveFolds={props.aggressiveFolds}
           linePins={props.linePins}

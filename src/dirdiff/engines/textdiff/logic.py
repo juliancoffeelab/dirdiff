@@ -160,6 +160,7 @@ class TextDiffEngine(DiffEngineProtocol):
         return {
             "summary": _text_summary(rows),
             "rows": rows,
+            "interleave_inline_rows": False,
         }
 
 

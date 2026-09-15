@@ -1013,6 +1013,7 @@ class TokenDiffEngine(DiffEngineProtocol):
         result: DiffEngineResult = {
             "summary": _token_summary(rows),
             "rows": rows,
+            "interleave_inline_rows": False,
         }
         if warning is not None:
             result["engine_warning"] = warning

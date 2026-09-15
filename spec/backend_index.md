@@ -75,8 +75,12 @@ The package defines `DirdiffError`, the shared failure contract used when
 dirdiff cannot safely produce a requested result.
 
 An engine produces aligned rows, inline diff tokens with any structural move
-endpoints, summary counts, and an engine warning when applicable. It does not load files or attach syntax
-highlighting, folds, or hunk indexes. Difftastic keeps its degraded textual
+endpoints, summary counts, a required `interleave_inline_rows` statement, and an
+engine warning when applicable. `interleave_inline_rows` is false when rows are
+aligned physical source lines and true when each row copies one line the
+engine's tool printed, so inline view must interleave a changed equal row's
+sides back into that line; only Git word mode sets it true. It does not load files
+or attach syntax highlighting, folds, or hunk indexes. Difftastic keeps its degraded textual
 diff construction inside its own implementation.
 
 Git no-index accepts Myers, Minimal, Patience, or Histogram. Myers is its
@@ -97,6 +101,9 @@ Git's whitespace spelling. Hunk coordinates locate unchanged source gaps and
 validate the order of meaningful source words. They do not align changed rows.
 Git may split one physical source line across several rows or combine fragments
 of several physical lines in one row; the HUD shows that upstream behavior.
+Word mode therefore reports `interleave_inline_rows` as true, and the text bay
+carries that statement to the HUD so inline view interleaves each changed
+equal row back into the one line Git printed.
 A nonempty row whose every token, including whitespace, is deleted or inserted
 retains that status. Every other mixture is an equal aligned row carrying Git's
 token facts. Summary categories count those row statuses; equal rows carrying a

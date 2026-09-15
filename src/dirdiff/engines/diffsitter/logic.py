@@ -589,6 +589,7 @@ class DiffsitterDiffEngine(DiffEngineProtocol):
                 "moved_lines": 0,
             },
             "rows": rows,
+            "interleave_inline_rows": False,
         }
         if engine_warning is not None:
             payload["engine_warning"] = engine_warning

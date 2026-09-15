@@ -584,6 +584,18 @@ class DiffEngineResult(TypedDict):
     display enrichment, which decorates but never repairs its alignment.
     """
 
+    interleave_inline_rows: bool
+    """Whether inline view interleaves a changed equal row's sides into one line.
+
+    False means the physical-line contract above: both sides of a row are the
+    physical source lines the engine aligned, and the HUD may present them as
+    two lines. True means the engine copied its tool's own printed lines, as
+    Git word mode does, so the two sides of an equal row are fragments of one
+    line the tool printed and the inline HUD interleaves them back into that
+    single line. Every engine sets it explicitly; it is never inferred from
+    row content.
+    """
+
     engine_warning: NotRequired[EngineWarning]
     """Expected degraded-mode explanation, omitted for an ordinary result.
 

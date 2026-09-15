@@ -157,6 +157,7 @@ test.each(
         rightLabel="new"
         rows={rows}
         foldHints={[]}
+        interleaveInlineRows={false}
         viewMode={view}
         aggressiveFolds={false}
         linePins={{

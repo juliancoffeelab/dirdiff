@@ -370,6 +370,8 @@ export function renderSplitRowsDom(
  * callback runs while the initial detached fragment is being constructed.
  *
  * @param rows Validated rows in backend source order.
+ * @param interleaveInlineRows Backend statement that a changed equal row's two
+ *   sides are one printed line and must be interleaved back into it.
  * @param expandedFolds Mutable source-row keys for folds expanded in this grid.
  * @param fileIndex Stable ChangeSet file coordinate written to hunk rows.
  * @param bayKey Stable bay coordinate written to hunk rows.
@@ -379,6 +381,7 @@ export function renderSplitRowsDom(
  */
 export function renderInlineRowsDom(
   rows: RenderRow[],
+  interleaveInlineRows: boolean,
   expandedFolds: Set<number>,
   fileIndex: number,
   bayKey: string,
@@ -403,6 +406,7 @@ export function renderInlineRowsDom(
         renderInlineFoldDom(
           row,
           rowIndex,
+          interleaveInlineRows,
           expandedFolds,
           fileIndex,
           bayKey,
@@ -418,6 +422,7 @@ export function renderInlineRowsDom(
         renderInlineDiffRowsDom(
           row,
           rowIndex,
+          interleaveInlineRows,
           fileIndex,
           bayKey,
           lineNumberState,
@@ -529,6 +534,7 @@ function renderSplitFoldDom(
  *
  * @param row Validated folded range and its complete hidden rows.
  * @param rowIndex Stable source-row key for this fold.
+ * @param interleaveInlineRows Backend interleaving statement forwarded to expanded rows.
  * @param expandedFolds Mutable fold keys shared by this TextDiffGrid render.
  * @param fileIndex Stable ChangeSet file coordinate for expanded hunk rows.
  * @param bayKey Stable bay coordinate for expanded hunk rows.
@@ -538,6 +544,7 @@ function renderSplitFoldDom(
 function renderInlineFoldDom(
   row: FoldRow,
   rowIndex: number,
+  interleaveInlineRows: boolean,
   expandedFolds: Set<number>,
   fileIndex: number,
   bayKey: string,
@@ -575,6 +582,7 @@ function renderInlineFoldDom(
     if (expanded) {
       const fragment = renderInlineRowsDom(
         row.foldedRows,
+        interleaveInlineRows,
         expandedFolds,
         fileIndex,
         bayKey,
@@ -725,11 +733,14 @@ function renderSplitDiffRowDom(
  * element. Equal rows with changed content, replace rows, and move rows may
  * emit both sides while transferring hunk identity to the first visible side.
  * Rows satisfying the insert-only combination predicate emit one element
- * retaining both backend line numbers and hunk identity.
+ * retaining both backend line numbers and hunk identity. When the backend
+ * asks to interleave inline rows, every changed equal row emits one element
+ * interleaving both sides in the tool's own order.
  * Unsupported backend statuses throw exhaustively.
  *
  * @param row Validated ordinary backend row to render.
  * @param rowIndex Source-row coordinate shared by all emitted elements.
+ * @param interleaveInlineRows Backend statement to interleave changed equal rows.
  * @param fileIndex Stable ChangeSet file coordinate written to hunk rows.
  * @param bayKey Stable bay coordinate written to hunk rows.
  * @param lineNumberState Per-fragment state used to suppress repeated numbers.
@@ -745,6 +756,7 @@ function renderSplitDiffRowDom(
 function renderInlineDiffRowsDom(
   row: DiffRow,
   rowIndex: number,
+  interleaveInlineRows: boolean,
   fileIndex: number,
   bayKey: string,
   lineNumberState: InlineLineNumberState,
@@ -775,11 +787,29 @@ function renderInlineDiffRowsDom(
    *
    * # Returns
    *
-   * - `HTMLElement` when insert-only content combines into one physical row.
+   * - `HTMLElement` when insert-only content combines into one physical row,
+   *   or when a changed equal row's sides are interleaved into one line.
    * - `DocumentFragment` containing each present side otherwise.
    */
   function renderChangedRow(): DocumentFragment | HTMLElement {
     const statusIsEqual = row.status === "equal";
+    if (interleaveInlineRows && statusIsEqual) {
+      const parts = interleaveRowSides(row);
+      return renderInlineDiffRowDom({
+        status: "equal",
+        marker: " ",
+        leftNo: row.left_no,
+        rightNo: row.right_no,
+        text: parts.map((part) => part.text).join(""),
+        parts,
+        rowIndex,
+        fileIndex,
+        bayKey,
+        sourceRow: row,
+        lineNumberState,
+        tokenRowStatus: null,
+      });
+    }
     if (canCombineInsertOnlyChangedRow(row)) {
       return renderInlineDiffRowDom({
         status: statusIsEqual ? "equal" : "replace",
@@ -947,6 +977,74 @@ function renderInlineDiffRowsDom(
       throw new Error(`Unhandled diff row status: ${String(unhandledStatus)}.`);
     }
   }
+}
+
+/**
+ * Interleaves an equal row's two decorated sides back into the one printed line.
+ *
+ * Such a row, one Git word-diff `~` group, holds the shared
+ * text on both sides, deletions only on the left, and insertions only on the
+ * right. Between two shared stretches the tool prints deletions before
+ * insertions, so the line is: shared stretch, the left side's deletions, the
+ * right side's insertions, next shared stretch. Shared text is the anchor;
+ * each side may split it into differently syntax-colored parts, so the left
+ * parts are emitted and the right side's shared text is consumed character by
+ * character against them. Any other side content is a broken contract and
+ * throws rather than painting a line the tool never printed.
+ *
+ * @param row Equal backend row whose two sides form one printed line.
+ */
+function interleaveRowSides(row: DiffRow): DecoratedPart[] {
+  const parts: DecoratedPart[] = [];
+  let left = 0;
+  let right = 0;
+  // Characters of `row.right_parts[right]` already matched against the left.
+  let rightOffset = 0;
+  while (left < row.left_parts.length || right < row.right_parts.length) {
+    while (row.left_parts[left]?.diff_status === "delete") {
+      parts.push(row.left_parts[left]);
+      left += 1;
+    }
+    while (row.right_parts[right]?.diff_status === "insert") {
+      assert(
+        rightOffset === 0,
+        "Display-line insertion started inside a shared part.",
+      );
+      parts.push(row.right_parts[right]);
+      right += 1;
+    }
+    if (left >= row.left_parts.length && right >= row.right_parts.length) {
+      break;
+    }
+    const shared = row.left_parts[left];
+    assert(
+      shared !== undefined && shared.diff_status === "unchanged",
+      "Display-line row sides disagree on their shared text.",
+    );
+    parts.push(shared);
+    left += 1;
+    let remaining = shared.text;
+    while (remaining.length > 0) {
+      const counterpart = row.right_parts[right];
+      assert(
+        counterpart !== undefined && counterpart.diff_status === "unchanged",
+        "Display-line row sides disagree on their shared text.",
+      );
+      const available = counterpart.text.slice(rightOffset);
+      const taken = Math.min(available.length, remaining.length);
+      assert(
+        available.slice(0, taken) === remaining.slice(0, taken),
+        "Display-line row sides disagree on their shared text.",
+      );
+      remaining = remaining.slice(taken);
+      rightOffset += taken;
+      if (rightOffset === counterpart.text.length) {
+        right += 1;
+        rightOffset = 0;
+      }
+    }
+  }
+  return parts;
 }
 
 /**

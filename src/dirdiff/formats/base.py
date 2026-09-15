@@ -766,6 +766,14 @@ class TextKindPayload(TypedDict):
     infer File totals from this value alone.
     """
 
+    interleave_inline_rows: bool
+    """Copied `DiffEngineResult.interleave_inline_rows` for these rows.
+
+    True means each row is one line the engine's tool printed, so the inline
+    grid interleaves a changed equal row's two sides back into that single
+    line. False means rows are aligned physical source lines.
+    """
+
 
 class ImageKindPayload(TypedDict):
     """The varying half of a serialized `image` bay: two optional references.
@@ -1256,6 +1264,7 @@ def text_kind_payload(
             "rows": display["rows"],
             "fold_hints": display.get("fold_hints", []),
             "stats": rendered["summary"],
+            "interleave_inline_rows": rendered["interleave_inline_rows"],
         },
         rendered.get("engine_warning"),
     )
