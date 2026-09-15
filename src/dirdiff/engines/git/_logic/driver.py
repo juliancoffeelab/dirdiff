@@ -16,6 +16,7 @@ filesystem read. Repository refs and File loading therefore remain in
 
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -51,6 +52,12 @@ def run_git_no_index_diff(
     diff exists, so both are successful engine outcomes.  Other exit codes are
     surfaced as `DirdiffError` because they mean Git failed to produce a
     trustworthy patch.
+
+    The patch depends only on the parameters below.  Git runs without the
+    user's global and system configuration and without configuration injected
+    through the environment, so the same inputs produce the same patch on
+    every machine.  The temporary directory is not a repository, so no
+    repository configuration applies either.
 
     # Parameters
 
@@ -90,6 +97,32 @@ def run_git_no_index_diff(
         if suffix == "":
             return f"{label}.txt"
         return f"{label}{suffix}"
+
+    # Git reads configuration from files and from the environment. Point the
+    # global file at an empty path, skip the system file, and drop every
+    # environment channel (`git -c` from an outer Git, GIT_CONFIG_KEY_n/VALUE_n,
+    # and GIT_DIFF_OPTS) so no user setting can alter the patch.
+    #
+    # TODO: When Git itself launches dirdiff (as `diff.external`, a difftool, a
+    # `!` alias, or a hook), the `-c` options of that outer invocation arrive
+    # in GIT_CONFIG_PARAMETERS and arguably express what the user wants this
+    # diff to honour. They are stripped for now because nothing distinguishes
+    # such an intentional pass-through from configuration that merely leaked
+    # from an unrelated parent process, and an unnoticed leak silently changes
+    # rows (`diff.interHunkContext` alone alters word-mode equal rows). Support
+    # the inside-Git case explicitly once its contract is decided.
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key
+        not in {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT", "GIT_DIFF_OPTS"}
+        and not (
+            key.startswith("GIT_CONFIG_KEY_")
+            or key.startswith("GIT_CONFIG_VALUE_")
+        )
+    }
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
 
     with tempfile.TemporaryDirectory(prefix="dirdiff-git-") as raw_tmp:
         tmp = Path(raw_tmp)
@@ -157,6 +190,7 @@ def run_git_no_index_diff(
                 ],
                 check=False,
                 capture_output=True,
+                env=env,
             )
         except FileNotFoundError as exc:
             raise DirdiffError(
