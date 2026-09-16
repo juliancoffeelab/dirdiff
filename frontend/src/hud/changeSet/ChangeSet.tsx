@@ -574,6 +574,10 @@ function ReviewSnapshotBoundary(
             color_moved_ws: current.git_color_moved_ws,
             ignore_space_change: current.git_ignore_space_change,
             word_diff: current.git_word_diff,
+            word_boundary:
+              current.git_word_boundary === "custom"
+                ? { mode: "custom", regex: current.git_word_diff_regex }
+                : { mode: current.git_word_boundary },
           };
         case "diffsitter":
         case "dirdiff":

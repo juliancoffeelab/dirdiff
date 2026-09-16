@@ -124,7 +124,7 @@ The case directory must contain:
 
 The shared commands are `difft`, `git`, `gum`, `difft-json`, `bat` for both
 sides, and `diffs` for Diffsitter. Catalogs add commands without replacing shared
-behavior. Git adds `git-moved` and `git-moved-indent`. There are no Makefile
+behavior. Git adds `git-word`, `git-word-lang`, `git-moved`, and `git-moved-indent`. There are no Makefile
 includes: a fixture contains its complete recipes, and catalog additions must
 be copied to its fixtures when they change. Recipe commands must not use Make's
 `@` prefix; the invoked command remains visible in terminal output.

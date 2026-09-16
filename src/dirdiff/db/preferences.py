@@ -76,6 +76,14 @@ class UserPreferences(TableBase):
     git_word_diff: Mapped[bool] = mapped_column(Boolean, nullable=False)
     """Whether the Git engine decorates changed lines at word granularity."""
 
+    git_word_boundary: Mapped[str] = mapped_column(String, nullable=False)
+    """Remembered Git word-boundary mode, validated by the HTTP boundary."""
+
+    git_word_diff_regex: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )
+    """Remembered custom word regex, verbatim whatever the mode; NULL if none entered."""
+
     difftastic_ignore_comments: Mapped[bool] = mapped_column(
         Boolean, nullable=False
     )
@@ -124,6 +132,12 @@ class PreferencesRecord:
 
     git_word_diff: bool
     """Remembered Git word-decoration choice, independent of the active engine."""
+
+    git_word_boundary: str
+    """Stored Git word-boundary mode, without interpretation."""
+
+    git_word_diff_regex: str | None
+    """Stored custom word regex, verbatim and unvalidated; `None` if none entered."""
 
     difftastic_ignore_comments: bool
     """Stored Difftastic comment policy, without UI interpretation."""
@@ -193,6 +207,8 @@ class PreferencesStore:
                     UserPreferences.git_algorithm,
                     UserPreferences.git_ignore_space_change,
                     UserPreferences.git_word_diff,
+                    UserPreferences.git_word_boundary,
+                    UserPreferences.git_word_diff_regex,
                     UserPreferences.difftastic_ignore_comments,
                     UserPreferences.gumtree_matcher,
                     UserPreferences.git_color_moved,
@@ -207,18 +223,21 @@ class PreferencesStore:
                 git_algorithm=row[2],
                 git_ignore_space_change=row[3],
                 git_word_diff=row[4],
-                difftastic_ignore_comments=row[5],
-                gumtree_matcher=row[6],
-                git_color_moved=row[7],
-                git_color_moved_ws=row[8],
+                git_word_boundary=row[5],
+                git_word_diff_regex=row[6],
+                difftastic_ignore_comments=row[7],
+                gumtree_matcher=row[8],
+                git_color_moved=row[9],
+                git_color_moved_ws=row[10],
             )
 
     def get_or_create(self, user_profile_id: int) -> PreferencesRecord:
         """Return a Profile's preferences, creating them if absent.
 
         An existing record is returned unchanged. If none exists, the method
-        creates one with aggressive folding enabled, Myers, and whitespace changes
-        included.
+        creates one with aggressive folding enabled, Myers, whitespace changes
+        included, word diff off on Git's default boundary with no custom regex,
+        and the remaining engine options at their upstream defaults.
         Everything happens in one SQL query.
 
         # Usage
@@ -249,6 +268,8 @@ class PreferencesStore:
                     git_algorithm="myers",
                     git_ignore_space_change=False,
                     git_word_diff=False,
+                    git_word_boundary="default",
+                    git_word_diff_regex=None,
                     difftastic_ignore_comments=False,
                     gumtree_matcher="gumtree-simple",
                     git_color_moved="no",
@@ -268,6 +289,8 @@ class PreferencesStore:
                     UserPreferences.git_algorithm,
                     UserPreferences.git_ignore_space_change,
                     UserPreferences.git_word_diff,
+                    UserPreferences.git_word_boundary,
+                    UserPreferences.git_word_diff_regex,
                     UserPreferences.difftastic_ignore_comments,
                     UserPreferences.gumtree_matcher,
                     UserPreferences.git_color_moved,
@@ -280,10 +303,12 @@ class PreferencesStore:
                 git_algorithm=row[2],
                 git_ignore_space_change=row[3],
                 git_word_diff=row[4],
-                difftastic_ignore_comments=row[5],
-                gumtree_matcher=row[6],
-                git_color_moved=row[7],
-                git_color_moved_ws=row[8],
+                git_word_boundary=row[5],
+                git_word_diff_regex=row[6],
+                difftastic_ignore_comments=row[7],
+                gumtree_matcher=row[8],
+                git_color_moved=row[9],
+                git_color_moved_ws=row[10],
             )
 
     def save(
@@ -293,6 +318,8 @@ class PreferencesStore:
         git_algorithm: str,
         git_ignore_space_change: bool,
         git_word_diff: bool,
+        git_word_boundary: str,
+        git_word_diff_regex: str | None,
         difftastic_ignore_comments: bool,
         gumtree_matcher: str,
         git_color_moved: str,
@@ -310,6 +337,9 @@ class PreferencesStore:
         - `git_algorithm`: Validated Git algorithm to remember.
         - `git_ignore_space_change`: Whether Git ignores whitespace amount changes.
         - `git_word_diff`: Whether Git decorates changed lines by word.
+        - `git_word_boundary`: Validated word-boundary mode to remember.
+        - `git_word_diff_regex`: Custom word regex to remember verbatim, or
+          `None` when the user has entered none.
         - `difftastic_ignore_comments`: Whether Difftastic ignores comments.
         - `gumtree_matcher`: Validated upstream matcher ID.
         - `git_color_moved`: Exact Git move-color selection.
@@ -333,6 +363,8 @@ class PreferencesStore:
                     git_algorithm=git_algorithm,
                     git_ignore_space_change=git_ignore_space_change,
                     git_word_diff=git_word_diff,
+                    git_word_boundary=git_word_boundary,
+                    git_word_diff_regex=git_word_diff_regex,
                     difftastic_ignore_comments=difftastic_ignore_comments,
                     gumtree_matcher=gumtree_matcher,
                     git_color_moved=git_color_moved,
@@ -345,6 +377,8 @@ class PreferencesStore:
                         "git_algorithm": git_algorithm,
                         "git_ignore_space_change": git_ignore_space_change,
                         "git_word_diff": git_word_diff,
+                        "git_word_boundary": git_word_boundary,
+                        "git_word_diff_regex": git_word_diff_regex,
                         "difftastic_ignore_comments": difftastic_ignore_comments,
                         "gumtree_matcher": gumtree_matcher,
                         "git_color_moved": git_color_moved,
@@ -357,6 +391,8 @@ class PreferencesStore:
                     UserPreferences.git_algorithm,
                     UserPreferences.git_ignore_space_change,
                     UserPreferences.git_word_diff,
+                    UserPreferences.git_word_boundary,
+                    UserPreferences.git_word_diff_regex,
                     UserPreferences.difftastic_ignore_comments,
                     UserPreferences.gumtree_matcher,
                     UserPreferences.git_color_moved,
@@ -369,8 +405,10 @@ class PreferencesStore:
                 git_algorithm=row[2],
                 git_ignore_space_change=row[3],
                 git_word_diff=row[4],
-                difftastic_ignore_comments=row[5],
-                gumtree_matcher=row[6],
-                git_color_moved=row[7],
-                git_color_moved_ws=row[8],
+                git_word_boundary=row[5],
+                git_word_diff_regex=row[6],
+                difftastic_ignore_comments=row[7],
+                gumtree_matcher=row[8],
+                git_color_moved=row[9],
+                git_color_moved_ws=row[10],
             )

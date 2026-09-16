@@ -29,6 +29,7 @@ import {
   GitAlgorithmSchema,
   GitColorMovedSchema,
   GitColorMovedWsSchema,
+  GitWordBoundaryModeSchema,
   GumTreeMatcherSchema,
   type ProjectId,
   type RepoMark,
@@ -134,6 +135,27 @@ const gitColorMovedWsModes: readonly SelectOption[] = [
     label: "allow-indentation-change",
     description:
       "Match ignoring whitespace, then group lines with the same indentation change.",
+  },
+];
+
+/** Word boundary choices; the custom pattern itself lives in the regex input. */
+const gitWordBoundaryModes: readonly SelectOption[] = [
+  {
+    value: "default",
+    label: "Default",
+    description: "Every run of non-whitespace is one word.",
+  },
+  {
+    value: "language",
+    label: "Language",
+    description:
+      "Git's built-in diff driver for the file suffix, or Default without one.",
+  },
+  {
+    value: "custom",
+    label: "Custom",
+    description:
+      "The POSIX extended regex below (--word-diff-regex); Default until one is entered.",
   },
 ];
 
@@ -865,6 +887,8 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
       gitAlgorithm: current.git_algorithm,
       gitIgnoreSpaceChange: current.git_ignore_space_change,
       gitWordDiff: current.git_word_diff,
+      gitWordBoundary: current.git_word_boundary,
+      gitWordDiffRegex: current.git_word_diff_regex,
       gitColorMoved: current.git_color_moved,
       gitColorMovedWs: current.git_color_moved_ws,
       ...patch,
@@ -977,6 +1001,71 @@ function EngineOptions(props: EngineOptionsProps): JSX.Element {
                       busy={busy()}
                       onToggle={(next) => save({ gitWordDiff: next })}
                     />
+                    <Select
+                      class="engine-options-select"
+                      label="Word boundary"
+                      valueLabel={prefs().git_word_boundary}
+                      options={gitWordBoundaryModes}
+                      selectedValue={prefs().git_word_boundary}
+                      // Git consults the boundary only while splitting words.
+                      // The value persists and applies once Word diff is on.
+                      disabled={busy() || !prefs().git_word_diff}
+                      onOpen={null}
+                      onChange={(value) =>
+                        save({
+                          gitWordBoundary:
+                            GitWordBoundaryModeSchema.parse(value),
+                        })
+                      }
+                      optionAction={null}
+                    />
+                    <label class="engine-options-input">
+                      <span class="ui-select-label">Regex</span>
+                      {/* Uncontrolled on purpose: preferences hold the saved
+                          pattern and the element holds the text being typed.
+                          Enter or leaving the field saves it, an empty field
+                          as null. The browser never compiles it. */}
+                      <input
+                        type="text"
+                        spellcheck={false}
+                        autocomplete="off"
+                        placeholder="[^[:space:]]+"
+                        value={prefs().git_word_diff_regex ?? ""}
+                        disabled={
+                          busy() ||
+                          !prefs().git_word_diff ||
+                          prefs().git_word_boundary !== "custom"
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            event.currentTarget.blur();
+                          }
+                        }}
+                        onBlur={(event) => {
+                          const text = event.currentTarget.value;
+                          const regex = text === "" ? null : text;
+                          if (regex !== prefs().git_word_diff_regex) {
+                            save({ gitWordDiffRegex: regex });
+                          }
+                        }}
+                      />
+                    </label>
+                    <Show when={!prefs().git_word_diff}>
+                      <span class="engine-options-inactive-note">
+                        Word boundary is inactive while Word diff is off.
+                      </span>
+                    </Show>
+                    <Show
+                      when={
+                        prefs().git_word_diff &&
+                        prefs().git_word_boundary !== "custom"
+                      }
+                    >
+                      <span class="engine-options-inactive-note">
+                        Regex is inactive while Word boundary is not Custom.
+                      </span>
+                    </Show>
                   </div>
                   <div class="engine-options-popover-divider" />
                   <div class="engine-options-section">

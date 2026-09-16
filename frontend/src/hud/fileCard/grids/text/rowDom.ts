@@ -1025,10 +1025,13 @@ function renderInlineDiffRowsDom(
  * right. Between two shared stretches the tool prints deletions before
  * insertions, so the line is: shared stretch, the left side's deletions, the
  * right side's insertions, next shared stretch. Shared text is the anchor;
- * each side may split it into differently syntax-colored parts, so the left
- * parts are emitted and the right side's shared text is consumed character by
- * character against them. Any other side content is a broken contract and
- * throws rather than painting a line the tool never printed.
+ * each side may split it into differently syntax-colored parts, and either
+ * side may also merge two shared stretches into one part where only the other
+ * side has a change between them. The left parts are therefore emitted while
+ * the right side's shared text is consumed character by character against
+ * them, and a left part is split wherever the right side inserts inside it.
+ * Any other side content is a broken contract and throws rather than painting
+ * a line the tool never printed.
  *
  * @param row Equal backend row whose two sides form one printed line.
  */
@@ -1059,28 +1062,58 @@ function interleaveRowSides(row: DiffRow): DecoratedPart[] {
       shared !== undefined && shared.diff_status === "unchanged",
       "Display-line row sides disagree on their shared text.",
     );
-    parts.push(shared);
     left += 1;
-    let remaining = shared.text;
-    while (remaining.length > 0) {
+    // Characters of `shared.text` matched so far, and where the part slice
+    // emitted next begins; they differ only after an insertion split it.
+    let matched = 0;
+    let sliceStart = 0;
+    while (matched < shared.text.length) {
+      while (row.right_parts[right]?.diff_status === "insert") {
+        assert(
+          rightOffset === 0,
+          "Display-line insertion started inside a shared part.",
+        );
+        if (matched > sliceStart) {
+          parts.push({
+            ...shared,
+            text: shared.text.slice(sliceStart, matched),
+            // Only the first slice can still lead the line.
+            is_leading_whitespace:
+              sliceStart === 0 && shared.is_leading_whitespace,
+          });
+          sliceStart = matched;
+        }
+        parts.push(row.right_parts[right]);
+        right += 1;
+      }
       const counterpart = row.right_parts[right];
       assert(
         counterpart !== undefined && counterpart.diff_status === "unchanged",
         "Display-line row sides disagree on their shared text.",
       );
       const available = counterpart.text.slice(rightOffset);
-      const taken = Math.min(available.length, remaining.length);
+      const taken = Math.min(available.length, shared.text.length - matched);
       assert(
-        available.slice(0, taken) === remaining.slice(0, taken),
+        available.slice(0, taken) ===
+          shared.text.slice(matched, matched + taken),
         "Display-line row sides disagree on their shared text.",
       );
-      remaining = remaining.slice(taken);
+      matched += taken;
       rightOffset += taken;
       if (rightOffset === counterpart.text.length) {
         right += 1;
         rightOffset = 0;
       }
     }
+    parts.push(
+      sliceStart === 0
+        ? shared
+        : {
+            ...shared,
+            text: shared.text.slice(sliceStart),
+            is_leading_whitespace: false,
+          },
+    );
   }
   return parts;
 }

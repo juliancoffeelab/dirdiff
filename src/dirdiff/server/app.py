@@ -15,6 +15,7 @@ import os
 from http import HTTPStatus
 from importlib.resources import files
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
@@ -23,6 +24,7 @@ from fastapi.responses import (
     JSONResponse,
 )
 from fastapi.staticfiles import StaticFiles
+from pydantic import Field
 
 from dirdiff.db import (
     PreferencesStore,
@@ -35,6 +37,7 @@ from dirdiff.engines import (
     GitAlgorithm,
     GitColorMoved,
     GitColorMovedWs,
+    GitWordBoundaryMode,
     GumTreeMatcher,
 )
 from dirdiff.room_lord import (
@@ -150,6 +153,12 @@ class PreferencesResponse(ApiModel):
     git_word_diff: bool
     """Whether Git decorates changed lines with word-level classifications."""
 
+    git_word_boundary: GitWordBoundaryMode
+    """Remembered Git word-boundary mode for word-diff rendering."""
+
+    git_word_diff_regex: str | None
+    """Remembered custom word regex, verbatim whatever the mode; `None` if none entered."""
+
 
 class PreferencesUpdateRequest(ApiModel):
     """Supply the mutable preference values to store for one Profile.
@@ -187,6 +196,16 @@ class PreferencesUpdateRequest(ApiModel):
 
     git_word_diff: bool
     """Required replacement for the Profile's Git word-diff preference."""
+
+    git_word_boundary: GitWordBoundaryMode
+    """Required exact word-boundary mode."""
+
+    git_word_diff_regex: Annotated[str, Field(min_length=1)] | None
+    """Required non-empty custom word regex, verbatim; `None` when none entered.
+
+    The route does not compile it; `GitWordBoundaryCustom` states how the
+    engine treats the value.
+    """
 
 
 class _ApplicationRoutes:
@@ -432,6 +451,8 @@ class _ApplicationRoutes:
                 request.git_algorithm,
                 request.git_ignore_space_change,
                 request.git_word_diff,
+                request.git_word_boundary,
+                request.git_word_diff_regex,
                 request.difftastic_ignore_comments,
                 request.gumtree_matcher,
                 request.git_color_moved,

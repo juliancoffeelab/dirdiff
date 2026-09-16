@@ -92,13 +92,25 @@ whitespace. Adding whitespace where there was none still counts as a change.
 Equal rows retain both original source spellings, including ignored spacing in
 patch context and omitted gaps.
 
-Its `word_diff` boolean requests Git's porcelain word output with the default
-non-whitespace word boundary. The adapter copies the porcelain patch rather than
-reconstructing a physical-line diff. Every `~` record ends one row. A space
+Its `word_diff` boolean requests Git's porcelain word output. Its
+`word_boundary` is consulted only in word mode and has three modes: `default`
+passes nothing and Git splits at whitespace; `language` maps the temporary
+file's suffix to one of Git's built-in diff drivers through an attributes
+file, and a suffix without a driver keeps the whitespace boundary; `custom`
+hands the user's pattern to Git unvalidated, so Git's rejection surfaces as
+`DirdiffError`. The locale differs per mode for the reason documented in the
+driver; the host must provide the `C.UTF-8` locale, which current glibc, musl,
+and macOS ship, for a custom pattern to match whole codepoints. On a glibc 2.17
+era host such as RHEL 7, which lacks that locale, Git matches bytes instead.
+The adapter copies the porcelain patch rather than reconstructing a
+physical-line diff. Every `~` record ends one row. A space
 record becomes one unchanged token on both sides; `-` and `+` records become one
 token on their reported side. Tokens retain the complete record payload, including
-Git's whitespace spelling. Hunk coordinates locate unchanged source gaps and
-validate the order of meaningful source words. They do not align changed rows.
+Git's whitespace spelling. Hunk coordinates locate unchanged source gaps, and
+the non-whitespace character count of each record, which any word boundary
+preserves, places a row on the source line its text starts on. The adapter
+trusts Git's text; the fast and slow suites prove the round trip. Hunk
+coordinates do not align changed rows.
 Git may split one physical source line across several rows or combine fragments
 of several physical lines in one row; the HUD shows that upstream behavior.
 Word mode therefore reports `interleave_inline_rows` as true, and the text bay
@@ -340,6 +352,11 @@ policy, Difftastic comment policy, and GumTree matcher in one row per Profile. R
 preference row exists; saves replace all values. The HTTP boundary validates the closed algorithm choice.
 The same row stores Git moved-color and move-whitespace choices. Migration
 initializes both to `no` for existing Profiles; subsequent writes require both.
+It also stores the Git word boundary mode and the custom word pattern, migrated
+to `default` and NULL. NULL means no pattern has been entered; the HTTP
+boundary refuses an empty string. The pattern persists whatever the
+mode so switching back to `custom` restores it, and the HTTP boundary does not
+compile it.
 
 Its public interface is exported from `dirdiff.db`.
 

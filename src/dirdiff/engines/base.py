@@ -23,7 +23,7 @@ import sys
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import Annotated, Literal, NotRequired, Protocol, TypedDict
+from typing import Annotated, Literal, NotRequired, Protocol, TypedDict, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -43,6 +43,11 @@ __all__ = [
     "GitColorMoved",
     "GitColorMovedWs",
     "GitEngineConfig",
+    "GitWordBoundary",
+    "GitWordBoundaryCustom",
+    "GitWordBoundaryDefault",
+    "GitWordBoundaryLanguage",
+    "GitWordBoundaryMode",
     "GumTreeEngineConfig",
     "GumTreeMatcher",
     "InlineToken",
@@ -72,6 +77,69 @@ type GitColorMovedWs = Literal[
 ]
 """Exclusive move-detection whitespace choices, independent of diff whitespace."""
 
+type GitWordBoundaryMode = Literal["default", "language", "custom"]
+"""Closed choices for how Git splits a changed line into words.
+
+`default` passes no boundary and lets Git split at whitespace. `language`
+applies Git's built-in diff driver for the file's language. `custom` passes a
+user-supplied regex. The preference store remembers the mode and the regex
+separately; `GitWordBoundary` is the one value the engine consumes.
+"""
+
+
+class GitWordBoundaryDefault(BaseModel):
+    """Let Git split words at whitespace, its own default boundary.
+
+    The driver passes no `--word-diff-regex`, so Git's built-in scan applies
+    and the locale does not matter.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    mode: Literal["default"]
+    """Typed discriminator for the default boundary."""
+
+
+class GitWordBoundaryLanguage(BaseModel):
+    """Use the word rules of Git's built-in diff driver for the file's language.
+
+    The driver maps the temporary file's suffix to one of Git's built-in
+    drivers, such as `python` or `cpp`, through `core.attributesFile`. A suffix
+    without a driver keeps Git's whitespace boundary, exactly as in a
+    repository whose attributes name no driver for that file.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    mode: Literal["language"]
+    """Typed discriminator for the language boundary."""
+
+
+class GitWordBoundaryCustom(BaseModel):
+    """Pass one user-supplied POSIX extended regex as `--word-diff-regex`.
+
+    The pattern reaches Git verbatim and Git's regex library decides whether
+    it compiles; a rejection is Git's own fatal message, which the driver
+    surfaces as `DirdiffError`. The engine performs no validation of its own
+    beyond refusing the empty string, whose acceptance differs between regex
+    libraries. `None` means the user has entered no pattern yet: the driver
+    then passes no `--word-diff-regex`, so Git applies its whitespace boundary
+    as under `default`.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    mode: Literal["custom"]
+    """Typed discriminator for the custom boundary."""
+    regex: Annotated[str, Field(min_length=1)] | None
+    """Exact non-empty pattern passed to Git, or `None` for none entered yet."""
+
+
+type GitWordBoundary = Annotated[
+    Union[
+        GitWordBoundaryDefault, GitWordBoundaryLanguage, GitWordBoundaryCustom
+    ],
+    Field(discriminator="mode"),
+]
+"""Complete word-boundary selection for Git word mode, one class per mode."""
+
 
 class GitEngineConfig(BaseModel):
     """Complete Git rendering choice, validated before constructing a renderer.
@@ -88,7 +156,9 @@ class GitEngineConfig(BaseModel):
     ignore_space_change: bool
     """Whether Git ignores changes in whitespace amount with `--ignore-space-change`."""
     word_diff: bool
-    """Whether Git classifies non-whitespace words inside changed lines."""
+    """Whether Git classifies words inside changed lines."""
+    word_boundary: GitWordBoundary
+    """How Git splits words; consulted only while `word_diff` is on."""
     color_moved: GitColorMoved
     """Required move highlighting mode passed unchanged to Git."""
     color_moved_ws: GitColorMovedWs

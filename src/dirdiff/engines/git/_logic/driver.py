@@ -26,6 +26,7 @@ from dirdiff.engines.base import (
     GitAlgorithm,
     GitColorMoved,
     GitColorMovedWs,
+    GitWordBoundary,
     git_executable,
 )
 
@@ -33,11 +34,57 @@ __all__ = [
     "run_git_no_index_diff",
 ]
 
+_GIT_DIFF_DRIVER_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "ada": (".adb", ".ads"),
+    "bash": (".sh", ".bash"),
+    "bibtex": (".bib",),
+    "cpp": (".c", ".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"),
+    "csharp": (".cs",),
+    "css": (".css",),
+    "dts": (".dts", ".dtsi"),
+    "elixir": (".ex", ".exs"),
+    "fortran": (".f", ".f90", ".f95", ".for"),
+    "fountain": (".fountain",),
+    "golang": (".go",),
+    "html": (".html", ".htm", ".xhtml"),
+    "java": (".java",),
+    "kotlin": (".kt", ".kts"),
+    "markdown": (".md", ".markdown"),
+    "matlab": (".m",),
+    "objc": (".mm",),
+    "pascal": (".pas", ".pp"),
+    "perl": (".pl", ".pm", ".t"),
+    "php": (".php",),
+    "python": (".py", ".pyi"),
+    "ruby": (".rb",),
+    "rust": (".rs",),
+    "scheme": (".scm", ".ss"),
+    "tex": (".tex", ".sty", ".cls"),
+}
+"""File suffixes that select each of Git's built-in diff drivers.
+
+Git ships these drivers but no mapping from paths to them; a repository names
+its drivers in `.gitattributes`. The language word boundary writes this table
+as an attributes file so `--no-index` mode reaches the same drivers by the
+temporary file's suffix. `.m` goes to MATLAB rather than Objective-C, which
+keeps `.mm`. A suffix absent here, or a driver name this Git does not know,
+leaves Git on its whitespace boundary. Drivers also supply `xfuncname`, which
+only changes the function context after each hunk header.
+"""
+
+_GIT_DIFF_DRIVER_ATTRIBUTES = "".join(
+    f"*{suffix} diff={driver}\n"
+    for driver, suffixes in _GIT_DIFF_DRIVER_SUFFIXES.items()
+    for suffix in suffixes
+)
+"""Attributes-file text naming a driver per suffix, built once per process."""
+
 
 def run_git_no_index_diff(
     *,
     algorithm: GitAlgorithm,
     word_diff: bool,
+    word_boundary: GitWordBoundary,
     ignore_space_change: bool,
     color_moved: GitColorMoved,
     color_moved_ws: GitColorMovedWs,
@@ -54,15 +101,17 @@ def run_git_no_index_diff(
     trustworthy patch.
 
     The patch depends only on the parameters below.  Git runs without the
-    user's global and system configuration and without configuration injected
-    through the environment, so the same inputs produce the same patch on
-    every machine.  The temporary directory is not a repository, so no
-    repository configuration applies either.
+    user's global and system configuration, without configuration injected
+    through the environment, and without the user's or system's attributes
+    file, so the same inputs produce the same patch on every machine.  The
+    temporary directory is not a repository, so no repository configuration
+    or attributes apply either.
 
     # Parameters
 
     - `algorithm`: Validated line-matching choice, overriding Git configuration.
     - `word_diff`: Ask Git for machine-readable word classifications.
+    - `word_boundary`: How Git splits words; ignored unless `word_diff`.
     - `ignore_space_change`: Pass `--ignore-space-change` when enabled.
     - `color_moved`: Exact move-color mode to apply.
     - `color_moved_ws`: Whitespace policy used only for move detection.
@@ -123,6 +172,22 @@ def run_git_no_index_diff(
     }
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     env["GIT_CONFIG_NOSYSTEM"] = "1"
+    # Attributes are a second channel: even outside a repository Git reads
+    # the system gitattributes and the user's attributes file, and a
+    # `diff=<driver>` there would silently change the word boundary. Skip the
+    # system file here and point the user file at the language table or at
+    # nothing below, so only this call selects drivers.
+    env["GIT_ATTR_NOSYSTEM"] = "1"
+    # Git compiles word regexes with the C library, whose character semantics
+    # follow the locale. A UTF-8 locale makes `.` and bracket classes match
+    # whole codepoints, so a custom pattern never splits a multibyte character
+    # into a token Git would print as invalid UTF-8. Git's built-in drivers
+    # were written for byte matching: they end in a raw high-byte alternative
+    # that glues a multibyte sequence together and that fails to compile under
+    # UTF-8, so the language boundary runs in the C locale. Every other run
+    # is pinned to UTF-8 as well so Git's messages stay in English.
+    language = word_diff and word_boundary.mode == "language"
+    env["LC_ALL"] = "C" if language else "C.UTF-8"
 
     with tempfile.TemporaryDirectory(prefix="dirdiff-git-") as raw_tmp:
         tmp = Path(raw_tmp)
@@ -130,6 +195,13 @@ def run_git_no_index_diff(
         right_path = tmp / _temp_file_name("right", right_path_hint)
         left_path.write_text(left_text, encoding="utf-8")
         right_path.write_text(right_text, encoding="utf-8")
+        # The attributes file only selects word drivers, so it is written
+        # only when a word boundary asks for them.
+        attributes_path = tmp / "attributes"
+        if language:
+            attributes_path.write_text(
+                _GIT_DIFF_DRIVER_ATTRIBUTES, encoding="utf-8"
+            )
 
         try:
             result = subprocess.run(
@@ -165,6 +237,9 @@ def run_git_no_index_diff(
                     "diff.wsErrorHighlight=none",
                     "-c",
                     "diff.suppressBlankEmpty=false",
+                    "-c",
+                    "core.attributesFile="
+                    + (str(attributes_path) if language else os.devnull),
                     "diff",
                     "--no-index",
                     f"--diff-algorithm={algorithm}",
@@ -172,7 +247,12 @@ def run_git_no_index_diff(
                     *(
                         [
                             "--word-diff=porcelain",
-                            "--word-diff-regex=[^[:space:]]+",
+                            *(
+                                [f"--word-diff-regex={word_boundary.regex}"]
+                                if word_boundary.mode == "custom"
+                                and word_boundary.regex is not None
+                                else []
+                            ),
                             "--unified=0",
                             "--no-color",
                         ]

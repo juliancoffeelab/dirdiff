@@ -21,7 +21,9 @@ outside the engine.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from bisect import bisect_right
+from dataclasses import dataclass, field
+from itertools import accumulate
 from typing import Literal, final, override
 
 from dirdiff.engines.base import (
@@ -32,6 +34,8 @@ from dirdiff.engines.base import (
     GitAlgorithm,
     GitColorMoved,
     GitColorMovedWs,
+    GitWordBoundary,
+    GitWordBoundaryDefault,
     InlineToken,
     UnpairedMove,
 )
@@ -362,8 +366,11 @@ def git_word_diff_rows_from_patch(
     Each ``~`` record terminates one upstream display row. Records beginning
     with a space are copied to both sides as unchanged text; ``-`` and ``+``
     records are copied only to their reported side. Hunk coordinates supply
-    source ranges and validate the meaningful words attached to each fragment.
-    The adapter does not realign, regroup, or infer relationships between rows.
+    source ranges, and the non-whitespace character count of each record,
+    which every word boundary preserves, places a row on the source line its
+    first character came from. The adapter trusts Git's text; the test suite
+    proves the round trip. It does not realign, regroup, or infer
+    relationships between rows.
 
     # Parameters
 
@@ -380,8 +387,8 @@ def git_word_diff_rows_from_patch(
 
     # Failures
 
-    Raises `AssertionError` when a record kind, hunk range, or meaningful patch
-    word contradicts the source supplied to Git.
+    Raises `AssertionError` when a record kind or hunk range contradicts the
+    source supplied to Git.
     """
     left_lines = left_text.splitlines()
     right_lines = right_text.splitlines()
@@ -428,7 +435,11 @@ def git_word_diff_rows_from_patch(
     rows: list[DiffEngineRow] = []
     left_no = 1
     right_no = 1
-    word_pattern = re.compile(r"\S+")
+
+    # Records reproduce the source text of their hunk in order, split wherever
+    # Git's word boundary fell and with newlines turned into `~` boundaries.
+    # Counting non-whitespace characters, which every boundary preserves,
+    # places each row on the source line its first character came from.
     for left_start, left_count, right_start, right_count, groups in hunks:
         left_no, right_no = _append_equal_rows(
             rows=rows,
@@ -440,30 +451,32 @@ def git_word_diff_rows_from_patch(
             target_right_no=right_start,
             ignore_space_change=ignore_space_change,
         )
-        left_source_words = [
-            (word, source_no)
-            for source_no, source_line in enumerate(
-                left_lines[left_start - 1 : left_start - 1 + left_count],
-                start=left_start,
+        # Cumulative non-whitespace character count per hunk line; a row
+        # starts on the line holding the next unconsumed character.
+        left_ends = list(
+            accumulate(
+                len("".join(line.split()))
+                for line in left_lines[
+                    left_start - 1 : left_start - 1 + left_count
+                ]
             )
-            for word in word_pattern.findall(source_line)
-        ]
-        right_source_words = [
-            (word, source_no)
-            for source_no, source_line in enumerate(
-                right_lines[right_start - 1 : right_start - 1 + right_count],
-                start=right_start,
+        )
+        right_ends = list(
+            accumulate(
+                len("".join(line.split()))
+                for line in right_lines[
+                    right_start - 1 : right_start - 1 + right_count
+                ]
             )
-            for word in word_pattern.findall(source_line)
-        ]
-        left_word_index = 0
-        right_word_index = 0
+        )
+        left_consumed = 0
+        right_consumed = 0
 
         for group in groups:
             left_tokens: list[InlineToken] = []
             right_tokens: list[InlineToken] = []
-            left_numbers: list[int] = []
-            right_numbers: list[int] = []
+            row_left_no: int | None = None
+            row_right_no: int | None = None
             for record in group:
                 assert record[0] in {" ", "-", "+"}, (
                     f"Unsupported Git word-diff record: {record!r}"
@@ -486,40 +499,41 @@ def git_word_diff_rows_from_patch(
                         raise AssertionError(record)
 
                 payload = record[1:]
+                if payload == "":
+                    continue
+                length = len("".join(payload.split()))
                 if left_status is not None:
-                    for word in word_pattern.findall(payload):
-                        assert left_word_index < len(left_source_words)
-                        source_word, source_no = left_source_words[
-                            left_word_index
-                        ]
-                        assert word == source_word
-                        left_numbers.append(source_no)
-                        left_word_index += 1
-                    if payload != "":
-                        left_tokens.append(
-                            {
-                                "text": payload,
-                                "is_ws": payload.isspace(),
-                                "status": left_status,
-                            }
+                    if length > 0:
+                        line_index = bisect_right(left_ends, left_consumed)
+                        assert line_index < len(left_ends), (
+                            "Record exceeds hunk"
                         )
+                        if row_left_no is None:
+                            row_left_no = left_start + line_index
+                        left_consumed += length
+                    left_tokens.append(
+                        {
+                            "text": payload,
+                            "is_ws": payload.isspace(),
+                            "status": left_status,
+                        }
+                    )
                 if right_status is not None:
-                    for word in word_pattern.findall(payload):
-                        assert right_word_index < len(right_source_words)
-                        source_word, source_no = right_source_words[
-                            right_word_index
-                        ]
-                        assert word == source_word
-                        right_numbers.append(source_no)
-                        right_word_index += 1
-                    if payload != "":
-                        right_tokens.append(
-                            {
-                                "text": payload,
-                                "is_ws": payload.isspace(),
-                                "status": right_status,
-                            }
+                    if length > 0:
+                        line_index = bisect_right(right_ends, right_consumed)
+                        assert line_index < len(right_ends), (
+                            "Record exceeds hunk"
                         )
+                        if row_right_no is None:
+                            row_right_no = right_start + line_index
+                        right_consumed += length
+                    right_tokens.append(
+                        {
+                            "text": payload,
+                            "is_ws": payload.isspace(),
+                            "status": right_status,
+                        }
+                    )
 
             statuses = [
                 token["status"] for token in [*left_tokens, *right_tokens]
@@ -537,10 +551,8 @@ def git_word_diff_rows_from_patch(
             rows.append(
                 {
                     "status": row_status,
-                    "left_no": None if left_numbers == [] else left_numbers[0],
-                    "right_no": None
-                    if right_numbers == []
-                    else right_numbers[0],
+                    "left_no": row_left_no,
+                    "right_no": row_right_no,
                     "left_text": "".join(
                         token["text"] for token in left_tokens
                     ),
@@ -552,8 +564,6 @@ def git_word_diff_rows_from_patch(
                 }
             )
 
-        assert left_word_index == len(left_source_words)
-        assert right_word_index == len(right_source_words)
         left_no = left_start + left_count
         right_no = right_start + right_count
 
@@ -594,6 +604,11 @@ class GitDiffEngine(DiffEngineProtocol):
     word_diff: bool = False
     """Decorate changed lines with Git's porcelain word classifications."""
 
+    word_boundary: GitWordBoundary = field(
+        default_factory=lambda: GitWordBoundaryDefault(mode="default")
+    )
+    """How Git splits words in word mode; Git's whitespace scan by default."""
+
     color_moved: GitColorMoved = "no"
     """Git's move highlighting mode, without inferred move relationships."""
 
@@ -631,6 +646,7 @@ class GitDiffEngine(DiffEngineProtocol):
             patch = run_git_no_index_diff(
                 algorithm=self.algorithm,
                 word_diff=self.word_diff,
+                word_boundary=self.word_boundary,
                 ignore_space_change=self.ignore_space_change,
                 color_moved=self.color_moved,
                 color_moved_ws=self.color_moved_ws,

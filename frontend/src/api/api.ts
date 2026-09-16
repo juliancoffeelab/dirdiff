@@ -82,6 +82,19 @@ export const GitColorMovedWsSchema = z.enum([
   "allow-indentation-change",
 ]);
 
+/**
+ * How Git splits a line into words while word diff is on.
+ *
+ * `default` leaves Git on its whitespace boundary; `language` selects Git's
+ * built-in diff driver by file suffix; `custom` supplies a POSIX ERE that Git
+ * compiles itself.
+ */
+export const GitWordBoundaryModeSchema = z.enum([
+  "default",
+  "language",
+  "custom",
+]);
+
 /** Upstream GumTree matchers available as structural rendering choices. */
 export const GumTreeMatcherSchema = z.enum([
   "gumtree-simple",
@@ -98,6 +111,16 @@ export const EngineConfigSchema = z.discriminatedUnion("engine", [
     algorithm: GitAlgorithmSchema,
     ignore_space_change: z.boolean(),
     word_diff: z.boolean(),
+    // The pattern travels only under `custom`, so the other modes share one
+    // query identity regardless of the stored regex text.
+    word_boundary: z.discriminatedUnion("mode", [
+      z.strictObject({ mode: z.literal("default") }),
+      z.strictObject({ mode: z.literal("language") }),
+      z.strictObject({
+        mode: z.literal("custom"),
+        regex: z.string().min(1).nullable(),
+      }),
+    ]),
     color_moved: GitColorMovedSchema,
     color_moved_ws: GitColorMovedWsSchema,
   }),
@@ -230,6 +253,9 @@ const PreferenceValuesSchema = z.strictObject({
   git_color_moved_ws: GitColorMovedWsSchema,
   git_ignore_space_change: z.boolean(),
   git_word_diff: z.boolean(),
+  git_word_boundary: GitWordBoundaryModeSchema,
+  /** Custom word pattern, kept whatever the boundary mode; null until one is entered. */
+  git_word_diff_regex: z.string().min(1).nullable(),
   difftastic_ignore_comments: z.boolean(),
   gumtree_matcher: GumTreeMatcherSchema,
 });
@@ -3263,6 +3289,8 @@ async function requestPreferences(
             git_color_moved_ws: "no" as const,
             git_ignore_space_change: false,
             git_word_diff: false,
+            git_word_boundary: "default" as const,
+            git_word_diff_regex: null,
             difftastic_ignore_comments: false,
             gumtree_matcher: "gumtree-simple" as const,
           }
@@ -3275,6 +3303,8 @@ async function requestPreferences(
             // is not the right trade-off here.
             git_ignore_space_change: z.boolean().default(false),
             git_word_diff: z.boolean().default(false),
+            git_word_boundary: GitWordBoundaryModeSchema.default("default"),
+            git_word_diff_regex: z.string().min(1).nullable().default(null),
             git_color_moved: GitColorMovedSchema.default("no"),
             git_color_moved_ws: GitColorMovedWsSchema.default("no"),
             difftastic_ignore_comments: z.boolean().default(false),
@@ -3306,6 +3336,8 @@ async function requestPreferences(
       git_color_moved_ws: preferences.git_color_moved_ws,
       git_ignore_space_change: preferences.git_ignore_space_change,
       git_word_diff: preferences.git_word_diff,
+      git_word_boundary: preferences.git_word_boundary,
+      git_word_diff_regex: preferences.git_word_diff_regex,
       difftastic_ignore_comments: preferences.difftastic_ignore_comments,
       gumtree_matcher: preferences.gumtree_matcher,
     }),
@@ -3332,6 +3364,10 @@ async function requestSavePreferences(input: {
   gitIgnoreSpaceChange: boolean;
   /** Whether Git should decorate changed lines at word granularity. */
   gitWordDiff: boolean;
+  /** How Git splits words while word diff is on. */
+  gitWordBoundary: Preferences["git_word_boundary"];
+  /** Custom word pattern, persisted whatever the boundary mode; null until entered. */
+  gitWordDiffRegex: string | null;
   /** Whether Difftastic excludes comments from change detection. */
   difftasticIgnoreComments: boolean;
   /** Exact upstream GumTree matcher selection. */
@@ -3344,6 +3380,8 @@ async function requestSavePreferences(input: {
     git_color_moved_ws: input.gitColorMovedWs,
     git_ignore_space_change: input.gitIgnoreSpaceChange,
     git_word_diff: input.gitWordDiff,
+    git_word_boundary: input.gitWordBoundary,
+    git_word_diff_regex: input.gitWordDiffRegex,
     difftastic_ignore_comments: input.difftasticIgnoreComments,
     gumtree_matcher: input.gumtreeMatcher,
   });
@@ -4334,6 +4372,8 @@ export const api = {
                 git_color_moved_ws: saved.git_color_moved_ws,
                 git_ignore_space_change: saved.git_ignore_space_change,
                 git_word_diff: saved.git_word_diff,
+                git_word_boundary: saved.git_word_boundary,
+                git_word_diff_regex: saved.git_word_diff_regex,
                 difftastic_ignore_comments: saved.difftastic_ignore_comments,
                 gumtree_matcher: saved.gumtree_matcher,
               }),
