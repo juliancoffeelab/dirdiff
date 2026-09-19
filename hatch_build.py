@@ -27,11 +27,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import override
 
-from hatchling.builders.config import BuilderConfig
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
-class CustomBuildHook(BuildHookInterface[BuilderConfig]):
+# Hatch documents custom hooks with an unsubscripted base. Its generic arity is
+# a typing detail that changed between compatible Hatchling releases.
+class CustomBuildHook(BuildHookInterface):  # type: ignore[type-arg]
     """Add a fresh HUD and filtered Preset corpus to standard wheels.
 
     Hatch constructs one hook for a wheel build. The instance retains the
