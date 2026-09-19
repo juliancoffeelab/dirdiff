@@ -4430,6 +4430,7 @@ class RoomStore:
         with Session(self.engine) as session:
             return session.execute(
                 select(ReviewAction.thread_id)
+                .distinct()
                 .join(
                     ReviewThreadPlacement,
                     ReviewThreadPlacement.thread_id == ReviewAction.thread_id,
@@ -4437,7 +4438,6 @@ class RoomStore:
                 .where(
                     ReviewThreadPlacement.snapshot_id == snapshot_id,
                     ReviewAction.comment_id == comment_id,
-                    ReviewAction.comment_id.is_not(None),
                 )
             ).scalar_one_or_none()
 

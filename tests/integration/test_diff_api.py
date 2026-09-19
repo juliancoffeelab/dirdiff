@@ -414,6 +414,91 @@ def test_repo_defaults_base_to_remote_and_review_to_local(
     assert "preferred_review_branch" not in payload
 
 
+def test_browser_can_edit_a_comment_twice_then_delete_it(
+    tmp_path: Path,
+) -> None:
+    """Comment lookup remains singular after its append-only history grows.
+
+    The first edit adds another action carrying the stable Comment id. A second
+    edit and later deletion must still locate the creation action's Thread
+    instead of treating those history rows as competing Comment identities.
+    """
+    create_committed_repo(tmp_path, branch="main")
+    (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
+    client, _project_id = create_repo_client(tmp_path)
+
+    joined = client.post(
+        "/api/agent/join_review",
+        json={
+            "agent_uuid": "1" * 32,
+            "name": "comment author",
+            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+        },
+    ).json()
+    captured = sorted(Path(joined["snapshot_path"]).glob("*/right"))
+    assert len(captured) == 1
+    created = client.post(
+        "/api/agent/actions",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "profile_id": joined["profile_id"],
+            "actions": [
+                {
+                    "kind": "create-finding",
+                    "file": str(captured[0]),
+                    "bay": {
+                        "bay_key": "flatfile",
+                        "start_line": 2,
+                        "end_line": 2,
+                    },
+                    "body": "original",
+                }
+            ],
+        },
+    )
+    assert created.status_code == 200
+    threads = client.get(
+        "/api/review/threads",
+        params={
+            "snapshot_id": joined["snapshot_id"],
+            "page": 1,
+            "limit": 20,
+        },
+    ).json()["threads"]
+    assert len(threads) == 1
+    comment_id = threads[0]["comments"][0]["comment_id"]
+
+    for revision, body in enumerate(("first edit", "second edit"), start=1):
+        edited = client.post(
+            "/api/review/edit_comment",
+            json={
+                "snapshot_id": joined["snapshot_id"],
+                "comment_id": comment_id,
+                "profile_id": joined["profile_id"],
+                "body": body,
+            },
+        )
+        assert edited.status_code == 200
+        comment = edited.json()["comment"]
+        assert comment["revision"] == revision
+        assert comment["body"] == body
+        assert comment["deleted"] is False
+
+    deleted = client.post(
+        "/api/review/delete_comment",
+        json={
+            "snapshot_id": joined["snapshot_id"],
+            "comment_id": comment_id,
+            "profile_id": joined["profile_id"],
+        },
+    )
+    assert deleted.status_code == 200
+    comment = deleted.json()["comment"]
+    assert comment["revision"] == 3
+    assert comment["body"] is None
+    assert comment["deleted"] is True
+
+
 def test_repo_main_branch_save_overrides_repo_defaults(
     tmp_path: Path,
 ) -> None:
