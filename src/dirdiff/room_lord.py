@@ -1770,7 +1770,7 @@ class RoomLord:
                     "Diff against HEAD requires left=HEAD and right=worktree."
                 )
             assert git_backend is not None
-            left_side = git_backend.commit_id(left_label)
+            left_side = git_backend.commit_id(left_label, allow_unborn=True)
             right_side = right_label
             correspondence = {"commit": left_side}
         else:

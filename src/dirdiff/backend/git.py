@@ -417,8 +417,16 @@ class GitBackend(WorkspaceBackendProtocol):
             raise DirdiffError(f"Unknown Git ref: {side}")
         return side
 
-    def commit_id(self, side: SideName) -> str:
-        """Return the immutable commit id named by one Git side.
+    def commit_id(self, side: SideName, *, allow_unborn: bool = False) -> str:
+        """Return a commit id, or the empty-tree hash for allowed unborn HEAD.
+
+        The empty-tree hash uses the repository's object format and does not
+        write an object.
+
+        # Parameters
+
+        - `side`: Commit-like Git side to resolve.
+        - `allow_unborn`: Permit the Head Tab's absent HEAD as Empty.
 
         # Usage
 
@@ -428,7 +436,8 @@ class GitBackend(WorkspaceBackendProtocol):
         # Failures
 
         Blank input, mutable `index` or `worktree`, a missing repository, and
-        unknown or non-commit refs raise `DirdiffError`.
+        unknown or non-commit refs raise `DirdiffError`, except an allowed
+        unresolved HEAD.
         """
         normalized = side.strip()
         if normalized == "":
@@ -443,6 +452,12 @@ class GitBackend(WorkspaceBackendProtocol):
         )
         commit_id = result.stdout.strip()
         if result.returncode != 0 or commit_id == "":
+            if allow_unborn and normalized == "HEAD":
+                empty_tree = self._run_git_text(
+                    ["hash-object", "-t", "tree", os.devnull]
+                ).stdout.strip()
+                assert empty_tree != "", "Git returned no empty-tree hash"
+                return empty_tree
             raise DirdiffError(f"Unknown Git ref: {side}")
         return commit_id
 

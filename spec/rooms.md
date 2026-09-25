@@ -110,7 +110,8 @@ Room and Snapshot facts. The counts are both present or both `None`.
 
 The key is constructed as follows:
 
-- Diff against HEAD uses the current HEAD commit id;
+- Diff against HEAD uses the current HEAD commit id, or Git's empty-tree hash
+  when HEAD has no commit;
 - Compare Refs freezes commit-backed refs to commit ids and retains `index` and
   `worktree` as explicit ephemeral sides. Snapshot labels use those same
   canonical values rather than the request's ref spelling;
