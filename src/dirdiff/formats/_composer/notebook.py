@@ -41,7 +41,7 @@ from dirdiff.formats.base import (
     try_decode_text,
     whole_file_change,
 )
-from dirdiff.util import JsonValue
+from dirdiff.util import JsonValue, Nothing, Option, Some, maybe
 
 __all__ = [
     "NotebookCell",
@@ -124,18 +124,18 @@ class ExecuteResultOutput:
     Composition must preserve this value for semantic equality.
     """
 
-    text_plain: str | None
+    text_plain: Option[str]
     """Joined `text/plain` representation from the result's data bundle.
 
-    `None` means the bundle has no plain-text entry, as with an image-only
+    `Nothing` means the bundle has no plain-text entry, as with an image-only
     result; `""` is a present empty representation and must remain distinct.
     Composition renders only a present value while `raw` preserves other media.
     """
 
-    image_png: bytes | None = field(compare=False)
+    image_png: Option[bytes] = field(compare=False)
     """Decoded `image/png` representation from the result's data bundle.
 
-    `None` means the bundle has no PNG entry. The bytes are the exact value
+    `Nothing` means the bundle has no PNG entry. The bytes are the exact value
     represented by valid base64 in the captured notebook; composition does not
     inspect, transcode, or repair them. Equality already compares the complete
     raw entry, so it does not compare the decoded bytes a second time.
@@ -160,18 +160,18 @@ class DisplayDataOutput:
     does not. Composition must not reduce equality to `text_plain`.
     """
 
-    text_plain: str | None
+    text_plain: Option[str]
     """Joined `text/plain` representation from the display data bundle.
 
-    `None` means no plain-text entry exists, while `""` is present empty text.
+    `Nothing` means no plain-text entry exists, while `""` is present empty text.
     Composition may render a present value, but equality continues to use `raw`
     so changes to rich media remain reviewable.
     """
 
-    image_png: bytes | None = field(compare=False)
+    image_png: Option[bytes] = field(compare=False)
     """Decoded `image/png` representation from the display bundle.
 
-    `None` means no PNG representation was supplied. A present value contains
+    `Nothing` means no PNG representation was supplied. A present value contains
     the exact decoded bytes and is never inferred from another MIME entry.
     Equality uses the complete raw entry and skips this duplicate form.
     """
@@ -293,10 +293,10 @@ class NotebookCell:
     callers must not discard outputs whose supported representation is absent.
     """
 
-    execution_count: int | None = field(compare=False)
+    execution_count: Option[int] = field(compare=False)
     """
     The prompt number of the cell's last execution: `In [4]` is count 4.
-    `None` for a code cell never executed, and for markdown and raw cells,
+    `Nothing` for a code cell never executed, and for markdown and raw cells,
     which have no prompt.
 
     Excluded from equality: the count names the cell, it is not reviewed
@@ -355,14 +355,14 @@ class NotebookDocument:
     """
 
 
-def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
+def try_load_notebook_document(data: bytes) -> Option[NotebookDocument]:
     """Load every usable notebook part, or reject the document boundary.
 
     Composition's classification calls this to decide the notebook branch: a
     side this rejects composes as ordinary text, where every difference is
     visible as raw JSON, so rejection can never hide a change. An absent side
-    is the caller's concern: it passes an empty document, which one-sided
-    pairing already expects, rather than asking this to accept absent bytes.
+    is the caller's concern: it retains `Nothing` and supplies no cells for
+    one-sided pairing, rather than asking this to accept absent bytes.
 
     The document boundary requires UTF-8 JSON mapping with a cell list. Inside
     that list, each cell and output is checked independently. A rejected part
@@ -389,33 +389,33 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
 
     # Returns
 
-    - `NotebookDocument`: The accepted top-level document, with cells kept in
+    - `Some[NotebookDocument]`: The accepted top-level document, with cells kept in
       source order and invalid individual parts preserved as rejections.
-    - `None`: The bytes fail the notebook document boundary. The caller must
+    - `Nothing`: The bytes fail the notebook document boundary. The caller must
       show the complete File as raw text or byte facts instead.
 
     # Failures
 
-    Returns `None` when bytes are not UTF-8 JSON or the top-level value is not a
+    Returns `Nothing` when bytes are not UTF-8 JSON or the top-level value is not a
     mapping with a cell list. Invalid individual cells and outputs remain in a
     returned document as `RejectedNotebookPart` values.
     """
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
-        return None
+        return Nothing()
     try:
         # `json.loads` is annotated upstream as returning `Any`; pinning the
         # result to `JsonValue` stops that `Any` from leaking while preserving
         # every value the JSON data model permits.
         parsed: JsonValue = json.loads(text)
     except json.JSONDecodeError:
-        return None
+        return Nothing()
     if not isinstance(parsed, dict):
-        return None
+        return Nothing()
     cell_values: JsonValue = parsed.get("cells")
     if not isinstance(cell_values, list):
-        return None
+        return Nothing()
 
     def try_multistring(value: JsonValue) -> str | None:
         """Join one `nbformat` multiline value into one string.
@@ -501,22 +501,21 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
         data: JsonValue = entry.get("data")
         if not isinstance(data, dict):
             return rejected("display data is not a mapping")
+        text_plain: Option[str] = Nothing()
+        image_png: Option[bytes] = Nothing()
         if "text/plain" in data:
-            text_plain = try_multistring(data["text/plain"])
-            if text_plain is None:
+            plain_value = try_multistring(data["text/plain"])
+            if plain_value is None:
                 return rejected("text/plain is not a string or string list")
-        else:
-            text_plain = None
+            text_plain = Some(plain_value)
         if "image/png" in data:
             encoded_png = try_multistring(data["image/png"])
             if encoded_png is None:
                 return rejected("image/png is not a string or string list")
             try:
-                image_png = base64.b64decode(encoded_png, validate=True)
+                image_png = Some(base64.b64decode(encoded_png, validate=True))
             except binascii.Error, ValueError:
                 return rejected("image/png is not valid base64")
-        else:
-            image_png = None
         if output_type == "execute_result":
             return ExecuteResultOutput(
                 raw=entry,
@@ -604,7 +603,7 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
         # prompt number, or null for a cell never executed. Other cell types
         # carry no prompt. A bool is not a prompt number, even though
         # `isinstance` counts it as an int.
-        execution_count: int | None = None
+        execution_count: Option[int] = Nothing()
         if cell_type == "code":
             output_values: JsonValue = cell.get("outputs")
             if isinstance(output_values, list):
@@ -638,7 +637,7 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
             elif raw_count is None or (
                 isinstance(raw_count, int) and not isinstance(raw_count, bool)
             ):
-                execution_count = raw_count
+                execution_count = maybe(raw_count)
             else:
                 warnings.append(
                     {
@@ -661,18 +660,20 @@ def try_load_notebook_document(data: bytes) -> NotebookDocument | None:
                 warnings=tuple(warnings),
             )
         )
-    return NotebookDocument(
-        cells=cells,
-        document={
-            key: value for key, value in parsed.items() if key != "cells"
-        },
+    return Some(
+        NotebookDocument(
+            cells=cells,
+            document={
+                key: value for key, value in parsed.items() if key != "cells"
+            },
+        )
     )
 
 
 def _paired_cells(
     left_cells: list[NotebookCellEntry],
     right_cells: list[NotebookCellEntry],
-) -> list[tuple[str, int | None, int | None, bool]]:
+) -> list[tuple[str, Option[int], Option[int], bool]]:
     """Pair cells across the two sides by public key, in document order.
 
     Keys are durable, so a key present on both sides always names one cell and
@@ -696,7 +697,7 @@ def _paired_cells(
     - `Second in each pair`: Its old document index.
     - `Third in each pair`: Its new document index.
     - `Fourth in each pair`: Whether alignment identified a move.
-    - `None`: The second or third item is absent when the cell exists only on
+    - `Nothing`: The second or third item is absent when the cell exists only on
       the other side. At least one index is present in every pair.
     - `Order`: Pairs follow composed document order. A moved pair occupies its
       new-side position; one-sided pairs remain at their surviving position.
@@ -735,7 +736,7 @@ def _paired_cells(
 
     left_keys = entry_keys(left_cells)
     right_keys = entry_keys(right_cells)
-    aligned: list[tuple[str, int | None, int | None]] = []
+    aligned: list[tuple[str, Option[int], Option[int]]] = []
     matcher = SequenceMatcher(a=left_keys, b=right_keys, autojunk=False)
     for (
         tag,
@@ -749,15 +750,15 @@ def _paired_cells(
                 aligned.append(
                     (
                         right_keys[right_start + offset],
-                        left_start + offset,
-                        right_start + offset,
+                        Some(left_start + offset),
+                        Some(right_start + offset),
                     )
                 )
             continue
         for index in range(left_start, left_end):
-            aligned.append((left_keys[index], index, None))
+            aligned.append((left_keys[index], Some(index), Nothing()))
         for index in range(right_start, right_end):
-            aligned.append((right_keys[index], None, index))
+            aligned.append((right_keys[index], Nothing(), Some(index)))
 
     # A moved cell appears twice: once carrying only its left index and once
     # carrying only its right index. Keep the entry the surviving side gives it
@@ -768,28 +769,28 @@ def _paired_cells(
     left_only_by_key = {
         key: left
         for key, left, right in aligned
-        if left is not None and right is None
+        if Some.present(left) and not Some.present(right)
     }
     right_only_by_key = {
         key: right
         for key, left, right in aligned
-        if left is None and right is not None
+        if not Some.present(left) and Some.present(right)
     }
-    pairs: list[tuple[str, int | None, int | None, bool]] = []
+    pairs: list[tuple[str, Option[int], Option[int], bool]] = []
     emitted: set[str] = set()
     for key, left_index, right_index in aligned:
         if key in emitted:
             continue
         moved = key in left_only_by_key and key in right_only_by_key
-        if moved and right_index is None:
+        if moved and not Some.present(right_index):
             # The right-hand entry carries this key's position; emit there.
             continue
         emitted.add(key)
         pairs.append(
             (
                 key,
-                left_only_by_key.get(key) if moved else left_index,
-                right_only_by_key.get(key) if moved else right_index,
+                left_only_by_key[key] if moved else left_index,
+                right_only_by_key[key] if moved else right_index,
                 moved,
             )
         )
@@ -797,8 +798,8 @@ def _paired_cells(
 
 
 def notebook_bays(
-    left_bytes: bytes | None,
-    right_bytes: bytes | None,
+    left_bytes: Option[bytes],
+    right_bytes: Option[bytes],
     context: BayContext,
 ) -> Iterator[TextBay | ImageBay]:
     """Parse notebook bytes and yield their bays in document order.
@@ -812,12 +813,12 @@ def notebook_bays(
 
     Damage before a usable cell list exists produces raw notebook text or blob
     facts with a warning. Inside a usable cell list, loading preserves rejected
-    cells and outputs at their own boundary. A `None` byte side means the File
+    cells and outputs at their own boundary. A `Nothing` byte side means the File
     was added or removed; no empty document is invented for it.
 
     # Parameters
 
-    - `left_bytes`: Captured old notebook bytes, or `None` when absent.
+    - `left_bytes`: Captured old notebook bytes, or `Nothing` when absent.
     - `right_bytes`: Captured new notebook bytes under the same convention.
     - `context`: File paths and labels copied or narrowed for yielded bays.
 
@@ -850,23 +851,17 @@ def notebook_bays(
         """
         return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
 
-    left = (
-        None if left_bytes is None else try_load_notebook_document(left_bytes)
-    )
-    right = (
-        None if right_bytes is None else try_load_notebook_document(right_bytes)
-    )
-    if (left_bytes is not None and left is None) or (
-        right_bytes is not None and right is None
+    left = left_bytes.and_then(try_load_notebook_document)
+    right = right_bytes.and_then(try_load_notebook_document)
+    if (Some.present(left_bytes) and not Some.present(left)) or (
+        Some.present(right_bytes) and not Some.present(right)
     ):
-        left_text = None if left_bytes is None else try_decode_text(left_bytes)
-        right_text = (
-            None if right_bytes is None else try_decode_text(right_bytes)
-        )
+        left_text = left_bytes.map(try_decode_text)
+        right_text = right_bytes.map(try_decode_text)
         rejections = [
-            value
+            value.value
             for value in (left_text, right_text)
-            if isinstance(value, TextRejection)
+            if Some.present(value) and isinstance(value.value, TextRejection)
         ]
         warnings: tuple[BayWarning, ...] = tuple(
             {
@@ -889,13 +884,15 @@ def notebook_bays(
                 left_bytes,
                 right_bytes,
                 context,
-                left_media_type=None,
-                right_media_type=None,
+                left_media_type=Nothing(),
+                right_media_type=Nothing(),
                 warnings=warnings,
             )
             return
-        assert not isinstance(left_text, TextRejection)
-        assert not isinstance(right_text, TextRejection)
+        left_raw_text = left_text.get()
+        right_raw_text = right_text.get()
+        assert not isinstance(left_raw_text, TextRejection)
+        assert not isinstance(right_raw_text, TextRejection)
         yield TextBay(
             frame_key="notebook:raw",
             heading="Notebook",
@@ -908,36 +905,36 @@ def notebook_bays(
             left_label=context.left_label,
             right_label=context.right_label,
             left=DiffSide(
-                exists=left_bytes is not None,
-                text=left_text,
-                path_hint=context.left_path,
+                exists=Some.present(left_bytes),
+                text=left_raw_text,
+                path_hint=context.left_path.get(),
             ),
             right=DiffSide(
-                exists=right_bytes is not None,
-                text=right_text,
-                path_hint=context.right_path,
+                exists=Some.present(right_bytes),
+                text=right_raw_text,
+                path_hint=context.right_path.get(),
             ),
             warnings=warnings,
         )
         return
 
-    present_side = right if right is not None else left
-    assert present_side is not None, "a File always carries at least one side"
+    present_side = (right if Some.present(right) else left).must()
+
     # A one-sided notebook's file story already says everything is new or
     # gone, so its metadata bay appears only when the present side carries
     # something to read, and renders one-sided, the way cell metadata does.
-    if left is not None and right is not None:
-        show_document = left.document != right.document or (
-            left.cells == [] and right.cells == []
+    if Some.present(left) and Some.present(right):
+        show_document = left.value.document != right.value.document or (
+            left.value.cells == [] and right.value.cells == []
         )
     else:
         show_document = present_side.document != {} or present_side.cells == []
     if show_document:
-        left_document_text = (
-            None if left is None else canonical_json(left.document)
+        left_document_text = left.map(
+            lambda document: canonical_json(document.document)
         )
-        right_document_text = (
-            None if right is None else canonical_json(right.document)
+        right_document_text = right.map(
+            lambda document: canonical_json(document.document)
         )
         yield TextBay(
             # The colon keeps this key clear of every cell key, which is an
@@ -953,13 +950,13 @@ def notebook_bays(
             left_label=context.left_label,
             right_label=context.right_label,
             left=DiffSide(
-                exists=left is not None,
-                text=left_document_text,
+                exists=Some.present(left),
+                text=left_document_text.get(),
                 path_hint="notebook-metadata.json",
             ),
             right=DiffSide(
-                exists=right is not None,
-                text=right_document_text,
+                exists=Some.present(right),
+                text=right_document_text.get(),
                 path_hint="notebook-metadata.json",
             ),
         )
@@ -982,7 +979,7 @@ def notebook_bays(
         if cell.cell_type != "code":
             return None
         count = cell.execution_count
-        return "In [ ]" if count is None else f"In [{count}]"
+        return "In [ ]" if not Some.present(count) else f"In [{count.value}]"
 
     def source_hint(cell: NotebookCell) -> str:
         """Choose the renderer-only syntax path for a supported cell type.
@@ -997,32 +994,15 @@ def notebook_bays(
             return "cell.md"
         return "cell.txt"
 
-    def rendered_text(out: NotebookOutputEntry | None) -> str | None:
-        """Choose the text shown for one side of an output bay.
+    def rendered_text(out: NotebookOutputEntry) -> str:
+        """Choose the text shown for one present output entry.
 
-        This is the builder's representation choice: a stream shows its
-        text. An error shows its traceback strings joined as lines while
-        leaving escape codes uninterpreted. A bundle shows its
-        `text/plain`. A `DiffSide` reserves `text=None` for a missing
-        side, so an output that exists without a text representation
-        renders as empty text here, at the widget boundary; the model
-        keeps the two apart.
-
-        # Usage
-
-        `notebook_bays` calls this for paired output entries before deciding
-        whether their text or raw JSON change requires a bay.
-
-        # Returns
-
-        - `str`: The output's text representation. A present rich output with
-          no `text/plain` value returns `""` so it remains distinct from absence.
-        - `None`: This side has no output entry. The caller must construct a
-          missing `DiffSide`, not an empty present output.
+        Streams retain their text, errors retain traceback lines, and rejected
+        entries retain raw JSON. A present display bundle without plain text
+        returns empty text, preserving its distinction from an absent output.
+        The caller maps this over paired outputs before constructing DiffSide.
         """
         match out:
-            case None:
-                return None
             case RejectedNotebookPart():
                 return canonical_json(out.raw)
             case StreamOutput():
@@ -1030,58 +1010,57 @@ def notebook_bays(
             case ErrorOutput():
                 return "\n".join(out.traceback)
             case ExecuteResultOutput() | DisplayDataOutput():
-                return "" if out.text_plain is None else out.text_plain
+                return out.text_plain.get_or("")
 
-    def rendered_png(out: NotebookOutputEntry | None) -> MediaSide | None:
-        """Return one output side's selected PNG representation when present.
+    def rendered_png(out: NotebookOutputEntry) -> Option[MediaSide]:
+        """Select exact PNG bytes from a present output's display bundle.
 
-        Only display bundles can carry PNG data. A missing entry, a text output,
-        and an absent output side all return `None`; the caller retains the
-        output entry and distinguishes those cases when it assigns change.
+        Text and rejected outputs have no PNG representation. The paired output
+        entry remains present independently of this selected representation.
 
         # Returns
-
-        - `MediaSide`: Exact decoded PNG representation supplied by this output.
-        - `None`: The output is absent, is not a display bundle, or supplies no
-          PNG representation.
+        - `Some[MediaSide]`: the exact PNG representation supplied by the bundle.
+        - `Nothing`: the output has no PNG representation.
         """
         match out:
-            case ExecuteResultOutput() | DisplayDataOutput() if (
-                out.image_png is not None
-            ):
-                return MediaSide(media_type="image/png", data=out.image_png)
+            case ExecuteResultOutput() | DisplayDataOutput():
+                return out.image_png.map(
+                    lambda data: MediaSide(media_type="image/png", data=data)
+                )
             case _:
-                return None
+                return Nothing()
 
     for key, left_index, right_index, moved in _paired_cells(
-        left.cells if left is not None else [],
-        right.cells if right is not None else [],
+        left.value.cells if Some.present(left) else [],
+        right.value.cells if Some.present(right) else [],
     ):
-        left_cell = (
-            left.cells[left_index]
-            if left is not None and left_index is not None
-            else None
-        )
-        right_cell = (
-            right.cells[right_index]
-            if right is not None and right_index is not None
-            else None
-        )
-        present = right_cell if right_cell is not None else left_cell
+        left_cell = left_index.map(lambda index: left.must().cells[index])
+        right_cell = right_index.map(lambda index: right.must().cells[index])
+        present = (right_cell if Some.present(right_cell) else left_cell).must()
         # Pairing yields no pair without at least one side.
-        assert present is not None, "a cell pair always carries one side"
-        if isinstance(left_cell, RejectedNotebookPart) or isinstance(
-            right_cell, RejectedNotebookPart
+
+        if (
+            Some.present(left_cell)
+            and isinstance(left_cell.value, RejectedNotebookPart)
+        ) or (
+            Some.present(right_cell)
+            and isinstance(right_cell.value, RejectedNotebookPart)
         ):
-            left_text = (
-                canonical_json(left_cell.raw)
-                if isinstance(left_cell, RejectedNotebookPart)
-                else None
+            left_rejected_text = (
+                Some(canonical_json(left_cell.value.raw))
+                if (
+                    Some.present(left_cell)
+                    and isinstance(left_cell.value, RejectedNotebookPart)
+                )
+                else Nothing()
             )
-            right_text = (
-                canonical_json(right_cell.raw)
-                if isinstance(right_cell, RejectedNotebookPart)
-                else None
+            right_rejected_text = (
+                Some(canonical_json(right_cell.value.raw))
+                if (
+                    Some.present(right_cell)
+                    and isinstance(right_cell.value, RejectedNotebookPart)
+                )
+                else Nothing()
             )
             yield TextBay(
                 frame_key=key,
@@ -1091,28 +1070,39 @@ def notebook_bays(
                 detail=None,
                 collapsible=False,
                 default_expanded=True,
-                change=whole_file_change(left_text, right_text),
+                change=whole_file_change(
+                    left_rejected_text, right_rejected_text
+                ),
                 left_label=context.left_label,
                 right_label=context.right_label,
                 left=DiffSide(
-                    exists=left_cell is not None,
-                    text=left_text,
+                    exists=Some.present(left_cell),
+                    text=left_rejected_text.get(),
                     path_hint="notebook-cell.json",
                 ),
                 right=DiffSide(
-                    exists=right_cell is not None,
-                    text=right_text,
+                    exists=Some.present(right_cell),
+                    text=right_rejected_text.get(),
                     path_hint="notebook-cell.json",
                 ),
                 warnings=tuple(
-                    entry.warning
+                    entry.value.warning
                     for entry in (left_cell, right_cell)
-                    if isinstance(entry, RejectedNotebookPart)
+                    if (
+                        Some.present(entry)
+                        and isinstance(entry.value, RejectedNotebookPart)
+                    )
                 ),
             )
             continue
-        assert left_cell is None or isinstance(left_cell, NotebookCell)
-        assert right_cell is None or isinstance(right_cell, NotebookCell)
+        left_source_cell: Option[NotebookCell] = Nothing()
+        right_source_cell: Option[NotebookCell] = Nothing()
+        if Some.present(left_cell):
+            assert isinstance(left_cell.value, NotebookCell)
+            left_source_cell = Some(left_cell.value)
+        if Some.present(right_cell):
+            assert isinstance(right_cell.value, NotebookCell)
+            right_source_cell = Some(right_cell.value)
         assert isinstance(present, NotebookCell)
         hint = source_hint(present)
         # The frame wears the name the cell has in the document the reviewer
@@ -1126,10 +1116,11 @@ def notebook_bays(
         }[present.cell_type]
 
         source_changed = (
-            left_cell is None
-            or right_cell is None
-            or left_cell.source != right_cell.source
-            or left_cell.cell_type != right_cell.cell_type
+            not Some.present(left_source_cell)
+            or not Some.present(right_source_cell)
+            or left_source_cell.value.source != right_source_cell.value.source
+            or left_source_cell.value.cell_type
+            != right_source_cell.value.cell_type
         )
         # Only this builder can tell these apart. A moved cell and an edited
         # one differ in a fact about the notebook, not in their rows: a cell
@@ -1137,15 +1128,15 @@ def notebook_bays(
         # an edit. Where the cell went says more than which line changed, and
         # the rows still show the edit when there is one.
         change: BayChange
-        if left_cell is None:
+        if not Some.present(left_source_cell):
             change = ChangeStatus(kind="added")
-        elif right_cell is None:
+        elif not Some.present(right_source_cell):
             change = ChangeStatus(kind="removed")
         elif moved:
             change = MovedChangeStatus(
                 kind="moved",
-                from_heading=cell_heading(left_cell),
-                to_heading=cell_heading(right_cell),
+                from_heading=cell_heading(left_source_cell.value),
+                to_heading=cell_heading(right_source_cell.value),
             )
         elif source_changed:
             change = ChangeStatus(kind="changed")
@@ -1175,28 +1166,31 @@ def notebook_bays(
             left_label=context.left_label,
             right_label=context.right_label,
             left=DiffSide(
-                exists=left_cell is not None,
-                text=None if left_cell is None else left_cell.source,
+                exists=Some.present(left_source_cell),
+                text=left_source_cell.get_map(lambda cell: cell.source),
                 path_hint=hint,
             ),
             right=DiffSide(
-                exists=right_cell is not None,
-                text=None if right_cell is None else right_cell.source,
+                exists=Some.present(right_source_cell),
+                text=right_source_cell.get_map(lambda cell: cell.source),
                 path_hint=hint,
             ),
             warnings=tuple(
                 warning
-                for cell in (left_cell, right_cell)
-                if cell is not None
-                for warning in cell.warnings
+                for cell in (left_source_cell, right_source_cell)
+                if Some.present(cell)
+                for warning in cell.value.warnings
             ),
         )
 
         # A one-sided cell's frame already says the whole cell is new or gone,
         # so its metadata bay appears only when the present side carries
         # something to read, and renders one-sided, the way its outputs do.
-        if left_cell is not None and right_cell is not None:
-            show_metadata = left_cell.metadata != right_cell.metadata
+        if Some.present(left_source_cell) and Some.present(right_source_cell):
+            show_metadata = (
+                left_source_cell.value.metadata
+                != right_source_cell.value.metadata
+            )
         else:
             show_metadata = present.metadata not in (None, {})
         if show_metadata:
@@ -1215,57 +1209,70 @@ def notebook_bays(
                 change=ChangeStatus(
                     kind=(
                         "added"
-                        if left_cell is None
+                        if not Some.present(left_source_cell)
                         else "removed"
-                        if right_cell is None
+                        if not Some.present(right_source_cell)
                         else "changed"
                     )
                 ),
                 left_label=context.left_label,
                 right_label=context.right_label,
                 left=DiffSide(
-                    exists=left_cell is not None,
+                    exists=Some.present(left_source_cell),
                     text=(
-                        None
-                        if left_cell is None
-                        else canonical_json(left_cell.metadata)
+                        left_source_cell.get_map(
+                            lambda cell: canonical_json(cell.metadata)
+                        )
                     ),
                     path_hint="cell-metadata.json",
                 ),
                 right=DiffSide(
-                    exists=right_cell is not None,
+                    exists=Some.present(right_source_cell),
                     text=(
-                        None
-                        if right_cell is None
-                        else canonical_json(right_cell.metadata)
+                        right_source_cell.get_map(
+                            lambda cell: canonical_json(cell.metadata)
+                        )
                     ),
                     path_hint="cell-metadata.json",
                 ),
             )
 
-        left_outputs = [] if left_cell is None else left_cell.outputs
-        right_outputs = [] if right_cell is None else right_cell.outputs
+        left_outputs = left_source_cell.map_or([], lambda cell: cell.outputs)
+        right_outputs = right_source_cell.map_or([], lambda cell: cell.outputs)
         for index in range(max(len(left_outputs), len(right_outputs))):
-            left_out = (
-                left_outputs[index] if index < len(left_outputs) else None
+            left_out = Some[NotebookOutputEntry].then_bind(
+                index < len(left_outputs),
+                (left_outputs, index),
+                lambda items, i: items[i],
             )
-            right_out = (
-                right_outputs[index] if index < len(right_outputs) else None
+            right_out = Some[NotebookOutputEntry].then_bind(
+                index < len(right_outputs),
+                (right_outputs, index),
+                lambda items, i: items[i],
             )
             output_equal = left_out == right_out
-            if output_equal and not isinstance(left_out, RejectedNotebookPart):
+            if output_equal and not (
+                Some.present(left_out)
+                and isinstance(left_out.value, RejectedNotebookPart)
+            ):
                 continue
-            left_png = rendered_png(left_out)
-            right_png = rendered_png(right_out)
-            rejected = isinstance(left_out, RejectedNotebookPart) or isinstance(
-                right_out, RejectedNotebookPart
+            left_png = left_out.and_then(rendered_png)
+            right_png = right_out.and_then(rendered_png)
+            rejected = (
+                Some.present(left_out)
+                and isinstance(left_out.value, RejectedNotebookPart)
+            ) or (
+                Some.present(right_out)
+                and isinstance(right_out.value, RejectedNotebookPart)
             )
-            if not rejected and (left_png is not None or right_png is not None):
+            if not rejected and (
+                Some.present(left_png) or Some.present(right_png)
+            ):
                 image_identical = (
                     not output_equal
-                    and left_png is not None
-                    and right_png is not None
-                    and left_png.data == right_png.data
+                    and Some.present(left_png)
+                    and Some.present(right_png)
+                    and left_png.value.data == right_png.value.data
                 )
                 yield ImageBay(
                     frame_key=key,
@@ -1289,9 +1296,9 @@ def notebook_bays(
                     change=ChangeStatus(
                         kind=(
                             "added"
-                            if left_out is None
+                            if not Some.present(left_out)
                             else "removed"
-                            if right_out is None
+                            if not Some.present(right_out)
                             else "unchanged"
                             if output_equal
                             else "changed"
@@ -1301,8 +1308,8 @@ def notebook_bays(
                     right=right_png,
                 )
                 continue
-            left_text = rendered_text(left_out)
-            right_text = rendered_text(right_out)
+            left_output_text = left_out.map(rendered_text)
+            right_output_text = right_out.map(rendered_text)
             # This output differs, but its rendered text may not: a
             # re-rendered plot keeps the same `<Figure ...>` line while its
             # image bytes change entirely, and an image-only output renders no
@@ -1310,9 +1317,9 @@ def notebook_bays(
             # change nothing can land on is a hidden change.
             text_identical = (
                 not output_equal
-                and left_out is not None
-                and right_out is not None
-                and left_text == right_text
+                and Some.present(left_out)
+                and Some.present(right_out)
+                and left_output_text == right_output_text
             )
             label = (
                 f"Output {index + 1} — changed beyond its text"
@@ -1343,9 +1350,9 @@ def notebook_bays(
                 change=ChangeStatus(
                     kind=(
                         "added"
-                        if left_out is None
+                        if not Some.present(left_out)
                         else "removed"
-                        if right_out is None
+                        if not Some.present(right_out)
                         else "unchanged"
                         if output_equal
                         else "changed"
@@ -1354,18 +1361,21 @@ def notebook_bays(
                 left_label=context.left_label,
                 right_label=context.right_label,
                 left=DiffSide(
-                    exists=left_out is not None,
-                    text=left_text,
+                    exists=Some.present(left_out),
+                    text=left_output_text.get(),
                     path_hint=None,
                 ),
                 right=DiffSide(
-                    exists=right_out is not None,
-                    text=right_text,
+                    exists=Some.present(right_out),
+                    text=right_output_text.get(),
                     path_hint=None,
                 ),
                 warnings=tuple(
-                    output.warning
+                    output.value.warning
                     for output in (left_out, right_out)
-                    if isinstance(output, RejectedNotebookPart)
+                    if (
+                        Some.present(output)
+                        and isinstance(output.value, RejectedNotebookPart)
+                    )
                 ),
             )

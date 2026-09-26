@@ -96,7 +96,7 @@ from dirdiff.server.base import (
     ReviewExcerptResponse,
     validate_source_placement,
 )
-from dirdiff.util import JsonValue
+from dirdiff.util import JsonValue, maybe
 
 __all__ = ["ExternalAgentRoutes"]
 
@@ -1673,7 +1673,16 @@ class ExternalAgentRoutes:
             )
             if pair is not None:
                 pairs.append(pair)
-        return room.captured_files_for_pairs(snapshot_id, tuple(pairs))
+        captured = room.captured_files_for_pairs(
+            snapshot_id,
+            tuple((maybe(left), maybe(right)) for left, right in pairs),
+        )
+        # This HTTP adapter consumes nullable review views and supplies native
+        # Paths to response translation; Options stay inside the Room contract.
+        return {
+            (left.get(), right.get()): (left_file.get(), right_file.get())
+            for (left, right), (left_file, right_file) in captured.items()
+        }
 
     def agent_placement(
         self,
@@ -2711,12 +2720,8 @@ class ExternalAgentRoutes:
                             author=author,
                             target=TextTarget(
                                 FilePair(
-                                    left.as_posix()
-                                    if left is not None
-                                    else None,
-                                    right.as_posix()
-                                    if right is not None
-                                    else None,
+                                    left.map(Path.as_posix),
+                                    right.map(Path.as_posix),
                                 ),
                                 action.bay.bay_key,
                                 side,

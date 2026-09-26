@@ -728,8 +728,8 @@ class WorkspaceDiffServiceAdapter:
             right_label=right_side,
             paths=tuple(
                 ManifestPath(
-                    file.left.key.path if file.left is not None else None,
-                    file.right.key.path if file.right is not None else None,
+                    file.left.map(lambda side: side.key.path),
+                    file.right.map(lambda side: side.key.path),
                     file.display_name,
                     file.change_type,
                     file.lazy_reason_override,

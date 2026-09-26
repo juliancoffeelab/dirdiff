@@ -64,6 +64,7 @@ from dirdiff.review.base import (
     ReviewOriginView,
     validate_comment_body,
 )
+from dirdiff.util import Nothing, Option, Some
 
 __all__ = [
     "ReviewReadCache",
@@ -370,14 +371,14 @@ module loading happens only after a suffix matches.
 
 
 def file_pair(file: SnapshotFileRecord) -> FilePair:
-    """Convert one captured File record to its exact public nullable path pair.
+    """Convert one captured File record to its exact optional path pair.
 
     Side absence is preserved and the `FilePair` boundary rechecks canonical
     path invariants. Physical capture paths and File ids do not escape.
     """
     return FilePair(
-        file.left.repository_path if file.left is not None else None,
-        file.right.repository_path if file.right is not None else None,
+        file.left.map(lambda side: side.repository_path),
+        file.right.map(lambda side: side.repository_path),
     )
 
 
@@ -411,8 +412,7 @@ def _path_hint(file: SnapshotFileRecord, side: Literal["left", "right"]) -> str:
     - `side`: Present side whose repository suffix guides parsing.
     """
     record = file.left if side == "left" else file.right
-    assert record is not None, "selected review side must be present"
-    return record.repository_path
+    return record.must().repository_path
 
 
 @lru_cache(maxsize=3)
@@ -598,17 +598,17 @@ def _composed_bays(
         return cached
     pair = file_pair(file)
 
-    def side_bytes(side: Literal["left", "right"]) -> Optional[bytes]:
+    def side_bytes(side: Literal["left", "right"]) -> Option[bytes]:
         """Read and authenticate one requested captured File side.
 
         The helper is invoked once per side when this File is first composed.
-        It returns `None` only for true side absence, raises the persisted
+        It returns `Nothing` only for true side absence, raises the persisted
         capture failure for unreadable Files, and asserts digest equality.
 
         # Returns
 
-        - `bytes`: The authenticated captured bytes for the requested side.
-        - `None`: The Snapshot File has no record for that side. The caller must
+        - `Some[bytes]`: Authenticated captured bytes for the requested side.
+        - `Nothing`: The Snapshot File has no record for that side. The caller must
           preserve true side absence during composition.
 
         # Failures
@@ -618,18 +618,18 @@ def _composed_bays(
           persisted digest. File reads propagate their I/O failures.
         """
         record = file.left if side == "left" else file.right
-        if record is None:
-            return None
+        if not Some.present(record):
+            return Nothing()
         if file.error is not None:
             raise ReviewError("invalid_target", file.error)
         content = (Path(file.path) / side).read_bytes()
-        assert hashlib.sha256(content).digest() == record.content_hash, (
+        assert hashlib.sha256(content).digest() == record.value.content_hash, (
             f"Snapshot File content hash mismatch: {file.path}/{side}"
         )
-        return content
+        return Some(content)
 
-    def pseudo_line(side: Optional[MediaSide]) -> Optional[str]:
-        """Render the one line an image bay exposes to review, or `None`.
+    def pseudo_line(side: MediaSide) -> str:
+        """Render the one line a present image side exposes to review.
 
         An image bay has no lines, and a target against one is defined to name
         the single line `1..1`, so review needs exactly one line of text to
@@ -641,53 +641,46 @@ def _composed_bays(
         outdated, which is precisely what a comment on a replaced image
         deserves.
 
-        `None` is a side the File was not captured on, matching how a text bay
-        reports the same thing.
-
         # Returns
 
         - `str`: One line containing media type, byte size, and SHA-256 digest
           for the captured image side.
-        - `None`: The image bay has no side here. The caller must preserve that
-          absence during target validation.
         """
-        if side is None:
-            return None
         ref = media_ref(side)
         return (
             f"{ref['media_type']}, {ref['byte_size']} bytes, "
             f"sha256 {ref['digest']}"
         )
 
-    def side_link(side: Literal["left", "right"]) -> CapturedLink | None:
+    def side_link(side: Literal["left", "right"]) -> Option[CapturedLink]:
         """Read the relationally identified link capture for one File side.
 
         Side absence and an ordinary captured side both have no symlink row and
-        return `None`. A present row supplies the exact physical paths and
+        return `Nothing`. A present row supplies the exact physical paths and
         digests; malformed or damaged sidecars raise at the format boundary.
 
         # Returns
 
-        - `CapturedLink`: Authenticated link facts for the selected side.
-        - `None`: The side is absent or is an ordinary File.
+        - `Some[CapturedLink]`: Authenticated link facts for the selected side.
+        - `Nothing`: The side is absent or is an ordinary File.
         """
         selected_side = file.left if side == "left" else file.right
-        record = (
-            selected_side.link
-            if isinstance(selected_side, SnapshotSymlinkFileSideRecord)
-            else None
-        )
-        if record is None:
-            return None
-        return read_captured_link(
-            metadata_path=Path(record.metadata_path),
-            metadata_hash=record.metadata_hash,
-            target_capture_path=(
-                Path(record.target.path) if record.target is not None else None
-            ),
-            target_hash=record.target.content_hash
-            if record.target is not None
-            else None,
+        if not Some.present(selected_side) or not isinstance(
+            selected_side.value, SnapshotSymlinkFileSideRecord
+        ):
+            return Nothing()
+        record = selected_side.value.link
+        return Some(
+            read_captured_link(
+                metadata_path=Path(record.metadata_path),
+                metadata_hash=record.metadata_hash,
+                target_capture_path=record.target.map(
+                    lambda target: Path(target.path)
+                ),
+                target_hash=record.target.map(
+                    lambda target: target.content_hash
+                ),
+            )
         )
 
     composed = Composer().bays(
@@ -716,8 +709,8 @@ def _composed_bays(
             else _ComposedBay(
                 bay_key=bay.bay_key,
                 kind="image",
-                left_text=pseudo_line(bay.left),
-                right_text=pseudo_line(bay.right),
+                left_text=bay.left.get_map(pseudo_line),
+                right_text=bay.right.get_map(pseudo_line),
                 # A pseudo-line is not source in any language, so it must
                 # not select a parser. `media` names no suffix any parser
                 # claims, which keeps structural matching over the whole
@@ -975,7 +968,7 @@ def _derive_record(
         selected_side = (
             target_file.left if origin.side == "left" else target_file.right
         )
-        assert selected_side is not None, (
+        assert Some.present(selected_side), (
             "historical File-start side disappeared from an exact File pair"
         )
         return FileStartPlacement(
@@ -1012,7 +1005,7 @@ def _derive_record(
             "Thread %s has no code location: %s could not be captured in "
             "Snapshot %s: %s",
             origin.thread_id,
-            target_pair.right_path or target_pair.left_path,
+            target_pair.right_path.get_or(target_pair.left_path.get()),
             target_snapshot_id,
             target_file.error,
         )
@@ -1113,8 +1106,8 @@ def origin_target_view(
     """
     origin_pair = file_pair(file)
     pair: ReviewFilePairView = {
-        "left_path": origin_pair.left_path,
-        "right_path": origin_pair.right_path,
+        "left_path": origin_pair.left_path.get(),
+        "right_path": origin_pair.right_path.get(),
     }
     if isinstance(origin, FileStartPlacement):
         assert origin.outdated_reason is None
@@ -1278,11 +1271,13 @@ def derive_room_threads(
             (origin.snapshot_id, origin.snapshot_file_id)
         ]
         pair = file_pair(origin_file)
+        # Empty strings are sorting sentinels only: absent sides precede valid
+        # paths, and File-start placements precede named bays for the same pair.
         grouped_origins.append(
             (
                 (
-                    pair.left_path or "",
-                    pair.right_path or "",
+                    pair.left_path.get_or(""),
+                    pair.right_path.get_or(""),
                     origin.side,
                     origin.bay_key
                     if isinstance(origin, RangePlacement)

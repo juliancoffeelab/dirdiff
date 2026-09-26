@@ -18,7 +18,7 @@ from dirdiff.formats import (
     Composer,
     FramePayload,
 )
-from dirdiff.util import JsonValue
+from dirdiff.util import JsonValue, maybe
 
 NOTEBOOKS = Path(__file__).resolve().parents[1] / "presets" / "notebook"
 """Executed notebook fixture catalog used for format-level behavior checks.
@@ -37,15 +37,15 @@ def test_error_traceback_output_bay_keeps_uninterpreted_escapes() -> None:
     """
     directory = NOTEBOOKS / "basic" / "error-traceback-appears"
     context = ComposeContext.build(
-        left_path="error.ipynb",
-        right_path="error.ipynb",
+        left_path=maybe("error.ipynb"),
+        right_path=maybe("error.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        (directory / "old.ipynb").read_bytes(),
-        (directory / "new.ipynb").read_bytes(),
+        maybe((directory / "old.ipynb").read_bytes()),
+        maybe((directory / "new.ipynb").read_bytes()),
         context,
     )
 
@@ -90,15 +90,15 @@ def test_metadata_change_collapses_source_and_adds_metadata_bay() -> None:
     """
     directory = NOTEBOOKS / "basic" / "cell-metadata-changed"
     context = ComposeContext.build(
-        left_path="meta.ipynb",
-        right_path="meta.ipynb",
+        left_path=maybe("meta.ipynb"),
+        right_path=maybe("meta.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        (directory / "old.ipynb").read_bytes(),
-        (directory / "new.ipynb").read_bytes(),
+        maybe((directory / "old.ipynb").read_bytes()),
+        maybe((directory / "new.ipynb").read_bytes()),
         context,
     )
 
@@ -135,15 +135,15 @@ def test_added_and_removed_cells_are_separate_frames() -> None:
     """
     directory = NOTEBOOKS / "basic" / "cell-added-removed"
     context = ComposeContext.build(
-        left_path="s.ipynb",
-        right_path="s.ipynb",
+        left_path=maybe("s.ipynb"),
+        right_path=maybe("s.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        (directory / "old.ipynb").read_bytes(),
-        (directory / "new.ipynb").read_bytes(),
+        maybe((directory / "old.ipynb").read_bytes()),
+        maybe((directory / "new.ipynb").read_bytes()),
         context,
     )
 
@@ -193,15 +193,15 @@ def test_markdown_edit_is_one_source_bay() -> None:
     """
     directory = NOTEBOOKS / "basic" / "markdown-cell-edited"
     context = ComposeContext.build(
-        left_path="md.ipynb",
-        right_path="md.ipynb",
+        left_path=maybe("md.ipynb"),
+        right_path=maybe("md.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        (directory / "old.ipynb").read_bytes(),
-        (directory / "new.ipynb").read_bytes(),
+        maybe((directory / "old.ipynb").read_bytes()),
+        maybe((directory / "new.ipynb").read_bytes()),
         context,
     )
     changed = [
@@ -226,15 +226,15 @@ def test_invalid_notebook_composes_as_warned_raw_notebook() -> None:
     """
     directory = NOTEBOOKS / "invalid" / "not-valid-notebook-json"
     context = ComposeContext.build(
-        left_path="b.ipynb",
-        right_path="b.ipynb",
+        left_path=maybe("b.ipynb"),
+        right_path=maybe("b.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        (directory / "old.ipynb").read_bytes(),
-        (directory / "new.ipynb").read_bytes(),
+        maybe((directory / "old.ipynb").read_bytes()),
+        maybe((directory / "new.ipynb").read_bytes()),
         context,
     )
     assert len(composed["frames"]) == 1
@@ -263,15 +263,15 @@ def test_source_and_output_both_change_in_one_frame() -> None:
     """
     directory = NOTEBOOKS / "basic" / "stream-output-changed"
     context = ComposeContext.build(
-        left_path="o.ipynb",
-        right_path="o.ipynb",
+        left_path=maybe("o.ipynb"),
+        right_path=maybe("o.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        (directory / "old.ipynb").read_bytes(),
-        (directory / "new.ipynb").read_bytes(),
+        maybe((directory / "old.ipynb").read_bytes()),
+        maybe((directory / "new.ipynb").read_bytes()),
         context,
     )
     changed = [
@@ -360,13 +360,13 @@ def test_cells_pair_by_id_so_an_edited_cell_is_not_an_add_and_a_remove() -> (
         }
     ).encode()
     context = ComposeContext.build(
-        left_path="demo.ipynb",
-        right_path="demo.ipynb",
+        left_path=maybe("demo.ipynb"),
+        right_path=maybe("demo.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    composed = Composer().compose(left, right, context)
+    composed = Composer().compose(maybe(left), maybe(right), context)
 
     changed = [
         frame
@@ -419,15 +419,15 @@ def test_bay_keys_survive_a_source_rewrite() -> None:
         ).encode()
 
     context = BayContext(
-        left_path="demo.ipynb",
-        right_path="demo.ipynb",
+        left_path=maybe("demo.ipynb"),
+        right_path=maybe("demo.ipynb"),
         left_label="old",
         right_label="new",
     )
     produced = list(
         Composer().bays(
-            notebook("totally = 'different'\n"),
-            notebook("nothing = 'alike'\n"),
+            maybe(notebook("totally = 'different'\n")),
+            maybe(notebook("nothing = 'alike'\n")),
             context,
         )
     )
@@ -469,14 +469,16 @@ def test_cell_reorder_keeps_one_unique_key_per_cell() -> None:
         ).encode()
 
     context = ComposeContext.build(
-        left_path="n.ipynb",
-        right_path="n.ipynb",
+        left_path=maybe("n.ipynb"),
+        right_path=maybe("n.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        notebook(["A", "B", "C"]), notebook(["B", "A", "C"]), context
+        maybe(notebook(["A", "B", "C"])),
+        maybe(notebook(["B", "A", "C"])),
+        context,
     )
     keys = [
         bay["bay_key"] for frame in composed["frames"] for bay in frame["bays"]
@@ -512,15 +514,15 @@ def test_plot_output_prefers_png_and_stays_reachable() -> None:
     """
     directory = NOTEBOOKS / "rich" / "plot-wettest-highlighted"
     context = ComposeContext.build(
-        left_path="p.ipynb",
-        right_path="p.ipynb",
+        left_path=maybe("p.ipynb"),
+        right_path=maybe("p.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        (directory / "old.ipynb").read_bytes(),
-        (directory / "new.ipynb").read_bytes(),
+        maybe((directory / "old.ipynb").read_bytes()),
+        maybe((directory / "new.ipynb").read_bytes()),
         context,
     )
     plot_bays = [
@@ -569,11 +571,11 @@ def test_png_on_only_one_output_side_stays_an_image_bay() -> None:
     del old_data["image/png"]
 
     composed = Composer().compose(
-        json.dumps(old_document).encode(),
-        json.dumps(new_document).encode(),
+        maybe(json.dumps(old_document).encode()),
+        maybe(json.dumps(new_document).encode()),
         ComposeContext.build(
-            left_path="p.ipynb",
-            right_path="p.ipynb",
+            left_path=maybe("p.ipynb"),
+            right_path=maybe("p.ipynb"),
             left_label="old",
             right_label="new",
             renderer=TextDiffEngine(),
@@ -607,11 +609,11 @@ def test_unchanged_presets_cover_added_and_removed_plot_outputs() -> None:
     ):
         directory = NOTEBOOKS / "unchanged" / case
         composed = Composer().compose(
-            (directory / "old.ipynb").read_bytes(),
-            (directory / "new.ipynb").read_bytes(),
+            maybe((directory / "old.ipynb").read_bytes()),
+            maybe((directory / "new.ipynb").read_bytes()),
             ComposeContext.build(
-                left_path="p.ipynb",
-                right_path="p.ipynb",
+                left_path=maybe("p.ipynb"),
+                right_path=maybe("p.ipynb"),
                 left_label="old",
                 right_label="new",
                 renderer=TextDiffEngine(),
@@ -668,8 +670,8 @@ def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
         ).encode()
 
     context = ComposeContext.build(
-        left_path="n.ipynb",
-        right_path="n.ipynb",
+        left_path=maybe("n.ipynb"),
+        right_path=maybe("n.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
@@ -681,7 +683,7 @@ def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
     ]
     for identifiers in malformed:
         composed = Composer().compose(
-            notebook(identifiers), notebook(["a", "b"]), context
+            maybe(notebook(identifiers)), maybe(notebook(["a", "b"])), context
         )
         keys = [
             bay["bay_key"]
@@ -699,7 +701,7 @@ def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
 
     # One malformed side is enough: pairing needs keys on both.
     composed = Composer().compose(
-        notebook(["a", "b"]), notebook(["a", "a"]), context
+        maybe(notebook(["a", "b"])), maybe(notebook(["a", "a"])), context
     )
     assert any(
         bay["bay_key"].startswith("pseudocell:")
@@ -774,14 +776,16 @@ def test_schema_violations_degrade_only_the_affected_notebook_part() -> None:
         {**valid, "execution_count": "4"},
     ]
     context = ComposeContext.build(
-        left_path="n.ipynb",
-        right_path="n.ipynb",
+        left_path=maybe("n.ipynb"),
+        right_path=maybe("n.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     for cell in malformed:
-        composed = Composer().compose(notebook(valid), notebook(cell), context)
+        composed = Composer().compose(
+            maybe(notebook(valid)), maybe(notebook(cell)), context
+        )
         keys = [
             bay["bay_key"]
             for frame in composed["frames"]
@@ -829,13 +833,15 @@ def test_a_cell_key_is_the_id_verbatim() -> None:
         ).encode()
 
     context = ComposeContext.build(
-        left_path="n.ipynb",
-        right_path="n.ipynb",
+        left_path=maybe("n.ipynb"),
+        right_path=maybe("n.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    composed = Composer().compose(notebook("a\n"), notebook("b\n"), context)
+    composed = Composer().compose(
+        maybe(notebook("a\n")), maybe(notebook("b\n")), context
+    )
     assert [
         bay["bay_key"] for frame in composed["frames"] for bay in frame["bays"]
     ] == ["b1a-2", "B1a_2"]
@@ -876,14 +882,14 @@ def test_notebook_level_metadata_change_is_reachable() -> None:
         ).encode()
 
     context = ComposeContext.build(
-        left_path="n.ipynb",
-        right_path="n.ipynb",
+        left_path=maybe("n.ipynb"),
+        right_path=maybe("n.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     changed = Composer().compose(
-        notebook("python3", 5), notebook("python3.12", 5), context
+        maybe(notebook("python3", 5)), maybe(notebook("python3.12", 5)), context
     )
     assert any(
         bay["change"]["kind"] != "unchanged"
@@ -911,7 +917,7 @@ def test_notebook_level_metadata_change_is_reachable() -> None:
 
     # The format version is part of the file too, not only `metadata`.
     version = Composer().compose(
-        notebook("python3", 5), notebook("python3", 4), context
+        maybe(notebook("python3", 5)), maybe(notebook("python3", 4)), context
     )
     assert any(
         bay["change"]["kind"] != "unchanged"
@@ -929,7 +935,7 @@ def test_notebook_level_metadata_change_is_reachable() -> None:
 
     # An unchanged notebook composes no metadata bay at all.
     same = Composer().compose(
-        notebook("python3", 5), notebook("python3", 5), context
+        maybe(notebook("python3", 5)), maybe(notebook("python3", 5)), context
     )
     assert all(
         bay["bay_key"] != "notebook:metadata"
@@ -950,13 +956,13 @@ def test_one_sided_notebook_never_invents_the_absent_side() -> None:
     data = (directory / "new.ipynb").read_bytes()
 
     context = ComposeContext.build(
-        left_path=None,
-        right_path="new.ipynb",
+        left_path=maybe(None),
+        right_path=maybe("new.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    added = Composer().compose(None, data, context)
+    added = Composer().compose(maybe(None), maybe(data), context)
     assert added["summary"]["left_exists"] is False
     bays = [bay for frame in added["frames"] for bay in frame["bays"]]
     assert len(bays) > 0, "an added notebook still composes its cells"
@@ -980,13 +986,13 @@ def test_one_sided_notebook_never_invents_the_absent_side() -> None:
     ), "no row of an added notebook may claim content existed on the left"
 
     context = ComposeContext.build(
-        left_path="old.ipynb",
-        right_path=None,
+        left_path=maybe("old.ipynb"),
+        right_path=maybe(None),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    removed = Composer().compose(data, None, context)
+    removed = Composer().compose(maybe(data), maybe(None), context)
     assert removed["summary"]["right_exists"] is False
     bays = [bay for frame in removed["frames"] for bay in frame["bays"]]
     metadata = [bay for bay in bays if bay["bay_key"] == "notebook:metadata"]
@@ -1059,29 +1065,33 @@ def test_cells_are_named_by_prompt_and_a_move_reports_both_names() -> None:
         "source": ["# Title\n"],
     }
     context = ComposeContext.build(
-        left_path="n.ipynb",
-        right_path="n.ipynb",
+        left_path=maybe("n.ipynb"),
+        right_path=maybe("n.ipynb"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        notebook(
-            [
-                code("X", 1, "x = 1\n"),
-                code("A", 2, "a = 1\n"),
-                markdown,
-                code("C", 3, "c = 1\n"),
-                code("D", None, "d = 1\n"),
-            ]
+        maybe(
+            notebook(
+                [
+                    code("X", 1, "x = 1\n"),
+                    code("A", 2, "a = 1\n"),
+                    markdown,
+                    code("C", 3, "c = 1\n"),
+                    code("D", None, "d = 1\n"),
+                ]
+            )
         ),
-        notebook(
-            [
-                markdown,
-                code("C", 9, "c = 1\n"),
-                code("A", 7, "a = 2\n"),
-                code("D", None, "d = 1\n"),
-            ]
+        maybe(
+            notebook(
+                [
+                    markdown,
+                    code("C", 9, "c = 1\n"),
+                    code("A", 7, "a = 2\n"),
+                    code("D", None, "d = 1\n"),
+                ]
+            )
         ),
         context,
     )

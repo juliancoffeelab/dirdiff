@@ -81,7 +81,7 @@ from dirdiff.review import (
     get_thread,
     thread_objects,
 )
-from dirdiff.util import JsonValue
+from dirdiff.util import JsonValue, Nothing, Option, Some
 
 __all__ = [
     "BranchReviewCaptureSelection",
@@ -559,14 +559,14 @@ class Room:
         snapshot_id: UUID,
     ) -> Iterator[
         tuple[
-            Optional[Path],
-            Optional[Path],
+            Option[Path],
+            Option[Path],
             FileMeta,
         ]
     ]:
         """Yield every captured File pair and policy record in Snapshot order.
 
-        `snapshot_id` must belong to this Room. Each nullable `Path` is a
+        `snapshot_id` must belong to this Room. Each optional `Path` is a
         repository-relative identity, not a physical capture handle, and at
         least one side is present. Files with capture failures remain in the
         iteration with the exact error in `FileMeta` so callers can present the
@@ -578,7 +578,7 @@ class Room:
         # Usage
 
         Iterate this after capture to build a manifest or delayed-File response.
-        Keep each nullable path pair together; that pair is the address required
+        Keep each optional path pair together; that pair is the address required
         by `get`.
 
         # Returns
@@ -635,12 +635,8 @@ class Room:
                     )
             lazy_reason = lazy_reasons.get(file.id)
             yield (
-                Path(file.left.repository_path)
-                if file.left is not None
-                else None,
-                Path(file.right.repository_path)
-                if file.right is not None
-                else None,
+                file.left.map(lambda side: Path(side.repository_path)),
+                file.right.map(lambda side: Path(side.repository_path)),
                 {
                     "untracked": not file.tracked,
                     "change_type": change_type,
@@ -652,11 +648,11 @@ class Room:
     def get(
         self,
         snapshot_id: UUID,
-        left: Optional[Path],
-        right: Optional[Path],
+        left: Option[Path],
+        right: Option[Path],
     ) -> tuple[
-        Optional[CapturedFileSide],
-        Optional[CapturedFileSide],
+        Option[CapturedFileSide],
+        Option[CapturedFileSide],
         FileMeta,
     ]:
         """Return authenticated captured sides for one filepath pair.
@@ -671,8 +667,8 @@ class Room:
         # Parameters
 
         - `snapshot_id`: Exact Snapshot containing the manifested pair.
-        - `left`: Repository-relative left path, or `None` for an added File.
-        - `right`: Repository-relative right path, or `None` for a deleted File.
+        - `left`: Repository-relative left path, or `Nothing` for an added File.
+        - `right`: Repository-relative right path, or `Nothing` for a deleted File.
 
         # Usage
 
@@ -682,7 +678,7 @@ class Room:
 
         # Returns
 
-        - First, the immutable left capture variant, or `None` when the
+        - First, the immutable left capture variant, or `Nothing` when the
           manifested pair has no left side.
         - Second, the immutable right capture under the same convention.
         - Third, the matched File's metadata, including any capture failure.
@@ -694,22 +690,25 @@ class Room:
         - Raises `AssertionError` when persisted metadata is invalid or a
           captured side no longer matches its digest.
         """
-        if left is None and right is None:
+        if not Some.present(left) and not Some.present(right):
             raise DirdiffError("left or right filepath is required.")
 
-        for path in (left, right):
-            if path is not None and (path.is_absolute() or ".." in path.parts):
+        for optional_path in (left, right):
+            if not Some.present(optional_path):
+                continue
+            path = optional_path.value
+            if path.is_absolute() or ".." in path.parts:
                 raise DirdiffError(
                     f"Room filepath must be repository-relative: {path}"
                 )
-            if path is not None and path.as_posix() in {"", "."}:
+            if path.as_posix() in {"", "."}:
                 raise DirdiffError("Room filepath must identify a file.")
 
         snapshot_exists, loaded = self._database.snapshot_file(
             self._identity,
             snapshot_id=snapshot_id.hex,
-            left_path=left.as_posix() if left is not None else None,
-            right_path=right.as_posix() if right is not None else None,
+            left_path=left.get_map(Path.as_posix),
+            right_path=right.get_map(Path.as_posix),
         )
         if not snapshot_exists:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
@@ -720,37 +719,35 @@ class Room:
         assert directory.is_absolute(), (
             f"persisted Snapshot File path is not absolute: {file.path!r}"
         )
-        result: list[Optional[CapturedFileSide]] = []
+        result: list[Option[CapturedFileSide]] = []
         for name, side in (("left", file.left), ("right", file.right)):
-            if side is None:
-                result.append(None)
+            if not Some.present(side):
+                result.append(Nothing())
                 continue
+            captured_side = side.value
             path = directory / name
             content = path.read_bytes()
-            assert hashlib.sha256(content).digest() == side.content_hash, (
-                f"Snapshot File content hash mismatch: {path}"
-            )
-            if isinstance(side, SnapshotRegularFileSideRecord):
-                result.append(CapturedRegularFileSide(path=path))
+            assert (
+                hashlib.sha256(content).digest() == captured_side.content_hash
+            ), f"Snapshot File content hash mismatch: {path}"
+            if isinstance(captured_side, SnapshotRegularFileSideRecord):
+                result.append(Some(CapturedRegularFileSide(path=path)))
             else:
-                symlink = side.link
-                result.append(
-                    CapturedSymlinkFileSide(
-                        path=path,
-                        link=read_captured_link(
-                            metadata_path=Path(symlink.metadata_path),
-                            metadata_hash=symlink.metadata_hash,
-                            target_capture_path=(
-                                Path(symlink.target.path)
-                                if symlink.target is not None
-                                else None
-                            ),
-                            target_hash=symlink.target.content_hash
-                            if symlink.target is not None
-                            else None,
-                        ),
-                    )
+                symlink = captured_side.link
+                link = read_captured_link(
+                    metadata_path=Path(symlink.metadata_path),
+                    metadata_hash=symlink.metadata_hash,
+                    target_capture_path=symlink.target.map(
+                        lambda target: Path(target.path)
+                    ),
+                    target_hash=symlink.target.map(
+                        lambda target: target.content_hash
+                    ),
                 )
+                captured_link_side = CapturedSymlinkFileSide(
+                    path=path, link=link
+                )
+                result.append(Some(captured_link_side))
         assert len(result) == 2
         match file.change_type:
             case "modify" | "add" | "delete" | "rename" | "copy":
@@ -850,10 +847,10 @@ class Room:
                     ("left", file.left),
                     ("right", file.right),
                 ):
-                    if record is not None:
-                        indexed[(side, record.repository_path)] = (
+                    if Some.present(record):
+                        indexed[(side, record.value.repository_path)] = (
                             Path(file.path) / side,
-                            record.content_hash,
+                            record.value.content_hash,
                         )
             return indexed
 
@@ -882,10 +879,10 @@ class Room:
     def captured_files_for_pairs(
         self,
         snapshot_id: UUID,
-        pairs: tuple[tuple[Optional[str], Optional[str]], ...],
+        pairs: tuple[tuple[Option[str], Option[str]], ...],
     ) -> dict[
-        tuple[Optional[str], Optional[str]],
-        tuple[Optional[Path], Optional[Path]],
+        tuple[Option[str], Option[str]],
+        tuple[Option[Path], Option[Path]],
     ]:
         """Return actual retained side paths for exactly the requested pairs.
 
@@ -908,10 +905,10 @@ class Room:
         # Returns
 
         - Each key is one distinct requested repository path pair. Its first item
-          is the nullable left path and its second is the nullable right path.
+          is the optional left path and its second is the optional right path.
         - Each value's first item is the optional absolute left capture path.
         - Each value's second item is the optional absolute right capture path.
-          A side is `None` only when the corresponding key item is absent.
+          A side is `Nothing` only when the corresponding key item is absent.
 
         # Failures
 
@@ -922,26 +919,26 @@ class Room:
         snapshot_exists, found = self._database.snapshot_files_by_pairs(
             self._identity,
             snapshot_id=snapshot_id.hex,
-            pairs=pairs,
+            pairs=tuple((left.get(), right.get()) for left, right in pairs),
         )
         if not snapshot_exists:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
         result: dict[
-            tuple[Optional[str], Optional[str]],
-            tuple[Optional[Path], Optional[Path]],
+            tuple[Option[str], Option[str]],
+            tuple[Option[Path], Option[Path]],
         ] = {}
         for pair in dict.fromkeys(pairs):
-            record = found.get(pair)
+            record = found.get((pair[0].get(), pair[1].get()))
             assert record is not None, (
                 "Thread location references a File absent from its Snapshot"
             )
             directory = Path(record.path)
-            left_file = directory / "left" if record.left is not None else None
-            right_file = (
-                directory / "right" if record.right is not None else None
+            left_file = Some.when(Some.present(record.left), directory / "left")
+            right_file = Some.when(
+                Some.present(record.right), directory / "right"
             )
-            assert left_file is None or left_file.is_file()
-            assert right_file is None or right_file.is_file()
+            assert not Some.present(left_file) or left_file.value.is_file()
+            assert not Some.present(right_file) or right_file.value.is_file()
             result[pair] = (left_file, right_file)
         return result
 
@@ -949,9 +946,7 @@ class Room:
         self, snapshot_id: UUID, captured: tuple[Path, ...]
     ) -> dict[
         Path,
-        Optional[
-            tuple[Optional[Path], Optional[Path], Literal["left", "right"]]
-        ],
+        Optional[tuple[Option[Path], Option[Path], Literal["left", "right"]]],
     ]:
         """Identify captured side paths as their repository pairs and sides.
 
@@ -1027,7 +1022,7 @@ class Room:
         result: dict[
             Path,
             Optional[
-                tuple[Optional[Path], Optional[Path], Literal["left", "right"]]
+                tuple[Option[Path], Option[Path], Literal["left", "right"]]
             ],
         ] = {}
         for path in distinct:
@@ -1041,18 +1036,12 @@ class Room:
             side: Literal["left", "right"] = (
                 "left" if path.name == "left" else "right"
             )
-            if (record.left if side == "left" else record.right) is None:
+            if not Some.present(
+                record.left if side == "left" else record.right
+            ):
                 continue
-            left = (
-                Path(record.left.repository_path)
-                if record.left is not None
-                else None
-            )
-            right = (
-                Path(record.right.repository_path)
-                if record.right is not None
-                else None
-            )
+            left = record.left.map(lambda side: Path(side.repository_path))
+            right = record.right.map(lambda side: Path(side.repository_path))
             result[path] = (left, right, side)
         return result
 
@@ -1457,6 +1446,7 @@ class RoomLord:
     ```python
     from dirdiff.engines import DirdiffError, TextDiffEngine
     from dirdiff.formats import ComposeContext, Composer
+    from dirdiff.util import Nothing, Some
 
     room, snapshot_id = room_lord.corresponding_room(
         mark_id=mark_id,
@@ -1471,17 +1461,17 @@ class RoomLord:
         if metadata["capture_error"] is not None:
             raise DirdiffError(metadata["capture_error"])
         context = ComposeContext.build(
-            left_path=str(left_path) if left_path is not None else None,
-            right_path=str(right_path) if right_path is not None else None,
+            left_path=left_path.map(str),
+            right_path=right_path.map(str),
             left_label=snapshot["left_label"],
             right_label=snapshot["right_label"],
-            left_link=left.link if left is not None and left.kind == "symlink" else None,
-            right_link=right.link if right is not None and right.kind == "symlink" else None,
+            left_link=left.and_then(lambda side: Some(side.link) if side.kind == "symlink" else Nothing()),
+            right_link=right.and_then(lambda side: Some(side.link) if side.kind == "symlink" else Nothing()),
             renderer=TextDiffEngine(),
         )
         composed = Composer().compose(
-            left.path.read_bytes() if left is not None else None,
-            right.path.read_bytes() if right is not None else None,
+            left.map(lambda side: side.path.read_bytes()),
+            right.map(lambda side: side.path.read_bytes()),
             context,
         )
     ```
@@ -1770,16 +1760,16 @@ class _SnapshotStore:
         paths: tuple[FileChange, ...] = changes.files
         added_lines = changes.added_lines
         removed_lines = changes.removed_lines
-        captured_paths: set[tuple[FileKey | None, FileKey | None]] = set()
+        captured_paths: set[tuple[Option[FileKey], Option[FileKey]]] = set()
         for file in paths:
             keys = (
-                file.left.key if file.left is not None else None,
-                file.right.key if file.right is not None else None,
+                file.left.map(lambda side: side.key),
+                file.right.map(lambda side: side.key),
             )
             if keys in captured_paths:
                 raise DirdiffError(
                     "Source returned duplicate left/right paths: "
-                    f"{tuple(key.path if key is not None else None for key in keys)!r}"
+                    f"{tuple(key.get_map(lambda value: value.path) for key in keys)!r}"
                 )
             captured_paths.add(keys)
         # Sorting describes a set for equality. Source observation and all
@@ -1787,15 +1777,15 @@ class _SnapshotStore:
         sorted_files = sorted(
             paths,
             key=lambda file: (
-                file.left.key.path if file.left is not None else "",
-                file.right.key.path if file.right is not None else "",
+                file.left.map_or("", lambda side: side.key.path),
+                file.right.map_or("", lambda side: side.key.path),
             ),
         )
         identities = {
-            side.key: side.content_identity
+            side.value.key: side.value.content_identity
             for file in sorted_files
             for side in (file.left, file.right)
-            if side is not None
+            if Some.present(side)
         }
 
         def captured_state_hash() -> bytes:
@@ -1809,18 +1799,18 @@ class _SnapshotStore:
             digest = hashlib.sha256(_SNAPSHOT_HASH_DOMAIN)
             for file in sorted_files:
                 values: list[bytes | None] = []
-                side: FileSide | None
+                side: Option[FileSide]
                 for side in (file.left, file.right):
-                    if side is None:
+                    if not Some.present(side):
                         values.extend((None, None, None, None))
                     else:
-                        properties: FileProperties = side.properties
+                        properties: FileProperties = side.value.properties
                         values.extend(
                             (
-                                side.key.path.encode(),
+                                side.value.key.path.encode(),
                                 properties.kind.encode(),
                                 b"1" if properties.executable else b"0",
-                                identities[side.key],
+                                identities[side.value.key],
                             )
                         )
                 values.extend(
@@ -1870,26 +1860,28 @@ class _SnapshotStore:
             for file in visible_snapshot.files:
                 directory = Path(file.path)
                 for name, side in (("left", file.left), ("right", file.right)):
-                    if side is None:
+                    if not Some.present(side):
                         continue
+                    captured_side = side.value
                     captured_path = directory / name
                     content = captured_path.read_bytes()
                     assert (
-                        hashlib.sha256(content).digest() == side.content_hash
+                        hashlib.sha256(content).digest()
+                        == captured_side.content_hash
                     ), f"Snapshot File content hash mismatch: {captured_path}"
-                    if isinstance(side, SnapshotSymlinkFileSideRecord):
-                        symlink = side.link
+                    if isinstance(captured_side, SnapshotSymlinkFileSideRecord):
+                        symlink = captured_side.link
                         read_captured_link(
                             metadata_path=Path(symlink.metadata_path),
                             metadata_hash=symlink.metadata_hash,
                             target_capture_path=(
-                                Path(symlink.target.path)
-                                if symlink.target is not None
-                                else None
+                                symlink.target.map(
+                                    lambda target: Path(target.path)
+                                )
                             ),
-                            target_hash=symlink.target.content_hash
-                            if symlink.target is not None
-                            else None,
+                            target_hash=symlink.target.map(
+                                lambda target: target.content_hash
+                            ),
                         )
             return UUID(hex=snapshot_id)
 
@@ -1910,12 +1902,16 @@ class _SnapshotStore:
                 "source returned a different observed File"
             )
             file = loaded.change
-            assert (loaded.left is None) == (file.left is None)
-            assert (loaded.right is None) == (file.right is None)
-            if loaded.left is not None and file.left is not None:
-                identities[file.left.key] = loaded.left.content_identity
-            if loaded.right is not None and file.right is not None:
-                identities[file.right.key] = loaded.right.content_identity
+            assert Some.present(loaded.left) == Some.present(file.left)
+            assert Some.present(loaded.right) == Some.present(file.right)
+            if Some.present(loaded.left) and Some.present(file.left):
+                identities[file.left.value.key] = (
+                    loaded.left.value.content_identity
+                )
+            if Some.present(loaded.right) and Some.present(file.right):
+                identities[file.right.value.key] = (
+                    loaded.right.value.content_identity
+                )
         acquired_hash = captured_state_hash()
         if acquired_hash != snapshot_hash:
             snapshot_hash = acquired_hash
@@ -1966,126 +1962,136 @@ class _SnapshotStore:
                 file = loaded.change
                 errors: list[str] = []
                 left, right = loaded.left, loaded.right
-                left_path = (
-                    file.left.key.path if file.left is not None else None
-                )
-                right_path = (
-                    file.right.key.path if file.right is not None else None
-                )
-                left_content = (
-                    substituted_side(
-                        left, left_path, "left", left_label, errors
+                left_path = file.left.map(lambda side: side.key.path)
+                right_path = file.right.map(lambda side: side.key.path)
+                left_content: Option[bytes] = Nothing()
+                if Some.present(left):
+                    left_content = Some(
+                        substituted_side(
+                            left.value,
+                            left_path.must(),
+                            "left",
+                            left_label,
+                            errors,
+                        )
                     )
-                    if left is not None and left_path is not None
-                    else None
-                )
-                right_content = (
-                    substituted_side(
-                        right, right_path, "right", right_label, errors
+                right_content: Option[bytes] = Nothing()
+                if Some.present(right):
+                    right_content = Some(
+                        substituted_side(
+                            right.value,
+                            right_path.must(),
+                            "right",
+                            right_label,
+                            errors,
+                        )
                     )
-                    if right is not None and right_path is not None
-                    else None
-                )
-                left_link = left.link if left is not None else None
-                right_link = right.link if right is not None else None
+                left_link = left.and_then(lambda data: data.link)
+                right_link = right.and_then(lambda data: data.link)
                 file_id = uuid4().hex
                 file_path = staging_path / file_id
                 file_path.mkdir()
-                left_record: Optional[SnapshotFileSideRecord] = None
-                if left_path is not None and left_content is not None:
+                left_record: Option[SnapshotFileSideRecord] = Nothing()
+                if Some.present(left_content):
                     left_capture_path = file_path / "left"
-                    left_capture_path.write_bytes(left_content)
-                    if left_link is not None:
+                    left_capture_path.write_bytes(left_content.value)
+                    if Some.present(left_link):
                         left_metadata_path = file_path / "left-link.json"
-                        left_target_path = (
-                            file_path / "left-target"
-                            if left_link.target_data is not None
-                            else None
+                        left_target_path = Some.when(
+                            Some.present(left_link.value.target_data),
+                            file_path / "left-target",
                         )
                         metadata_hash, target_hash = write_captured_link(
-                            left_link,
+                            left_link.value,
                             metadata_path=left_metadata_path,
                             target_capture_path=left_target_path,
                         )
-                        assert (left_target_path is None) == (
-                            target_hash is None
+                        assert Some.present(left_target_path) == Some.present(
+                            target_hash
                         ), (
                             "captured link target path and hash must have equal presence"
                         )
-                        left_record = SnapshotSymlinkFileSideRecord(
-                            repository_path=left_path,
-                            content_hash=hashlib.sha256(left_content).digest(),
-                            link=SnapshotFileSymlinkRecord(
-                                metadata_path=str(
-                                    final_path / file_id / "left-link.json"
-                                ),
-                                metadata_hash=metadata_hash,
-                                target=(
-                                    SnapshotLinkTargetRecord(
-                                        str(
-                                            final_path / file_id / "left-target"
-                                        ),
-                                        target_hash,
-                                    )
-                                    if left_target_path is not None
-                                    and target_hash is not None
-                                    else None
-                                ),
+                        # Bind the final target path now; the record must never
+                        # retain its temporary staging path.
+                        left_target_record = target_hash.map_bind(
+                            (str(final_path / file_id / "left-target"),),
+                            lambda content_hash, path: SnapshotLinkTargetRecord(
+                                path, content_hash
                             ),
                         )
-                    else:
-                        left_record = SnapshotRegularFileSideRecord(
-                            repository_path=left_path,
-                            content_hash=hashlib.sha256(left_content).digest(),
+                        left_symlink_record = SnapshotFileSymlinkRecord(
+                            metadata_path=str(
+                                final_path / file_id / "left-link.json"
+                            ),
+                            metadata_hash=metadata_hash,
+                            target=left_target_record,
                         )
-                right_record: Optional[SnapshotFileSideRecord] = None
-                if right_path is not None and right_content is not None:
+                        left_side_record = SnapshotSymlinkFileSideRecord(
+                            repository_path=left_path.must(),
+                            content_hash=hashlib.sha256(
+                                left_content.value
+                            ).digest(),
+                            link=left_symlink_record,
+                        )
+                        left_record = Some(left_side_record)
+                    else:
+                        left_record = Some(
+                            SnapshotRegularFileSideRecord(
+                                repository_path=left_path.must(),
+                                content_hash=hashlib.sha256(
+                                    left_content.value
+                                ).digest(),
+                            )
+                        )
+                right_record: Option[SnapshotFileSideRecord] = Nothing()
+                if Some.present(right_content):
                     right_capture_path = file_path / "right"
-                    right_capture_path.write_bytes(right_content)
-                    if right_link is not None:
+                    right_capture_path.write_bytes(right_content.value)
+                    if Some.present(right_link):
                         right_metadata_path = file_path / "right-link.json"
-                        right_target_path = (
-                            file_path / "right-target"
-                            if right_link.target_data is not None
-                            else None
+                        right_target_path = Some.when(
+                            Some.present(right_link.value.target_data),
+                            file_path / "right-target",
                         )
                         metadata_hash, target_hash = write_captured_link(
-                            right_link,
+                            right_link.value,
                             metadata_path=right_metadata_path,
                             target_capture_path=right_target_path,
                         )
-                        assert (right_target_path is None) == (
-                            target_hash is None
+                        assert Some.present(right_target_path) == Some.present(
+                            target_hash
                         ), (
                             "captured link target path and hash must have equal presence"
                         )
-                        right_record = SnapshotSymlinkFileSideRecord(
-                            repository_path=right_path,
-                            content_hash=hashlib.sha256(right_content).digest(),
-                            link=SnapshotFileSymlinkRecord(
-                                metadata_path=str(
-                                    final_path / file_id / "right-link.json"
-                                ),
-                                metadata_hash=metadata_hash,
-                                target=(
-                                    SnapshotLinkTargetRecord(
-                                        str(
-                                            final_path
-                                            / file_id
-                                            / "right-target"
-                                        ),
-                                        target_hash,
-                                    )
-                                    if right_target_path is not None
-                                    and target_hash is not None
-                                    else None
-                                ),
+                        right_target_record = target_hash.map_bind(
+                            (str(final_path / file_id / "right-target"),),
+                            lambda content_hash, path: SnapshotLinkTargetRecord(
+                                path, content_hash
                             ),
                         )
+                        right_symlink_record = SnapshotFileSymlinkRecord(
+                            metadata_path=str(
+                                final_path / file_id / "right-link.json"
+                            ),
+                            metadata_hash=metadata_hash,
+                            target=right_target_record,
+                        )
+                        right_side_record = SnapshotSymlinkFileSideRecord(
+                            repository_path=right_path.must(),
+                            content_hash=hashlib.sha256(
+                                right_content.value
+                            ).digest(),
+                            link=right_symlink_record,
+                        )
+                        right_record = Some(right_side_record)
                     else:
-                        right_record = SnapshotRegularFileSideRecord(
-                            repository_path=right_path,
-                            content_hash=hashlib.sha256(right_content).digest(),
+                        right_record = Some(
+                            SnapshotRegularFileSideRecord(
+                                repository_path=right_path.must(),
+                                content_hash=hashlib.sha256(
+                                    right_content.value
+                                ).digest(),
+                            )
                         )
                 files.append(
                     SnapshotFileRecord(

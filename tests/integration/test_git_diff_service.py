@@ -14,6 +14,7 @@ from helpers import TextDiffService
 from dirdiff.change_source import GitChangeSource, GitRepository
 from dirdiff.engines import GitDiffEngine, TextDiffEngine
 from dirdiff.formats import ComposeContext, Composer
+from dirdiff.util import Nothing, Some
 
 
 def test_build_repo_manifest_lists_changed_tracked_files(
@@ -350,18 +351,18 @@ def test_untracked_lazy_file_can_be_loaded_from_worktree(
         max_link_target_bytes=1024 * 1024,
     )
     (change,) = source.changes().files
-    assert change.left is None and change.right is not None
+    assert not Some.present(change.left) and Some.present(change.right)
     loaded = source.load((change,))[0].right
-    assert loaded is not None
-    assert isinstance(loaded.content, bytes)
+    assert Some.present(loaded)
+    assert isinstance(loaded.value.content, bytes)
     # An untracked File exists only in the worktree, so the left side is
     # absent and composition receives no bytes for it at all.
     composed = Composer().compose(
-        None,
-        loaded.content,
+        Nothing(),
+        Some(loaded.value.content),
         ComposeContext.build(
-            left_path=None,
-            right_path="beta.txt",
+            left_path=Nothing(),
+            right_path=Some("beta.txt"),
             left_label="HEAD",
             right_label="worktree",
             renderer=TextDiffEngine(),
@@ -558,45 +559,45 @@ def test_git_diff_service_uses_git_delete_insert_rows(
         max_link_target_bytes=1024 * 1024,
     )
     (change,) = source.changes().files
-    assert change.left is not None and change.right is not None
+    assert Some.present(change.left) and Some.present(change.right)
     loaded = source.load((change,))[0]
     head_side, worktree_side = loaded.left, loaded.right
-    assert head_side is not None and worktree_side is not None
-    assert isinstance(head_side.content, bytes)
-    assert isinstance(worktree_side.content, bytes)
-    head_content = head_side.content
-    worktree_content = worktree_side.content
+    assert Some.present(head_side) and Some.present(worktree_side)
+    assert isinstance(head_side.value.content, bytes)
+    assert isinstance(worktree_side.value.content, bytes)
+    head_content = head_side.value.content
+    worktree_content = worktree_side.value.content
 
     # The same two byte sides, composed three times: the legacy textdiff
     # prototype, the Git no-index engine, and Git no-index with the sides swapped.
     rich_composed = Composer().compose(
-        head_content,
-        worktree_content,
+        Some(head_content),
+        Some(worktree_content),
         ComposeContext.build(
-            left_path="alpha.txt",
-            right_path="alpha.txt",
+            left_path=Some("alpha.txt"),
+            right_path=Some("alpha.txt"),
             left_label="HEAD",
             right_label="worktree",
             renderer=TextDiffEngine(),
         ),
     )
     git_composed = Composer().compose(
-        head_content,
-        worktree_content,
+        Some(head_content),
+        Some(worktree_content),
         ComposeContext.build(
-            left_path="alpha.txt",
-            right_path="alpha.txt",
+            left_path=Some("alpha.txt"),
+            right_path=Some("alpha.txt"),
             left_label="HEAD",
             right_label="worktree",
             renderer=GitDiffEngine(),
         ),
     )
     reversed_composed = Composer().compose(
-        worktree_content,
-        head_content,
+        Some(worktree_content),
+        Some(head_content),
         ComposeContext.build(
-            left_path="alpha.txt",
-            right_path="alpha.txt",
+            left_path=Some("alpha.txt"),
+            right_path=Some("alpha.txt"),
             left_label="worktree",
             right_label="HEAD",
             renderer=GitDiffEngine(),

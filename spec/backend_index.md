@@ -25,6 +25,27 @@ change_source ──► engine contracts
 
 Dependencies do not point from engines into rendering.
 
+## `dirdiff.util`
+
+Exports `JsonValue` and the optional-value contracts `Option`, `Some`, `Nothing`,
+and `maybe`. `Option[T]` is the union of `Some[T]` and `Nothing`; each variant
+provides `map` and `and_then` for transformations. `Some.present` narrows either
+branch to its variant. `must` requires presence, while `get`, `get_map`, and
+`get_or` leave the Option API for a nullable or default-accepting consumer.
+`map_or` maps and extracts with an eager absence default. `Some.when` wraps an
+eager value conditionally; `Some.then` calls its factory only when true.
+`Some.then_bind` supplies a tuple of positional callback arguments conditionally.
+`map_bind` supplies its payload followed by an explicit tuple of arguments;
+absence skips the callback. Both evaluate supplied arguments eagerly and invoke
+callbacks synchronously.
+`maybe` converts native nullable input. The wrappers are immutable and retain
+payloads by reference; they do not catch errors or perform I/O.
+
+Captured File sides, side paths, link facts, and format representations carry
+Options through their internal contracts. SQL columns, serialized payloads,
+and native library inputs keep their own nullable representations. Unrelated
+optional metadata and engine contracts are not converted by these File flows.
+
 ## `dirdiff.change_source`
 
 Provides repository and preset data. `ChangeSourceProtocol` has two operations for one
@@ -33,6 +54,11 @@ optional aggregate line totals; `load(files)` accepts observed `FileChange`
 records and supplies ordered
 `LoadedFile` results retaining each exact change and named left/right `FileData`
 outcomes. Absent sides remain absent; callers never reconstruct File pairing.
+`FileChange.left/right` and `LoadedFile.left/right` use `Option`. Loaded link
+facts and the captured link's diagnosis and target use Options as well, with
+equal target-path/data presence and exclusive diagnosis/target presence checked
+by their contracts. Manifest path records retain Option side paths until the
+manifest or lazy-info payload is built.
 A present `FileSide` carries a source-local
 `FileKey`, semantic `FileProperties`, and an opaque `content_identity`.
 Properties distinguish regular Files, symbolic links, and references to another
@@ -309,6 +335,12 @@ several builders reject readable text. The symbolic-link leaf prepares its
 outer bay and normalized target; `composer.py` selects the target builder. No
 private builder imports another private builder.
 
+Captured byte inputs and context side paths/link facts use `Option`, as do
+image sides and notebook document, cell, output, and representation selection.
+Builders extract native nullable text and hints when constructing the engine's
+`DiffSide`; composition extracts nullable values when constructing payloads.
+Typed text rejection and diagnosed notebook parts remain explicit results.
+
 Classification reads paths only and is total. `.ipynb` paths are notebooks,
 the image extension table names images, the blob extension table names formats
 dirdiff explicitly treats as bytes, and every other path is presumed text. A
@@ -384,6 +416,9 @@ Store records expose validated placement variants, tagged action payloads,
 and nested regular/link File sides. Review action insertion inputs omit global
 activity order; persisted outputs require it. Nullable shape columns remain
 inside the SQL mapping boundary.
+Hydrated `SnapshotFileRecord` side fields and the symlink descriptor's reached
+target are Options. Hydration constructs them once from SQL row presence, and
+publication extracts values only when constructing SQL parameters.
 
 Profile preferences store the folding policy, Git algorithm and whitespace
 policy, Difftastic comment policy, and GumTree matcher in one row per Profile. Reads create initial values only when no

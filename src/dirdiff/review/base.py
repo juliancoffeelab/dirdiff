@@ -28,6 +28,7 @@ from uuid import UUID
 
 from dirdiff.db import RoomStore, UserProfileRecord
 from dirdiff.engines import DirdiffError
+from dirdiff.util import Option, Some
 
 __all__ = [
     "AddComment",
@@ -104,10 +105,10 @@ class ReviewError(DirdiffError):
 
 @dataclass(frozen=True)
 class FilePair:
-    """Identify one File by its exact nullable left and right captured paths.
+    """Identify one File by its exact optional left and right captured paths.
 
-    Build this value at review boundaries from the exact nullable paths carried
-    by manifest, composed File, or agent input. Thread targets and File lookup
+    Build this value from exact Option paths, converting nullable HTTP input at
+    that boundary. Thread targets and File lookup
     use the pair as one identity.
 
     At least one normalized repository-relative POSIX path is present. A
@@ -115,17 +116,17 @@ class FilePair:
     filesystem path or a display name.
     """
 
-    left_path: Optional[str]
+    left_path: Option[str]
     """Normalized repository-relative path of the captured left side.
 
-    `None` means the File did not exist on the left; `right_path` must then be
+    `Nothing` means the File did not exist on the left; `right_path` must then be
     present. Callers must preserve this absence when addressing the File.
     """
 
-    right_path: Optional[str]
+    right_path: Option[str]
     """Normalized repository-relative path of the captured right side.
 
-    `None` means the File did not exist on the right; `left_path` must then be
+    `Nothing` means the File did not exist on the right; `left_path` must then be
     present. The pair, rather than either path alone, is the File identity.
     """
 
@@ -141,11 +142,14 @@ class FilePair:
         - Raises `ValueError` when both sides are absent or a present side is
           empty, absolute, parent-traversing, or not normalized POSIX form.
         """
-        if self.left_path is None and self.right_path is None:
+        if not Some.present(self.left_path) and not Some.present(
+            self.right_path
+        ):
             raise ValueError("A review File pair requires at least one side.")
-        for value in (self.left_path, self.right_path):
-            if value is None:
+        for optional_path in (self.left_path, self.right_path):
+            if not Some.present(optional_path):
                 continue
+            value = optional_path.value
             path = PurePosixPath(value)
             if (
                 value in {"", ".", ".."}
@@ -260,9 +264,9 @@ class TextTarget:
         """
         if self.bay_key == "":
             raise ValueError("Review bay key cannot be empty.")
-        if self.side == "left" and self.file.left_path is None:
+        if self.side == "left" and not Some.present(self.file.left_path):
             raise ValueError("The selected left side is absent.")
-        if self.side == "right" and self.file.right_path is None:
+        if self.side == "right" and not Some.present(self.file.right_path):
             raise ValueError("The selected right side is absent.")
 
 

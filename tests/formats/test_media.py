@@ -35,6 +35,7 @@ from dirdiff.formats import (
     ImageBay,
     TextBay,
 )
+from dirdiff.util import Some, maybe
 
 
 def test_image_pair_composes_picture_metadata_and_facts_bays() -> None:
@@ -46,15 +47,15 @@ def test_image_pair_composes_picture_metadata_and_facts_bays() -> None:
     rows, which is what makes the digest commentable.
     """
     context = ComposeContext.build(
-        left_path="logo.png",
-        right_path="logo.png",
+        left_path=maybe("logo.png"),
+        right_path=maybe("logo.png"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     left = b"\x89PNG\r\n\x1a\n-old-bytes"
     right = b"\x89PNG\r\n\x1a\n-new-bytes-longer"
-    composed = Composer().compose(left, right, context)
+    composed = Composer().compose(maybe(left), maybe(right), context)
 
     assert len(composed["frames"]) == 1
     frame = composed["frames"][0]
@@ -117,15 +118,15 @@ def test_byte_identical_media_sides_are_unchanged() -> None:
     """
     same_image = b"\x89PNG\r\n\x1a\nidentical"
     image_context = ComposeContext.build(
-        left_path="icon.png",
-        right_path="icon.png",
+        left_path=maybe("icon.png"),
+        right_path=maybe("icon.png"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    image_bays = Composer().compose(same_image, same_image, image_context)[
-        "frames"
-    ][0]["bays"]
+    image_bays = Composer().compose(
+        maybe(same_image), maybe(same_image), image_context
+    )["frames"][0]["bays"]
     picture_content = image_bays[0]["kind_data"]
     assert picture_content["kind"] == "image"
     assert image_bays[0]["change"] == {"kind": "unchanged"}
@@ -136,15 +137,15 @@ def test_byte_identical_media_sides_are_unchanged() -> None:
 
     same_blob = b"\x00\x01\x02identical"
     blob_context = ComposeContext.build(
-        left_path="blob.dat",
-        right_path="blob.dat",
+        left_path=maybe("blob.dat"),
+        right_path=maybe("blob.dat"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    blob_bay = Composer().compose(same_blob, same_blob, blob_context)["frames"][
-        0
-    ]["bays"][0]
+    blob_bay = Composer().compose(
+        maybe(same_blob), maybe(same_blob), blob_context
+    )["frames"][0]["bays"][0]
     assert blob_bay["bay_key"] == BLOB_BAY_KEY
     assert blob_bay["kind_data"]["kind"] == "text"
     assert blob_bay["change"] == {"kind": "unchanged"}
@@ -159,13 +160,15 @@ def test_added_and_removed_images_carry_exactly_one_side() -> None:
     bay, where an absent side states no facts rather than stating zeroes.
     """
     added_context = ComposeContext.build(
-        left_path=None,
-        right_path="new-asset.webp",
+        left_path=maybe(None),
+        right_path=maybe("new-asset.webp"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    added = Composer().compose(None, b"RIFF....WEBP", added_context)
+    added = Composer().compose(
+        maybe(None), maybe(b"RIFF....WEBP"), added_context
+    )
     added_bays = added["frames"][0]["bays"]
     added_content = added_bays[0]["kind_data"]
     assert added_content["kind"] == "image"
@@ -183,13 +186,15 @@ def test_added_and_removed_images_carry_exactly_one_side() -> None:
     assert added["summary"]["right_exists"] is True
 
     removed_context = ComposeContext.build(
-        left_path="old-asset.gif",
-        right_path=None,
+        left_path=maybe("old-asset.gif"),
+        right_path=maybe(None),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    removed = Composer().compose(b"GIF89a....", None, removed_context)
+    removed = Composer().compose(
+        maybe(b"GIF89a...."), maybe(None), removed_context
+    )
     removed_bays = removed["frames"][0]["bays"]
     removed_content = removed_bays[0]["kind_data"]
     assert removed_content["kind"] == "image"
@@ -213,14 +218,14 @@ def test_image_classification_reads_the_path_and_not_the_bytes() -> None:
     to change it deliberately rather than discover it.
     """
     context = ComposeContext.build(
-        left_path="mislabelled.png",
-        right_path="mislabelled.png",
+        left_path=maybe("mislabelled.png"),
+        right_path=maybe("mislabelled.png"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        b"not a png at all\n", b"still not\n", context
+        maybe(b"not a png at all\n"), maybe(b"still not\n"), context
     )
     bay = composed["frames"][0]["bays"][0]
     assert bay["kind_data"]["kind"] == "image"
@@ -238,14 +243,14 @@ def test_extension_matching_ignores_case_and_pairs_jpg_with_jpeg() -> None:
     files, and two spellings of one format must not serve two `Content-Type`s.
     """
     shouted_context = ComposeContext.build(
-        left_path="PHOTO.JPG",
-        right_path="PHOTO.JPG",
+        left_path=maybe("PHOTO.JPG"),
+        right_path=maybe("PHOTO.JPG"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     shouted = Composer().compose(
-        b"\xff\xd8\xff-a", b"\xff\xd8\xff-b", shouted_context
+        maybe(b"\xff\xd8\xff-a"), maybe(b"\xff\xd8\xff-b"), shouted_context
     )
     shouted_content = shouted["frames"][0]["bays"][0]["kind_data"]
     assert shouted_content["kind"] == "image"
@@ -253,14 +258,14 @@ def test_extension_matching_ignores_case_and_pairs_jpg_with_jpeg() -> None:
     assert shouted_content["left"]["media_type"] == "image/jpeg"
 
     spelled_context = ComposeContext.build(
-        left_path="photo.jpeg",
-        right_path="photo.jpeg",
+        left_path=maybe("photo.jpeg"),
+        right_path=maybe("photo.jpeg"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     spelled = Composer().compose(
-        b"\xff\xd8\xff-a", b"\xff\xd8\xff-b", spelled_context
+        maybe(b"\xff\xd8\xff-a"), maybe(b"\xff\xd8\xff-b"), spelled_context
     )
     spelled_content = spelled["frames"][0]["bays"][0]["kind_data"]
     assert spelled_content["kind"] == "image"
@@ -277,15 +282,15 @@ def test_svg_is_diffed_as_the_text_it_is() -> None:
     diffed there.
     """
     context = ComposeContext.build(
-        left_path="chart.svg",
-        right_path="chart.svg",
+        left_path=maybe("chart.svg"),
+        right_path=maybe("chart.svg"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        b'<svg width="10"></svg>\n',
-        b'<svg width="20"></svg>\n',
+        maybe(b'<svg width="10"></svg>\n'),
+        maybe(b'<svg width="20"></svg>\n'),
         context,
     )
     bay = composed["frames"][0]["bays"][0]
@@ -302,13 +307,15 @@ def test_an_unlisted_image_format_reaches_the_blob_terminal() -> None:
     the facts the blob bay states still answer whether the content changed.
     """
     context = ComposeContext.build(
-        left_path="scan.tiff",
-        right_path="scan.tiff",
+        left_path=maybe("scan.tiff"),
+        right_path=maybe("scan.tiff"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    composed = Composer().compose(b"II*\x00-old", b"II*\x00-new", context)
+    composed = Composer().compose(
+        maybe(b"II*\x00-old"), maybe(b"II*\x00-new"), context
+    )
     bays = composed["frames"][0]["bays"]
     assert len(bays) == 1, "a blob File composes its facts and nothing else"
     content = bays[0]["kind_data"]
@@ -327,14 +334,14 @@ def test_a_file_that_is_an_image_on_one_side_only_is_not_an_image() -> None:
     cannot show, which reports a format change as a missing file.
     """
     context = ComposeContext.build(
-        left_path="asset.png",
-        right_path="asset.dat",
+        left_path=maybe("asset.png"),
+        right_path=maybe("asset.dat"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        b"\x89PNG\r\n\x1a\n", b"\x00\x01\x02\x03", context
+        maybe(b"\x89PNG\r\n\x1a\n"), maybe(b"\x00\x01\x02\x03"), context
     )
     bay = composed["frames"][0]["bays"][0]
     content = bay["kind_data"]
@@ -368,13 +375,13 @@ def test_a_file_captured_on_neither_side_is_not_an_image() -> None:
     absent sides.
     """
     context = ComposeContext.build(
-        left_path="ghost.png",
-        right_path="ghost.png",
+        left_path=maybe("ghost.png"),
+        right_path=maybe("ghost.png"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    composed = Composer().compose(None, None, context)
+    composed = Composer().compose(maybe(None), maybe(None), context)
     bay = composed["frames"][0]["bays"][0]
     assert bay["kind_data"]["kind"] == "text"
     assert bay["bay_key"] == FLATFILE_BAY_KEY
@@ -395,11 +402,11 @@ def test_bays_yields_an_image_bay_holding_the_exact_captured_bytes() -> None:
     right = bytes(reversed(range(256)))
     produced = list(
         Composer().bays(
-            left,
-            right,
+            maybe(left),
+            maybe(right),
             BayContext(
-                left_path="sprite.bmp",
-                right_path="sprite.bmp",
+                left_path=maybe("sprite.bmp"),
+                right_path=maybe("sprite.bmp"),
                 left_label="old",
                 right_label="new",
             ),
@@ -411,9 +418,9 @@ def test_bays_yields_an_image_bay_holding_the_exact_captured_bytes() -> None:
     assert picture.bay_key == IMAGE_BAY_KEY
     assert picture.frame_key == "file"
     assert picture.heading is None
-    assert picture.left is not None and picture.left.data == left
-    assert picture.right is not None and picture.right.data == right
-    assert picture.left.media_type == "image/bmp"
+    assert Some.present(picture.left) and picture.left.value.data == left
+    assert Some.present(picture.right) and picture.right.value.data == right
+    assert picture.left.value.media_type == "image/bmp"
 
     metadata = produced[1]
     assert isinstance(metadata, TextBay)
@@ -439,13 +446,13 @@ def test_a_rendered_image_bay_carries_no_captured_byte() -> None:
     """
     marker = b"\x00SECRET-CAPTURED-BYTES"
     context = ComposeContext.build(
-        left_path="a.ico",
-        right_path="a.ico",
+        left_path=maybe("a.ico"),
+        right_path=maybe("a.ico"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    composed = Composer().compose(marker, marker + b"!", context)
+    composed = Composer().compose(maybe(marker), maybe(marker + b"!"), context)
     content = composed["frames"][0]["bays"][0]["kind_data"]
     assert content["kind"] == "image"
     assert content["left"] is not None
@@ -464,14 +471,14 @@ def test_a_file_made_of_bytes_reports_only_its_facts_lines() -> None:
     digest moved, would both misdescribe the change.
     """
     context = ComposeContext.build(
-        left_path="clip.ogg",
-        right_path="clip.ogg",
+        left_path=maybe("clip.ogg"),
+        right_path=maybe("clip.ogg"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     composed = Composer().compose(
-        b"OggS\x00-one", b"OggS\x00-two-longer", context
+        maybe(b"OggS\x00-one"), maybe(b"OggS\x00-two-longer"), context
     )
     facts_content = composed["frames"][0]["bays"][0]["kind_data"]
     assert facts_content["kind"] == "text"
@@ -534,13 +541,17 @@ def test_real_preset_fixtures_compose_to_their_captured_bytes() -> None:
         left = None if old_name is None else (fixture / old_name).read_bytes()
         right = None if new_name is None else (fixture / new_name).read_bytes()
         context = ComposeContext.build(
-            left_path=None if old_name is None else f"{case}/{old_name}",
-            right_path=None if new_name is None else f"{case}/{new_name}",
+            left_path=maybe(None if old_name is None else f"{case}/{old_name}"),
+            right_path=maybe(
+                None if new_name is None else f"{case}/{new_name}"
+            ),
             left_label="old",
             right_label="new",
             renderer=TextDiffEngine(),
         )
-        bays = Composer().compose(left, right, context)["frames"][0]["bays"]
+        bays = Composer().compose(maybe(left), maybe(right), context)["frames"][
+            0
+        ]["bays"]
         assert bays[0]["bay_key"] == bay_key, case
         assert bays[0]["change"] == {"kind": change}, case
 

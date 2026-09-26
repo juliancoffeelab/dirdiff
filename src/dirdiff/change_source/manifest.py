@@ -34,6 +34,7 @@ from dirdiff.change_source.base import (
     RepoManifestSummary,
     RepoManifestTreeEntry,
 )
+from dirdiff.util import Option, Some
 
 
 @dataclass(frozen=True)
@@ -49,10 +50,10 @@ class ManifestPath:
     policy, not live source reads.
     """
 
-    left_path: str | None
+    left_path: Option[str]
     """Persisted repository-local left path, absent for an added File."""
 
-    right_path: str | None
+    right_path: Option[str]
     """Persisted repository-local right path, absent for a deleted File."""
 
     display_name: str
@@ -72,7 +73,7 @@ class ManifestPath:
 
     def __post_init__(self) -> None:
         """Require one present path for a displayed File."""
-        assert self.left_path is not None or self.right_path is not None
+        assert Some.present(self.left_path) or Some.present(self.right_path)
 
 
 GENERATED_FILES = frozenset(
@@ -190,15 +191,16 @@ def _lazy_reason_for_repo_entry(entry: ManifestPath) -> LazyReason | None:
       sides immediately.
     """
 
-    def _looks_generated_path(path: str | None) -> bool:
+    def _looks_generated_path(path: Option[str]) -> bool:
         """Match a present path's case-folded basename against known lockfiles.
 
         Directory components do not affect this policy. An absent side cannot
         establish generated status on its own.
         """
-        if path is None:
-            return False
-        return PurePosixPath(path).name.casefold() in GENERATED_FILES
+        return (
+            Some.present(path)
+            and PurePosixPath(path.value).name.casefold() in GENERATED_FILES
+        )
 
     if entry.lazy_reason_override is not None:
         return entry.lazy_reason_override
@@ -244,8 +246,8 @@ def _to_lazy_info_file_entry(
     - `lazy`: Concrete reason already derived for that exact entry.
     """
     return {
-        "left_path": entry.left_path,
-        "right_path": entry.right_path,
+        "left_path": entry.left_path.get(),
+        "right_path": entry.right_path.get(),
         "file_kind": file_kind_for_repo_entry(entry),
         "display_name": entry.display_name,
         "changed_lines": None,
@@ -378,15 +380,17 @@ def _build_repo_manifest_tree(
     for entry in entries:
         path = (
             entry.right_path
-            if entry.right_path is not None
+            if Some.present(entry.right_path)
             else entry.left_path
         )
-        if path is None:
+        if not Some.present(path):
             raise ValueError("Repo manifest entry is missing both paths.")
-        parts = [part for part in PurePosixPath(path).parts if part != "."]
+        parts = [
+            part for part in PurePosixPath(path.value).parts if part != "."
+        ]
         file_entry: RepoManifestFileEntry = {
-            "left_path": entry.left_path,
-            "right_path": entry.right_path,
+            "left_path": entry.left_path.get(),
+            "right_path": entry.right_path.get(),
             "file_kind": file_kind_for_repo_entry(entry),
             "lazy": None,
         }

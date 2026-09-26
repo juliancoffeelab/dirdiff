@@ -67,6 +67,9 @@ existing-Thread actions return only current state and the one changed Comment.
 ## Targets and placement
 
 A File target stores the exact nullable left/right File pair used by manifest.
+The internal `FilePair` carries these side paths as `Option[str]`, preserving
+them through captured-File lookup and composition. HTTP constructors convert
+nullable inputs with `maybe`, and public origin views extract nullable paths.
 A text target additionally stores one public composed bay key, selected side,
 and positive one-based inclusive line range. The bay key is the universal
 sub-file coordinate composition gives every bay: `flatfile` for a File with

@@ -58,6 +58,7 @@ from dirdiff.db.base import (
     UserProfileRecord,
     profile_record,
 )
+from dirdiff.util import Nothing, Option, Some, maybe
 
 __all__ = [
     "AuthoredComment",
@@ -1080,7 +1081,7 @@ class SnapshotFileSymlinkRecord:
     metadata_hash: bytes
     """SHA-256 digest of the exact metadata bytes."""
 
-    target: SnapshotLinkTargetRecord | None
+    target: Option[SnapshotLinkTargetRecord]
     """Complete reached-target capture, absent when traversal stopped."""
 
     def __post_init__(self) -> None:
@@ -1096,9 +1097,6 @@ class SnapshotFileSymlinkRecord:
         assert len(self.metadata_hash) == 32, (
             "Snapshot link metadata hash must have length 32"
         )
-        assert self.target is None or isinstance(
-            self.target, SnapshotLinkTargetRecord
-        ), "link target must be a complete authenticated record"
 
 
 @dataclass(frozen=True)
@@ -1149,7 +1147,7 @@ SnapshotFileSideRecord = (
 )
 """One present captured side, either regular bytes or a link with its descriptor.
 
-File-level `None` represents real absence; neither variant has nullable side
+File-level `Nothing` represents real absence; neither variant has nullable side
 identity or content digest. Inspect the variant before reading link metadata.
 """
 
@@ -1204,36 +1202,28 @@ class SnapshotFileRecord:
     A non-null value makes the File unreadable even if side path metadata is retained.
     """
 
-    left: Optional[SnapshotFileSideRecord]
+    left: Option[SnapshotFileSideRecord]
     """Captured left side, when it exists.
 
-    `None` means that side is absent, which differs from present empty captured bytes.
+    `Nothing` means that side is absent, which differs from present empty captured bytes.
     """
 
-    right: Optional[SnapshotFileSideRecord]
+    right: Option[SnapshotFileSideRecord]
     """Captured right side, when it exists.
 
     Consumers preserve absence instead of substituting the other side or an empty file.
     """
 
     def __post_init__(self) -> None:
-        """Reject a File whose present sides are not captured-side variants.
+        """Reject a File without any captured side.
 
         # Failures
 
-        - No present side or an invalid side value raises `AssertionError`.
+        - No present side raises `AssertionError`.
         """
-        assert self.left is not None or self.right is not None, (
+        assert Some.present(self.left) or Some.present(self.right), (
             "Snapshot File must have at least one captured side"
         )
-        assert all(
-            side is None
-            or isinstance(
-                side,
-                (SnapshotRegularFileSideRecord, SnapshotSymlinkFileSideRecord),
-            )
-            for side in (self.left, self.right)
-        ), "Snapshot File sides must be captured-side variants"
 
 
 @dataclass(frozen=True)
@@ -2559,13 +2549,15 @@ class RoomStore:
             assert (row.target_capture_path is None) == (
                 row.target_hash is None
             ), "Snapshot link target path and hash must have equal presence"
-            target = None
+            target: Option[SnapshotLinkTargetRecord] = Nothing()
             if (
                 row.target_capture_path is not None
                 and row.target_hash is not None
             ):
-                target = SnapshotLinkTargetRecord(
-                    row.target_capture_path, row.target_hash
+                target = Some(
+                    SnapshotLinkTargetRecord(
+                        row.target_capture_path, row.target_hash
+                    )
                 )
             result[key] = SnapshotFileSymlinkRecord(
                 metadata_path=row.metadata_path,
@@ -2646,11 +2638,11 @@ class RoomStore:
             assert Path(link.metadata_path).parent == directory, (
                 "Snapshot link metadata must share its File capture directory"
             )
-            if link.target is not None:
-                assert Path(link.target.path).parent == directory, (
+            if Some.present(link.target):
+                assert Path(link.target.value.path).parent == directory, (
                     "Snapshot link target must share its File capture directory"
                 )
-                assert link.target.path != link.metadata_path, (
+                assert link.target.value.path != link.metadata_path, (
                     "Snapshot link metadata and target paths must differ"
                 )
         return SnapshotFileRecord(
@@ -2660,8 +2652,8 @@ class RoomStore:
             tracked=file.tracked,
             change_type=file.change_type,
             error=file.error,
-            left=left,
-            right=right,
+            left=maybe(left),
+            right=maybe(right),
         )
 
     def review_profile(self, profile_id: int) -> Optional[UserProfileRecord]:
@@ -2932,15 +2924,15 @@ class RoomStore:
             assert file.error is None or file.error != "", (
                 "Snapshot File error cannot be empty"
             )
-            assert file.left is not None or file.right is not None, (
+            assert Some.present(file.left) or Some.present(file.right), (
                 "Snapshot File must have at least one captured side"
             )
-            assert file.tracked or file.left is None, (
+            assert file.tracked or not Some.present(file.left), (
                 "an intruding File cannot have a left side"
             )
             file_repository_paths = (
-                file.left.repository_path if file.left is not None else None,
-                file.right.repository_path if file.right is not None else None,
+                file.left.get_map(lambda side: side.repository_path),
+                file.right.get_map(lambda side: side.repository_path),
             )
             assert file_repository_paths not in repository_paths, (
                 "duplicate Snapshot repository paths: "
@@ -2949,9 +2941,11 @@ class RoomStore:
             repository_paths.add(file_repository_paths)
             file_directory = Path(file.path)
             for side in (file.left, file.right):
-                if not isinstance(side, SnapshotSymlinkFileSideRecord):
+                if not Some.present(side) or not isinstance(
+                    side.value, SnapshotSymlinkFileSideRecord
+                ):
                     continue
-                link = side.link
+                link = side.value.link
                 metadata_path = Path(link.metadata_path)
                 assert metadata_path.parent == file_directory, (
                     "Snapshot link metadata must share its File capture directory"
@@ -2960,15 +2954,15 @@ class RoomStore:
                     "duplicate Snapshot link metadata path"
                 )
                 symlink_storage_paths.add(link.metadata_path)
-                if link.target is not None:
-                    target_capture_path = Path(link.target.path)
+                if Some.present(link.target):
+                    target_capture_path = Path(link.target.value.path)
                     assert target_capture_path.parent == file_directory, (
                         "Snapshot link target must share its File capture directory"
                     )
-                    assert link.target.path not in symlink_storage_paths, (
-                        "duplicate Snapshot link target path"
-                    )
-                    symlink_storage_paths.add(link.target.path)
+                    assert (
+                        link.target.value.path not in symlink_storage_paths
+                    ), "duplicate Snapshot link target path"
+                    symlink_storage_paths.add(link.target.value.path)
         assert lazy_reasons.keys() <= file_ids, (
             "lazy reasons must identify Files in the published Snapshot"
         )
@@ -3058,22 +3052,22 @@ class RoomStore:
             left_rows = [
                 {
                     "file_id": file.id,
-                    "repository_path": file.left.repository_path,
-                    "content_hash": file.left.content_hash,
+                    "repository_path": file.left.value.repository_path,
+                    "content_hash": file.left.value.content_hash,
                 }
                 for file in snapshot.files
-                if file.left is not None
+                if Some.present(file.left)
             ]
             if left_rows != []:
                 session.execute(insert(SnapshotFileLeft), left_rows)
             right_rows = [
                 {
                     "file_id": file.id,
-                    "repository_path": file.right.repository_path,
-                    "content_hash": file.right.content_hash,
+                    "repository_path": file.right.value.repository_path,
+                    "content_hash": file.right.value.content_hash,
                 }
                 for file in snapshot.files
-                if file.right is not None
+                if Some.present(file.right)
             ]
             if right_rows != []:
                 session.execute(insert(SnapshotFileRight), right_rows)
@@ -3083,17 +3077,18 @@ class RoomStore:
                     "side": side,
                     "metadata_path": link.metadata_path,
                     "metadata_hash": link.metadata_hash,
-                    "target_capture_path": link.target.path
-                    if link.target is not None
-                    else None,
-                    "target_hash": link.target.content_hash
-                    if link.target is not None
-                    else None,
+                    "target_capture_path": link.target.get_map(
+                        lambda target: target.path
+                    ),
+                    "target_hash": link.target.get_map(
+                        lambda target: target.content_hash
+                    ),
                 }
                 for file in snapshot.files
                 for side, record in (("left", file.left), ("right", file.right))
-                if isinstance(record, SnapshotSymlinkFileSideRecord)
-                for link in (record.link,)
+                if Some.present(record)
+                and isinstance(record.value, SnapshotSymlinkFileSideRecord)
+                for link in (record.value.link,)
             ]
             if symlink_rows != []:
                 session.execute(insert(SnapshotFileSymlink), symlink_rows)
@@ -3592,16 +3587,8 @@ class RoomStore:
                     left_symlink=symlinks.get((row[0].id, "left")),
                     right_symlink=symlinks.get((row[0].id, "right")),
                 )
-                left = (
-                    record.left.repository_path
-                    if record.left is not None
-                    else None
-                )
-                right = (
-                    record.right.repository_path
-                    if record.right is not None
-                    else None
-                )
+                left = record.left.get_map(lambda side: side.repository_path)
+                right = record.right.get_map(lambda side: side.repository_path)
                 found[(left, right)] = record
             # The one-row query this replaced ended in one_or_none(), which
             # raised on duplicate pairs; the schema does not make the pair

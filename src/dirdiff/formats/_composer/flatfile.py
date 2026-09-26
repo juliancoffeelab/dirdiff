@@ -28,6 +28,7 @@ from dirdiff.formats.base import (
     try_decode_text,
     whole_file_change,
 )
+from dirdiff.util import Nothing, Option, Some
 
 __all__ = [
     "flatfile_bays",
@@ -35,8 +36,8 @@ __all__ = [
 
 
 def flatfile_bays(
-    left: bytes | None,
-    right: bytes | None,
+    left: Option[bytes],
+    right: Option[bytes],
     context: BayContext,
 ) -> Iterator[TextBay]:
     """Yield the single bay a flatfile composes into.
@@ -45,7 +46,7 @@ def flatfile_bays(
     This builder decodes each once. If either present side rejects the text
     contract, it yields blob facts for both sides with the rejection warning.
 
-    `None` on a side means the File was not captured there. That is how an
+    `Nothing` on a side means the File was not captured there. That is how an
     added or removed File is expressed. A captured empty File decodes to `""`
     and is a present side, not an absent one.
 
@@ -54,8 +55,8 @@ def flatfile_bays(
 
     # Parameters
 
-    - `left`: Captured old bytes, or `None` when the File is new.
-    - `right`: Captured new bytes, or `None` when the File was removed.
+    - `left`: Captured old bytes, or `Nothing` when the File is new.
+    - `right`: Captured new bytes, or `Nothing` when the File was removed.
     - `context`: File paths and side labels copied into the resulting bay.
 
     # Usage
@@ -76,20 +77,20 @@ def flatfile_bays(
     Asserts if rejection narrowing leaves a `TextRejection` on the text path;
     input decode rejection itself yields blob facts and warnings.
     """
-    left_text = None if left is None else try_decode_text(left)
-    right_text = None if right is None else try_decode_text(right)
+    left_text = left.map(try_decode_text)
+    right_text = right.map(try_decode_text)
     rejections = [
-        value
+        value.value
         for value in (left_text, right_text)
-        if isinstance(value, TextRejection)
+        if Some.present(value) and isinstance(value.value, TextRejection)
     ]
     if len(rejections) > 0:
         yield byte_facts_bay(
             left,
             right,
             context,
-            left_media_type=None,
-            right_media_type=None,
+            left_media_type=Nothing(),
+            right_media_type=Nothing(),
             warnings=tuple(
                 {
                     "type": rejection.reason.replace("-", "_"),
@@ -102,8 +103,11 @@ def flatfile_bays(
             ),
         )
         return
-    assert not isinstance(left_text, TextRejection)
-    assert not isinstance(right_text, TextRejection)
+    # Nullable extraction is the boundary to the engine's DiffSide contract.
+    left_engine_text = left_text.get()
+    right_engine_text = right_text.get()
+    assert not isinstance(left_engine_text, TextRejection)
+    assert not isinstance(right_engine_text, TextRejection)
     change = whole_file_change(left_text, right_text)
     yield TextBay(
         # One frame, and nothing to name above a File that is entirely its own
@@ -120,13 +124,13 @@ def flatfile_bays(
         left_label=context.left_label,
         right_label=context.right_label,
         left=DiffSide(
-            exists=left_text is not None,
-            text=left_text,
-            path_hint=context.left_path,
+            exists=Some.present(left_text),
+            text=left_engine_text,
+            path_hint=context.left_path.get(),
         ),
         right=DiffSide(
-            exists=right_text is not None,
-            text=right_text,
-            path_hint=context.right_path,
+            exists=Some.present(right_text),
+            text=right_engine_text,
+            path_hint=context.right_path.get(),
         ),
     )

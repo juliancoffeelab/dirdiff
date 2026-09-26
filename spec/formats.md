@@ -83,6 +83,15 @@ then collapsed bay or set of bays for the original file.
 
 The format subsystem receives immutable captured bytes, File paths, side
 labels, and format-specific capture facts such as resolved symbolic-link data.
+Byte sides, context paths/link facts, and image sides use `Option` throughout
+composition. Notebook parsing and pairing also retain Options for absent
+documents, cells, outputs, and selected representations. `Some.present` narrows
+presence; `map` and `and_then` transform it without nullable conversion between
+builders. A diagnosed rejection remains a present result, not absence.
+
+The text-engine `DiffSide` contract remains native nullable, so builders extract
+text and parser hints when constructing it. Serialized File and image payloads
+also remain nullable; extraction occurs when those payloads are assembled.
 It produces:
 
 - File-level existence and line summaries;

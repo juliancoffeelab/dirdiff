@@ -17,6 +17,7 @@ from dirdiff.formats import (
     Composer,
     TextBay,
 )
+from dirdiff.util import maybe
 
 
 def test_plain_modification_is_one_frame_one_flatfile_bay() -> None:
@@ -27,15 +28,15 @@ def test_plain_modification_is_one_frame_one_flatfile_bay() -> None:
     chrome merely because its contents differ.
     """
     context = ComposeContext.build(
-        left_path="m.py",
-        right_path="m.py",
+        left_path=maybe("m.py"),
+        right_path=maybe("m.py"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     left = b"a = 1\nb = 2\nc = 3\n"
     right = b"a = 1\nb = 20\nc = 3\n"
-    composed = Composer().compose(left, right, context)
+    composed = Composer().compose(maybe(left), maybe(right), context)
 
     assert len(composed["frames"]) == 1
     frame = composed["frames"][0]
@@ -63,15 +64,15 @@ def test_hunk_indexes_are_gapless_and_mark_only_run_starts() -> None:
     carry `None`; no File-wide renumbering is allowed.
     """
     context = ComposeContext.build(
-        left_path="m.txt",
-        right_path="m.txt",
+        left_path=maybe("m.txt"),
+        right_path=maybe("m.txt"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     left = b"1\n2\n3\n4\n5\n6\n7\n"
     right = b"1\nX\n3\n4\nY\n6\n7\n"
-    composed = Composer().compose(left, right, context)
+    composed = Composer().compose(maybe(left), maybe(right), context)
     content = composed["frames"][0]["bays"][0]["kind_data"]
     assert content["kind"] == "text"
     rows = content["rows"]
@@ -90,14 +91,14 @@ def test_identical_content_has_no_hunks() -> None:
     synthetic navigation stop.
     """
     context = ComposeContext.build(
-        left_path="s.txt",
-        right_path="s.txt",
+        left_path=maybe("s.txt"),
+        right_path=maybe("s.txt"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     same = b"unchanged\ncontent\n"
-    composed = Composer().compose(same, same, context)
+    composed = Composer().compose(maybe(same), maybe(same), context)
     content = composed["frames"][0]["bays"][0]["kind_data"]
     assert content["kind"] == "text"
     rows = content["rows"]
@@ -113,13 +114,13 @@ def test_added_file_has_left_absent_and_right_present() -> None:
     rows are not the authority for File existence.
     """
     context = ComposeContext.build(
-        left_path=None,
-        right_path="n.txt",
+        left_path=maybe(None),
+        right_path=maybe("n.txt"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    composed = Composer().compose(None, b"new file\n", context)
+    composed = Composer().compose(maybe(None), maybe(b"new file\n"), context)
     assert composed["summary"]["left_exists"] is False
     assert composed["summary"]["right_exists"] is True
 
@@ -132,13 +133,13 @@ def test_deleted_file_has_right_absent() -> None:
     deletion rows.
     """
     context = ComposeContext.build(
-        left_path="g.txt",
-        right_path=None,
+        left_path=maybe("g.txt"),
+        right_path=maybe(None),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    composed = Composer().compose(b"gone\n", None, context)
+    composed = Composer().compose(maybe(b"gone\n"), maybe(None), context)
     assert composed["summary"]["left_exists"] is True
     assert composed["summary"]["right_exists"] is False
 
@@ -151,15 +152,15 @@ def test_summary_aggregates_bay_stats_for_single_bay() -> None:
     separate captured-input calculation.
     """
     context = ComposeContext.build(
-        left_path="a.txt",
-        right_path="a.txt",
+        left_path=maybe("a.txt"),
+        right_path=maybe("a.txt"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
     left = b"keep\ndrop\n"
     right = b"keep\nadd1\nadd2\n"
-    composed = Composer().compose(left, right, context)
+    composed = Composer().compose(maybe(left), maybe(right), context)
     stats_content = composed["frames"][0]["bays"][0]["kind_data"]
     assert stats_content["kind"] == "text"
     bay_stats = stats_content["stats"]
@@ -182,13 +183,15 @@ def test_one_binary_side_sends_the_whole_file_to_the_blob_terminal() -> None:
     what a reviewer reads is the size and digest changing, line by line.
     """
     context = ComposeContext.build(
-        left_path="b.bin",
-        right_path="b.bin",
+        left_path=maybe("b.bin"),
+        right_path=maybe("b.bin"),
         left_label="old",
         right_label="new",
         renderer=TextDiffEngine(),
     )
-    composed = Composer().compose(b"ok\n", b"bad\x00byte", context)
+    composed = Composer().compose(
+        maybe(b"ok\n"), maybe(b"bad\x00byte"), context
+    )
     bay = composed["frames"][0]["bays"][0]
     content = bay["kind_data"]
     assert content["kind"] == "text"
@@ -232,12 +235,14 @@ def test_bays_is_engine_free_and_yields_decoded_sides() -> None:
     can recompute bay keys and read origin content with no engine in reach.
     """
     context = BayContext(
-        left_path="c.py",
-        right_path="c.py",
+        left_path=maybe("c.py"),
+        right_path=maybe("c.py"),
         left_label="old",
         right_label="new",
     )
-    produced = list(Composer().bays(b"before\n", b"after\n", context))
+    produced = list(
+        Composer().bays(maybe(b"before\n"), maybe(b"after\n"), context)
+    )
     assert len(produced) == 1
     bay = produced[0]
     assert isinstance(bay, TextBay)

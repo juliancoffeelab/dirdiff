@@ -54,6 +54,7 @@ from dirdiff.formats.base import (
     image_kind_payload,
     text_kind_payload,
 )
+from dirdiff.util import Nothing, Option, Some
 
 __all__ = ["Composer", "read_captured_link", "write_captured_link"]
 
@@ -89,8 +90,8 @@ class Composer:
 
     def bays(
         self,
-        left: bytes | None,
-        right: bytes | None,
+        left: Option[bytes],
+        right: Option[bytes],
         context: BayContext,
     ) -> Iterator[Bay]:
         """Yield every bay this File composes into, in document order.
@@ -110,7 +111,7 @@ class Composer:
 
         # Parameters
 
-        - `left`: Captured old bytes, or `None` when that side is absent.
+        - `left`: Captured old bytes, or `Nothing` when that side is absent.
         - `right`: Captured new bytes under the same convention.
         - `context`: Paths and labels used for classification and bay content.
 
@@ -135,13 +136,13 @@ class Composer:
         - Unexpected parser failures propagate during iteration.
         """
 
-        if context.left_link is not None or context.right_link is not None:
+        if Some.present(context.left_link) or Some.present(context.right_link):
             yield from symlink_bays(left, right, context)
             return
 
         # Classification belongs to this one dispatch. Keeping it local makes
         # the `match` below the only top-level format-selection operation.
-        def path_claim(path: str) -> tuple[FileFormat, str | None]:
+        def path_claim(path: str) -> tuple[FileFormat, Option[str]]:
             """Return one path's strongest format claim and media type.
 
             # Returns
@@ -150,25 +151,21 @@ class Composer:
             - Second, its declared media type when image/blob needs one.
             """
             if path.lower().endswith(".ipynb"):
-                return "notebook", None
+                return "notebook", Nothing()
             image_type = image_media_type(path)
-            if image_type is not None:
+            if Some.present(image_type):
                 return "image", image_type
             blob_type = blob_media_type(path)
-            if blob_type is not None:
+            if Some.present(blob_type):
                 return "blob", blob_type
-            return "text", None
+            return "text", Nothing()
 
-        left_claim = (
-            None if context.left_path is None else path_claim(context.left_path)
-        )
-        right_claim = (
-            None
-            if context.right_path is None
-            else path_claim(context.right_path)
-        )
+        left_claim = context.left_path.map(path_claim)
+        right_claim = context.right_path.map(path_claim)
         present_claims = [
-            claim for claim in (left_claim, right_claim) if claim is not None
+            claim.value
+            for claim in (left_claim, right_claim)
+            if Some.present(claim)
         ]
         assert len(present_claims) > 0, (
             "a File pair always has at least one path"
@@ -178,15 +175,15 @@ class Composer:
             if all(claim[0] == present_claims[0][0] for claim in present_claims)
             else "text"
         )
-        left_media_type = None if left_claim is None else left_claim[1]
-        right_media_type = None if right_claim is None else right_claim[1]
+        left_media_type = left_claim.and_then(lambda claim: claim[1])
+        right_media_type = right_claim.and_then(lambda claim: claim[1])
         match format_name:
             case "notebook":
                 yield from notebook_bays(left, right, context)
                 return
             case "image":
-                if left is None and right is None:
-                    yield from flatfile_bays(None, None, context)
+                if not Some.present(left) and not Some.present(right):
+                    yield from flatfile_bays(Nothing(), Nothing(), context)
                     return
                 yield from image_bays(
                     left,
@@ -212,8 +209,8 @@ class Composer:
 
     def compose(
         self,
-        left: bytes | None,
-        right: bytes | None,
+        left: Option[bytes],
+        right: Option[bytes],
         context: ComposeContext,
     ) -> ComposedFilePayload:
         """Compose the whole envelope except its two attached fields.
@@ -227,7 +224,7 @@ class Composer:
 
         # Parameters
 
-        - `left`: Captured old bytes, or `None` when absent.
+        - `left`: Captured old bytes, or `Nothing` when absent.
         - `right`: Captured new bytes under the same convention.
         - `context`: Bay inputs plus the selected text renderer.
 
@@ -297,8 +294,8 @@ class Composer:
             "added_lines": 0,
             "removed_lines": 0,
             "moved_lines": 0,
-            "left_exists": left is not None,
-            "right_exists": right is not None,
+            "left_exists": Some.present(left),
+            "right_exists": Some.present(right),
         }
         # Only text bays hold line counts. An image bay contributes nothing to a
         # line summary because it has no lines, and inventing a count for it
@@ -318,8 +315,8 @@ class Composer:
         return {
             "left_label": context.bays.left_label,
             "right_label": context.bays.right_label,
-            "left_path": context.bays.left_path,
-            "right_path": context.bays.right_path,
+            "left_path": context.bays.left_path.get(),
+            "right_path": context.bays.right_path.get(),
             "summary": summary,
             "default_expanded": True,
             "frames": frames,
@@ -330,8 +327,8 @@ class Composer:
 # builder. Only composer.py may import modules under _composer; the leaves cannot
 # import each other.
 def symlink_bays(
-    left: bytes | None,
-    right: bytes | None,
+    left: Option[bytes],
+    right: Option[bytes],
     context: BayContext,
 ) -> Iterator[Bay]:
     """Compose one link File through independent private format leaves.
@@ -343,7 +340,7 @@ def symlink_bays(
 
     # Parameters
 
-    - `left`: Raw old-side bytes, or `None` when that side is absent.
+    - `left`: Raw old-side bytes, or `Nothing` when that side is absent.
     - `right`: Raw new-side bytes under the same convention.
     - `context`: File paths, labels, and captured link facts for both sides.
 
@@ -360,7 +357,7 @@ def symlink_bays(
     left_target_path = target_context.left_path
     right_target_path = target_context.right_path
 
-    def path_claim(path: str) -> tuple[FileFormat, str | None]:
+    def path_claim(path: str) -> tuple[FileFormat, Option[str]]:
         """Return one final target path's format and declared media type.
 
         # Returns
@@ -369,23 +366,21 @@ def symlink_bays(
         - Second, its declared media type when image/blob needs one.
         """
         if path.lower().endswith(".ipynb"):
-            return "notebook", None
+            return "notebook", Nothing()
         image_type = image_media_type(path)
-        if image_type is not None:
+        if Some.present(image_type):
             return "image", image_type
         blob_type = blob_media_type(path)
-        if blob_type is not None:
+        if Some.present(blob_type):
             return "blob", blob_type
-        return "text", None
+        return "text", Nothing()
 
-    left_claim = (
-        None if left_target_path is None else path_claim(left_target_path)
-    )
-    right_claim = (
-        None if right_target_path is None else path_claim(right_target_path)
-    )
+    left_claim = left_target_path.map(path_claim)
+    right_claim = right_target_path.map(path_claim)
     present_claims = [
-        claim for claim in (left_claim, right_claim) if claim is not None
+        claim.value
+        for claim in (left_claim, right_claim)
+        if Some.present(claim)
     ]
     assert len(present_claims) > 0, "reached content always has a target path"
     format_name: FileFormat = (
@@ -393,8 +388,8 @@ def symlink_bays(
         if all(claim[0] == present_claims[0][0] for claim in present_claims)
         else "text"
     )
-    left_media_type = None if left_claim is None else left_claim[1]
-    right_media_type = None if right_claim is None else right_claim[1]
+    left_media_type = left_claim.and_then(lambda claim: claim[1])
+    right_media_type = right_claim.and_then(lambda claim: claim[1])
 
     if format_name == "image":
         picture = next(
@@ -423,18 +418,10 @@ def symlink_bays(
             yield symlink_target_bay(bay)
         return
     if format_name == "notebook":
-        left_document = (
-            None
-            if left_target is None
-            else try_load_notebook_document(left_target)
-        )
-        right_document = (
-            None
-            if right_target is None
-            else try_load_notebook_document(right_target)
-        )
-        if (left_target is None or left_document is not None) and (
-            right_target is None or right_document is not None
+        left_document = left_target.and_then(try_load_notebook_document)
+        right_document = right_target.and_then(try_load_notebook_document)
+        if (not Some.present(left_target) or Some.present(left_document)) and (
+            not Some.present(right_target) or Some.present(right_document)
         ):
 
             def notebook_script(document: NotebookDocument) -> bytes:
@@ -467,16 +454,8 @@ def symlink_bays(
                     blocks.append(f"# %% [invalid]\n{body}")
                 return (("\n\n".join(blocks) + "\n") if blocks else "").encode()
 
-            left_script = (
-                None
-                if left_document is None
-                else notebook_script(left_document)
-            )
-            right_script = (
-                None
-                if right_document is None
-                else notebook_script(right_document)
-            )
+            left_script = left_document.map(notebook_script)
+            right_script = right_document.map(notebook_script)
             left_script = nested_symlink_target_document(
                 left_script,
                 context.left_link,
@@ -488,8 +467,8 @@ def symlink_bays(
                 right_target_path,
             )
             script_context = BayContext(
-                left_path=None if left_script is None else "target.py",
-                right_path=None if right_script is None else "target.py",
+                left_path=left_script.map(lambda _: "target.py"),
+                right_path=right_script.map(lambda _: "target.py"),
                 left_label=context.left_label,
                 right_label=context.right_label,
             )

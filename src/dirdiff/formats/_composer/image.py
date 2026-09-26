@@ -38,6 +38,7 @@ from dirdiff.formats.base import (
     media_facts,
     whole_file_change,
 )
+from dirdiff.util import Nothing, Option, Some
 
 __all__ = [
     "image_bays",
@@ -67,26 +68,23 @@ more than a picture of it does.
 """
 
 
-def image_media_type(path: str | None) -> str | None:
-    """Return the media type this path claims to be, or `None` if not an image.
+def image_media_type(path: str) -> Option[str]:
+    """Return the media type this path claims to be, or `Nothing` if not an image.
 
     Classification is by filename extension, matched case-insensitively. That is
     what the repository asserts the file is, and for a review tool showing a
     reviewer what a repository contains it is the honest answer: a `.png` whose
     bytes are a JPEG is a fact about the repository, not about this function.
 
-    An absent path is not an image, which is how a side the File does not have
-    answers.
-
     # Usage
 
     `Composer.bays` calls this for each present path. Pass a returned media type
-    to `image_bays`; `None` leaves the path available to later classifiers.
+    to `image_bays`; `Nothing` leaves the path available to later classifiers.
 
     # Returns
 
-    - `str`: The browser-native media type declared by the path's image suffix.
-    - `None`: The path is absent or has no supported image suffix. The caller
+    - `Some[str]`: The browser-native media type declared by the path's image suffix.
+    - `Nothing`: The path has no supported image suffix. The caller
       must continue format classification.
     """
     # TODO: extension matching is the simple answer and it is wrong for a file
@@ -95,22 +93,20 @@ def image_media_type(path: str | None) -> str | None:
     # two, and a third-party library such as `filetype` or `puremagic` would
     # settle all three. Neither is worth a dependency until a real review runs
     # into it; when one does, this function is the only thing that changes.
-    if path is None:
-        return None
     lowered = path.lower()
     for suffix, media_type in _IMAGE_MEDIA_TYPES.items():
         if lowered.endswith(suffix):
-            return media_type
-    return None
+            return Some(media_type)
+    return Nothing()
 
 
 def image_bays(
-    left: bytes | None,
-    right: bytes | None,
+    left: Option[bytes],
+    right: Option[bytes],
     context: BayContext,
     *,
-    left_media_type: str | None,
-    right_media_type: str | None,
+    left_media_type: Option[str],
+    right_media_type: Option[str],
 ) -> Iterator[Bay]:
     """Yield the picture, parsed metadata, and byte-facts bays for an image File.
 
@@ -130,7 +126,7 @@ def image_bays(
 
     # Parameters
 
-    - `left`: Captured old image bytes, or `None` for an absent side.
+    - `left`: Captured old image bytes, or `Nothing` for an absent side.
     - `right`: Captured new image bytes under the same convention.
     - `context`: Paths and labels for the resulting image and text bays.
     - `left_media_type`: Type already concluded from the old path. Required
@@ -159,9 +155,9 @@ def image_bays(
     """
 
     def metadata(
-        side: MediaSide | None,
+        side: Option[MediaSide],
         side_label: str,
-    ) -> tuple[str | None, tuple[BayWarning, ...]]:
+    ) -> tuple[Option[str], tuple[BayWarning, ...]]:
         """Read bounded dimensions and EXIF text for one captured image side.
 
         Failure to open or read the image returns an empty text side with a
@@ -172,7 +168,7 @@ def image_bays(
 
         # Parameters
 
-        - `side`: Captured bytes and declared type, or `None` when absent.
+        - `side`: Captured bytes and declared type, or `Nothing` when absent.
         - `side_label`: Reviewer-facing side name used in warning messages.
 
         # Usage
@@ -184,15 +180,15 @@ def image_bays(
 
         - `First`: Dimension and EXIF rows for a readable side; an unreadable
           present image returns `""` and a warning.
-        - `None`: The first item is absent when the File has no side here, so the
+        - `Nothing`: The first item is absent when the File has no side here, so the
           metadata bay must preserve side absence.
         - `Second`: Warnings for unreadable metadata or omitted EXIF values, in
           discovery order.
         """
-        if side is None:
-            return None, ()
+        if not Some.present(side):
+            return Nothing(), ()
         try:
-            with Image.open(BytesIO(side.data)) as image:
+            with Image.open(BytesIO(side.value.data)) as image:
                 rows = [
                     f"width: {image.width} px",
                     f"height: {image.height} px",
@@ -232,14 +228,14 @@ def image_bays(
                         )
                         continue
                     rows.append(f"exif:{tag}: {rendered}")
-                return "\n".join(rows), tuple(warnings)
+                return Some("\n".join(rows)), tuple(warnings)
         except (
             OSError,
             SyntaxError,
             ValueError,
             Image.DecompressionBombError,
         ) as error:
-            return "", (
+            return Some(""), (
                 {
                     "type": "image_decode_failed",
                     "message": (
@@ -249,19 +245,12 @@ def image_bays(
                 },
             )
 
-    left_side: MediaSide | None = None
-    if left is not None:
-        assert left_media_type is not None, (
-            "an image File's captured left side must have a media type"
-        )
-        left_side = MediaSide(media_type=left_media_type, data=left)
-    right_side: MediaSide | None = None
-    if right is not None:
-        assert right_media_type is not None, (
-            "an image File's captured right side must have a media type"
-        )
-        right_side = MediaSide(media_type=right_media_type, data=right)
-
+    left_side = left.map(
+        lambda data: MediaSide(media_type=left_media_type.must(), data=data)
+    )
+    right_side = right.map(
+        lambda data: MediaSide(media_type=right_media_type.must(), data=data)
+    )
     # One frame, and nothing to name above a File that is entirely one picture,
     # so both bays are keyed "file" and carry no heading, exactly as a
     # flatfile's one bay does.
@@ -293,21 +282,21 @@ def image_bays(
         left_label=context.left_label,
         right_label=context.right_label,
         left=DiffSide(
-            exists=left_side is not None,
-            text=left_metadata,
+            exists=Some.present(left_side),
+            text=left_metadata.get(),
             path_hint=MEDIA_FACTS_PATH_HINT,
         ),
         right=DiffSide(
-            exists=right_side is not None,
-            text=right_metadata,
+            exists=Some.present(right_side),
+            text=right_metadata.get(),
             path_hint=MEDIA_FACTS_PATH_HINT,
         ),
         warnings=(*left_warnings, *right_warnings),
     )
 
     # And finally, generic file data, like file size
-    left_facts = media_facts(left_side)
-    right_facts = media_facts(right_side)
+    left_facts = left_side.map(media_facts)
+    right_facts = right_side.map(media_facts)
     yield TextBay(
         frame_key="file",
         heading=None,
@@ -320,13 +309,13 @@ def image_bays(
         left_label=context.left_label,
         right_label=context.right_label,
         left=DiffSide(
-            exists=left_side is not None,
-            text=left_facts,
+            exists=Some.present(left_side),
+            text=left_facts.get(),
             path_hint=MEDIA_FACTS_PATH_HINT,
         ),
         right=DiffSide(
-            exists=right_side is not None,
-            text=right_facts,
+            exists=Some.present(right_side),
+            text=right_facts.get(),
             path_hint=MEDIA_FACTS_PATH_HINT,
         ),
     )

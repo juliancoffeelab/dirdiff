@@ -13,6 +13,7 @@ import json
 from dirdiff.change_source import CapturedLink
 from dirdiff.engines import TextDiffEngine
 from dirdiff.formats import ComposeContext, Composer
+from dirdiff.util import maybe
 
 
 def test_link_payload_precedes_one_collapsed_text_target() -> None:
@@ -23,24 +24,28 @@ def test_link_payload_precedes_one_collapsed_text_target() -> None:
     and remains collapsed without losing the reached text.
     """
     composed = Composer().compose(
-        b"before-hop",
-        b"after-hop",
+        maybe(b"before-hop"),
+        maybe(b"after-hop"),
         ComposeContext.build(
-            left_path="guide",
-            right_path="guide",
+            left_path=maybe("guide"),
+            right_path=maybe("guide"),
             left_label="old",
             right_label="new",
-            left_link=CapturedLink(
-                nested_links=(("before-hop", "before.txt"),),
-                diagnosis=None,
-                target_path="before.txt",
-                target_data=b"old guidance\n",
+            left_link=maybe(
+                CapturedLink(
+                    nested_links=(("before-hop", "before.txt"),),
+                    diagnosis=maybe(None),
+                    target_path=maybe("before.txt"),
+                    target_data=maybe(b"old guidance\n"),
+                )
             ),
-            right_link=CapturedLink(
-                nested_links=(("after-hop", "after.txt"),),
-                diagnosis=None,
-                target_path="after.txt",
-                target_data=b"new guidance\n",
+            right_link=maybe(
+                CapturedLink(
+                    nested_links=(("after-hop", "after.txt"),),
+                    diagnosis=maybe(None),
+                    target_path=maybe("after.txt"),
+                    target_data=maybe(b"new guidance\n"),
+                )
             ),
             renderer=TextDiffEngine(),
         ),
@@ -77,24 +82,28 @@ def test_broken_link_puts_diagnosis_in_synthetic_target() -> None:
     link's exact payload with repository paths and arrows.
     """
     composed = Composer().compose(
-        b"missing-before",
-        b"missing-after",
+        maybe(b"missing-before"),
+        maybe(b"missing-after"),
         ComposeContext.build(
-            left_path="guide",
-            right_path="guide",
+            left_path=maybe("guide"),
+            right_path=maybe("guide"),
             left_label="old",
             right_label="new",
-            left_link=CapturedLink(
-                nested_links=(),
-                diagnosis="stopped: missing target",
-                target_path=None,
-                target_data=None,
+            left_link=maybe(
+                CapturedLink(
+                    nested_links=(),
+                    diagnosis=maybe("stopped: missing target"),
+                    target_path=maybe(None),
+                    target_data=maybe(None),
+                )
             ),
-            right_link=CapturedLink(
-                nested_links=(),
-                diagnosis="stopped: missing target",
-                target_path=None,
-                target_data=None,
+            right_link=maybe(
+                CapturedLink(
+                    nested_links=(),
+                    diagnosis=maybe("stopped: missing target"),
+                    target_path=maybe(None),
+                    target_data=maybe(None),
+                )
             ),
             renderer=TextDiffEngine(),
         ),
@@ -153,24 +162,28 @@ def test_notebook_target_flattens_cells_and_omits_outputs() -> None:
         b"value = 1", b"value = 2"
     )
     composed = Composer().compose(
-        b"before.ipynb",
-        b"after.ipynb",
+        maybe(b"before.ipynb"),
+        maybe(b"after.ipynb"),
         ComposeContext.build(
-            left_path="analysis",
-            right_path="analysis",
+            left_path=maybe("analysis"),
+            right_path=maybe("analysis"),
             left_label="old",
             right_label="new",
-            left_link=CapturedLink(
-                nested_links=(),
-                diagnosis=None,
-                target_path="before.ipynb",
-                target_data=old_notebook,
+            left_link=maybe(
+                CapturedLink(
+                    nested_links=(),
+                    diagnosis=maybe(None),
+                    target_path=maybe("before.ipynb"),
+                    target_data=maybe(old_notebook),
+                )
             ),
-            right_link=CapturedLink(
-                nested_links=(),
-                diagnosis=None,
-                target_path="after.ipynb",
-                target_data=new_notebook,
+            right_link=maybe(
+                CapturedLink(
+                    nested_links=(),
+                    diagnosis=maybe(None),
+                    target_path=maybe("after.ipynb"),
+                    target_data=maybe(new_notebook),
+                )
             ),
             renderer=TextDiffEngine(),
         ),

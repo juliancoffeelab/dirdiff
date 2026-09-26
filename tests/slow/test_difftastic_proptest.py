@@ -156,8 +156,8 @@ def _current_diff_cases() -> list[WorktreeCase]:
         # or acquisition failed drops out of this changing corpus.
         loaded = source.load((entry,))[0]
         left_loaded, right_loaded = loaded.left, loaded.right
-        left_content = b"" if left_loaded is None else left_loaded.content
-        right_content = b"" if right_loaded is None else right_loaded.content
+        left_content = left_loaded.map(lambda side: side.content).get_or(b"")
+        right_content = right_loaded.map(lambda side: side.content).get_or(b"")
         if isinstance(left_content, DirdiffError):
             continue
         if isinstance(right_content, DirdiffError):
@@ -178,15 +178,11 @@ def _current_diff_cases() -> list[WorktreeCase]:
         # there is no diff to check.
         if left_text == right_text:
             continue
-        left_name = (
-            entry.left.key.path
-            if entry.left is not None
-            else entry.display_name
+        left_name = entry.left.map(lambda side: side.key.path).get_or(
+            entry.display_name
         )
-        right_name = (
-            entry.right.key.path
-            if entry.right is not None
-            else entry.display_name
+        right_name = entry.right.map(lambda side: side.key.path).get_or(
+            entry.display_name
         )
         cases.append(
             {

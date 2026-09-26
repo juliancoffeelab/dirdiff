@@ -53,6 +53,7 @@ from dirdiff.change_source.base import (
     git_executable,
 )
 from dirdiff.engines import DirdiffError
+from dirdiff.util import maybe
 
 __all__ = [
     "GitChangeSource",
@@ -962,7 +963,7 @@ class _GitWorkspace(WorkspaceStorageProtocol):
                     left_path=left_path,
                     right_path=right_path,
                     display_name=display_name_for_repo_paths(
-                        left_path, right_path
+                        maybe(left_path), maybe(right_path)
                     ),
                     change_type=change_type,
                     lazy_reason_override=(

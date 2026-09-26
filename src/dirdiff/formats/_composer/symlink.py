@@ -36,6 +36,7 @@ from dirdiff.formats.base import (
     try_decode_text,
     whole_file_change,
 )
+from dirdiff.util import Nothing, Option, Some
 
 __all__ = [
     "nested_symlink_target_document",
@@ -68,8 +69,8 @@ def write_captured_link(
     link: CapturedLink,
     *,
     metadata_path: Path,
-    target_capture_path: Path | None,
-) -> tuple[bytes, bytes | None]:
+    target_capture_path: Option[Path],
+) -> tuple[bytes, Option[bytes]]:
     """Persist one link capture at publication-selected sidecar paths.
 
     Metadata holds nested links, any diagnosis, the final repository path, and
@@ -83,46 +84,41 @@ def write_captured_link(
     - `link`: Complete immutable chain and optional final target to persist.
     - `metadata_path`: Exact unpublished path receiving the JSON metadata.
     - `target_capture_path`: Exact unpublished path receiving reached target
-      bytes, or `None` for a stopped walk. Its presence must match target bytes.
+      bytes, or `Nothing` for a stopped walk. Its presence must match target bytes.
 
     # Returns
 
     - First, the SHA-256 digest of the exact metadata bytes written.
-    - Second, the SHA-256 digest of target bytes, or `None` when no target was
+    - Second, the SHA-256 digest of target bytes, or `Nothing` when no target was
       reached. The caller persists both beside their final physical paths.
     """
     assert metadata_path.is_absolute(), (
         f"Snapshot link metadata path must be absolute: {metadata_path}"
     )
-    assert (target_capture_path is None) == (link.target_data is None), (
-        "Snapshot link target path and bytes must have equal presence"
-    )
-    if target_capture_path is not None:
-        assert target_capture_path.is_absolute(), (
+    assert Some.present(target_capture_path) == Some.present(
+        link.target_data
+    ), "Snapshot link target path and bytes must have equal presence"
+    if Some.present(target_capture_path):
+        assert target_capture_path.value.is_absolute(), (
             "Snapshot link target capture path must be absolute: "
-            f"{target_capture_path}"
+            f"{target_capture_path.value}"
         )
     metadata_data = json.dumps(
         {
             "nested_links": link.nested_links,
-            "diagnosis": link.diagnosis,
-            "target_path": link.target_path,
+            "diagnosis": link.diagnosis.get(),
+            "target_path": link.target_path.get(),
         },
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
     metadata_path.write_bytes(metadata_data)
-    if link.target_data is not None:
-        assert target_capture_path is not None
-        target_capture_path.write_bytes(link.target_data)
+    if Some.present(link.target_data):
+        target_capture_path.must().write_bytes(link.target_data.value)
     return (
         hashlib.sha256(metadata_data).digest(),
-        (
-            hashlib.sha256(link.target_data).digest()
-            if link.target_data is not None
-            else None
-        ),
+        link.target_data.map(lambda data: hashlib.sha256(data).digest()),
     )
 
 
@@ -130,8 +126,8 @@ def read_captured_link(
     *,
     metadata_path: Path,
     metadata_hash: bytes,
-    target_capture_path: Path | None,
-    target_hash: bytes | None,
+    target_capture_path: Option[Path],
+    target_hash: Option[bytes],
 ) -> CapturedLink:
     """Read one link capture from its authoritative relational paths.
 
@@ -146,7 +142,7 @@ def read_captured_link(
     - `metadata_path`: Exact absolute JSON sidecar path stored in the database.
     - `metadata_hash`: Stored SHA-256 digest of that JSON byte sequence.
     - `target_capture_path`: Exact absolute target-content path stored in the
-      database, or `None` for a stopped walk.
+      database, or `Nothing` for a stopped walk.
     - `target_hash`: Stored SHA-256 target digest with the same presence.
 
     # Returns
@@ -160,7 +156,7 @@ def read_captured_link(
     assert len(metadata_hash) == 32, (
         "Snapshot link metadata hash must have length 32"
     )
-    assert (target_capture_path is None) == (target_hash is None), (
+    assert Some.present(target_capture_path) == Some.present(target_hash), (
         "Snapshot link target path and hash must have equal presence"
     )
     metadata_data = metadata_path.read_bytes()
@@ -187,14 +183,14 @@ def read_captured_link(
         f"invalid Snapshot link diagnosis: {metadata_path}"
     )
     if captured_path is None:
-        assert diagnosis is not None and target_capture_path is None, (
-            f"failed Snapshot link carries target bytes: {metadata_path}"
-        )
+        assert diagnosis is not None and not Some.present(
+            target_capture_path
+        ), f"failed Snapshot link carries target bytes: {metadata_path}"
         return CapturedLink(
             nested_links=tuple((item[0], item[1]) for item in nested_links),
-            diagnosis=diagnosis,
-            target_path=None,
-            target_data=None,
+            diagnosis=Some(diagnosis),
+            target_path=Nothing(),
+            target_data=Nothing(),
         )
     assert diagnosis is None, (
         f"successful Snapshot link carries a diagnosis: {metadata_path}"
@@ -202,25 +198,25 @@ def read_captured_link(
     assert isinstance(captured_path, str) and captured_path != "", (
         f"invalid Snapshot link target path: {metadata_path}"
     )
-    assert target_capture_path is not None and target_hash is not None, (
+    assert Some.present(target_capture_path) and Some.present(target_hash), (
         f"successful Snapshot link has no target bytes: {metadata_path}"
     )
-    assert target_capture_path.is_absolute(), (
+    assert target_capture_path.value.is_absolute(), (
         "Snapshot link target capture path must be absolute: "
-        f"{target_capture_path}"
+        f"{target_capture_path.value}"
     )
-    assert len(target_hash) == 32, (
+    assert len(target_hash.value) == 32, (
         "Snapshot link target hash must have length 32"
     )
-    target_data = target_capture_path.read_bytes()
-    assert hashlib.sha256(target_data).digest() == target_hash, (
-        f"Snapshot link target hash mismatch: {target_capture_path}"
+    target_data = target_capture_path.value.read_bytes()
+    assert hashlib.sha256(target_data).digest() == target_hash.value, (
+        f"Snapshot link target hash mismatch: {target_capture_path.value}"
     )
     return CapturedLink(
         nested_links=tuple((item[0], item[1]) for item in nested_links),
-        diagnosis=None,
-        target_path=captured_path,
-        target_data=target_data,
+        diagnosis=Nothing(),
+        target_path=Some(captured_path),
+        target_data=Some(target_data),
     )
 
 
@@ -239,19 +235,19 @@ class SymlinkComposition:
     link_bay: TextBay
     """Visible bay containing only the exact outer-link payload."""
 
-    left_target: bytes | None
-    """Normalized old target bytes, or `None` when that side is absent."""
+    left_target: Option[bytes]
+    """Normalized old target bytes, or `Nothing` when that side is absent."""
 
-    right_target: bytes | None
-    """Normalized new target bytes, or `None` when that side is absent."""
+    right_target: Option[bytes]
+    """Normalized new target bytes, or `Nothing` when that side is absent."""
 
     target_context: BayContext
     """Reached target paths and original side labels used for classification."""
 
 
 def symlink_composition(
-    left: bytes | None,
-    right: bytes | None,
+    left: Option[bytes],
+    right: Option[bytes],
     context: BayContext,
 ) -> SymlinkComposition:
     """Build link-specific facts before `Composer` selects a target builder.
@@ -264,7 +260,7 @@ def symlink_composition(
 
     # Parameters
 
-    - `left`: Raw old-side bytes, or `None` when that side is absent.
+    - `left`: Raw old-side bytes, or `Nothing` when that side is absent.
     - `right`: Raw new-side bytes under the same convention.
     - `context`: File paths, labels, and captured link facts for both sides.
 
@@ -273,9 +269,9 @@ def symlink_composition(
     - A visible outer-link bay plus the normalized target pair that the caller
       must pass to exactly one independent format builder.
     """
-    assert context.left_link is not None or context.right_link is not None, (
-        "link composition requires captured link facts"
-    )
+    assert Some.present(context.left_link) or Some.present(
+        context.right_link
+    ), "link composition requires captured link facts"
 
     def link_payload(data: bytes) -> str:
         """Return one raw link payload as one safe reviewer-facing string."""
@@ -292,16 +288,16 @@ def symlink_composition(
             else json.dumps(target, ensure_ascii=False)
         )
 
-    if context.left_link is None:
-        left_payload = None
+    if not Some.present(context.left_link):
+        left_payload: Option[str] = Nothing()
     else:
-        assert left is not None
-        left_payload = link_payload(left)
-    if context.right_link is None:
-        right_payload = None
+        assert Some.present(left)
+        left_payload = left.map(link_payload)
+    if not Some.present(context.right_link):
+        right_payload: Option[str] = Nothing()
     else:
-        assert right is not None
-        right_payload = link_payload(right)
+        assert Some.present(right)
+        right_payload = right.map(link_payload)
     link_bay = TextBay(
         frame_key="file",
         heading=None,
@@ -314,69 +310,74 @@ def symlink_composition(
         left_label=context.left_label,
         right_label=context.right_label,
         left=DiffSide(
-            exists=left_payload is not None,
-            text=left_payload,
+            exists=Some.present(left_payload),
+            text=left_payload.get(),
             path_hint="link",
         ),
         right=DiffSide(
-            exists=right_payload is not None,
-            text=right_payload,
+            exists=Some.present(right_payload),
+            text=right_payload.get(),
             path_hint="link",
         ),
     )
 
-    def stopped_target(link: CapturedLink | None) -> bytes | None:
+    def stopped_target(link: Option[CapturedLink]) -> Option[bytes]:
         """Build the synthetic target document for one stopped link walk.
 
         # Parameters
 
-        - `link`: Captured link facts, or `None` for an ordinary side.
+        - `link`: Captured link facts, or `Nothing` for an ordinary side.
 
         # Returns
 
         - `bytes`: Comment-walled nested links and the terminal diagnosis.
-        - `None`: The side is ordinary or the link reached final content.
+        - `Nothing`: The side is ordinary or the link reached final content.
         """
-        if link is None or link.target_data is not None:
-            return None
-        assert link.diagnosis is not None
+        if not Some.present(link) or Some.present(link.value.target_data):
+            return Nothing()
+        assert Some.present(link.value.diagnosis)
         blocks = [
-            f"# %% {path}\n{payload}" for path, payload in link.nested_links
+            f"# %% {path}\n{payload}"
+            for path, payload in link.value.nested_links
         ]
-        blocks.append(f"# {link.diagnosis}")
-        return ("\n\n".join(blocks) + "\n").encode()
+        blocks.append(f"# {link.value.diagnosis.must()}")
+        return Some(("\n\n".join(blocks) + "\n").encode())
 
     left_stopped = stopped_target(context.left_link)
     right_stopped = stopped_target(context.right_link)
     left_target = (
         left
-        if context.left_link is None
+        if not Some.present(context.left_link)
         else (
-            context.left_link.target_data
-            if context.left_link.target_data is not None
+            context.left_link.value.target_data
+            if Some.present(context.left_link.value.target_data)
             else left_stopped
         )
     )
     right_target = (
         right
-        if context.right_link is None
+        if not Some.present(context.right_link)
         else (
-            context.right_link.target_data
-            if context.right_link.target_data is not None
+            context.right_link.value.target_data
+            if Some.present(context.right_link.value.target_data)
             else right_stopped
         )
     )
     left_target_path = (
         context.left_path
-        if context.left_link is None
-        else context.left_link.target_path or "symlink-target.py"
+        if not Some.present(context.left_link)
+        else Some(
+            context.left_link.value.target_path.get_or("symlink-target.py")
+        )
     )
     right_target_path = (
         context.right_path
-        if context.right_link is None
-        else context.right_link.target_path or "symlink-target.py"
+        if not Some.present(context.right_link)
+        else Some(
+            context.right_link.value.target_path.get_or("symlink-target.py")
+        )
     )
-    assert left_target is not None or right_target is not None, (
+    assert Some.present(left_target) or Some.present(right_target), (
         "a captured link always yields target content or a diagnosis"
     )
     return SymlinkComposition(
@@ -415,10 +416,10 @@ def symlink_target_bay(bay: Bay) -> Bay:
 
 
 def nested_symlink_target_document(
-    data: bytes | None,
-    link: CapturedLink | None,
-    final_path: str | None,
-) -> bytes | None:
+    data: Option[bytes],
+    link: Option[CapturedLink],
+    final_path: Option[str],
+) -> Option[bytes]:
     """Prepend nested link payloads to one synthetic textual target.
 
     Direct links need no wall: their target is already an ordinary File. A
@@ -429,25 +430,27 @@ def nested_symlink_target_document(
     # Parameters
 
     - `data`: Reached or already-flattened target bytes, if present.
-    - `link`: Captured link facts, or `None` for an ordinary side.
+    - `link`: Captured link facts, or `Nothing` for an ordinary side.
     - `final_path`: Repository path naming reached final content.
 
     # Returns
 
     - `bytes`: Original bytes, or the comment-walled synthetic document.
-    - `None`: No target bytes exist on this side.
+    - `Nothing`: No target bytes exist on this side.
     """
     if (
-        data is None
-        or link is None
-        or link.target_data is None
-        or link.nested_links == ()
+        not Some.present(data)
+        or not Some.present(link)
+        or not Some.present(link.value.target_data)
+        or link.value.nested_links == ()
     ):
         return data
-    decoded = try_decode_text(data)
+    decoded = try_decode_text(data.value)
     if isinstance(decoded, TextRejection):
         return data
-    assert final_path is not None
-    blocks = [f"# %% {path}\n{payload}" for path, payload in link.nested_links]
-    blocks.append(f"# %% {final_path}\n{decoded}")
-    return ("\n\n".join(blocks).rstrip("\n") + "\n").encode()
+    assert Some.present(final_path)
+    blocks = [
+        f"# %% {path}\n{payload}" for path, payload in link.value.nested_links
+    ]
+    blocks.append(f"# %% {final_path.value}\n{decoded}")
+    return Some(("\n\n".join(blocks).rstrip("\n") + "\n").encode())

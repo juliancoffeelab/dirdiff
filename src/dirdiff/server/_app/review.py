@@ -52,6 +52,7 @@ from dirdiff.server.base import (
     Responses,
     ReviewExcerptResponse,
 )
+from dirdiff.util import maybe
 
 __all__ = ["ReviewRoutes"]
 
@@ -96,7 +97,7 @@ class ReviewFilePairModel(ApiModel):
         - Raises `ValueError` when both sides are absent or a present path is not
           a normalized repository-relative POSIX name.
         """
-        FilePair(self.left_path, self.right_path)
+        FilePair(maybe(self.left_path), maybe(self.right_path))
         return self
 
 
@@ -1277,7 +1278,8 @@ class ReviewRoutes:
           invalid review target.
         """
         file = FilePair(
-            request.target.file.left_path, request.target.file.right_path
+            maybe(request.target.file.left_path),
+            maybe(request.target.file.right_path),
         )
         return TextTarget(
             file,

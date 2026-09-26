@@ -32,6 +32,7 @@ from dirdiff.server import (
     ComposedDiffResponse,
     create_app,
 )
+from dirdiff.util import Some
 
 
 def repo_mark_store() -> RepoMarkStore:
@@ -249,13 +250,13 @@ def test_composed_diff_response_accepts_real_composition() -> None:
     or `/api/file-diff` would 500 on validation for an ordinary text File.
     """
     context = ComposeContext.build(
-        left_path="a.py",
-        right_path="a.py",
+        left_path=Some("a.py"),
+        right_path=Some("a.py"),
         left_label="HEAD",
         right_label="worktree",
         renderer=TextDiffEngine(),
     )
-    composed = Composer().compose(b"x = 1\n", b"x = 2\n", context)
+    composed = Composer().compose(Some(b"x = 1\n"), Some(b"x = 2\n"), context)
     payload = dict(composed)
     payload["display_name"] = "a.py"
     payload["file_kind"] = {"type": "tracked", "status": "modified"}

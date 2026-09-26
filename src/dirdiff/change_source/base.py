@@ -28,6 +28,7 @@ from pathlib import PurePosixPath
 from typing import Literal, Protocol, TypedDict
 
 from dirdiff.engines import DirdiffError, git_executable
+from dirdiff.util import Nothing, Option, Some, maybe
 
 SideName = str
 """Internal name for one selected Git ref or preset fixture side.
@@ -846,8 +847,8 @@ class RefMetadata(TypedDict):
 
 
 def display_name_for_repo_paths(
-    left_path: str | None,
-    right_path: str | None,
+    left_path: Option[str],
+    right_path: Option[str],
 ) -> str:
     """Return the user-visible file label for a left/right repo path pair.
 
@@ -858,8 +859,8 @@ def display_name_for_repo_paths(
 
     # Parameters
 
-    - `left_path`: Repository-relative path on the left, or `None` when absent.
-    - `right_path`: Repository-relative path on the right, or `None` when absent.
+    - `left_path`: Repository-relative path on the left, or `Nothing()` when absent.
+    - `right_path`: Repository-relative path on the right, or `Nothing()` when absent.
 
     Both paths absent produces `(unknown)`. Valid source File pairs always
     supply at least one path, but this function also labels incomplete input
@@ -871,16 +872,16 @@ def display_name_for_repo_paths(
     builders also derive labels from captured side paths. Pass the complete
     side-path pair instead of choosing one path at the call site.
     """
-    if left_path is not None and right_path is not None:
+    if Some.present(left_path) and Some.present(right_path):
         return (
-            left_path
-            if left_path == right_path
-            else f"{left_path} -> {right_path}"
+            left_path.value
+            if left_path.value == right_path.value
+            else f"{left_path.value} -> {right_path.value}"
         )
-    if left_path is not None:
-        return left_path
-    if right_path is not None:
-        return right_path
+    if Some.present(left_path):
+        return left_path.value
+    if Some.present(right_path):
+        return right_path.value
     return "(unknown)"
 
 
@@ -1040,11 +1041,11 @@ class FileChange:
     presentation and Snapshot equality.
     """
 
-    left: FileSide | None
-    """Present left side, or `None` when this File was added."""
+    left: Option[FileSide]
+    """Present left side, or `Nothing()` when this File was added."""
 
-    right: FileSide | None
-    """Present right side, or `None` when this File was deleted."""
+    right: Option[FileSide]
+    """Present right side, or `Nothing()` when this File was deleted."""
 
     display_name: str
     """Source label for the File pair; never used to address either side."""
@@ -1074,9 +1075,11 @@ class FileChange:
 
     def __post_init__(self) -> None:
         """Reject missing sides and mismatched source slots at discovery."""
-        assert self.left is not None or self.right is not None
-        assert self.left is None or self.left.key.slot == "left"
-        assert self.right is None or self.right.key.slot == "right"
+        assert Some.present(self.left) or Some.present(self.right)
+        assert not Some.present(self.left) or self.left.value.key.slot == "left"
+        assert (
+            not Some.present(self.right) or self.right.value.key.slot == "right"
+        )
         assert (
             self.lazy_reason_content is None
             or self.lazy_reason_override is not None
@@ -1137,19 +1140,19 @@ class CapturedLink:
     `FileData.content`.
     """
 
-    diagnosis: str | None
+    diagnosis: Option[str]
     """Expected terminal failure, absent only when final bytes were reached."""
 
-    target_path: str | None
+    target_path: Option[str]
     """Canonical reached non-link path, absent when the walk stopped."""
 
-    target_data: bytes | None
+    target_data: Option[bytes]
     """Exact reached bytes, absent when the walk stopped with a diagnosis."""
 
     def __post_init__(self) -> None:
         """Reject incomplete terminal facts at the source-data boundary."""
-        assert (self.target_path is None) == (self.target_data is None)
-        assert (self.diagnosis is None) != (self.target_data is None)
+        assert Some.present(self.target_path) == Some.present(self.target_data)
+        assert Some.present(self.diagnosis) != Some.present(self.target_data)
         assert all(path != "" for path, _ in self.nested_links)
 
 
@@ -1166,8 +1169,8 @@ class LoadedSide:
     content: bytes
     """Exact materialized outer side; for a link, its raw target spelling."""
 
-    link: CapturedLink | None
-    """Walk facts for a link side, or `None` for a regular File or gitlink."""
+    link: Option[CapturedLink]
+    """Walk facts for a link side, or `Nothing()` for a regular File or gitlink."""
 
 
 @dataclass(frozen=True)
@@ -1199,12 +1202,14 @@ class FileData:
     referenced revision. No format decoding or diagnostic substitution occurs.
     """
 
-    link: CapturedLink | None
+    link: Option[CapturedLink]
     """Acquired link walk, absent for other kinds or a failed outer read."""
 
     def __post_init__(self) -> None:
         """Require successful outer data for reached-link facts."""
-        assert not isinstance(self.content, DirdiffError) or self.link is None
+        assert not isinstance(self.content, DirdiffError) or not Some.present(
+            self.link
+        )
 
 
 @dataclass(frozen=True)
@@ -1220,16 +1225,16 @@ class LoadedFile:
     change: FileChange
     """Exact observed input record, retaining side addresses and File metadata."""
 
-    left: FileData | None
-    """Outcome for `change.left`, or `None` only when that side is absent."""
+    left: Option[FileData]
+    """Outcome for `change.left`, or `Nothing()` only when that side is absent."""
 
-    right: FileData | None
-    """Outcome for `change.right`, or `None` only when that side is absent."""
+    right: Option[FileData]
+    """Outcome for `change.right`, or `Nothing()` only when that side is absent."""
 
     def __post_init__(self) -> None:
         """Reject acquired outcomes whose presence disagrees with observation."""
-        assert (self.left is None) == (self.change.left is None)
-        assert (self.right is None) == (self.change.right is None)
+        assert Some.present(self.left) == Some.present(self.change.left)
+        assert Some.present(self.right) == Some.present(self.change.right)
 
 
 StorageFile = tuple[str, SideName, FileProperties | None, str | None]
@@ -1273,7 +1278,7 @@ class ChangeSourceProtocol(Protocol):
 
     `loaded_files` contains paired `LoadedFile` results. Each result's `change`
     is the observed input record, and `left` and `right` hold its acquired data
-    or remain `None` for an absent side.
+    or remain `Nothing()` for an absent side.
 
     RoomLord calls `changes()` for equality facts and, when capture needs data,
     `load(changes.files)` for paired `LoadedFile` results. Keep the observed
@@ -1440,7 +1445,7 @@ def load_file_sides(
             continue
         assert properties is not None
         if properties.kind != "symbolic_link":
-            results.append(LoadedSide(content, None))
+            results.append(LoadedSide(content, Nothing()))
             continue
 
         visited: set[str] = set()
@@ -1462,9 +1467,9 @@ def load_file_sides(
                     nested_links.append((current_path, escaped))
                 link = CapturedLink(
                     tuple(nested_links),
-                    "stopped: link target is not UTF-8",
-                    None,
-                    None,
+                    Some("stopped: link target is not UTF-8"),
+                    Nothing(),
+                    Nothing(),
                 )
                 break
             displayed_target = (
@@ -1477,9 +1482,9 @@ def load_file_sides(
             if target == "" or "\x00" in target:
                 link = CapturedLink(
                     tuple(nested_links),
-                    "stopped: link target is empty or contains NUL",
-                    None,
-                    None,
+                    Some("stopped: link target is empty or contains NUL"),
+                    Nothing(),
+                    Nothing(),
                 )
                 break
             unresolved = str(PurePosixPath(current_path).parent / target)
@@ -1487,15 +1492,18 @@ def load_file_sides(
                 next_path = storage.normalize_repo_path(unresolved)
             except DirdiffError as exc:
                 link = CapturedLink(
-                    tuple(nested_links), f"stopped: {exc}", None, None
+                    tuple(nested_links),
+                    Some(f"stopped: {exc}"),
+                    Nothing(),
+                    Nothing(),
                 )
                 break
             if next_path in visited:
                 link = CapturedLink(
                     tuple(nested_links),
-                    f"loop: {next_path} was already visited",
-                    None,
-                    None,
+                    Some(f"loop: {next_path} was already visited"),
+                    Nothing(),
+                    Nothing(),
                 )
                 break
             try:
@@ -1507,33 +1515,39 @@ def load_file_sides(
                 ):
                     link = CapturedLink(
                         tuple(nested_links),
-                        f"stopped: link target exceeds {limit}",
-                        None,
-                        None,
+                        Some(f"stopped: link target exceeds {limit}"),
+                        Nothing(),
+                        Nothing(),
                     )
                     break
                 next_content = storage.load_version(next_path, side)
             except DirdiffError as exc:
                 link = CapturedLink(
-                    tuple(nested_links), f"stopped: {exc}", None, None
+                    tuple(nested_links),
+                    Some(f"stopped: {exc}"),
+                    Nothing(),
+                    Nothing(),
                 )
                 break
             if next_properties.kind != "symbolic_link":
                 if len(next_content) > max_link_target_bytes:
                     link = CapturedLink(
                         tuple(nested_links),
-                        f"stopped: link target exceeds {limit}",
-                        None,
-                        None,
+                        Some(f"stopped: link target exceeds {limit}"),
+                        Nothing(),
+                        Nothing(),
                     )
                 else:
                     link = CapturedLink(
-                        tuple(nested_links), None, next_path, next_content
+                        tuple(nested_links),
+                        Nothing(),
+                        Some(next_path),
+                        Some(next_content),
                     )
                 break
             current_path = next_path
             current_content = next_content
-        results.append(LoadedSide(content, link))
+        results.append(LoadedSide(content, Some(link)))
     return tuple(results)
 
 
@@ -1630,7 +1644,7 @@ class SourceFiles:
             self._acquired[key] = FileData(
                 self._identity(storage_file, data),
                 data if isinstance(data, DirdiffError) else data.content,
-                None if isinstance(data, DirdiffError) else data.link,
+                Nothing() if isinstance(data, DirdiffError) else data.link,
             )
         sides = {
             key: FileSide(
@@ -1646,8 +1660,8 @@ class SourceFiles:
         self.changes = WorkspaceChanges(
             tuple(
                 FileChange(
-                    sides[left_key] if left_key is not None else None,
-                    sides[right_key] if right_key is not None else None,
+                    maybe(left_key).map(sides.__getitem__),
+                    maybe(right_key).map(sides.__getitem__),
                     file.display_name,
                     file.change_type,
                     file.untracked,
@@ -1694,8 +1708,10 @@ class SourceFiles:
                 assert isinstance(data, LoadedSide)
                 parts.extend((b"bytes", data.content))
             if properties.kind == "symbolic_link":
-                assert isinstance(data, LoadedSide) and data.link is not None
-                link = data.link
+                assert isinstance(data, LoadedSide)
+                link = data.link.must()
+                # The identity encoding uses empty bytes for absent walk facts;
+                # preserve that established encoding at this byte boundary.
                 parts.extend(
                     (
                         json.dumps(
@@ -1703,13 +1719,9 @@ class SourceFiles:
                             ensure_ascii=False,
                             separators=(",", ":"),
                         ).encode(),
-                        b""
-                        if link.diagnosis is None
-                        else link.diagnosis.encode(),
-                        b""
-                        if link.target_path is None
-                        else link.target_path.encode(),
-                        b"" if link.target_data is None else link.target_data,
+                        link.diagnosis.map_or(b"", str.encode),
+                        link.target_path.map_or(b"", str.encode),
+                        link.target_data.get_or(b""),
                     )
                 )
         digest = hashlib.sha256(b"dirdiff-side-content-v1\0")
@@ -1730,19 +1742,19 @@ class SourceFiles:
         Each `LoadedFile` retains its exact input File in input order.
 
         - `LoadedFile.left` holds the observed left-side outcome and final
-          identity, or `None` when the left side is absent.
+          identity, or `Nothing()` when the left side is absent.
         - `LoadedFile.right` holds the observed right-side outcome and final
-          identity, or `None` when the right side is absent.
+          identity, or `Nothing()` when the right side is absent.
         """
         for file in files:
             assert id(file) in self._changes, (
                 "File does not belong to this observation"
             )
         remaining = {
-            side.key: self._files[side.key]
+            side.value.key: self._files[side.value.key]
             for file in files
             for side in (file.left, file.right)
-            if side is not None and side.key not in self._acquired
+            if Some.present(side) and side.value.key not in self._acquired
         }
         loaded = load_file_sides(
             self._storage,
@@ -1755,17 +1767,13 @@ class SourceFiles:
             self._acquired[key] = FileData(
                 self._identity(storage_file, data),
                 data if isinstance(data, DirdiffError) else data.content,
-                None if isinstance(data, DirdiffError) else data.link,
+                Nothing() if isinstance(data, DirdiffError) else data.link,
             )
         return tuple(
             LoadedFile(
                 file,
-                self._acquired[file.left.key]
-                if file.left is not None
-                else None,
-                self._acquired[file.right.key]
-                if file.right is not None
-                else None,
+                file.left.map(lambda side: self._acquired[side.key]),
+                file.right.map(lambda side: self._acquired[side.key]),
             )
             for file in files
         )

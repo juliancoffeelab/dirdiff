@@ -597,8 +597,9 @@ When callable sections are present, keep this order:
 Parameters are always the first section. Omit sections that do not apply without
 changing the relative order of the remaining sections.
 
-When a Python callable has two or more parameters besides `self` or `cls`,
-document each parameter separately. Use the exact parameter name:
+When a Python callable has two or more parameters besides `self`, `cls`, or
+underscore-prefixed arguments marking intentionally unused inputs,
+document each remaining parameter separately. Use the exact parameter name:
 
 ```python
 # Parameters

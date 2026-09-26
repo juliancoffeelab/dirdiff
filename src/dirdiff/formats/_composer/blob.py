@@ -24,6 +24,7 @@ from dirdiff.formats.base import (
     TextBay,
     byte_facts_bay,
 )
+from dirdiff.util import Nothing, Option, Some
 
 __all__ = [
     "blob_bays",
@@ -59,11 +60,11 @@ authorizes decoding, previewing, or content sniffing.
 """
 
 
-def blob_media_type(path: str | None) -> str | None:
+def blob_media_type(path: str) -> Option[str]:
     """Return the suffix-declared media type used in opaque blob facts.
 
     Matching is case-insensitive and tests the complete configured suffixes.
-    `None` or an unlisted path returns `None`; callers preserve that unknown fact
+    An unlisted path returns `Nothing`; callers preserve that unknown fact
     instead of guessing from bytes or a shorter extension.
 
     # Usage
@@ -73,33 +74,31 @@ def blob_media_type(path: str | None) -> str | None:
 
     # Returns
 
-    - `str`: The configured media type for the path's matching listed suffix.
-    - `None`: The path is absent or has no listed blob suffix. The caller must
+    - `Some[str]`: The configured media type for the path's matching listed suffix.
+    - `Nothing`: The path has no listed blob suffix. The caller must
       continue format classification rather than guess from the bytes.
     """
-    if path is None:
-        return None
     lowered = path.lower()
     for suffix, media_type in _BLOB_MEDIA_TYPES.items():
         if lowered.endswith(suffix):
-            return media_type
-    return None
+            return Some(media_type)
+    return Nothing()
 
 
 def blob_bays(
-    left: bytes | None,
-    right: bytes | None,
+    left: Option[bytes],
+    right: Option[bytes],
     context: BayContext,
     *,
-    left_media_type: str | None,
-    right_media_type: str | None,
+    left_media_type: Option[str],
+    right_media_type: Option[str],
     warnings: tuple[BayWarning, ...],
 ) -> Iterator[TextBay]:
     """Yield the single bay a blob File composes into.
 
     Takes the raw captured bytes because that is all a blob File is, and states
     the facts about them as text. Both sides are optional under the whole-File
-    rule: `None` is a side the File was not captured on, and `change` is read
+    rule: `Nothing` is a side the File was not captured on, and `change` is read
     from the stated facts. Equal bytes with different path-declared media types
     therefore remain `changed`; identical facts are `unchanged` and take no
     navigation stop.
@@ -110,10 +109,10 @@ def blob_bays(
 
     # Parameters
 
-    - `left`: Captured old bytes, or `None` when absent.
+    - `left`: Captured old bytes, or `Nothing` when absent.
     - `right`: Captured new bytes under the same convention.
     - `context`: Side labels used by the facts text bay.
-    - `left_media_type`: Old path's declared type, or `None` when classification
+    - `left_media_type`: Old path's declared type, or `Nothing` when classification
       knows nothing more specific than `application/octet-stream`.
     - `right_media_type`: New path's declared type under the same rule.
     - `warnings`: Existing classification or decode warnings attached unchanged

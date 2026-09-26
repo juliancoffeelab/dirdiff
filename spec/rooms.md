@@ -50,15 +50,15 @@ operation names the exact state explicitly:
 ```python
 meta(snapshot_id: UUID) -> SnapshotMeta
 manifested(snapshot_id: UUID) -> Iterator[
-    tuple[Optional[Path], Optional[Path], FileMeta]
+    tuple[Option[Path], Option[Path], FileMeta]
 ]
 get(
     snapshot_id: UUID,
-    left: Optional[Path],
-    right: Optional[Path],
+    left: Option[Path],
+    right: Option[Path],
 ) -> tuple[
-    Optional[CapturedFileSide],
-    Optional[CapturedFileSide],
+    Option[CapturedFileSide],
+    Option[CapturedFileSide],
     FileMeta,
 ]
 threads(
@@ -89,7 +89,9 @@ contents could not be captured. `get` accepts one such pair and returns each
 present side as a `CapturedRegularFileSide` or `CapturedSymlinkFileSide`.
 Both variants carry the absolute captured Path. The symlink variant requires
 authenticated `CapturedLink` facts and the regular variant cannot carry them.
-Added and deleted Files use `None` for the absent side.
+Added and deleted Files use `Nothing` for the absent side. These Options pass
+directly into manifest construction, review, and composition. HTTP input and
+serialized output retain nullable paths at their respective boundaries.
 For a File with a persisted capture error, `get` returns that exact reason
 in `FileMeta.capture_error`; rendering boundaries reject or classify it before
 decoding the generated diagnostic contents.
@@ -287,7 +289,9 @@ in the authenticated metadata rather than being duplicated relationally.
 Store File records expose each present side as a regular-side or link-side
 variant. The link variant requires its descriptor and the descriptor has one
 optional authenticated target record, containing both path and hash. A File's
-left/right `None` still means real side absence.
+left/right side fields and the optional target use `Option`; `Nothing` means
+real absence. SQL row and column absence becomes an Option at hydration, and
+publication extracts SQL values without changing the stored shape.
 
 *Implementation detail:* the existing side and symlink SQL relations are joined
 at the store boundary. Nullable target columns are checked for equal presence

@@ -64,6 +64,8 @@ CALLABLE_PARAMETER_CODE = "DDD008"
 """Diagnostic for incomplete or inaccurate multi-parameter documentation.
 
 It reports missing, unknown, and duplicate bullets against the declaration.
+Underscore-prefixed arguments mark intentionally unused inputs and do not
+require documentation or count toward the multi-parameter threshold.
 """
 MISSING_GLOBAL_CODE = "DDD009"
 """Diagnostic for a module runtime assignment without an adjacent contract.
@@ -392,7 +394,7 @@ class _DirdiffDocVisitor(ast.NodeVisitor):
         """Check one synchronous callable before traversing its body.
 
         Existing docs also pass through exact parameter-bullet validation when
-        the callable has at least two caller-supplied parameters.
+        the callable has at least two caller-supplied parameters not marked unused.
         """
         self._check_callable(node)
         self.generic_visit(node)
@@ -836,6 +838,9 @@ class _DirdiffDocVisitor(ast.NodeVisitor):
     ) -> None:
         """Require exact Markdown bullets for multi-parameter callables.
 
+        Underscore-prefixed parameters mark unused inputs. They need no bullet
+        and do not count toward the threshold; documenting them remains valid.
+
         # Parameters
 
         - `node`: Function declaration supplying the authoritative parameters.
@@ -854,7 +859,8 @@ class _DirdiffDocVisitor(ast.NodeVisitor):
             parameters.append(node.args.vararg.arg)
         if node.args.kwarg is not None:
             parameters.append(node.args.kwarg.arg)
-        if len(parameters) < 2:
+        required = [name for name in parameters if not name.startswith("_")]
+        if len(required) < 2:
             return
 
         documented: list[str] = []
@@ -871,10 +877,10 @@ class _DirdiffDocVisitor(ast.NodeVisitor):
             if match is not None:
                 documented.append(match.group("name"))
 
-        expected = set(parameters)
+        expected = set(required)
         actual = set(documented)
         missing = sorted(expected - actual)
-        unknown = sorted(actual - expected)
+        unknown = sorted(actual - set(parameters))
         duplicates = sorted(
             name for name in actual if documented.count(name) > 1
         )

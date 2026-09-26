@@ -13,13 +13,15 @@ Format builders need one vocabulary before `Composer` can group and serialize
 their results. Keeping that vocabulary here lets engine-free consumers inspect
 bay identity and content without importing the format that produced it. This
 module does not select a format or load a File. Exact media bytes may exist in a
-pre-render `ImageBay`, but never in a serialized payload.
+pre-render `ImageBay`, but never in a serialized payload. Optional captured
+content, paths, link facts, and media representations use `Option` until a
+`DiffSide` or wire payload requires nullable values.
 """
 
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, TypedDict
 
 from dirdiff.change_source import CapturedLink
@@ -34,6 +36,7 @@ from dirdiff.rendering import (
     FoldHint,
     enrich_rows_for_display,
 )
+from dirdiff.util import Nothing, Option, Some
 
 __all__ = [
     "BLOB_BAY_KEY",
@@ -197,8 +200,8 @@ builders may supply a path-declared media type when one exists.
 
 
 def whole_file_change[Content](
-    left: Content | None,
-    right: Content | None,
+    left: Option[Content],
+    right: Option[Content],
 ) -> BayChange:
     """Decide what happened to a File that composes into a single bay.
 
@@ -213,11 +216,11 @@ def whole_file_change[Content](
     compared with `==`, so equal content on both sides is `unchanged`.
     Absent means the File was not captured on that side; a captured empty side
     is content, not absence, and callers must not conflate the two. At least one
-    side must be present; `(None, None)` is outside this function's contract.
+    side must be present; `(Nothing(), Nothing())` is outside this function's contract.
 
     # Parameters
 
-    - `left`: Old-side content, or `None` when that side was not captured.
+    - `left`: Old-side content, or `Nothing` when that side was not captured.
     - `right`: New-side content under the same convention.
 
     # Usage
@@ -226,9 +229,9 @@ def whole_file_change[Content](
     each side of a single-bay File. Use `BayChange` directly for formats with
     internal positions, where movement can be meaningful.
     """
-    if left is None:
+    if not Some.present(left):
         return ChangeStatus(kind="added")
-    if right is None:
+    if not Some.present(right):
         return ChangeStatus(kind="removed")
     if left == right:
         return ChangeStatus(kind="unchanged")
@@ -248,14 +251,14 @@ class BayContext:
     type-level fact here, not a convention: `bays()` takes only this.
     """
 
-    left_path: str | None
+    left_path: Option[str]
     """Old File path used for classification and later as a syntax hint.
 
-    `None` means that side is absent. Builders may narrow a present path for
+    `Nothing` means that side is absent. Builders may narrow a present path for
     internal text, such as a notebook cell's language-specific source.
     """
 
-    right_path: str | None
+    right_path: Option[str]
     """New File path under the same classification and hint contract.
 
     A rename may provide two different paths; composition preserves both rather
@@ -276,14 +279,14 @@ class BayContext:
     grids cannot disagree.
     """
 
-    left_link: CapturedLink | None = None
-    """Captured old-side link resolution, or `None` for a non-link or absent side.
+    left_link: Option[CapturedLink] = field(default_factory=Nothing)
+    """Captured old-side link resolution, or `Nothing` for a non-link or absent side.
 
     Successful resolution carries final target bytes from the same immutable
     Snapshot. Builders must not consult a live repository.
     """
 
-    right_link: CapturedLink | None = None
+    right_link: Option[CapturedLink] = field(default_factory=Nothing)
     """Captured new-side link resolution under the same contract as `left_link`.
 
     A failed chain is still present and carries its diagnosis with no final
@@ -330,12 +333,12 @@ class ComposeContext:
     def build(
         cls,
         *,
-        left_path: str | None,
-        right_path: str | None,
+        left_path: Option[str],
+        right_path: Option[str],
         left_label: str,
         right_label: str,
-        left_link: CapturedLink | None = None,
-        right_link: CapturedLink | None = None,
+        left_link: Option[CapturedLink] = Nothing(),
+        right_link: Option[CapturedLink] = Nothing(),
         renderer: DiffEngineProtocol,
     ) -> ComposeContext:
         """Build one `ComposeContext` from plain facts, not a Room type.
@@ -347,8 +350,8 @@ class ComposeContext:
 
         # Parameters
 
-        - `left_path`: Old File path, or `None` for an absent side.
-        - `right_path`: New File path, or `None` for an absent side.
+        - `left_path`: Old File path, or `Nothing` for an absent side.
+        - `right_path`: New File path, or `Nothing` for an absent side.
         - `left_label`: Heading for old-side text bays.
         - `right_label`: Heading for new-side text bays.
         - `left_link`: Immutable old-side link resolution, when present.
@@ -475,7 +478,7 @@ class MediaSide:
     image transcoding or thumbnailing takes place. The media endpoint returns
     this value unchanged under the declared media type.
 
-    There is no `exists` flag, unlike `DiffSide`. `None` means this image
+    There is no `exists` flag, unlike `DiffSide`. `Nothing` means this image
     representation does not exist on that side, whether the File side itself is
     absent or a notebook MIME bundle has no PNG.
     """
@@ -569,17 +572,17 @@ class ImageBay:
     all, so this is the *only* thing that tells navigation the bay needs a stop,
     and the only thing that tells the frontend how to tint it."""
 
-    left: MediaSide | None
-    """The old-side image representation, or `None` when none exists.
+    left: Option[MediaSide]
+    """The old-side image representation, or `Nothing` when none exists.
 
     For an image File this matches capture absence. For a notebook output it can
     also mean that the old-side MIME bundle offers no PNG representation.
     """
 
-    right: MediaSide | None
-    """The new-side image representation, or `None` when none exists.
+    right: Option[MediaSide]
+    """The new-side image representation, or `Nothing` when none exists.
 
-    The value reaches media serving unchanged. `None` must render as an absent
+    The value reaches media serving unchanged. `Nothing` must render as an absent
     representation, not an empty byte stream.
     """
 
@@ -1030,31 +1033,24 @@ same hint for the same reason.
 """
 
 
-def media_facts(side: MediaSide | None) -> str | None:
+def media_facts(side: MediaSide) -> str:
     """State what is known about one side of bytes, one fact per line.
 
     The three facts are the media type composition concluded, the exact captured
     size, and the digest of the captured bytes. They are text, so the bay holding
     them is an ordinary `text` bay and the reviewer gets a line diff of those
-    facts.
-
-    `None` is a side the File was not captured on, which is how an added or
-    removed File is expressed, matching `DiffSide`'s absent side.
+    facts. The caller supplies a present `MediaSide`.
 
     # Usage
 
-    Image and blob builders pass each captured side here, then render the
-    returned text through the ordinary text-bay pipeline.
+    Image and blob builders use `map` over their optional captured sides, then
+    render the returned text through the ordinary text-bay pipeline. The caller
+    preserves absence as a missing `DiffSide` rather than empty media facts.
 
     # Returns
 
-    - `str`: Three newline-separated media facts for a captured side, in type,
-      size, and SHA-256 order.
-    - `None`: The File has no captured side here. Callers must preserve the
-      absence as a missing `DiffSide`, not display empty media facts.
+    Three newline-separated media facts in type, size, and SHA-256 order.
     """
-    if side is None:
-        return None
     ref = media_ref(side)
     return (
         f"type: {ref['media_type']}\n"
@@ -1064,12 +1060,12 @@ def media_facts(side: MediaSide | None) -> str | None:
 
 
 def byte_facts_bay(
-    left: bytes | None,
-    right: bytes | None,
+    left: Option[bytes],
+    right: Option[bytes],
     context: BayContext,
     *,
-    left_media_type: str | None,
-    right_media_type: str | None,
+    left_media_type: Option[str],
+    right_media_type: Option[str],
     warnings: tuple[BayWarning, ...],
 ) -> TextBay:
     """Build the shared text bay that states facts about opaque bytes.
@@ -1080,11 +1076,11 @@ def byte_facts_bay(
 
     # Parameters
 
-    - `left`: Captured old bytes, or `None` when absent.
+    - `left`: Captured old bytes, or `Nothing` when absent.
     - `right`: Captured new bytes under the same convention.
     - `context`: Side labels copied into the resulting bay.
-    - `left_media_type`: Old path's declared type, or `None` when unknown.
-    - `right_media_type`: New path's declared type, or `None` when unknown.
+    - `left_media_type`: Old path's declared type, or `Nothing` when unknown.
+    - `right_media_type`: New path's declared type, or `Nothing` when unknown.
     - `warnings`: Existing damage notices attached unchanged.
 
     # Returns
@@ -1092,22 +1088,16 @@ def byte_facts_bay(
     - One `BLOB_BAY_KEY` text bay stating type, size, and digest for every
       present side and preserving the supplied warnings.
     """
-    left_facts = media_facts(
-        None
-        if left is None
-        else MediaSide(
-            media_type=left_media_type or BLOB_MEDIA_TYPE,
-            data=left,
+    left_facts = left.map(
+        lambda data: MediaSide(
+            media_type=left_media_type.get_or(BLOB_MEDIA_TYPE), data=data
         )
-    )
-    right_facts = media_facts(
-        None
-        if right is None
-        else MediaSide(
-            media_type=right_media_type or BLOB_MEDIA_TYPE,
-            data=right,
+    ).map(media_facts)
+    right_facts = right.map(
+        lambda data: MediaSide(
+            media_type=right_media_type.get_or(BLOB_MEDIA_TYPE), data=data
         )
-    )
+    ).map(media_facts)
     return TextBay(
         frame_key="file",
         heading=None,
@@ -1120,13 +1110,13 @@ def byte_facts_bay(
         left_label=context.left_label,
         right_label=context.right_label,
         left=DiffSide(
-            exists=left is not None,
-            text=left_facts,
+            exists=Some.present(left),
+            text=left_facts.get(),
             path_hint=MEDIA_FACTS_PATH_HINT,
         ),
         right=DiffSide(
-            exists=right is not None,
-            text=right_facts,
+            exists=Some.present(right),
+            text=right_facts.get(),
             path_hint=MEDIA_FACTS_PATH_HINT,
         ),
         warnings=warnings,
@@ -1137,7 +1127,7 @@ def image_kind_payload(bay: ImageBay) -> ImageKindPayload:
     """Reduce one `ImageBay`'s content to its serialized wire form.
 
     No engine takes part and no bytes survive: each present representation
-    becomes the `MediaRef` describing it, and an absent one stays `None`. This is
+    becomes the `MediaRef` describing it, and an absent one serializes as `None`. This is
     the only path from an `ImageBay` to a response payload.
 
     # Usage
@@ -1147,8 +1137,8 @@ def image_kind_payload(bay: ImageBay) -> ImageKindPayload:
     """
     return {
         "kind": "image",
-        "left": None if bay.left is None else media_ref(bay.left),
-        "right": None if bay.right is None else media_ref(bay.right),
+        "left": bay.left.get_map(media_ref),
+        "right": bay.right.get_map(media_ref),
     }
 
 

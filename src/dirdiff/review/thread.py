@@ -85,6 +85,7 @@ from dirdiff.review.base import (
     validate_author,
     validate_comment_body,
 )
+from dirdiff.util import Nothing, Option, Some
 
 __all__ = [
     "DeleteThread",
@@ -1190,27 +1191,30 @@ def _bind_threads(
         """
 
         def side_identity(
-            side: SnapshotFileSideRecord | None,
-        ) -> tuple[str, bytes, tuple[bytes, bytes | None] | None] | None:
+            side: Option[SnapshotFileSideRecord],
+        ) -> Option[tuple[str, bytes, tuple[bytes, bytes | None] | None]]:
             """Return captured identity components independently of storage paths.
 
             # Returns
 
-            - A present side's repository path, raw digest, and optional link
+            - `Some`: A present side's repository path, raw digest, and optional link
               metadata/target digests; stopped traversal has no target digest.
-            - `None` means the File has no captured side in this slot.
+            - `Nothing` means the File has no captured side in this slot.
             """
-            if side is None:
-                return None
+            if not Some.present(side):
+                return Nothing()
+            record = side.value
             link_identity = None
-            if isinstance(side, SnapshotSymlinkFileSideRecord):
+            if isinstance(record, SnapshotSymlinkFileSideRecord):
                 link_identity = (
-                    side.link.metadata_hash,
-                    side.link.target.content_hash
-                    if side.link.target is not None
-                    else None,
+                    record.link.metadata_hash,
+                    record.link.target.get_map(
+                        lambda target: target.content_hash
+                    ),
                 )
-            return side.repository_path, side.content_hash, link_identity
+            return Some(
+                (record.repository_path, record.content_hash, link_identity)
+            )
 
         return (
             origin_file.error is None
@@ -1460,8 +1464,8 @@ def create_thread(
         snapshot_exists, loaded_target = database.snapshot_file(
             identity,
             snapshot_id=snapshot_id.hex,
-            left_path=command.target.file.left_path,
-            right_path=command.target.file.right_path,
+            left_path=command.target.file.left_path.get(),
+            right_path=command.target.file.right_path.get(),
         )
         if not snapshot_exists:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
@@ -1573,15 +1577,16 @@ def apply_review_batch(
             identity,
             snapshot_id=snapshot_id.hex,
             pairs=tuple(
-                (pair.left_path, pair.right_path) for pair in creation_pairs
+                (pair.left_path.get(), pair.right_path.get())
+                for pair in creation_pairs
             ),
         )
         if not snapshot_exists:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
         selected_files_by_pair: dict[FilePair, SnapshotFileRecord] = {
-            pair: found_by_pair[(pair.left_path, pair.right_path)]
+            pair: found_by_pair[(pair.left_path.get(), pair.right_path.get())]
             for pair in creation_pairs
-            if (pair.left_path, pair.right_path) in found_by_pair
+            if (pair.left_path.get(), pair.right_path.get()) in found_by_pair
         }
         cache = ReviewReadCache()
         placements: list[ReviewThreadRecord] = []

@@ -16,6 +16,7 @@ from helpers import TextDiffService
 
 from dirdiff.change_source import GitChangeSource, GitRepository
 from dirdiff.engines import DirdiffError
+from dirdiff.util import Some
 
 
 def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
@@ -78,9 +79,13 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
     assert len(paths) == 1
     assert paths[0].display_name == "alpha.txt -> renamed.txt"
     assert paths[0].change_type == "rename"
-    assert paths[0].left is not None and paths[0].left.key.path == "alpha.txt"
     assert (
-        paths[0].right is not None and paths[0].right.key.path == "renamed.txt"
+        Some.present(paths[0].left)
+        and paths[0].left.value.key.path == "alpha.txt"
+    )
+    assert (
+        Some.present(paths[0].right)
+        and paths[0].right.value.key.path == "renamed.txt"
     )
 
 
@@ -495,7 +500,7 @@ def test_worktree_symlinks_load_as_git_records_them(tmp_path: Path) -> None:
         max_link_target_bytes=1024 * 1024,
     ).changes()
     listed = {
-        entry.right.key.path if entry.right is not None else None
+        entry.right.get_map(lambda side: side.key.path)
         for entry in changes.files
     }
     assert {"tracked-link", "untracked-link", "broken-link"} <= listed

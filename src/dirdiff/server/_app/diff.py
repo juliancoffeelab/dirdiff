@@ -16,7 +16,6 @@ from typing import (
     Annotated,
     Literal,
     Optional,
-    assert_never,
 )
 from uuid import UUID
 
@@ -31,7 +30,6 @@ from pydantic import (
 )
 
 from dirdiff.change_source import (
-    CapturedLink,
     LazyReason,
     ManifestPath,
     PresetCatalog,
@@ -79,6 +77,7 @@ from dirdiff.server.base import (
     PresetManifestSelection,
     preset_catalog_dirs,
 )
+from dirdiff.util import Nothing, Option, Some, maybe
 
 __all__ = ["ComposedDiffResponse", "DiffRoutes"]
 
@@ -1325,11 +1324,11 @@ def captured_manifest_paths(
     """
     paths: list[ManifestPath] = []
     for left, right, metadata in room.manifested(snapshot_id):
-        left_path = left.as_posix() if left is not None else None
-        right_path = right.as_posix() if right is not None else None
+        left_path = left.map(Path.as_posix)
+        right_path = right.map(Path.as_posix)
         display_name = (
-            right_path
-            if preset and right_path is not None
+            right_path.value
+            if preset and Some.present(right_path)
             else display_name_for_repo_paths(left_path, right_path)
         )
         paths.append(
@@ -1430,8 +1429,8 @@ class DiffRoutes:
         snapshot_id: UUID,
         engine_config: EngineConfig,
         pair: FilePair,
-        left_file: Optional[CapturedFileSide],
-        right_file: Optional[CapturedFileSide],
+        left_file: Option[CapturedFileSide],
+        right_file: Option[CapturedFileSide],
         file_meta: FileMeta,
     ) -> ComposedDiffResponse:
         """Compose one focused File into its `/api/file-diff` response payload.
@@ -1447,8 +1446,8 @@ class DiffRoutes:
         - `room`: Room supplying retained labels and Tab presentation rules.
         - `snapshot_id`: Exact Snapshot containing the loaded File.
         - `engine_config`: Complete rendering configuration for text bays.
-        - `pair`: Exact nullable repository paths identifying the File.
-        - `left_file`: Authenticated captured left side, or `None` when absent.
+        - `pair`: Exact optional repository paths identifying the File.
+        - `left_file`: Authenticated captured left side, or `Nothing` when absent.
         - `right_file`: Authenticated captured right side under the same rule.
         - `file_meta`: Persisted VCS tracking, change type, lazy policy, and
           capture failure for this pair.
@@ -1467,30 +1466,18 @@ class DiffRoutes:
         if file_meta["capture_error"] is not None:
             raise DirdiffError(file_meta["capture_error"])
         snapshot_meta = room.meta(snapshot_id)
-        left_bytes = (
-            left_file.path.read_bytes() if left_file is not None else None
+        left_bytes = left_file.map(lambda side: side.path.read_bytes())
+        right_bytes = right_file.map(lambda side: side.path.read_bytes())
+        left_link = left_file.and_then(
+            lambda side: (
+                Some(side.link) if side.kind == "symlink" else Nothing()
+            )
         )
-        right_bytes = (
-            right_file.path.read_bytes() if right_file is not None else None
+        right_link = right_file.and_then(
+            lambda side: (
+                Some(side.link) if side.kind == "symlink" else Nothing()
+            )
         )
-        left_link: CapturedLink | None = None
-        if left_file is not None:
-            match left_file.kind:
-                case "regular":
-                    pass
-                case "symlink":
-                    left_link = left_file.link
-                case invalid_kind:
-                    assert_never(invalid_kind)
-        right_link: CapturedLink | None = None
-        if right_file is not None:
-            match right_file.kind:
-                case "regular":
-                    pass
-                case "symlink":
-                    right_link = right_file.link
-                case invalid_kind:
-                    assert_never(invalid_kind)
         context = ComposeContext.build(
             left_path=pair.left_path,
             right_path=pair.right_path,
@@ -1509,8 +1496,9 @@ class DiffRoutes:
             "untracked" if file_meta["untracked"] else "tracked"
         )
         display_name = (
-            pair.right_path
-            if snapshot_meta["tab"] == "preset" and pair.right_path is not None
+            pair.right_path.value
+            if snapshot_meta["tab"] == "preset"
+            and Some.present(pair.right_path)
             else display_name_for_repo_paths(pair.left_path, pair.right_path)
         )
         return ComposedDiffResponse.model_validate(
@@ -1739,14 +1727,14 @@ class DiffRoutes:
                     f"Unknown snapshot id: {params.snapshot_id}"
                 ) from exc
             try:
-                pair = FilePair(params.left_path, params.right_path)
+                pair = FilePair(
+                    maybe(params.left_path), maybe(params.right_path)
+                )
             except ValueError as exc:
                 raise DirdiffError(str(exc)) from exc
             room = self.room_lord.find_room(snapshot_key)
-            left = Path(pair.left_path) if pair.left_path is not None else None
-            right = (
-                Path(pair.right_path) if pair.right_path is not None else None
-            )
+            left = pair.left_path.map(Path)
+            right = pair.right_path.map(Path)
             left_file, right_file, file_meta = room.get(
                 snapshot_key, left, right
             )
@@ -1843,43 +1831,31 @@ class DiffRoutes:
                     f"Unknown snapshot id: {snapshot_id}"
                 ) from exc
             try:
-                pair = FilePair(left_path, right_path)
+                pair = FilePair(maybe(left_path), maybe(right_path))
             except ValueError as exc:
                 raise DirdiffError(str(exc)) from exc
             room = self.room_lord.find_room(snapshot_key)
             left_file, right_file, file_meta = room.get(
                 snapshot_key,
-                Path(pair.left_path) if pair.left_path is not None else None,
-                Path(pair.right_path) if pair.right_path is not None else None,
+                pair.left_path.map(Path),
+                pair.right_path.map(Path),
             )
             if file_meta["capture_error"] is not None:
                 raise DirdiffError(file_meta["capture_error"])
             snapshot_meta = room.meta(snapshot_key)
-            left_link: CapturedLink | None = None
-            if left_file is not None:
-                match left_file.kind:
-                    case "regular":
-                        pass
-                    case "symlink":
-                        left_link = left_file.link
-                    case invalid_kind:
-                        assert_never(invalid_kind)
-            right_link: CapturedLink | None = None
-            if right_file is not None:
-                match right_file.kind:
-                    case "regular":
-                        pass
-                    case "symlink":
-                        right_link = right_file.link
-                    case invalid_kind:
-                        assert_never(invalid_kind)
+            left_link = left_file.and_then(
+                lambda side: (
+                    Some(side.link) if side.kind == "symlink" else Nothing()
+                )
+            )
+            right_link = right_file.and_then(
+                lambda side: (
+                    Some(side.link) if side.kind == "symlink" else Nothing()
+                )
+            )
             for bay in Composer().bays(
-                left_file.path.read_bytes() if left_file is not None else None,
-                (
-                    right_file.path.read_bytes()
-                    if right_file is not None
-                    else None
-                ),
+                left_file.map(lambda side: side.path.read_bytes()),
+                right_file.map(lambda side: side.path.read_bytes()),
                 BayContext(
                     left_path=pair.left_path,
                     right_path=pair.right_path,
@@ -1902,7 +1878,7 @@ class DiffRoutes:
                     f"The selected file has no bay named {bay_key!r}."
                 )
             media_side = media_bay.left if side == "left" else media_bay.right
-            if media_side is None:
+            if not Some.present(media_side):
                 raise DirdiffError(
                     f"Bay {bay_key!r} has no image on the {side} side."
                 )
@@ -1919,7 +1895,7 @@ class DiffRoutes:
             ) from exc
 
         return Response(
-            content=media_side.data,
-            media_type=media_side.media_type,
+            content=media_side.value.data,
+            media_type=media_side.value.media_type,
             headers={"Cache-Control": "private, max-age=31536000, immutable"},
         )

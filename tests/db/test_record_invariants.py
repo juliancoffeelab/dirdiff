@@ -415,7 +415,7 @@ def test_valid_snapshot_symlink_descriptor_constructs(
     )
     record = records[("file", "right")]
     assert (
-        record.target.path if record.target is not None else None
+        record.target.get_map(lambda target: target.path)
     ) == target_capture_path
 
 
