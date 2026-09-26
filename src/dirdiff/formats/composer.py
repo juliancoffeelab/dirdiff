@@ -26,9 +26,7 @@ from dirdiff.formats._composer.blob import blob_bays, blob_media_type
 from dirdiff.formats._composer.flatfile import flatfile_bays
 from dirdiff.formats._composer.image import image_bays, image_media_type
 from dirdiff.formats._composer.notebook import (
-    NotebookCell,
     NotebookDocument,
-    RejectedNotebookPart,
     notebook_bays,
     try_load_notebook_document,
 )
@@ -54,7 +52,7 @@ from dirdiff.formats.base import (
     image_kind_payload,
     text_kind_payload,
 )
-from dirdiff.util import Nothing, Option, Some
+from dirdiff.util import Nothing, Ok, Option, Some
 
 __all__ = ["Composer", "read_captured_link", "write_captured_link"]
 
@@ -427,8 +425,9 @@ def symlink_bays(
             def notebook_script(document: NotebookDocument) -> bytes:
                 """Flatten one accepted notebook without its output records."""
                 blocks: list[str] = []
-                for cell in document.cells:
-                    if isinstance(cell, NotebookCell):
+                for entry in document.cells:
+                    if Ok.good(entry):
+                        cell = entry.value
                         marker = "# %%"
                         if cell.cell_type != "code":
                             marker = f"# %% [{cell.cell_type}]"
@@ -443,9 +442,8 @@ def symlink_bays(
                             marker if body == "" else f"{marker}\n{body}"
                         )
                         continue
-                    assert isinstance(cell, RejectedNotebookPart)
                     raw = json.dumps(
-                        cell.raw,
+                        entry.error.raw,
                         ensure_ascii=False,
                         indent=2,
                         sort_keys=True,

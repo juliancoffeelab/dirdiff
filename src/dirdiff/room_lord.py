@@ -81,7 +81,7 @@ from dirdiff.review import (
     get_thread,
     thread_objects,
 )
-from dirdiff.util import JsonValue, Nothing, Option, Some
+from dirdiff.util import JsonValue, Nothing, Ok, Option, Some
 
 __all__ = [
     "BranchReviewCaptureSelection",
@@ -704,16 +704,17 @@ class Room:
             if path.as_posix() in {"", "."}:
                 raise DirdiffError("Room filepath must identify a file.")
 
-        snapshot_exists, loaded = self._database.snapshot_file(
+        lookup = self._database.snapshot_file(
             self._identity,
             snapshot_id=snapshot_id.hex,
             left_path=left.get_map(Path.as_posix),
             right_path=right.get_map(Path.as_posix),
         )
-        if not snapshot_exists:
-            raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
-        if loaded is None:
+        if not Ok.good(lookup):
+            if lookup.error == "snapshot-unavailable":
+                raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
             raise DirdiffError("Snapshot manifest path is missing.")
+        loaded = lookup.value
         file = loaded.file
         directory = Path(file.path)
         assert directory.is_absolute(), (
@@ -1938,14 +1939,14 @@ class _SnapshotStore:
             - `side_label`: Prepared capture label for that selected state.
             - `errors`: This File's side-ordered failure messages.
             """
-            if isinstance(loaded.content, DirdiffError):
+            if not Ok.good(loaded.content):
                 failure = (
                     f"Could not capture {side_name} side "
-                    f"{side_label}:{side_path}: {loaded.content}"
+                    f"{side_label}:{side_path}: {loaded.content.error}"
                 )
                 errors.append(failure)
                 return f"{_CAPTURE_ERROR_PREAMBLE}\n\n{failure}\n".encode()
-            return loaded.content
+            return loaded.content.value
 
         snapshot_id = uuid4()
         staging_path = Path(

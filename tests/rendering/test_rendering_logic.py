@@ -11,13 +11,14 @@ from typing import get_args
 import pytest
 
 from dirdiff.engines import InlineToken
-from dirdiff.formats import TextRejection, try_decode_text
+from dirdiff.formats import try_decode_text
 from dirdiff.rendering import (
     SyntaxClass,
     SyntaxSpan,
     highlight_lines_for_path,
     weave_decorated_parts,
 )
+from dirdiff.util import Ok
 
 
 def test_preset_highlights_use_declared_syntax_classes() -> None:
@@ -45,9 +46,9 @@ def test_preset_highlights_use_declared_syntax_classes() -> None:
         # The corpus holds image and blob fixtures too. A highlighter has
         # nothing to say about bytes, so text decoding decides what remains.
         text = try_decode_text(path.read_bytes())
-        if isinstance(text, TextRejection):
+        if not Ok.good(text):
             continue
-        highlighted_lines = highlight_lines_for_path(str(path), text)
+        highlighted_lines = highlight_lines_for_path(str(path), text.value)
         if highlighted_lines is None:
             continue
         emitted_classes = {

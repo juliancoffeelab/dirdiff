@@ -28,7 +28,7 @@ from pathlib import PurePosixPath
 from typing import Literal, Protocol, TypedDict
 
 from dirdiff.engines import DirdiffError, git_executable
-from dirdiff.util import Nothing, Option, Some, maybe
+from dirdiff.util import Nothing, Ok, Option, Result, Some, maybe
 
 SideName = str
 """Internal name for one selected Git ref or preset fixture side.
@@ -459,6 +459,7 @@ __all__ = [
     "CapturedLink",
     "ChangeSourceProtocol",
     "DefaultBaseSelection",
+    "DefaultBaseSelectionError",
     "FileChange",
     "FileData",
     "FileKey",
@@ -700,13 +701,13 @@ class DefaultBaseSelectionError(TypedDict):
     """
 
 
-DefaultBaseSelection = BranchSelection | DefaultBaseSelectionError
+type DefaultBaseSelection = Result[BranchSelection, DefaultBaseSelectionError]
 """Result of choosing a default Branch Review base.
 
-- `LocalBranchSelection` and `RemoteBranchSelection` are usable defaults.
-- `DefaultBaseSelectionError` requires the user to choose explicitly.
+- `Ok` contains a usable local or remote branch selection.
+- `Err` contains `DefaultBaseSelectionError` and requires an explicit choice.
 
-Consumers must inspect the discriminator before treating the value as a branch.
+Consumers must check `Ok.good` before treating the value as a branch.
 It never contains a resolved commit.
 """
 
@@ -937,13 +938,13 @@ class WorkspaceStorageProtocol(Protocol):
 
     def load_versions(
         self, files: tuple[StorageFile, ...]
-    ) -> tuple[bytes | DirdiffError, ...]:
+    ) -> tuple[Result[bytes, DirdiffError], ...]:
         """Batch read sides in order, retaining expected per-side failures.
 
         # Returns
 
-        - Each `bytes` value is the exact content for its input position.
-        - Each `DirdiffError` value explains only its own failed input, leaving
+        - Each `Ok` holds exact content for its input position.
+        - Each `Err` holds a `DirdiffError` for its failed input, leaving
           successful sibling results in their original positions.
         """
         ...
@@ -1195,7 +1196,7 @@ class FileData:
     its identity. RoomLord uses this value in its final equality check.
     """
 
-    content: bytes | DirdiffError
+    content: Result[bytes, DirdiffError]
     """Exact outer data, or the expected failure for this side only.
 
     A link keeps its raw target bytes. A repository reference supplies its
@@ -1207,9 +1208,7 @@ class FileData:
 
     def __post_init__(self) -> None:
         """Require successful outer data for reached-link facts."""
-        assert not isinstance(self.content, DirdiffError) or not Some.present(
-            self.link
-        )
+        assert Ok.good(self.content) or not Some.present(self.link)
 
 
 @dataclass(frozen=True)
@@ -1368,10 +1367,10 @@ class ChangeSourceProtocol(Protocol):
         its exact input in `LoadedFile.change`; named left/right fields preserve
         side absence. Each present `FileData.content` has one of these outcomes:
 
-        - `bytes` contains the exact materialized outer data. A symbolic link
+        - `Ok[bytes]` contains the exact materialized outer data. A symbolic link
           keeps its raw payload here and has separate walk facts in
           `FileData.link`. A target diagnosis is still this successful outcome.
-        - `dirdiff.engines.DirdiffError` describes an expected failure to read
+        - `Err[DirdiffError]` describes an expected failure to read
           that outer side. Its link facts are absent; successful sibling sides
           remain available in their named fields.
 
@@ -1398,7 +1397,7 @@ def load_file_sides(
     files: tuple[StorageFile, ...],
     *,
     max_link_target_bytes: int,
-) -> tuple[LoadedSide | DirdiffError, ...]:
+) -> tuple[Result[LoadedSide, DirdiffError], ...]:
     """Load selected sides through private storage and walk reached links.
 
     A normalized path enters the visited set before its target is inspected.
@@ -1416,9 +1415,9 @@ def load_file_sides(
 
     # Returns
 
-    - Each `LoadedSide` keeps exact outer bytes. Linked sides also keep their
+    - Each `Ok[LoadedSide]` keeps exact outer bytes. Linked sides also keep their
       stopped or reached target facts.
-    - Each expected outer `DirdiffError` remains in its input position.
+    - Each expected outer `Err[DirdiffError]` remains in its input position.
       Expected failures after an outer link load become link diagnoses.
 
     # Failures
@@ -1436,16 +1435,17 @@ def load_file_sides(
     )
     outer = storage.load_versions(files)
     assert len(outer) == len(files), "storage returned wrong side count"
-    results: list[LoadedSide | DirdiffError] = []
-    for (path, side, properties, _object_id), content in zip(
+    results: list[Result[LoadedSide, DirdiffError]] = []
+    for (path, side, properties, _object_id), outcome in zip(
         files, outer, strict=True
     ):
-        if isinstance(content, DirdiffError):
-            results.append(content)
+        if not Ok.good(outcome):
+            results.append(outcome)
             continue
+        content = outcome.value
         assert properties is not None
         if properties.kind != "symbolic_link":
-            results.append(LoadedSide(content, Nothing()))
+            results.append(Ok(LoadedSide(content, Nothing())))
             continue
 
         visited: set[str] = set()
@@ -1547,7 +1547,7 @@ def load_file_sides(
                 break
             current_path = next_path
             current_content = next_content
-        results.append(LoadedSide(content, Some(link)))
+        results.append(Ok(LoadedSide(content, Some(link))))
     return tuple(results)
 
 
@@ -1643,8 +1643,8 @@ class SourceFiles:
         for (key, storage_file), data in zip(eager, acquired, strict=True):
             self._acquired[key] = FileData(
                 self._identity(storage_file, data),
-                data if isinstance(data, DirdiffError) else data.content,
-                Nothing() if isinstance(data, DirdiffError) else data.link,
+                data.map(lambda side: side.content),
+                data.value.link if Ok.good(data) else Nothing(),
             )
         sides = {
             key: FileSide(
@@ -1681,7 +1681,7 @@ class SourceFiles:
     """Stable semantic observation returned on every changes call."""
 
     def _identity(
-        self, file: StorageFile, data: LoadedSide | DirdiffError | None
+        self, file: StorageFile, data: Result[LoadedSide, DirdiffError] | None
     ) -> bytes:
         """Encode this side's content facts under its materialization namespace.
 
@@ -1699,17 +1699,17 @@ class SourceFiles:
         _path, _side, properties, object_id = file
         assert properties is not None
         parts = [self._namespace, properties.kind.encode()]
-        if isinstance(data, DirdiffError):
-            parts.extend((b"error", str(data).encode()))
+        if data is not None and not Ok.good(data):
+            parts.extend((b"error", str(data.error).encode()))
         else:
             if object_id is not None:
                 parts.extend((b"stored", object_id.encode()))
             else:
-                assert isinstance(data, LoadedSide)
-                parts.extend((b"bytes", data.content))
+                assert data is not None and Ok.good(data)
+                parts.extend((b"bytes", data.value.content))
             if properties.kind == "symbolic_link":
-                assert isinstance(data, LoadedSide)
-                link = data.link.must()
+                assert data is not None and Ok.good(data)
+                link = data.value.link.must()
                 # The identity encoding uses empty bytes for absent walk facts;
                 # preserve that established encoding at this byte boundary.
                 parts.extend(
@@ -1766,8 +1766,8 @@ class SourceFiles:
         ):
             self._acquired[key] = FileData(
                 self._identity(storage_file, data),
-                data if isinstance(data, DirdiffError) else data.content,
-                Nothing() if isinstance(data, DirdiffError) else data.link,
+                data.map(lambda side: side.content),
+                data.value.link if Ok.good(data) else Nothing(),
             )
         return tuple(
             LoadedFile(

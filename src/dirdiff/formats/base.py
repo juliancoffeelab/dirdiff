@@ -36,7 +36,7 @@ from dirdiff.rendering import (
     FoldHint,
     enrich_rows_for_display,
 )
-from dirdiff.util import Nothing, Option, Some
+from dirdiff.util import Err, Nothing, Ok, Option, Result, Some
 
 __all__ = [
     "BLOB_BAY_KEY",
@@ -60,7 +60,6 @@ __all__ = [
     "MediaSide",
     "MovedChangeStatus",
     "TextBay",
-    "TextRejection",
     "byte_facts_bay",
     "image_kind_payload",
     "media_facts",
@@ -935,7 +934,7 @@ class ComposedFilePayload(TypedDict):
 class TextRejection:
     """Explain why captured bytes fail the project's text contract.
 
-    `try_decode_text` returns this value to a format builder instead of raising.
+    `try_decode_text` returns this error in `Err` instead of raising.
     The builder preserves the bytes as blob facts and turns `detail` into a
     visible bay warning.
 
@@ -958,7 +957,7 @@ class TextRejection:
     """
 
 
-def try_decode_text(data: bytes) -> str | TextRejection:
+def try_decode_text(data: bytes) -> Result[str, TextRejection]:
     """Decode exact file contents as text or return the precise rejection.
 
     This is the single definition of what this project calls text: no NUL byte,
@@ -966,7 +965,7 @@ def try_decode_text(data: bytes) -> str | TextRejection:
     flatfile builder. A rejection hands the File to the blob builder; accepted
     text is the value the engine later receives.
 
-    Invalid text returns `TextRejection` rather than raising a decoding error.
+    Invalid text returns `Err[TextRejection]` rather than raising a decoding error.
     Composition turns that result into blob facts and a visible warning.
 
     # Usage
@@ -976,29 +975,33 @@ def try_decode_text(data: bytes) -> str | TextRejection:
 
     # Returns
 
-    - `str`: The complete decoded contents after removing an optional UTF-8
+    - `Ok[str]`: The complete decoded contents after removing an optional UTF-8
       byte-order mark.
-    - `TextRejection`: The exact NUL-byte or invalid-UTF-8 boundary failure;
+    - `Err[TextRejection]`: The exact NUL-byte or invalid-UTF-8 boundary failure;
       callers must represent the File as byte facts instead of using text.
 
     # Failures
 
-    A NUL byte returns `TextRejection(reason="nul-byte")`. Invalid UTF-8 returns
-    `TextRejection(reason="invalid-utf8")`; neither condition raises
+    A NUL byte returns `Err(TextRejection(reason="nul-byte"))`. Invalid UTF-8
+    returns `Err(TextRejection(reason="invalid-utf8"))`; neither condition raises
     `UnicodeDecodeError`.
     """
     nul_offset = data.find(b"\x00")
     if nul_offset >= 0:
-        return TextRejection(
-            reason="nul-byte",
-            detail=f"NUL byte at byte {nul_offset}",
+        return Err(
+            TextRejection(
+                reason="nul-byte",
+                detail=f"NUL byte at byte {nul_offset}",
+            )
         )
     try:
-        return data.decode("utf-8-sig")
+        return Ok(data.decode("utf-8-sig"))
     except UnicodeDecodeError as error:
-        return TextRejection(
-            reason="invalid-utf8",
-            detail=f"invalid UTF-8 at byte {error.start}",
+        return Err(
+            TextRejection(
+                reason="invalid-utf8",
+                detail=f"invalid UTF-8 at byte {error.start}",
+            )
         )
 
 

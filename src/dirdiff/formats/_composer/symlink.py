@@ -32,11 +32,10 @@ from dirdiff.formats.base import (
     Bay,
     BayContext,
     TextBay,
-    TextRejection,
     try_decode_text,
     whole_file_change,
 )
-from dirdiff.util import Nothing, Option, Some
+from dirdiff.util import Nothing, Ok, Option, Some
 
 __all__ = [
     "nested_symlink_target_document",
@@ -446,11 +445,11 @@ def nested_symlink_target_document(
     ):
         return data
     decoded = try_decode_text(data.value)
-    if isinstance(decoded, TextRejection):
+    if not Ok.good(decoded):
         return data
     assert Some.present(final_path)
     blocks = [
         f"# %% {path}\n{payload}" for path, payload in link.value.nested_links
     ]
-    blocks.append(f"# %% {final_path.value}\n{decoded}")
+    blocks.append(f"# %% {final_path.value}\n{decoded.value}")
     return Some(("\n\n".join(blocks).rstrip("\n") + "\n").encode())

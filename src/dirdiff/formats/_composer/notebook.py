@@ -36,17 +36,23 @@ from dirdiff.formats.base import (
     MediaSide,
     MovedChangeStatus,
     TextBay,
-    TextRejection,
     byte_facts_bay,
     try_decode_text,
     whole_file_change,
 )
-from dirdiff.util import JsonValue, Nothing, Option, Some, maybe
+from dirdiff.util import (
+    Err,
+    JsonValue,
+    Nothing,
+    Ok,
+    Option,
+    Result,
+    Some,
+    maybe,
+)
 
 __all__ = [
-    "NotebookCell",
     "NotebookDocument",
-    "RejectedNotebookPart",
     "notebook_bays",
     "try_load_notebook_document",
 ]
@@ -220,11 +226,11 @@ class RejectedNotebookPart:
     """
 
 
-NotebookOutputEntry = NotebookOutput | RejectedNotebookPart
+type NotebookOutputEntry = Result[NotebookOutput, RejectedNotebookPart]
 """Hold one code-cell output after notebook boundary validation.
 
-- `NotebookOutput` is a supported structured output variant.
-- `RejectedNotebookPart` preserves malformed output as raw JSON with a warning.
+- `Ok[NotebookOutput]` contains a supported structured output variant.
+- `Err[RejectedNotebookPart]` preserves malformed output as raw JSON with a warning.
 
 Composition handles both without dropping content. The union does not repair a
 rejected output or treat it as structured data.
@@ -312,11 +318,11 @@ class NotebookCell:
     """
 
 
-NotebookCellEntry = NotebookCell | RejectedNotebookPart
+type NotebookCellEntry = Result[NotebookCell, RejectedNotebookPart]
 """Hold one notebook cell after document boundary validation.
 
-- `NotebookCell` exposes the supported cell fields composition reads.
-- `RejectedNotebookPart` preserves a malformed cell as raw JSON with a warning.
+- `Ok[NotebookCell]` contains the supported cell fields composition reads.
+- `Err[RejectedNotebookPart]` preserves a malformed cell as raw JSON with a warning.
 
 Cell pairing and rendering consume this union. Rejected values never masquerade
 as valid cells.
@@ -463,19 +469,26 @@ def try_load_notebook_document(data: bytes) -> Option[NotebookDocument]:
         neighboring outputs remain usable.
         """
 
-        def rejected(reason: str) -> RejectedNotebookPart:
+        def rejected(reason: str) -> Err[RejectedNotebookPart]:
             """Wrap the untouched output JSON with a scoped validation warning.
 
             The nested loader calls this for every unsupported output shape.
             `reason` becomes explanatory prose only; the raw entry remains the
             content composition later renders and compares.
+
+            # Returns
+
+            - `error.raw`: The untouched output entry.
+            - `error.warning`: A visible explanation of its rejected shape.
             """
-            return RejectedNotebookPart(
-                raw=entry,
-                warning={
-                    "type": "notebook_invalid_output",
-                    "message": f"Notebook output shown as raw JSON: {reason}.",
-                },
+            return Err(
+                RejectedNotebookPart(
+                    raw=entry,
+                    warning={
+                        "type": "notebook_invalid_output",
+                        "message": f"Notebook output shown as raw JSON: {reason}.",
+                    },
+                )
             )
 
         if not isinstance(entry, dict):
@@ -485,7 +498,7 @@ def try_load_notebook_document(data: bytes) -> Option[NotebookDocument]:
             stream_text = try_multistring(entry.get("text"))
             if stream_text is None:
                 return rejected("stream text is not a string or string list")
-            return StreamOutput(raw=entry, text=stream_text)
+            return Ok(StreamOutput(raw=entry, text=stream_text))
         if output_type == "error":
             traceback: JsonValue = entry.get("traceback")
             if not isinstance(traceback, list):
@@ -495,7 +508,7 @@ def try_load_notebook_document(data: bytes) -> Option[NotebookDocument]:
                 if not isinstance(frame, str):
                     return rejected("error traceback contains a non-string")
                 frames.append(frame)
-            return ErrorOutput(raw=entry, traceback=frames)
+            return Ok(ErrorOutput(raw=entry, traceback=frames))
         if output_type not in ("execute_result", "display_data"):
             return rejected("output_type is missing or unsupported")
         data: JsonValue = entry.get("data")
@@ -517,15 +530,19 @@ def try_load_notebook_document(data: bytes) -> Option[NotebookDocument]:
             except binascii.Error, ValueError:
                 return rejected("image/png is not valid base64")
         if output_type == "execute_result":
-            return ExecuteResultOutput(
+            return Ok(
+                ExecuteResultOutput(
+                    raw=entry,
+                    text_plain=text_plain,
+                    image_png=image_png,
+                )
+            )
+        return Ok(
+            DisplayDataOutput(
                 raw=entry,
                 text_plain=text_plain,
                 image_png=image_png,
             )
-        return DisplayDataOutput(
-            raw=entry,
-            text_plain=text_plain,
-            image_png=image_png,
         )
 
     identifier_counts: dict[str, int] = {}
@@ -546,12 +563,14 @@ def try_load_notebook_document(data: bytes) -> Option[NotebookDocument]:
     for cell in cell_values:
         if not isinstance(cell, dict):
             cells.append(
-                RejectedNotebookPart(
-                    raw=cell,
-                    warning={
-                        "type": "notebook_invalid_cell",
-                        "message": "Notebook cell shown as raw JSON: cell is not a mapping.",
-                    },
+                Err(
+                    RejectedNotebookPart(
+                        raw=cell,
+                        warning={
+                            "type": "notebook_invalid_cell",
+                            "message": "Notebook cell shown as raw JSON: cell is not a mapping.",
+                        },
+                    )
                 )
             )
             continue
@@ -559,15 +578,17 @@ def try_load_notebook_document(data: bytes) -> Option[NotebookDocument]:
         source = try_multistring(cell.get("source"))
         if cell_type not in ("code", "markdown", "raw") or source is None:
             cells.append(
-                RejectedNotebookPart(
-                    raw=cell,
-                    warning={
-                        "type": "notebook_invalid_cell",
-                        "message": (
-                            "Notebook cell shown as raw JSON: it has no valid "
-                            "cell type and source."
-                        ),
-                    },
+                Err(
+                    RejectedNotebookPart(
+                        raw=cell,
+                        warning={
+                            "type": "notebook_invalid_cell",
+                            "message": (
+                                "Notebook cell shown as raw JSON: it has no valid "
+                                "cell type and source."
+                            ),
+                        },
+                    )
                 )
             )
             continue
@@ -612,15 +633,17 @@ def try_load_notebook_document(data: bytes) -> Option[NotebookDocument]:
                 )
             else:
                 outputs.append(
-                    RejectedNotebookPart(
-                        raw=output_values,
-                        warning={
-                            "type": "notebook_invalid_output",
-                            "message": (
-                                "Notebook outputs shown as raw JSON: outputs "
-                                "is not a list."
-                            ),
-                        },
+                    Err(
+                        RejectedNotebookPart(
+                            raw=output_values,
+                            warning={
+                                "type": "notebook_invalid_output",
+                                "message": (
+                                    "Notebook outputs shown as raw JSON: outputs "
+                                    "is not a list."
+                                ),
+                            },
+                        )
                     )
                 )
             raw_count: JsonValue = cell.get("execution_count")
@@ -649,15 +672,17 @@ def try_load_notebook_document(data: bytes) -> Option[NotebookDocument]:
                     }
                 )
         cells.append(
-            NotebookCell(
-                id=cell_key,
-                source_bay_key=source_bay_key,
-                cell_type=cell_type,
-                source=source,
-                metadata=cell.get("metadata"),
-                outputs=outputs,
-                execution_count=execution_count,
-                warnings=tuple(warnings),
+            Ok(
+                NotebookCell(
+                    id=cell_key,
+                    source_bay_key=source_bay_key,
+                    cell_type=cell_type,
+                    source=source,
+                    metadata=cell.get("metadata"),
+                    outputs=outputs,
+                    execution_count=execution_count,
+                    warnings=tuple(warnings),
+                )
             )
         )
     return Some(
@@ -718,12 +743,12 @@ def _paired_cells(
         occurrences: dict[str, int] = {}
         keys: list[str] = []
         for entry in entries:
-            if isinstance(entry, NotebookCell):
-                keys.append(entry.id)
+            if Ok.good(entry):
+                keys.append(entry.value.id)
                 continue
             digest = hashlib.sha256(
                 json.dumps(
-                    entry.raw,
+                    entry.error.raw,
                     sort_keys=True,
                     ensure_ascii=False,
                     separators=(",", ":"),
@@ -859,9 +884,9 @@ def notebook_bays(
         left_text = left_bytes.map(try_decode_text)
         right_text = right_bytes.map(try_decode_text)
         rejections = [
-            value.value
+            value.value.error
             for value in (left_text, right_text)
-            if Some.present(value) and isinstance(value.value, TextRejection)
+            if Some.present(value) and not Ok.good(value.value)
         ]
         warnings: tuple[BayWarning, ...] = tuple(
             {
@@ -889,10 +914,14 @@ def notebook_bays(
                 warnings=warnings,
             )
             return
-        left_raw_text = left_text.get()
-        right_raw_text = right_text.get()
-        assert not isinstance(left_raw_text, TextRejection)
-        assert not isinstance(right_raw_text, TextRejection)
+        left_decoded: Option[str] = Nothing()
+        right_decoded: Option[str] = Nothing()
+        if Some.present(left_text):
+            assert Ok.good(left_text.value)
+            left_decoded = Some(left_text.value.value)
+        if Some.present(right_text):
+            assert Ok.good(right_text.value)
+            right_decoded = Some(right_text.value.value)
         yield TextBay(
             frame_key="notebook:raw",
             heading="Notebook",
@@ -901,17 +930,17 @@ def notebook_bays(
             detail=None,
             collapsible=False,
             default_expanded=True,
-            change=whole_file_change(left_text, right_text),
+            change=whole_file_change(left_decoded, right_decoded),
             left_label=context.left_label,
             right_label=context.right_label,
             left=DiffSide(
                 exists=Some.present(left_bytes),
-                text=left_raw_text,
+                text=left_decoded.get(),
                 path_hint=context.left_path.get(),
             ),
             right=DiffSide(
                 exists=Some.present(right_bytes),
-                text=right_raw_text,
+                text=right_decoded.get(),
                 path_hint=context.right_path.get(),
             ),
             warnings=warnings,
@@ -1002,15 +1031,16 @@ def notebook_bays(
         returns empty text, preserving its distinction from an absent output.
         The caller maps this over paired outputs before constructing DiffSide.
         """
-        match out:
-            case RejectedNotebookPart():
-                return canonical_json(out.raw)
+        if not Ok.good(out):
+            return canonical_json(out.error.raw)
+        value = out.value
+        match value:
             case StreamOutput():
-                return out.text
+                return value.text
             case ErrorOutput():
-                return "\n".join(out.traceback)
+                return "\n".join(value.traceback)
             case ExecuteResultOutput() | DisplayDataOutput():
-                return out.text_plain.get_or("")
+                return value.text_plain.get_or("")
 
     def rendered_png(out: NotebookOutputEntry) -> Option[MediaSide]:
         """Select exact PNG bytes from a present output's display bundle.
@@ -1022,9 +1052,12 @@ def notebook_bays(
         - `Some[MediaSide]`: the exact PNG representation supplied by the bundle.
         - `Nothing`: the output has no PNG representation.
         """
-        match out:
+        if not Ok.good(out):
+            return Nothing()
+        value = out.value
+        match value:
             case ExecuteResultOutput() | DisplayDataOutput():
-                return out.image_png.map(
+                return value.image_png.map(
                     lambda data: MediaSide(media_type="image/png", data=data)
                 )
             case _:
@@ -1039,27 +1072,17 @@ def notebook_bays(
         present = (right_cell if Some.present(right_cell) else left_cell).must()
         # Pairing yields no pair without at least one side.
 
-        if (
-            Some.present(left_cell)
-            and isinstance(left_cell.value, RejectedNotebookPart)
-        ) or (
-            Some.present(right_cell)
-            and isinstance(right_cell.value, RejectedNotebookPart)
+        if (Some.present(left_cell) and not Ok.good(left_cell.value)) or (
+            Some.present(right_cell) and not Ok.good(right_cell.value)
         ):
             left_rejected_text = (
-                Some(canonical_json(left_cell.value.raw))
-                if (
-                    Some.present(left_cell)
-                    and isinstance(left_cell.value, RejectedNotebookPart)
-                )
+                Some(canonical_json(left_cell.value.error.raw))
+                if (Some.present(left_cell) and not Ok.good(left_cell.value))
                 else Nothing()
             )
             right_rejected_text = (
-                Some(canonical_json(right_cell.value.raw))
-                if (
-                    Some.present(right_cell)
-                    and isinstance(right_cell.value, RejectedNotebookPart)
-                )
+                Some(canonical_json(right_cell.value.error.raw))
+                if (Some.present(right_cell) and not Ok.good(right_cell.value))
                 else Nothing()
             )
             yield TextBay(
@@ -1086,34 +1109,32 @@ def notebook_bays(
                     path_hint="notebook-cell.json",
                 ),
                 warnings=tuple(
-                    entry.value.warning
+                    entry.value.error.warning
                     for entry in (left_cell, right_cell)
-                    if (
-                        Some.present(entry)
-                        and isinstance(entry.value, RejectedNotebookPart)
-                    )
+                    if (Some.present(entry) and not Ok.good(entry.value))
                 ),
             )
             continue
         left_source_cell: Option[NotebookCell] = Nothing()
         right_source_cell: Option[NotebookCell] = Nothing()
         if Some.present(left_cell):
-            assert isinstance(left_cell.value, NotebookCell)
-            left_source_cell = Some(left_cell.value)
+            assert Ok.good(left_cell.value)
+            left_source_cell = Some(left_cell.value.value)
         if Some.present(right_cell):
-            assert isinstance(right_cell.value, NotebookCell)
-            right_source_cell = Some(right_cell.value)
-        assert isinstance(present, NotebookCell)
-        hint = source_hint(present)
+            assert Ok.good(right_cell.value)
+            right_source_cell = Some(right_cell.value.value)
+        assert Ok.good(present)
+        present_cell = present.value
+        hint = source_hint(present_cell)
         # The frame wears the name the cell has in the document the reviewer
         # ends with, and for a removed cell the one it had in the document
         # they started from.
-        frame_heading = cell_heading(present)
+        frame_heading = cell_heading(present_cell)
         source_label = {
             "code": "Code",
             "markdown": "Markdown",
             "raw": "Raw",
-        }[present.cell_type]
+        }[present_cell.cell_type]
 
         source_changed = (
             not Some.present(left_source_cell)
@@ -1145,7 +1166,7 @@ def notebook_bays(
         yield TextBay(
             frame_key=key,
             heading=frame_heading,
-            bay_key=present.source_bay_key,
+            bay_key=present_cell.source_bay_key,
             # A cell that only moved has no changed row to land on, so its
             # `detail` says what happened and it consumes a hunk at its own root.
             label=source_label,
@@ -1192,7 +1213,7 @@ def notebook_bays(
                 != right_source_cell.value.metadata
             )
         else:
-            show_metadata = present.metadata not in (None, {})
+            show_metadata = present_cell.metadata not in (None, {})
         if show_metadata:
             yield TextBay(
                 frame_key=key,
@@ -1250,21 +1271,22 @@ def notebook_bays(
                 (right_outputs, index),
                 lambda items, i: items[i],
             )
-            output_equal = left_out == right_out
+            # Compare notebook data, including rejected raw values, rather
+            # than the identity of separately constructed Err wrappers.
+            output_equal = left_out.map(
+                lambda out: out.value if Ok.good(out) else out.error
+            ) == right_out.map(
+                lambda out: out.value if Ok.good(out) else out.error
+            )
             if output_equal and not (
-                Some.present(left_out)
-                and isinstance(left_out.value, RejectedNotebookPart)
+                Some.present(left_out) and not Ok.good(left_out.value)
             ):
                 continue
             left_png = left_out.and_then(rendered_png)
             right_png = right_out.and_then(rendered_png)
             rejected = (
-                Some.present(left_out)
-                and isinstance(left_out.value, RejectedNotebookPart)
-            ) or (
-                Some.present(right_out)
-                and isinstance(right_out.value, RejectedNotebookPart)
-            )
+                Some.present(left_out) and not Ok.good(left_out.value)
+            ) or (Some.present(right_out) and not Ok.good(right_out.value))
             if not rejected and (
                 Some.present(left_png) or Some.present(right_png)
             ):
@@ -1371,11 +1393,8 @@ def notebook_bays(
                     path_hint=None,
                 ),
                 warnings=tuple(
-                    output.value.warning
+                    output.value.error.warning
                     for output in (left_out, right_out)
-                    if (
-                        Some.present(output)
-                        and isinstance(output.value, RejectedNotebookPart)
-                    )
+                    if (Some.present(output) and not Ok.good(output.value))
                 ),
             )

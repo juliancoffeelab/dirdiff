@@ -85,7 +85,7 @@ from dirdiff.review.base import (
     validate_author,
     validate_comment_body,
 )
-from dirdiff.util import Nothing, Option, Some
+from dirdiff.util import Nothing, Ok, Option, Some
 
 __all__ = [
     "DeleteThread",
@@ -1461,14 +1461,19 @@ def create_thread(
         profile = validate_author(database, command.author)
         # One focused File read replaces hydrating the whole Snapshot: the
         # creation needs exactly its target File and Snapshot visibility.
-        snapshot_exists, loaded_target = database.snapshot_file(
+        target_result = database.snapshot_file(
             identity,
             snapshot_id=snapshot_id.hex,
             left_path=command.target.file.left_path.get(),
             right_path=command.target.file.right_path.get(),
         )
-        if not snapshot_exists:
+        if (
+            not Ok.good(target_result)
+            and target_result.error == "snapshot-unavailable"
+        ):
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
+        # The planner validates absent Files before validating the comment.
+        loaded_target = target_result.value if Ok.good(target_result) else None
         cache = ReviewReadCache()
         created_at = action_timestamp()
         rows, first_action = plan_thread_creation(

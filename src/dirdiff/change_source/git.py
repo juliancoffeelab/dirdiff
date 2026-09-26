@@ -29,7 +29,7 @@ import subprocess
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
-from typing import Literal, TypeIs, override
+from typing import Literal, override
 
 from dirdiff.change_source.base import (
     BUILTIN_SIDES,
@@ -53,7 +53,7 @@ from dirdiff.change_source.base import (
     git_executable,
 )
 from dirdiff.engines import DirdiffError
-from dirdiff.util import maybe
+from dirdiff.util import Err, Ok, Result, maybe
 
 __all__ = [
     "GitChangeSource",
@@ -110,17 +110,6 @@ def _properties_for_mode(mode: str) -> FileProperties:
         else "file",
         mode == "100755",
     )
-
-
-def _is_branch_selection(
-    selection: DefaultBaseSelection,
-) -> TypeIs[BranchSelection]:
-    """Narrow a successful default-base result to a branch selection.
-
-    Default failures have a `kind` discriminator, while both usable branch
-    variants have `source`. Callers use this check before reading branch fields.
-    """
-    return "source" in selection
 
 
 def _local_default_base_branch_name(metadata: RefMetadata) -> str:
@@ -192,7 +181,8 @@ def preferred_review_selection(
     # Parameters
 
     - `metadata`: One repository observation shared with base selection.
-    - `base_selection`: The usable or failed base result shown by the HUD.
+    - `base_selection`: `Ok` containing the saved or inferred base, or `Err`
+      containing the heuristic failure shown by the HUD.
 
     # Usage
 
@@ -210,8 +200,8 @@ def preferred_review_selection(
         return {"source": "local", "branch": ""}
 
     normalized_base = _local_default_base_branch_name(metadata)
-    if _is_branch_selection(base_selection):
-        normalized_base = base_selection["branch"].strip()
+    if Ok.good(base_selection):
+        normalized_base = base_selection.value["branch"].strip()
     current = metadata["current_branch"]
 
     if current != "" and current != normalized_base:
@@ -582,8 +572,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        - If metadata cannot identify one safe base, return `{"kind": "error",
-          "error": "heuristic_fail"}`.
+        - If metadata cannot identify one safe base, return
+          `Err({"kind": "error", "error": "heuristic_fail"})`.
         - When a remote lacks a local HEAD symbolic ref, `git remote show` may
           contact the network; command failure also produces the error result.
         - A caller-supplied metadata record naming remotes on storage without
@@ -593,24 +583,26 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         if metadata["remote_names"] != []:
             default_remote = _default_branch_review_remote_name(metadata)
             if default_remote == "":
-                return {"kind": "error", "error": "heuristic_fail"}
+                return Err({"kind": "error", "error": "heuristic_fail"})
             base_branch = metadata["remote_head_branches"].get(
                 default_remote, ""
             )
             if base_branch == "":
                 base_branch = self._remote_show_head_branch_name(default_remote)
             if base_branch == "":
-                return {"kind": "error", "error": "heuristic_fail"}
-            return {
-                "source": "remote",
-                "remote": default_remote,
-                "branch": base_branch,
-            }
+                return Err({"kind": "error", "error": "heuristic_fail"})
+            return Ok(
+                {
+                    "source": "remote",
+                    "remote": default_remote,
+                    "branch": base_branch,
+                }
+            )
 
         base_branch = _local_default_base_branch_name(metadata)
         if base_branch == "":
-            return {"kind": "error", "error": "heuristic_fail"}
-        return {"source": "local", "branch": base_branch}
+            return Err({"kind": "error", "error": "heuristic_fail"})
+        return Ok({"source": "local", "branch": base_branch})
 
     def _remote_show_head_branch_name(self, remote_name: str) -> str:
         """Ask a remote for its HEAD branch when no local symbolic ref exists.
@@ -1322,14 +1314,12 @@ class _GitWorkspace(WorkspaceStorageProtocol):
           absent Git objects raise `DirdiffError`.
         """
         result = self.load_versions(((path, side, None, None),))[0]
-        if isinstance(result, DirdiffError):
-            raise result
-        return result
+        return result.or_raise()
 
     @override
     def load_versions(
         self, sides: tuple[StorageFile, ...]
-    ) -> tuple[bytes | DirdiffError, ...]:
+    ) -> tuple[Result[bytes, DirdiffError], ...]:
         """Load captured sides with one Git object-content subprocess.
 
         Worktree bytes are read directly. Listed immutable sides use their
@@ -1358,20 +1348,21 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         - Each item corresponds to one input side, preserving input order so
           capture can attach each result without another identity key.
-        - A `bytes` item is the exact content loaded for that File side.
-        - A `DirdiffError` item describes only that unavailable side;
+        - An `Ok[bytes]` item holds exact content for that File side.
+        - An `Err[DirdiffError]` item describes only that unavailable side;
           successful sibling results remain available.
 
         # Failures
 
-        - Missing individual sides become `DirdiffError` values in input
+        - Missing individual sides become `Err[DirdiffError]` values in input
           order.
         - Missing repository state, batch-process failure, or malformed batch
           output raises `DirdiffError` for the complete operation.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
-        results: list[bytes | DirdiffError | None] = [None] * len(sides)
+        # None marks an unfilled batch slot; every input must produce a Result.
+        results: list[Result[bytes, DirdiffError] | None] = [None] * len(sides)
         symlink_indexes: set[int] = set()
         object_sides: list[tuple[int, bytes, str]] = []
         for index, (path, side, properties, object_id) in enumerate(sides):
@@ -1382,7 +1373,7 @@ class _GitWorkspace(WorkspaceStorageProtocol):
                 and properties is not None
                 and properties.kind == "repository_reference"
             ):
-                results[index] = object_id.encode() + b"\n"
+                results[index] = Ok(object_id.encode() + b"\n")
                 continue
             if side == "worktree":
                 file_path = self.repo_root / path
@@ -1391,10 +1382,10 @@ class _GitWorkspace(WorkspaceStorageProtocol):
                     # is valid raw content, never a candidate LFS pointer.
                     mode = file_path.lstat().st_mode
                     if stat.S_ISLNK(mode):
-                        results[index] = os.readlink(os.fsencode(file_path))
+                        results[index] = Ok(os.readlink(os.fsencode(file_path)))
                         symlink_indexes.add(index)
                     elif stat.S_ISREG(mode):
-                        results[index] = file_path.read_bytes()
+                        results[index] = Ok(file_path.read_bytes())
                     elif stat.S_ISDIR(mode) and (file_path / ".git").exists():
                         # NOTE: this commit id becomes the side's whole
                         # content. Formats classify it by the outer path, so a
@@ -1413,20 +1404,26 @@ class _GitWorkspace(WorkspaceStorageProtocol):
                             check=False,
                         )
                         if head.returncode != 0:
-                            results[index] = DirdiffError(
-                                f"Embedded repository {path} has no HEAD "
-                                f"commit: {head.stderr.decode().strip()}"
+                            results[index] = Err(
+                                DirdiffError(
+                                    f"Embedded repository {path} has no HEAD "
+                                    f"commit: {head.stderr.decode().strip()}"
+                                )
                             )
                         else:
-                            results[index] = head.stdout
+                            results[index] = Ok(head.stdout)
                     else:
-                        results[index] = DirdiffError(
-                            f"{path} is not a regular file, symbolic link, "
-                            "or embedded repository."
+                        results[index] = Err(
+                            DirdiffError(
+                                f"{path} is not a regular file, symbolic link, "
+                                "or embedded repository."
+                            )
                         )
                 except OSError as exc:
-                    results[index] = DirdiffError(
-                        f"Could not read worktree file {path}: {exc}"
+                    results[index] = Err(
+                        DirdiffError(
+                            f"Could not read worktree file {path}: {exc}"
+                        )
                     )
             else:
                 target_label = (
@@ -1464,8 +1461,10 @@ class _GitWorkspace(WorkspaceStorageProtocol):
                     if sides[index][3] is not None:
                         # A listed version stays that version even if today's
                         # path or index now points at a different entry kind.
-                        results[index] = DirdiffError(
-                            f"Git could not load {label}: File is missing."
+                        results[index] = Err(
+                            DirdiffError(
+                                f"Git could not load {label}: File is missing."
+                            )
                         )
                     else:
                         missing_entries.append((index, label))
@@ -1491,16 +1490,20 @@ class _GitWorkspace(WorkspaceStorageProtocol):
                 if process.stdout[content_end : content_end + 1] != b"\n":
                     raise DirdiffError("Git returned a truncated object body.")
                 if object_type == b"blob":
-                    results[index] = process.stdout[content_start:content_end]
+                    results[index] = Ok(
+                        process.stdout[content_start:content_end]
+                    )
                 elif object_type == b"commit":
                     # A tree path only resolves to a commit through a gitlink.
                     # Its content is that commit id; the commit body is the
                     # referenced repository's, not this side's.
-                    results[index] = loaded_object_id + b"\n"
+                    results[index] = Ok(loaded_object_id + b"\n")
                 else:
-                    results[index] = DirdiffError(
-                        f"Git could not load {label}: expected a File blob, "
-                        f"got {object_type.decode('ascii')}."
+                    results[index] = Err(
+                        DirdiffError(
+                            f"Git could not load {label}: expected a File blob, "
+                            f"got {object_type.decode('ascii')}."
+                        )
                     )
                 offset = content_end + 1
             if offset != len(process.stdout):
@@ -1549,10 +1552,12 @@ class _GitWorkspace(WorkspaceStorageProtocol):
                 for index, label in entries:
                     path = sides[index][0]
                     if path in gitlink_ids:
-                        results[index] = gitlink_ids[path] + b"\n"
+                        results[index] = Ok(gitlink_ids[path] + b"\n")
                     else:
-                        results[index] = DirdiffError(
-                            f"Git could not load {label}: File is missing."
+                        results[index] = Err(
+                            DirdiffError(
+                                f"Git could not load {label}: File is missing."
+                            )
                         )
 
         # Tree/index blob reads do not carry modes. Inspect only complete pointer
@@ -1560,11 +1565,12 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         # Git subprocess. Batches without pointer candidates need no additional
         # commands.
         candidates: dict[str, list[int]] = {}
-        for index, content in enumerate(results):
+        for index, outcome in enumerate(results):
             if (
-                isinstance(content, bytes)
-                and len(content) < 1024
-                and _LFS_POINTER_RE.fullmatch(content) is not None
+                outcome is not None
+                and Ok.good(outcome)
+                and len(outcome.value) < 1024
+                and _LFS_POINTER_RE.fullmatch(outcome.value) is not None
                 and index not in symlink_indexes
             ):
                 candidates.setdefault(sides[index][1], []).append(index)
@@ -1591,9 +1597,11 @@ class _GitWorkspace(WorkspaceStorageProtocol):
             )
             if mode_result.returncode != 0:
                 for index in unknown_indexes:
-                    results[index] = DirdiffError(
-                        f"Git could not inspect {side}:{sides[index][0]}: "
-                        f"{mode_result.stderr.decode().strip()}"
+                    results[index] = Err(
+                        DirdiffError(
+                            f"Git could not inspect {side}:{sides[index][0]}: "
+                            f"{mode_result.stderr.decode().strip()}"
+                        )
                     )
                 continue
             modes: dict[str, bytes] = {}
@@ -1606,8 +1614,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
             for index in unknown_indexes:
                 path = sides[index][0]
                 if path not in modes:
-                    results[index] = DirdiffError(
-                        f"Git could not inspect {side}:{path}."
+                    results[index] = Err(
+                        DirdiffError(f"Git could not inspect {side}:{path}.")
                     )
                 elif modes[path] == b"120000":
                     symlink_indexes.add(index)
@@ -1615,9 +1623,13 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         lfs_objects: dict[int, tuple[str, int]] = {}
         for indexes in candidates.values():
             for index in indexes:
-                content = results[index]
-                if not isinstance(content, bytes) or index in symlink_indexes:
+                outcome = results[index]
+                assert outcome is not None, (
+                    "LFS candidate requires a loaded side"
+                )
+                if not Ok.good(outcome) or index in symlink_indexes:
                     continue
+                content = outcome.value
                 pointer = _LFS_POINTER_RE.fullmatch(content)
                 assert pointer is not None, (
                     "LFS candidates must be complete pointers"
@@ -1627,8 +1639,10 @@ class _GitWorkspace(WorkspaceStorageProtocol):
                     or pointer[2] != b""
                 ):
                     path, side, _properties, _object_id = sides[index]
-                    results[index] = DirdiffError(
-                        f"Unsupported Git LFS pointer version or extensions: {side}:{path}"
+                    results[index] = Err(
+                        DirdiffError(
+                            f"Unsupported Git LFS pointer version or extensions: {side}:{path}"
+                        )
                     )
                 else:
                     lfs_objects[index] = (
@@ -1673,8 +1687,10 @@ class _GitWorkspace(WorkspaceStorageProtocol):
             except DirdiffError as exc:
                 for index, (oid, _size) in lfs_objects.items():
                     path, side, _properties, _object_id = sides[index]
-                    results[index] = DirdiffError(
-                        f"Could not load Git LFS object {oid} for {side}:{path}: {exc}"
+                    results[index] = Err(
+                        DirdiffError(
+                            f"Could not load Git LFS object {oid} for {side}:{path}: {exc}"
+                        )
                     )
             else:
                 for index, (oid, size) in lfs_objects.items():
@@ -1700,17 +1716,21 @@ class _GitWorkspace(WorkspaceStorageProtocol):
                             if side in {"index", "worktree"}
                             else f"git lfs fetch <remote> {shlex.quote(side)}"
                         )
-                        results[index] = DirdiffError(
-                            f"{side}:{path} points to Git LFS object {oid} "
-                            f"({size} bytes), which is missing from local storage. "
-                            f"Fetch it with `{fetch}`."
+                        results[index] = Err(
+                            DirdiffError(
+                                f"{side}:{path} points to Git LFS object {oid} "
+                                f"({size} bytes), which is missing from local storage. "
+                                f"Fetch it with `{fetch}`."
+                            )
                         )
                     except (OSError, DirdiffError) as exc:
-                        results[index] = DirdiffError(
-                            f"Could not load Git LFS object {oid} for {side}:{path}: {exc}"
+                        results[index] = Err(
+                            DirdiffError(
+                                f"Could not load Git LFS object {oid} for {side}:{path}: {exc}"
+                            )
                         )
                     else:
-                        results[index] = content
+                        results[index] = Ok(content)
 
         assert all(result is not None for result in results)
         return tuple(result for result in results if result is not None)
@@ -1876,8 +1896,8 @@ class GitRepository:
 
         # Returns
 
-        - A local or named-remote branch selection names the suggested base.
-        - The `heuristic_fail` variant means no safe default could be chosen;
+        - `Ok` contains the suggested local or named-remote base branch.
+        - `Err` contains `heuristic_fail` when no safe default could be chosen;
           the picker must leave that choice to the user.
         """
         return self._workspace.default_base_selection(metadata)

@@ -16,7 +16,7 @@ from helpers import TextDiffService
 
 from dirdiff.change_source import GitChangeSource, GitRepository
 from dirdiff.engines import DirdiffError
-from dirdiff.util import Some
+from dirdiff.util import Ok, Some
 
 
 def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
@@ -431,15 +431,15 @@ def test_batch_loads_literal_paths_without_argv_pathspecs(
         )
     )
 
-    assert loaded[:4] == (
+    assert tuple(result.or_raise() for result in loaded[:4]) == (
         b"committed magic\n",
         b"\x00committed\nbytes\xff",
         b"staged magic\n",
         b"literal stage-shaped name\n",
     )
-    assert loaded[4] == f"{commit_id}\n".encode()
-    assert isinstance(loaded[5], DirdiffError)
-    assert str(loaded[5]) == (
+    assert loaded[4].or_raise() == f"{commit_id}\n".encode()
+    assert not Ok.good(loaded[5])
+    assert str(loaded[5].error) == (
         "Git could not load HEAD:missing\npath: File is missing."
     )
 
@@ -528,7 +528,7 @@ def test_worktree_symlinks_load_as_git_records_them(tmp_path: Path) -> None:
             ("broken-link", "worktree", None, None),
         )
     )
-    assert batch == (
+    assert tuple(result.or_raise() for result in batch) == (
         b"real-dir",
         b"real-dir/inner.txt",
         b"real-dir",
@@ -611,7 +611,7 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
         assert backend._workspace.file_size("held.png", side) == len(held)
         assert backend._workspace.load_versions(
             (("held.png", side, None, None),)
-        ) == (held,)
+        ) == (Ok(held),)
         for name in ("lookalike.txt", "documentation.txt", "pointer-link"):
             expected = (
                 pointer_text
@@ -622,7 +622,7 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
             assert backend._workspace.file_size(name, side) == len(expected)
             assert backend._workspace.load_versions(
                 ((name, side, None, None),)
-            ) == (expected,)
+            ) == (Ok(expected),)
     # Retarget the worktree pointer at an object the store lacks, as a fresh
     # checkout with `GIT_LFS_SKIP_SMUDGE=1` leaves it.
     (tmp_path / "held.png").write_bytes(
@@ -694,17 +694,19 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
             ("extended.bin", "index", None, None),
         )
     )
-    assert batch[0] == held
-    assert isinstance(batch[1], DirdiffError)
-    assert "HEAD:absent.bin points to Git LFS object" in str(batch[1])
-    assert isinstance(batch[2], DirdiffError)
-    assert "worktree:held.png points to Git LFS object" in str(batch[2])
-    assert "`git lfs fetch <remote>`" in str(batch[2])
-    assert batch[3] == (tmp_path / "lookalike.txt").read_bytes()
-    assert batch[4] == pointer_text
-    assert batch[5] == pointer_text
-    assert isinstance(batch[6], DirdiffError)
-    assert "Unsupported Git LFS pointer version or extensions" in str(batch[6])
+    assert batch[0].or_raise() == held
+    assert not Ok.good(batch[1])
+    assert "HEAD:absent.bin points to Git LFS object" in str(batch[1].error)
+    assert not Ok.good(batch[2])
+    assert "worktree:held.png points to Git LFS object" in str(batch[2].error)
+    assert "`git lfs fetch <remote>`" in str(batch[2].error)
+    assert batch[3].or_raise() == (tmp_path / "lookalike.txt").read_bytes()
+    assert batch[4].or_raise() == pointer_text
+    assert batch[5].or_raise() == pointer_text
+    assert not Ok.good(batch[6])
+    assert "Unsupported Git LFS pointer version or extensions" in str(
+        batch[6].error
+    )
 
     # A damaged or unreadable store entry is refused at load; the pointer's
     # identity is unaffected.
@@ -785,7 +787,7 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
         )
         assert linked_backend._workspace.load_versions(
             (("held.png", side, None, None),)
-        ) == (held,)
+        ) == (Ok(held),)
 
     # Restore default storage to exercise the shared common directory too.
     relocated.rename(held_path)
@@ -874,9 +876,9 @@ def test_submodule_sides_load_as_their_commit_ids(tmp_path: Path) -> None:
             ("sub", "worktree", None, None),
         )
     ) == (
-        f"{second}\n".encode(),
-        f"{second}\n".encode(),
-        f"{first}\n".encode(),
+        Ok(f"{second}\n".encode()),
+        Ok(f"{second}\n".encode()),
+        Ok(f"{first}\n".encode()),
     )
     assert (
         backend._workspace.load_version("sub", "worktree")
@@ -995,8 +997,8 @@ def test_submodule_replaced_by_a_regular_file_loads_both_sides(
     assert backend._workspace.load_versions(
         (("gone", "HEAD", None, None), ("gone", "worktree", None, None))
     ) == (
-        f"{inner_id}\n".encode(),
-        b"plain file now\n",
+        Ok(f"{inner_id}\n".encode()),
+        Ok(b"plain file now\n"),
     )
 
 
@@ -1061,8 +1063,11 @@ def test_untracked_embedded_repositories_list_as_gitlinks(
             ("plain-dir", "worktree", None, None),
         )
     )
-    assert embedded == f"{embedded_id}\n".encode()
-    assert isinstance(hollow, DirdiffError)
-    assert "hollow" in str(hollow) and "HEAD" in str(hollow)
-    assert isinstance(plain, DirdiffError)
-    assert backend._workspace.load_version("embedded", "worktree") == embedded
+    assert embedded.or_raise() == f"{embedded_id}\n".encode()
+    assert not Ok.good(hollow)
+    assert "hollow" in str(hollow.error) and "HEAD" in str(hollow.error)
+    assert not Ok.good(plain)
+    assert (
+        backend._workspace.load_version("embedded", "worktree")
+        == embedded.or_raise()
+    )

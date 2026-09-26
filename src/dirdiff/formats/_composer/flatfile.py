@@ -23,12 +23,11 @@ from dirdiff.formats.base import (
     FLATFILE_BAY_KEY,
     BayContext,
     TextBay,
-    TextRejection,
     byte_facts_bay,
     try_decode_text,
     whole_file_change,
 )
-from dirdiff.util import Nothing, Option, Some
+from dirdiff.util import Nothing, Ok, Option, Some
 
 __all__ = [
     "flatfile_bays",
@@ -80,9 +79,9 @@ def flatfile_bays(
     left_text = left.map(try_decode_text)
     right_text = right.map(try_decode_text)
     rejections = [
-        value.value
+        value.value.error
         for value in (left_text, right_text)
-        if Some.present(value) and isinstance(value.value, TextRejection)
+        if Some.present(value) and not Ok.good(value.value)
     ]
     if len(rejections) > 0:
         yield byte_facts_bay(
@@ -104,11 +103,17 @@ def flatfile_bays(
         )
         return
     # Nullable extraction is the boundary to the engine's DiffSide contract.
-    left_engine_text = left_text.get()
-    right_engine_text = right_text.get()
-    assert not isinstance(left_engine_text, TextRejection)
-    assert not isinstance(right_engine_text, TextRejection)
-    change = whole_file_change(left_text, right_text)
+    left_decoded: Option[str] = Nothing()
+    right_decoded: Option[str] = Nothing()
+    if Some.present(left_text):
+        assert Ok.good(left_text.value)
+        left_decoded = Some(left_text.value.value)
+    if Some.present(right_text):
+        assert Ok.good(right_text.value)
+        right_decoded = Some(right_text.value.value)
+    left_engine_text = left_decoded.get()
+    right_engine_text = right_decoded.get()
+    change = whole_file_change(left_decoded, right_decoded)
     yield TextBay(
         # One frame, and nothing to name above a File that is entirely its own
         # text, so the frame is keyed "file" and carries no heading. "Code" is

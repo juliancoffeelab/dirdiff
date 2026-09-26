@@ -26,7 +26,6 @@ from dirdiff.formats.base import (
     ImageBay,
     MediaSide,
     TextBay,
-    TextRejection,
     media_ref,
     try_decode_text,
 )
@@ -49,7 +48,6 @@ __all__ = [
     "ImageBay",
     "MediaSide",
     "TextBay",
-    "TextRejection",
     "media_ref",
     "read_captured_link",
     "try_decode_text",

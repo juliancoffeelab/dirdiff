@@ -18,13 +18,14 @@ from dirdiff.engines import (
     TextDiffEngine,
     text_diff_summary,
 )
-from dirdiff.formats import TextRejection, try_decode_text
+from dirdiff.formats import try_decode_text
 from dirdiff.rendering import (
     SyntaxClass,
     SyntaxSpan,
     enrich_rows_for_display,
     weave_decorated_parts,
 )
+from dirdiff.util import Ok
 
 
 @given(
@@ -196,26 +197,24 @@ def test_native_engine_and_highlighter_weave_every_preset_pair() -> None:
         # is not what composes those. Text decoding decides which pairs remain.
         old_text = try_decode_text(old_path.read_bytes())
         new_text = try_decode_text(new_path.read_bytes())
-        if isinstance(old_text, TextRejection) or isinstance(
-            new_text, TextRejection
-        ):
+        if not Ok.good(old_text) or not Ok.good(new_text):
             continue
         rendered = TextDiffEngine().render_diff(
             old=DiffSide(
                 exists=True,
-                text=old_text,
+                text=old_text.value,
                 path_hint=str(old_path),
             ),
             new=DiffSide(
                 exists=True,
-                text=new_text,
+                text=new_text.value,
                 path_hint=str(new_path),
             ),
         )
         display = enrich_rows_for_display(
             rows=rendered["rows"],
-            left_text=old_text,
-            right_text=new_text,
+            left_text=old_text.value,
+            right_text=new_text.value,
             left_path_hint=str(old_path),
             right_path_hint=str(new_path),
         )

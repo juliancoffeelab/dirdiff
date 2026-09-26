@@ -86,6 +86,8 @@ A `FileChange` also carries change classification, display label, whether it is
 additional untracked content, and explicit lazy policy with the complete source
 text supplying it. The separate `GitRepository` and `PresetCatalog` interfaces
 prepare refs and picker groups; neither exposes capture storage operations.
+Default base selection returns `Result[BranchSelection, DefaultBaseSelectionError]`.
+The HTTP boundary publishes the existing branch or heuristic-error record.
 Pull Request
 preparation parses the URL, identifies the marked repository and forge remote,
 retains the forge's recorded target and head SHAs, and fetches those object ids
@@ -98,10 +100,11 @@ failures remain visible. Missing objects, unavailable forge metadata, and
 missing history fail explicitly. The result includes the URL,
 exact merge-base and head commits, and observed branch names for HUD display.
 Additional untracked Files need not participate in those backend totals. An
-outer-side loading failure occupies its own `FileData.content` as `DirdiffError`;
+outer-side loading failure occupies its own `FileData.content` as `Err[DirdiffError]`;
 successful siblings remain available. Sources do not select Rooms, retain state
 between captures, classify contents for renderers, or invent
-renderer-dependent line counts.
+renderer-dependent line counts. Successful content is `Ok[bytes]`. Private
+batch loading preserves the same Result contract and input order.
 
 Git loading expands canonical LFS v1 SHA-256 pointers from local storage,
 including shared worktree storage and configured `lfs.storage`. It bounds reads
@@ -385,6 +388,8 @@ media type, byte size, and lowercase-hex SHA-256, and the bytes themselves are
 served only by `/api/file-media`. Whole-File image change is read from the bytes;
 notebook output change remains the raw output entry's semantic change.
 
+Notebook cell and output entries use Result. Accepted structures are `Ok`;
+`Err[RejectedNotebookPart]` retains the exact raw JSON and its visible warning.
 The private notebook builder contains everything notebook-shaped: parsing, cell
 pairing, public cell keys, and each bay's content. A valid distinct `nbformat`
 id is durable identity. An id-less or duplicate-id cell visibly degrades to a
@@ -392,8 +397,8 @@ source-derived pseudo key, including an occurrence among identical sources, so
 review can still store one unambiguous bay key.
 
 `try_decode_text()` is the single definition of what this project calls text:
-no NUL byte, and valid UTF-8 with an optional BOM. It returns decoded text or a
-typed rejection naming the invalid byte boundary. The text arm turns rejection
+no NUL byte, and valid UTF-8 with an optional BOM. It returns `Ok[str]` or
+`Err[TextRejection]` naming the invalid byte boundary. The text arm turns rejection
 into blob facts and a visible bay warning, and decoded text reaches the engine
 without a second decode.
 
@@ -425,6 +430,9 @@ inside the SQL mapping boundary.
 Hydrated `SnapshotFileRecord` side fields and the symlink descriptor's reached
 target are Options. Hydration constructs them once from SQL row presence, and
 publication extracts values only when constructing SQL parameters.
+The focused `snapshot_file` lookup returns `Ok[SnapshotFileLoadRecord]`, or an
+`Err` distinguishing an unavailable Snapshot from an absent File. Room and
+review boundaries preserve their respective error messages and validation order.
 
 Profile preferences store the folding policy, Git algorithm and whitespace
 policy, Difftastic comment policy, and GumTree matcher in one row per Profile. Reads create initial values only when no

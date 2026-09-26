@@ -17,7 +17,7 @@ from fastapi import HTTPException, Query
 
 from dirdiff.change_source import (
     BranchSelection,
-    DefaultBaseSelection,
+    DefaultBaseSelectionError,
     GitRepository,
     PreparedPullRequest,
     RefChoices,
@@ -33,6 +33,7 @@ from dirdiff.engines import (
     DirdiffError,
 )
 from dirdiff.server.base import ApiModel, ClassRoutes, ErrorResponse
+from dirdiff.util import Ok
 
 __all__ = [
     "RepoRoutes",
@@ -161,7 +162,7 @@ class RepoDefaultsResponse(ApiModel):
     These values initialize controls only; they do not resolve or capture refs.
     """
 
-    default_base_selection: DefaultBaseSelection
+    default_base_selection: BranchSelection | DefaultBaseSelectionError
     """Initial base-control value for the selected repository.
 
     It is either a saved or inferred symbolic selection, or the typed heuristic
@@ -379,13 +380,17 @@ class RepoRoutes:
         metadata = repository.read_ref_metadata()
         saved_main_branch = self.db.get_main_branch(project_id)
         default_base_selection = (
-            repo_main_branch_record_to_selection(saved_main_branch)
+            Ok(repo_main_branch_record_to_selection(saved_main_branch))
             if saved_main_branch is not None
             else repository.default_base_selection(metadata)
         )
         return RepoDefaultsResponse.model_validate(
             {
-                "default_base_selection": default_base_selection,
+                "default_base_selection": (
+                    default_base_selection.value
+                    if Ok.good(default_base_selection)
+                    else default_base_selection.error
+                ),
                 "preferred_review_selection": preferred_review_selection(
                     metadata, base_selection=default_base_selection
                 ),

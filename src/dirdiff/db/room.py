@@ -58,7 +58,7 @@ from dirdiff.db.base import (
     UserProfileRecord,
     profile_record,
 )
-from dirdiff.util import Nothing, Option, Some, maybe
+from dirdiff.util import Err, Nothing, Ok, Option, Result, Some, maybe
 
 __all__ = [
     "AuthoredComment",
@@ -3286,11 +3286,13 @@ class RoomStore:
         snapshot_id: str,
         left_path: Optional[str],
         right_path: Optional[str],
-    ) -> tuple[bool, Optional[SnapshotFileLoadRecord]]:
-        """Return Snapshot existence and one repository-path-addressed File.
+    ) -> Result[
+        SnapshotFileLoadRecord, Literal["snapshot-unavailable", "file-absent"]
+    ]:
+        """Load one repository-path-addressed File from a visible Snapshot.
 
-        `(False, None)` means the Snapshot is not visible in this Room.
-        `(True, None)` means it is visible but has no matching File.
+        `Err("snapshot-unavailable")` means the Snapshot is not visible in this
+        Room. `Err("file-absent")` means it has no matching File.
 
         # Parameters
 
@@ -3302,16 +3304,14 @@ class RoomStore:
 
         # Usage
 
-        Preserve both result values: an unknown Snapshot and a missing File are
+        Preserve the error reason: an unknown Snapshot and a missing File are
         different failures. Supply the exact nullable path pair emitted by the
         manifest.
 
         # Returns
 
-        - First, whether the Snapshot belongs to `identity`.
-        - Second, the matching File and its lazy reason, or `None` when no File
-          has the exact nullable path pair. `(False, None)` means the Snapshot
-          itself is unavailable; `(True, None)` means only the File is absent.
+        - `Ok`: The matching File and its lazy reason.
+        - `Err`: Whether the Snapshot is unavailable or its File is absent.
         """
         mark_clause = (
             Room.mark_id.is_(None)
@@ -3373,7 +3373,7 @@ class RoomStore:
                     ).one_or_none()
                     is not None
                 )
-                return exists, None
+                return Err("file-absent" if exists else "snapshot-unavailable")
             symlinks = self._file_symlink_records(
                 session.execute(
                     select(SnapshotFileSymlink).where(
@@ -3382,17 +3382,19 @@ class RoomStore:
                 ).scalars()
             )
 
-        return True, SnapshotFileLoadRecord(
-            file=self._file_record(
-                row[0],
-                row[1],
-                row[2],
-                row[3],
-                row[4],
-                left_symlink=symlinks.get((row[0].id, "left")),
-                right_symlink=symlinks.get((row[0].id, "right")),
-            ),
-            lazy_reason=row[5],
+        return Ok(
+            SnapshotFileLoadRecord(
+                file=self._file_record(
+                    row[0],
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[4],
+                    left_symlink=symlinks.get((row[0].id, "left")),
+                    right_symlink=symlinks.get((row[0].id, "right")),
+                ),
+                lazy_reason=row[5],
+            )
         )
 
     def snapshot_files_by_ids(

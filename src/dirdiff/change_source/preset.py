@@ -42,6 +42,7 @@ from dirdiff.change_source.base import (
     WorkspaceStorageProtocol,
 )
 from dirdiff.engines import DirdiffError
+from dirdiff.util import Result, catch
 
 __all__ = [
     "PresetCatalog",
@@ -650,7 +651,7 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
     @override
     def load_versions(
         self, sides: tuple[StorageFile, ...]
-    ) -> tuple[bytes | DirdiffError, ...]:
+    ) -> tuple[Result[bytes, DirdiffError], ...]:
         """Load fixture sides in order while retaining individual failures.
 
         # Usage
@@ -662,23 +663,20 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
         # Returns
 
         - One result position per private side input, preserving input order.
-        - A `bytes` item is the fixture's exact File content at that position.
-        - A `DirdiffError` item describes only that fixture-side failure;
+        - An `Ok[bytes]` item holds exact fixture content at that position.
+        - An `Err[DirdiffError]` item describes only that fixture-side failure;
           successful sibling results remain available.
 
         # Failures
 
-        - Each `DirdiffError` occupies the result position of its own input.
+        - Each `Err[DirdiffError]` occupies its own input position.
         - Unexpected parsing and filesystem exceptions abort the complete
           batch.
         """
-        results: list[bytes | DirdiffError] = []
-        for path, side, _properties, _object_id in sides:
-            try:
-                results.append(self.load_version(path, side))
-            except DirdiffError as exc:
-                results.append(exc)
-        return tuple(results)
+        load = catch(DirdiffError)(self.load_version)
+        return tuple(
+            load(path, side) for path, side, _properties, _object_id in sides
+        )
 
 
 class PresetCatalog:

@@ -22,9 +22,10 @@ from helpers import ToolText, tool_json
 from tree_sitter import Language, Node, Parser
 
 from dirdiff.change_source import GitChangeSource, GitRepository
-from dirdiff.engines import DiffEngineRow, DirdiffError
+from dirdiff.engines import DiffEngineRow
 from dirdiff.engines.difftastic.logic import difftastic_rows_from_json
-from dirdiff.formats import TextRejection, try_decode_text
+from dirdiff.formats import try_decode_text
+from dirdiff.util import Ok
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
 """Complete Difftastic source-pair corpus, including intentionally hard cases.
@@ -156,20 +157,22 @@ def _current_diff_cases() -> list[WorktreeCase]:
         # or acquisition failed drops out of this changing corpus.
         loaded = source.load((entry,))[0]
         left_loaded, right_loaded = loaded.left, loaded.right
-        left_content = left_loaded.map(lambda side: side.content).get_or(b"")
-        right_content = right_loaded.map(lambda side: side.content).get_or(b"")
-        if isinstance(left_content, DirdiffError):
+        left_content = left_loaded.map(lambda side: side.content).get_or(
+            Ok(b"")
+        )
+        right_content = right_loaded.map(lambda side: side.content).get_or(
+            Ok(b"")
+        )
+        if not Ok.good(left_content):
             continue
-        if isinstance(right_content, DirdiffError):
+        if not Ok.good(right_content):
             continue
 
-        left_text = try_decode_text(left_content)
-        right_text = try_decode_text(right_content)
+        left_text = try_decode_text(left_content.value)
+        right_text = try_decode_text(right_content.value)
         # Content this project does not call text has no engine rows to
         # replay, exactly as composition classifies it away from a text bay.
-        if isinstance(left_text, TextRejection) or isinstance(
-            right_text, TextRejection
-        ):
+        if not Ok.good(left_text) or not Ok.good(right_text):
             continue
         # A pure rename compares a file against its own content. Difftastic
         # rightly reports it unchanged and the engine returns zero rows, but
@@ -189,8 +192,8 @@ def _current_diff_cases() -> list[WorktreeCase]:
                 "display_name": entry.display_name,
                 "left_name": left_name,
                 "right_name": right_name,
-                "left_text": left_text,
-                "right_text": right_text,
+                "left_text": left_text.value,
+                "right_text": right_text.value,
                 "cache_key": f"worktree/{sha256(entry.display_name.encode()).hexdigest()}",
                 "allow_mismatches": True,
             }
