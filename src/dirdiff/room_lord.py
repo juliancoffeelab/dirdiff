@@ -8,7 +8,7 @@ capture. Follow-up operations use `RoomLord.find_room` to recover the containing
 Room from an existing Snapshot key without reading live workspace state.
 
 A `Room` provides Snapshot metadata, captured File lookup, review Threads, and
-persisted context for continuation through `RoomLord.recapture`. It contains
+persisted correspondence facts for source setup. It contains
 multiple Snapshots but retains no selected Snapshot, so every Snapshot-scoped operation requires the exact key.
 
 ## Purpose and boundaries
@@ -289,24 +289,19 @@ class SnapshotMeta(TypedDict):
 
 
 class RoomCaptureContext(TypedDict):
-    """Supply complete persisted correspondence for source setup on continuation.
+    """Supply complete persisted correspondence for source setup.
 
-    `Room.capture_context` returns a fresh selection and the active Mark identity.
+    `Room.capture_context` returns a fresh selection and its persisted Mark identity.
     Concrete setup interprets these facts to construct a new source; this record
-    contains no source, storage path, or loaded data. Preset continuation is
-    rejected before this value is returned.
+    contains no source, storage path, or loaded data. The selection covers every
+    Tab; Preset Rooms have no Mark identity.
     """
 
-    mark_id: int
-    """Positive persisted Mark id used to locate the active source externally."""
+    mark_id: int | None
+    """Positive persisted Mark id, or `None` for a Mark-less Preset Room."""
 
-    selection: (
-        HeadCaptureSelection
-        | RevisionsCaptureSelection
-        | BranchReviewCaptureSelection
-        | PullRequestCaptureSelection
-    )
-    """Complete supported continuation law, retaining the original Head baseline.
+    selection: CaptureSelection
+    """Complete persisted Tab law, retaining its original correspondence facts.
 
     Branch JSON containers are newly decoded and belong to the caller. They
     must remain unchanged while used for source setup or correspondence.
@@ -458,8 +453,8 @@ class Room:
     # Capture boundary
 
     Room exposes persisted correspondence through `capture_context`. Concrete
-    source setup interprets it outside this module; `RoomLord.recapture`
-    publishes the supplied source within the same Room. Room does not construct
+    source setup interprets it outside this module and supplies a source and
+    selection to `RoomLord.corresponding_room`. Room does not construct
     sources, interpret revisions, or inspect source roots.
 
     # Entrypoints
@@ -1327,15 +1322,13 @@ class Room:
         )
 
     def capture_context(self) -> RoomCaptureContext:
-        """Return the complete persisted selection and Mark for continuation.
+        """Return the complete persisted selection and Mark identity.
 
         # Usage
 
-        Source setup looks up the active Mark and interprets `selection` outside
-        Room. It then supplies a constructed source and labels to
-        `RoomLord.recapture`. Head uses its original baseline; Branch Review
-        prepares fresh revisions from the retained symbolic pair; Pull Request
-        prepares the same URL again.
+        Source setup interprets `selection` outside Room and constructs a source.
+        Pass these persisted facts and the source to `RoomLord.corresponding_room`
+        to capture under the same correspondence.
 
         # Returns
 
@@ -1344,13 +1337,14 @@ class Room:
 
         # Failures
 
-        - Preset continuation raises `DirdiffError`.
         - Malformed persisted correspondence raises `AssertionError`; no
           missing facts are replaced.
         """
         identity = self._identity
-        if identity.mark_id is None or identity.tab == "preset":
-            raise DirdiffError("Agent review does not support preset Rooms.")
+        if identity.tab == "preset":
+            assert identity.mark_id is None
+        else:
+            assert identity.mark_id is not None and identity.mark_id > 0
         try:
             correspondence: JsonValue = json.loads(identity.correspondence_key)
         except (TypeError, ValueError) as exc:
@@ -1376,6 +1370,15 @@ class Room:
                 assert isinstance(left, str) and left.strip() != ""
                 assert isinstance(right, str) and right.strip() != ""
                 selection = RevisionsCaptureSelection(left, right)
+            elif identity.tab == "preset":
+                assert set(correspondence) == {"catalog", "subset"}
+                catalog, subset = (
+                    correspondence["catalog"],
+                    correspondence["subset"],
+                )
+                assert isinstance(catalog, str) and catalog.strip() != ""
+                assert isinstance(subset, str) and subset.strip() != ""
+                selection = PresetCaptureSelection(catalog, subset)
             else:
                 assert identity.tab == "branch-review"
                 assert set(correspondence) == {"base", "review"}
@@ -1414,19 +1417,8 @@ class RoomLord:
 
     `corresponding_room` applies the law for one explicit capture and returns
     both the Room and the captured Snapshot key. `find_room` uses an existing
-    Snapshot key to recover its Room for follow-up operations. `recapture`
-    publishes an externally prepared source in that Room's original identity.
-
-    # Choosing a capture operation
-
-    Use `corresponding_room` when opening a Tab from prepared selections: it
-    selects the Room under that Tab's law, then captures the source. Use
-    `recapture` when continuing a Room already returned by this service. It
-    retains the original correspondence rather than applying a fresh selection.
-
-    For a Head Tab, opening after HEAD advances selects the new baseline
-    through `corresponding_room`. Continuing the previous Room uses `recapture`
-    with a source prepared from its `Room.capture_context` and original baseline.
+    Snapshot key to recover its Room for follow-up operations. Every capture
+    uses the same entrypoint with explicit prepared correspondence facts.
 
     The returned `Room` is the entrypoint for Snapshot reads and review work.
     `RoomLord` does not retain a selected Room or Snapshot between calls.
@@ -1497,9 +1489,9 @@ class RoomLord:
 
         Pass an already constructed source alongside its independent law facts.
         Storage placement and concrete input validation belong to source setup.
-        Keep both returned values for Snapshot-scoped follow-up operations. Use
-        `recapture` to continue that Room; call this method again when selecting
-        a Tab under freshly prepared correspondence facts.
+        Keep both returned values for Snapshot-scoped follow-up operations.
+        To capture under an existing Room identity, supply its `Room.capture_context`
+        facts with a newly prepared source.
 
         # Returns
 
@@ -1587,60 +1579,6 @@ class RoomLord:
         )
         return room, snapshot_id
 
-    def recapture(
-        self,
-        room: Room,
-        *,
-        source: ChangeSourceProtocol,
-        left_label: str,
-        right_label: str,
-    ) -> UUID:
-        """Capture an externally prepared source in this Room's existing identity.
-
-        # Parameters
-
-        - `room`: Room bound to this service's database and capture stores.
-        - `source`: New observation source constructed from `Room.capture_context`
-          by concrete source setup.
-        - `left_label`: Prepared left display and diagnosis label.
-        - `right_label`: Prepared right display and diagnosis label.
-
-        # Usage
-
-        Read the Room's persisted context, prepare the new source externally,
-        then call this without selecting another Room. The original correspondence
-        remains intact even when the source revisions advance.
-
-        # Returns
-
-        The new or reused immutable Snapshot id within the supplied Room.
-
-        # Failures
-
-        - Preset continuation raises `DirdiffError`.
-        - A Room bound to another database or capture-store context asserts.
-        - Source and publication failures follow the ordinary capture
-          contract.
-        """
-        assert room._database is self._database
-        assert room._staging_path == self._staging_path
-        assert room._snapshots_path == self._snapshots_path
-        assert room._lock_path == self._lock_path
-        assert room._thread_lock is self._thread_lock
-        if room._identity.tab == "preset" or room._identity.mark_id is None:
-            raise DirdiffError("Agent review does not support preset Rooms.")
-        store = _SnapshotStore(
-            database=self._database,
-            staging_path=self._staging_path,
-            snapshots_path=self._snapshots_path,
-            lock_path=self._lock_path,
-            thread_lock=self._thread_lock,
-            identity=room._identity,
-        )
-        return store.capture(
-            source=source, left_label=left_label, right_label=right_label
-        )
-
     def find_room(self, snapshot_id: UUID) -> Room:
         """Return the Room containing an existing Snapshot key.
 
@@ -1684,7 +1622,7 @@ class RoomLord:
 class _SnapshotStore:
     """Implement immutable Snapshot capture for one private Room.
 
-    `RoomLord.corresponding_room` and `RoomLord.recapture` construct and call the
+    `RoomLord.corresponding_room` constructs and calls the
     store for exactly one capture. It manages publication directories, locking,
     relational records, and digest validation; API code never receives it.
     """
@@ -1748,7 +1686,7 @@ class _SnapshotStore:
 
         # Usage
 
-        `RoomLord.corresponding_room` or `RoomLord.recapture` calls this once after
+        `RoomLord.corresponding_room` calls this once after
         receiving the selected source and labels for one Room identity.
 
         # Failures

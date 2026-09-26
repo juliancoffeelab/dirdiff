@@ -72,6 +72,7 @@ from dirdiff.review import (
 from dirdiff.room_lord import (
     BranchReviewCaptureSelection,
     HeadCaptureSelection,
+    PresetCaptureSelection,
     PullRequestCaptureSelection,
     RevisionsCaptureSelection,
     Room,
@@ -2449,7 +2450,13 @@ class ExternalAgentRoutes:
             previous_id = UUID(hex=request.snapshot_id)
             room = self.room_lord.find_room(previous_id)
             context: RoomCaptureContext = room.capture_context()
-            mark = self.db.get(context["mark_id"])
+            if isinstance(context["selection"], PresetCaptureSelection):
+                raise DirdiffError(
+                    "Agent review does not support preset Rooms."
+                )
+            mark_id = context["mark_id"]
+            assert mark_id is not None
+            mark = self.db.get(mark_id)
             if mark is None:
                 raise DirdiffError("Snapshot Mark no longer exists.")
             root = Path(mark.path)
@@ -2513,8 +2520,9 @@ class ExternalAgentRoutes:
                 show_untracked=show_untracked,
                 max_link_target_bytes=1 << 20,
             )
-            snapshot_id = self.room_lord.recapture(
-                room,
+            room, snapshot_id = self.room_lord.corresponding_room(
+                mark_id=mark_id,
+                selection=selection,
                 source=source,
                 left_label=left_label,
                 right_label=right_label,

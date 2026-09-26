@@ -409,7 +409,7 @@ iteration, direct captured-file lookup, and Thread access through `threads`,
 `get_thread`, `thread_for_comment`, and `create_thread`; Comment and lifecycle
 writes belong to the returned bound Threads. The agent boundary also uses the
 Room's explicit activity reads, atomic review batch, complete persisted
-`capture_context`, `RoomLord.recapture` orchestration, and read-only
+`capture_context` and read-only
 `path_for_snapshot` access to the already published Snapshot directory.
 Concrete source setup supplies the 1 MiB reached-link limit at construction. RoomLord captures and persists the source's raw
 bytes and link facts. The source stops before
@@ -430,8 +430,8 @@ identities are opaque; Branch Review symbolic identities are caller-owned
 non-null JSON values; Pull Request uses its URL; Preset uses catalog/group ids.
 `Room.capture_context` decodes every retained fact for concrete continuation
 setup. Source setup validates revisions and physical placement outside this
-module. RoomLord recapture preserves the original Room identity and verifies
-that the Room belongs to its database and capture-store context.
+module. Every capture passes these prepared facts to `corresponding_room`;
+persisted facts select the same Room without a separate capture operation.
 
 ## `dirdiff.review`
 

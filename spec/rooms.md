@@ -13,32 +13,21 @@ not know Room identity, Room lifetime, or storage layout.
 
 ## Public interface
 
-`RoomLord` has three operations for selecting, capturing, and locating Rooms:
+`RoomLord` has two operations for selecting, capturing, and locating Rooms:
 
 ```python
 corresponding_room(
     *, mark_id: int | None, selection: CaptureSelection,
     source: ChangeSourceProtocol, left_label: str, right_label: str,
 ) -> tuple[Room, UUID]
-recapture(
-    room: Room, *, source: ChangeSourceProtocol,
-    left_label: str, right_label: str,
-) -> UUID
 find_room(snapshot_id: UUID) -> Room
 ```
 
-`corresponding_room` is used by the shared explicit capture operation behind
-manifest and agent review opening. It applies the Tab's law of correspondence
+`corresponding_room` is the shared explicit capture operation for every
+Tab capture. It applies the Tab's law of correspondence
 only to find or create the Room. It separately uses the supplied capture inputs
 to capture or reuse the current state, then returns the Room and Snapshot key
 separately. Snapshot identity never participates in correspondence.
-
-`recapture` is used to continue an already selected Room. It captures or reuses
-the supplied source state under that Room's original correspondence; it does not
-apply a new selection law. Prepare that source from `Room.capture_context()`
-outside RoomLord. For example, if HEAD advances, continuing an existing Head
-Room retains its original baseline, while opening a new Head Tab through
-`corresponding_room` supplies the new baseline and selects a different Room.
 
 `find_room` is used by follow-up endpoints. A Snapshot key is globally unique,
 so it finds the containing Room directly without executing a correspondence law
@@ -77,11 +66,9 @@ create_thread(snapshot_id: UUID, command: CreateThread) -> Thread
 ```
 
 `Room.capture_context()` returns the complete persisted `CaptureSelection` and
-Mark id. Source setup interprets those values outside Room, locates the active
-Mark, and constructs a new source. `RoomLord.recapture(room, source=...,
-left_label=..., right_label=...)` publishes it under that Room's original
-correspondence. The Room must belong to the same database and capture-store
-context as RoomLord. Preset continuation remains rejected.
+Mark id, which is absent for Preset Rooms. Source setup interprets those values
+outside Room and constructs a new source. Passing the persisted facts to
+`RoomLord.corresponding_room` applies the same law and selects the same Room.
 `Room.path_for_snapshot(snapshot_id)` returns an already published Snapshot
 directory. Neither Room nor RoomLord receives a repository/catalog service or
 live source root, resolves a revision, or constructs a source.
@@ -361,7 +348,9 @@ operation and returns the resulting Snapshot id, Profile id, activity boundary,
 and the existing durable Snapshot directory.
 `POST /api/agent/continue_review` recovers the exact Room and persisted Tab from
 the supplied Snapshot and passes the new captured state through the same
-publication path. Neither operation introduces another Room identity or
+publication path by passing its persisted correspondence to `corresponding_room`.
+Preset continuation is rejected by this endpoint. Neither operation introduces
+another Room identity or
 persistent review-handle entity.
 
 Before joining, `GET /api/agent/onboard` translates one complete supported HUD
