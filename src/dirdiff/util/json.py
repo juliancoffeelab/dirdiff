@@ -1,4 +1,4 @@
-"""Domain-independent value types shared across dirdiff.
+"""Recursive JSON values retained without a feature-specific schema.
 
 ## Public interface
 
