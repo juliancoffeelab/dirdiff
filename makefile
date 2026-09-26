@@ -57,7 +57,10 @@ ruff:
 cram:
 	uv --no-cache run cram tests/cli-cram/*.t
 
-pytest:
+doctest:
+	uv --no-cache run pytest --doctest-modules src/dirdiff
+
+pytest: doctest
 	# Fast default: everything except the deliberately expensive trees.
 	# --ignore keeps new test directories included by default.
 	uv --no-cache run pytest --ignore=tests/slow --ignore=tests/integration

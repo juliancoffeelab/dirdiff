@@ -92,6 +92,12 @@ or infer dynamic inputs. Runtime hashes check cases the lint cannot establish.
 
 # Other kinds of tests
 
+Python docstring examples are tested with `make doctest`. It collects doctests
+from `src/dirdiff`, so examples belong beside the interface they demonstrate.
+`make pytest` runs these before the fast tests; `make fullcheck` includes them
+through that command. Explicit slow and integration commands keep their own
+test scope.
+
 CLI is tested with Cram presets. The goal of these is to be proper doctests, so
 making them human-readable is the key.
 

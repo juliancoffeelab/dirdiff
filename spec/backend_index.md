@@ -41,6 +41,12 @@ callbacks synchronously.
 `maybe` converts native nullable input. The wrappers are immutable and retain
 payloads by reference; they do not catch errors or perform I/O.
 
+`Result[T, E]`, `Ok`, and `Err` represent successful and failed computations.
+Success transformations propagate callback exceptions; `map_err` transforms
+error values. `or_raise` requires exception errors. `catch` adapts synchronous
+callables with one through ten explicitly selected exception classes, preserving
+their parameter types and error union.
+
 Captured File sides, side paths, link facts, and format representations carry
 Options through their internal contracts. SQL columns, serialized payloads,
 and native library inputs keep their own nullable representations. Unrelated
