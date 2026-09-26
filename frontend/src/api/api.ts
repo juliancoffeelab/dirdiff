@@ -607,7 +607,7 @@ export type HeadDiffParams = RepoBackedDiffParams & {
   /**
    * Required inclusion of untracked files in Head review.
    *
-   * This literal distinguishes the workflow from ref comparisons, where the
+   * This literal distinguishes the workflow from the Refs Tab, where the
    * option does not exist.
    */
   show_untracked: true;
@@ -621,7 +621,7 @@ export type HeadDiffParams = RepoBackedDiffParams & {
  */
 export type RefsDiffParams = RepoBackedDiffParams & {
   /**
-   * Discriminant selecting free-form ref comparison.
+   * Discriminant selecting the Refs Tab.
    *
    * It tells the backend to interpret the two sides as exact Git ref strings.
    */
@@ -652,7 +652,7 @@ export type BranchReviewDiffParams = RepoBackedDiffParams & {
   /**
    * Discriminant selecting structured Branch Review semantics.
    *
-   * Free-form ref comparison must use the Refs variant instead.
+   * Free-form ref input uses the Refs variant.
    */
   tab: "branch-review";
   /**

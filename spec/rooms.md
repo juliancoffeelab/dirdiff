@@ -33,6 +33,17 @@ separately. Snapshot identity never participates in correspondence.
 so it finds the containing Room directly without executing a correspondence law
 or reading live source state.
 
+The caller sequence is:
+
+1. Source setup constructs a selected source and prepares `CaptureSelection`.
+2. `corresponding_room` returns the selected Room and captured Snapshot key.
+3. `meta` supplies captured labels and totals; `manifested` supplies File pairs
+   for a manifest or File picker.
+4. `get` supplies captured sides for one exact pair. Check `capture_error`
+   before reading bytes for `Composer` or another captured-content consumer.
+5. Later operations use the retained key with `find_room` and the corresponding
+   Room read. New captures prepare another source and call `corresponding_room`.
+
 A Room never stores or implies a selected Snapshot key. Every File and Thread
 operation names the exact state explicitly:
 

@@ -353,8 +353,8 @@ class FileMeta(TypedDict):
 class CapturedRegularFileSide:
     """Expose one authenticated ordinary captured File side.
 
-    `Room.get` constructs this variant when the File side exists and has no
-    relational symbolic-link row. Consumers read `path` as the exact captured
+    `Room.get` returns this variant for captured data without link facts.
+    Consumers read `path` as the exact captured
     content and must not look for adjacent format sidecars.
 
     This variant carries no repository identity, link facts, or format choice.
@@ -371,10 +371,9 @@ class CapturedRegularFileSide:
 class CapturedSymlinkFileSide:
     """Expose one authenticated symbolic-link File side.
 
-    `Room.get` constructs this variant only from a relational symbolic-link row
-    after checking the raw payload, metadata, and optional target bytes against
-    their stored digests. Consumers use `link` directly and never derive or
-    probe sidecar paths.
+    `Room.get` returns this variant with authenticated raw payload and link
+    facts, including any reached target bytes. Consumers use `link` directly
+    instead of deriving or probing sidecar paths.
 
     The raw `path` still contains the outer link target spelling. Reached target
     bytes and chain facts live in `link`.
@@ -440,7 +439,7 @@ class Room:
     Since it owns multiple snapshots, most methods here will require
     `snapshot_id` key, as `Room` doesn't store any of them, and must not store
     any of them.
-    *Implementation note: it does store its own hidden identity to ensure
+    *Implementation detail: it does store its own hidden identity to ensure
     validity of operations, to avoid handing access to unrelated information.*
 
     # Thread boundary
@@ -507,22 +506,29 @@ class Room:
         self._thread_lock = thread_lock
 
     def meta(self, snapshot_id: UUID) -> SnapshotMeta:
-        """Return retained Snapshot facts and the containing Room's Tab.
+        """Return captured labels, aggregate line counts, and the Room's Tab.
 
-        `snapshot_id` must name a Snapshot belonging to this Room. Unknown or
-        cross-Room keys are rejected instead of producing substitute metadata.
-        The Tab comes from the Room identity and is not duplicated in Snapshot
-        persistence.
+        # Parameters
+
+        - `snapshot_id`: Exact retained Snapshot key returned by capture; it must
+          belong to this Room.
 
         # Usage
 
-        Call this when a Snapshot-scoped response needs labels, Tab identity, or
-        source totals without loading the manifest.
+        Read this after `RoomLord.corresponding_room` or `RoomLord.find_room` when a
+        response or `dirdiff.formats.ComposeContext` needs captured side labels. Use
+        `manifested` for File paths and metadata, and `get` for their captured contents.
+
+        # Returns
+
+        A `SnapshotMeta` for this Snapshot. Its Tab selects display rules; its side
+        labels describe the captured states and its aggregate line totals are either
+        both present or both `None`. None of these fields is a live source lookup.
 
         # Failures
 
-        - Raises `DirdiffError` when the key does not belong to this Room.
-        - Raises `AssertionError` when persisted Room data names an unknown Tab.
+        - An unknown or cross-Room key raises `DirdiffError`.
+        - A persisted Room naming an unknown Tab raises `AssertionError`.
         """
         record = self._database.snapshot_meta(self._identity, snapshot_id.hex)
         if record is None:
@@ -560,9 +566,8 @@ class Room:
         iteration with the exact error in `FileMeta` so callers can present the
         complete manifest without treating generated error bytes as source.
 
-        Lazy overrides are loaded once for the Snapshot and must reference its
-        Files. The iterator performs no live source access and does not read
-        captured contents.
+        The iterator performs no live source access and does not read captured
+        contents. Lazy overrides accompany their exact File pairs.
 
         # Usage
 
@@ -572,11 +577,13 @@ class Room:
 
         # Returns
 
-        - The iterator yields items in persisted Snapshot File order.
-        - Each item's first value is its optional left repository path.
-        - Each item's second value is its optional right repository path. At
+        The iterator follows persisted Snapshot File order. Each yielded tuple
+        contains:
+
+        - First, its optional left repository path.
+        - Second, its optional right repository path. At
           least one path is present; neither is a capture path.
-        - Each item's third value is the `FileMeta` for that exact path pair,
+        - Third, the `FileMeta` for that exact path pair,
           including its capture error and loading policy when present.
 
         # Failures
@@ -649,8 +656,8 @@ class Room:
         """Return authenticated captured sides for one filepath pair.
 
         Input Paths are repository-relative. Each returned side is an ordinary
-        or symbolic-link variant selected by relational state. Raw and link
-        sidecar bytes have passed their stored digest checks.
+        or symbolic-link variant. Its captured bytes and any link facts are
+        authenticated before return.
 
         A captured File failure is returned in `FileMeta.capture_error`; callers
         decide whether their boundary presents or classifies that exact reason.
@@ -1420,6 +1427,47 @@ class RoomLord:
     Snapshot key to recover its Room for follow-up operations. Every capture
     uses the same entrypoint with explicit prepared correspondence facts.
 
+    # Usage
+
+    Prepare a source and matching correspondence facts first. The Refs example
+    in `dirdiff.change_source.GitChangeSource` supplies `source`, `selection`,
+    and both labels; its repository's active Mark supplies `mark_id`.
+    `room_lord` is the application's existing
+    `dirdiff.room_lord.RoomLord`. Capture first; render the retained Files with
+    `dirdiff.formats.Composer` and a selected diff engine afterward:
+
+    ```python
+    from dirdiff.engines import DirdiffError, TextDiffEngine
+    from dirdiff.formats import ComposeContext, Composer
+
+    room, snapshot_id = room_lord.corresponding_room(
+        mark_id=mark_id,
+        selection=selection,
+        source=source,
+        left_label=left_label,
+        right_label=right_label,
+    )
+    snapshot = room.meta(snapshot_id)
+    for left_path, right_path, _metadata in room.manifested(snapshot_id):
+        left, right, metadata = room.get(snapshot_id, left_path, right_path)
+        if metadata["capture_error"] is not None:
+            raise DirdiffError(metadata["capture_error"])
+        context = ComposeContext.build(
+            left_path=str(left_path) if left_path is not None else None,
+            right_path=str(right_path) if right_path is not None else None,
+            left_label=snapshot["left_label"],
+            right_label=snapshot["right_label"],
+            left_link=left.link if left is not None and left.kind == "symlink" else None,
+            right_link=right.link if right is not None and right.kind == "symlink" else None,
+            renderer=TextDiffEngine(),
+        )
+        composed = Composer().compose(
+            left.path.read_bytes() if left is not None else None,
+            right.path.read_bytes() if right is not None else None,
+            context,
+        )
+    ```
+
     The returned `Room` is the entrypoint for Snapshot reads and review work.
     `RoomLord` does not retain a selected Room or Snapshot between calls.
     """
@@ -1427,9 +1475,8 @@ class RoomLord:
     def __init__(self, database: RoomStore, store_path: Path) -> None:
         """Create the application boundary for one database and store root.
 
-        The paths are normalized but not created here. This keeps construction
-        harmless. Concrete setup must validate physical source placement before
-        calling capture; sources without physical roots need no such check.
+        Construction creates no directories. Concrete setup must validate
+        physical source placement before calling capture; sources without physical roots need no such check.
 
         # Parameters
 
@@ -1691,8 +1738,9 @@ class _SnapshotStore:
 
         # Failures
 
-        - Raises `DirdiffError` for source capture failures that cannot produce
-          an immutable side.
+        - Duplicate observed File pairs raise `DirdiffError`.
+        - Source, filesystem, and persistence operation failures propagate;
+          expected outer read failures remain captured File errors.
         - Raises `AssertionError` when source output, retained contents, or
           publication records violate Snapshot invariants.
         """

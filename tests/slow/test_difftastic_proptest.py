@@ -125,10 +125,11 @@ def _current_diff_cases() -> list[WorktreeCase]:
     """Build replay cases from changed text Files in the current worktree.
 
     The helper compares HEAD with worktree including untracked Files, loads an
-    absent side as empty bytes, and skips capture failures, non-text content,
+    absent side as empty bytes, and skips acquisition failures, non-text content,
     and equal pairs such as pure renames. Each result contains display name,
-    left and right parser names, then decoded left and right text, in backend
-    manifest order. An empty changed-file listing returns an empty parameter list.
+    left and right parser names, then decoded left and right text, in source
+    presentation order. An empty changed-file listing returns an empty parameter
+    list.
 
     # Usage
 
@@ -137,9 +138,9 @@ def _current_diff_cases() -> list[WorktreeCase]:
 
     # Returns
 
-    - `Cases`: Required source texts, parser names, display name and cache policy.
-    - `Selection and order`: Cases retain backend manifest order; equal,
-      non-text, capture-failed, and unreadable pairs are absent.
+    A sequence of cases containing source texts, parser names, display name,
+    and cache policy. Cases retain source presentation order; equal, non-text,
+    and acquisition-failed pairs are absent.
     """
     head_id = GitRepository(REPO_ROOT).commit_id("HEAD", allow_unborn=True)
     source = GitChangeSource(

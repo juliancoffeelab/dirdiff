@@ -423,7 +423,7 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Usage
 
-        Snapshot capture uses this after side normalization when it must replace
+        Concrete source setup uses this after side normalization to replace
         a symbolic commit-like side with immutable identity.
 
         # Failures
@@ -913,7 +913,7 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         """Return Git-changed paths and aggregate tracked line counts.
 
         `show_untracked` applies when the worktree is the right side. The left
-        side may already be a frozen commit id supplied by Snapshot capture;
+        side may already be a frozen commit id supplied by source setup;
         callers must not need to retain the symbolic `HEAD` spelling merely to
         include untracked worktree files.
 
@@ -925,8 +925,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Usage
 
-        Pass sides normalized by this instance. Snapshot capture walks the
-        returned paths in order and may reuse their object ids while loading.
+        Pass sides normalized by this instance. `SourceFiles` uses the returned
+        properties and object ids to acquire exactly the observed versions.
 
         # Returns
 
@@ -1770,13 +1770,22 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
 
 class GitRepository:
-    """Prepare Git refs and picker facts without exposing capture storage.
+    """Prepare Git revision inputs and picker choices for a selected repository.
 
-    The instance keeps one repository location. Concrete source setup uses it
-    to freeze refs and Branch Review sides; picker routes use its ref metadata.
-    Construct `GitChangeSource` with the prepared sides for capture. This
-    object does not retain a Tab selection, expose File storage, or publish a
-    Snapshot.
+    # Usage
+
+    Obtain an instance with `discover` or construct one from a known repository
+    root. Picker callers read `read_ref_metadata` once, then pass that record to
+    `ref_choices`, `default_base_selection`, and `preferred_review_selection`.
+
+    Capture setup validates revision controls with `normalize_side` and freezes
+    commit-backed selections with `commit_id`. Branch Review uses
+    `resolve_branch_diff_sides` to prepare both commits together. Pass the resulting
+    commits or explicit `index`/`worktree` sides to `GitChangeSource`.
+
+    The instance keeps the repository location, not a selected Tab or an observation.
+    Preparation reads current Git state as needed; the instance does not retain
+    ref metadata between calls.
     """
 
     def __init__(self, repo_root: Path | None) -> None:
@@ -1832,41 +1841,80 @@ class GitRepository:
         return self._workspace.repo_root
 
     def normalize_side(self, raw_side: str) -> SideName:
-        """Validate one ref spelling or built-in Git side.
+        """Validate a revision control and return its trimmed spelling.
 
-        This returns a loadable spelling, not a frozen commit id. Use
-        `commit_id` for commit-backed sides before constructing a source.
+        # Parameters
+
+        - `raw_side`: `HEAD`, `index`, `worktree`, or a Git ref resolving to a commit.
+          Leading and trailing whitespace is removed.
+
+        # Usage
+
+        Validate each Refs control before source construction. Commit-backed controls
+        still need `commit_id` to freeze their contents; the returned spelling can move
+        as Git refs change. `index` and `worktree` can be supplied directly to
+        `GitChangeSource`.
+
+        # Returns
+
+        The validated spelling, not its resolved object id. Built-in sides are accepted
+        without checking their current availability.
 
         # Failures
 
         - Blank or unknown refs raise `DirdiffError`.
+        - A custom ref without a repository raises `DirdiffError`.
+        - Process-launch failures propagate.
         """
         return self._workspace.normalize_side(raw_side)
 
     def commit_id(self, side: SideName, *, allow_unborn: bool = False) -> str:
-        """Freeze a ref to its complete commit id.
+        """Freeze a commit-backed revision control to its complete object id.
 
         # Parameters
 
-        - `side`: Validated commit-backed Git side or ref spelling.
-        - `allow_unborn`: Permit `HEAD` without a commit and return Git's
-          empty-tree id; other missing refs remain errors.
+        - `side`: Commit-backed Git ref or id to freeze. Whitespace is stripped.
+        - `allow_unborn`: Allow unresolved `HEAD` and return the repository-format
+          empty-tree id for an empty baseline. Other missing refs still fail.
+
+        # Usage
+
+        Call after validating revision controls, then construct `GitChangeSource` with
+        the returned immutable id. Do not call for explicit `index` or `worktree` sides.
+
+        # Returns
+
+        A complete commit id, or the empty-tree id for allowed unresolved `HEAD`.
+        Computing that empty-tree id writes no Git object.
 
         # Failures
 
-        - An unknown, non-commit, or disallowed unborn ref raises
-          `DirdiffError`.
+        - Blank input, `index`, `worktree`, or an absent repository raises `DirdiffError`.
+        - An unknown or non-commit ref raises `DirdiffError`, except allowed unresolved
+          `HEAD`.
+        - Process-launch or decoding failures propagate.
         """
         return self._workspace.commit_id(side, allow_unborn=allow_unborn)
 
     def read_ref_metadata(self) -> RefMetadata:
-        """Read current branch, remote, and upstream facts for picker controls.
+        """Read current Git choices for revision and Branch Review controls.
 
-        The returned facts describe this read and are not cached. Without a
-        repository, all fields are empty. Each non-checking Git probe that
-        fails leaves its affected fields empty; process-launch and decoding
-        failures still propagate. Two Git reads can observe different moments
-        if the repository changes between them.
+        # Usage
+
+        Use one returned record for `ref_choices`, `default_base_selection`, and
+        `preferred_review_selection`, so those derivations share the same metadata.
+        A new call reads Git again; the object does not refresh an earlier record.
+
+        # Returns
+
+        A `RefMetadata` with local branches, named remotes, remote branches, current
+        branch, upstream, and locally known default-branch facts. Without a repository,
+        all fields are empty. A failed non-checking Git probe leaves its affected fields
+        empty. The underlying reads can observe different moments if Git changes.
+
+        # Failures
+
+        - Process-launch and decoding failures propagate.
         """
         return self._workspace.read_ref_metadata()
 
@@ -1926,24 +1974,31 @@ class GitChangeSource(ChangeSourceProtocol):
 
     # Usage
 
-    Prepare commit-backed inputs through `GitRepository` before construction.
-    For a Head Tab when the current directory is the repository root:
+    Here `root` is the selected repository root, and `left_ref` and `right_ref`
+    are selected commit-backed revision controls. The active Mark for that root
+    supplies `mark_id` to RoomLord:
 
     ```python
-    from pathlib import Path
     from dirdiff.change_source import GitChangeSource, GitRepository
+    from dirdiff.room_lord import RevisionsCaptureSelection
 
-    root = Path.cwd()
     repository = GitRepository(root)
+    left = repository.commit_id(repository.normalize_side(left_ref))
+    right = repository.commit_id(repository.normalize_side(right_ref))
     source = GitChangeSource(
         root,
-        left=repository.commit_id("HEAD", allow_unborn=True),
-        right="worktree",
-        show_untracked=True,
+        left=left,
+        right=right,
+        show_untracked=False,
         max_link_target_bytes=1024 * 1024,
     )
-    changes = source.changes()
+    selection = RevisionsCaptureSelection(left, right)
+    left_label, right_label = left, right
     ```
+
+    Pass this source to `dirdiff.room_lord.RoomLord.corresponding_room` with
+    this matching `selection`, the active `mark_id`, and these labels. Direct source
+    consumers call `changes()` before `load()` as documented by the protocol.
 
     # Git materialization
 
@@ -2012,16 +2067,15 @@ class GitChangeSource(ChangeSourceProtocol):
 
         # Usage
 
-        Call before `load()`. Worktree data and link walks are acquired during
-        observation; immutable non-link data remains unread until needed by
-        `load()`. Callers use the shared
+        Call before `load()`. The returned records describe this observation
+        even if the worktree or index later changes. Callers use the shared
         `dirdiff.change_source.ChangeSourceProtocol.changes` contract without
         scheduling storage reads themselves.
 
         # Returns
 
         A `dirdiff.change_source.WorkspaceChanges` with Git's File classification
-        and semantic properties. Tracked numstat totals are present unless a
+        and semantic properties. Tracked aggregate totals are present unless a
         binary record prevents complete totals. Extra untracked Files leave
         those totals unchanged. Repeated successful calls return the same record.
 
@@ -2050,7 +2104,7 @@ class GitChangeSource(ChangeSourceProtocol):
 
     @override
     def load(self, files: Sequence[FileChange]) -> Sequence[LoadedFile]:
-        """Supply observed Git data, batching exact-object reads when needed.
+        """Supply paired data from this Git observation.
 
         # Parameters
 
@@ -2060,7 +2114,7 @@ class GitChangeSource(ChangeSourceProtocol):
 
         # Usage
 
-        Listed index entries load their observed object ids even if the index
+        Listed index entries retain their observed contents even if the index
         later changes. Already acquired worktree bytes and link facts are
         returned without rereading. Missing local LFS objects include manual
         fetch hints; this operation does not fetch them.

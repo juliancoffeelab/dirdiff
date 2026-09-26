@@ -265,7 +265,7 @@ class BayContext:
     left_label: str
     """Reviewer-facing old-side heading attached to composed text bays.
 
-    It names the comparison side, not the File path or the bay itself. Engines
+    It names the old input state, not the File path or the bay itself. Engines
     never author or change it.
     """
 
@@ -295,10 +295,9 @@ class BayContext:
 class ComposeContext:
     """The inputs `compose()` reads: bay inputs plus the selected renderer.
 
-    Containment rather than inheritance keeps the bay inputs defined in
-    exactly one place (`bays`) and makes reaching a renderer impossible
-    without `compose()`. `compose()` passes `bays` down verbatim, so what
-    composition classified on and what the frontend receives cannot drift apart.
+    Pass this context to `Composer.compose`. For engine-free inspection, pass
+    its `bays` field to `Composer.bays` instead. Both operations use the same
+    paths, labels, and captured link facts.
 
     `display_name` and `file_kind` are deliberately absent: composition never
     reads them, and they are the two envelope fields the HTTP boundary attaches
@@ -361,6 +360,8 @@ class ComposeContext:
         HTTP rendering constructs this after loading a captured File pair and
         selecting an engine. Pass the result unchanged to `Composer.compose`.
         """
+        # One nested BayContext keeps path, label, and link inputs shared with
+        # engine-free bay inspection instead of duplicating them on the context.
         return cls(
             bays=BayContext(
                 left_path=left_path,
@@ -883,11 +884,14 @@ class ComposedFilePayload(TypedDict):
     """
 
     left_label: str
-    """Names the left side being compared, such as a ref or `HEAD`. Re-emitted
-    from the request context, not derived."""
+    """Human-facing old-side label supplied by the rendering context.
+
+    Composition re-emits it unchanged beside `right_label`; it is not derived
+    from `left_path` and remains meaningful for an added File.
+    """
 
     right_label: str
-    """Human-facing new-side comparison label supplied by the request context.
+    """Human-facing new-side label supplied by the rendering context.
 
     Composition re-emits it unchanged beside `left_label`; it is not derived
     from `right_path` and remains meaningful for a removed File.

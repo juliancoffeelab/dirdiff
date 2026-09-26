@@ -474,10 +474,8 @@ def create_app(
 ) -> FastAPI:
     """Create the dirdiff FastAPI app and wire request orchestration.
 
-    The factory constructs the route groups and binds each one to its exact
-    stores and Room interface. Those groups perform HTTP validation, capture,
-    Snapshot reads, and response-model validation. Persistence and rendering
-    remain behind their existing domain interfaces.
+    The application serves manifest capture, Snapshot reads, review operations,
+    and repository/preset controls using the supplied stores and Room service.
 
     # Parameters
 
@@ -499,6 +497,11 @@ def create_app(
     Construct the stores and `RoomLord` once for one database and Snapshot root,
     then keep the returned application for the server lifetime. Tests may omit
     Profile and preference stores to derive both from the registry engine.
+
+    # Returns
+
+    A configured `FastAPI` application ready for the server or `TestClient`.
+    Creating it does not start a listening server.
 
     # Failures
 

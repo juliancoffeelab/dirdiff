@@ -1,13 +1,15 @@
-"""Define contracts shared by the dirdiff server package.
+"""Define server contracts and prepare selected sources for Snapshot capture.
 
 `RuntimeConfig` carries startup values between the CLI and application factory.
 `ApiModel`, response metadata, the review excerpt, and `ClassRoutes` are shared
-HTTP contracts. `capture_snapshot` is the one capture operation used by the HUD
-and external-agent boundaries.
+HTTP contracts. `capture_snapshot` prepares raw Tab controls for initial
+manifest and agent captures; `dirdiff.room_lord.RoomLord.corresponding_room` is
+the capture entrypoint shared with persisted-selection operations.
 
-The module does not construct an application, implement handlers, retain HTTP
-state, or perform rendering. It imports the private `_base/magic.py` route
-collector and exposes that shared contract to the route groups.
+Source setup interprets HTTP capture inputs, validates storage placement, and
+passes a selected source and prepared law facts to `dirdiff.room_lord.RoomLord`.
+Route groups also use the shared `ClassRoutes` declarations. Application
+construction and rendering have separate entrypoints.
 """
 
 from collections.abc import Mapping
@@ -74,13 +76,20 @@ class RevisionsCaptureInput:
     """Tab whose concrete source-input rules apply."""
 
     left: str
-    """Required raw left revision handle from the selected controls."""
+    """Raw left revision control; `HEAD` for the Head Tab.
+
+    Refs accepts a commit-backed Git ref, `index`, or `worktree`. Setup freezes
+    commit-backed refs before capture.
+    """
 
     right: str
-    """Required raw right revision handle from the selected controls."""
+    """Raw right revision control; `worktree` for the Head Tab.
+
+    Refs follows the same accepted controls as `left`, preserving side order.
+    """
 
     show_untracked: bool
-    """Whether source discovery includes additional worktree Files."""
+    """Include untracked Files when the selected right state is `worktree`."""
 
 
 @dataclass(frozen=True)
@@ -186,9 +195,8 @@ class RuntimeConfig:
     Directory containing immutable Snapshot files.
 
     The CLI defaults this to a `store` directory beside `db_path`, while an
-    explicit `--store-path` supplies a separate location. Persistent databases
-    use a database-adjacent `.room.lock` file so every store root shares one
-    publication lock.
+    explicit `--store-path` supplies a separate location. It must match the path
+    supplied to `dirdiff.room_lord.RoomLord` and stay outside reviewed roots.
     """
 
     presets_root: str
@@ -392,10 +400,12 @@ def preset_catalog_dirs(
 
     # Returns
 
-    - Each item contains one visible catalog's id, configured display name,
-      and root path used by catalog setup.
-    - Items follow catalog-id order. An empty tuple means the current root
-      has no catalog directories.
+    Catalog records in catalog-id order. An empty tuple means the current root
+    has no catalog directories. Each record provides:
+
+    - `catalog_id`: Exact id accepted by preset HTTP controls.
+    - `name`: Configured label for the catalog picker.
+    - `root`: Directory used to construct `dirdiff.change_source.PresetCatalog`.
     """
     return preset_catalogs(Path(presets_root))
 
@@ -527,8 +537,10 @@ def capture_snapshot(
 
     # Usage
 
-    Pass `manifest_capture_selection` output or agent opening inputs. Preserve
-    the returned Room and Snapshot id together for follow-up operations.
+    Construct a `RevisionsCaptureInput`, `BranchReviewCaptureInput`, or
+    `PullRequestCaptureInput` from validated HTTP controls, or use a
+    `dirdiff.room_lord.PresetCaptureSelection` for a chosen catalog/group.
+    Preserve the returned Room and Snapshot id together for follow-up operations.
 
     # Returns
 

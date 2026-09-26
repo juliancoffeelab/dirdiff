@@ -10,11 +10,13 @@ target presentation used by the parent composer.
 
 ## Purpose and boundaries
 
-Room capture has already walked each link inside the repository and stopped at
-damage or a loop. This module writes and reads that immutable result beside the
-ordinary Snapshot side and performs the link-specific half of composition. It
-never reads the repository, follows links, chooses a target format builder, or
-retries failed resolution. The parent composer coordinates independent leaves.
+The change source has already walked each link within its path boundary and
+returned reached content or a stopped-walk diagnosis. Room publication passes
+those facts to this module for sidecar storage beside the ordinary Snapshot
+side. This module authenticates the stored result and performs the link-specific
+half of composition. It never reads the repository, follows links, chooses a
+target format builder, or retries failed resolution. The parent composer
+coordinates independent leaves.
 """
 
 from __future__ import annotations
@@ -48,8 +50,8 @@ SYMLINK_BAY_KEY = "symlink"
 """Bay key for the exact payload stored by the outer symbolic link.
 
 The bay contains only the target spelling itself, preserving the raw bytes
-supplied by the source for the link. Repository paths, arrows, nested links, and diagnoses do not
-belong in it.
+supplied by the source for the link. Repository paths, arrows, nested links,
+and diagnoses do not belong in it.
 """
 
 

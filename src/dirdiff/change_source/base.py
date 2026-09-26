@@ -78,7 +78,8 @@ instantly, such files must have a quick and obvious way to show them anyway.
 class PresetGroup(TypedDict):
     """Describe one selectable fixture group within a preset catalog.
 
-    `preset_catalogs` builds these records for the preset picker. Callers send
+    `dirdiff.change_source.PresetCatalog.list_preset_groups` returns these
+    records for the preset picker. Callers send
     `id` back to select the directory and show `display_name` to the user.
 
     This is catalog metadata. It does not contain fixtures, paths, or loaded
@@ -507,6 +508,8 @@ class ListedPath:
 
     This record contains no loaded bytes, Snapshot identity, rendered rows, or
     line counts.
+
+    @private
     """
 
     left_path: str | None
@@ -590,6 +593,8 @@ class ListedChanges:
     converts it to `WorkspaceChanges`; Room never sees this private shape.
 
     The record contains no loaded bytes, Snapshot identity, or rendered output.
+
+    @private
     """
 
     paths: tuple[ListedPath, ...]
@@ -869,8 +874,8 @@ def display_name_for_repo_paths(
 
     # Usage
 
-    Sources use this while constructing `ListedPath`; server code uses it
-    when older captured metadata has no stored display name. Pass the complete
+    Sources use this when labeling discovered Files. Manifest and File response
+    builders also derive labels from captured side paths. Pass the complete
     side-path pair instead of choosing one path at the call site.
     """
     if left_path is not None and right_path is not None:
@@ -891,6 +896,8 @@ class WorkspaceStorageProtocol(Protocol):
 
     Private Git and preset storage classes explicitly implement this contract.
     Preparation and Snapshot capture never receive this broad object.
+
+    @private
     """
 
     def normalize_repo_path(self, raw_path: str) -> str:
@@ -1088,7 +1095,7 @@ class WorkspaceChanges:
 
     `ChangeSourceProtocol.changes` returns this record. Iterate `files` for
     presentation or pass selected File records for loading. Source order does
-    not determine Snapshot identity; RoomLord sorts the equality inputs.
+    not determine Snapshot identity.
 
     # Invariants
 
@@ -1156,6 +1163,8 @@ class LoadedSide:
 
     A regular side has no link. A link retains raw outer target bytes here and
     never substitutes final target bytes for them. The result is not decoded.
+
+    @private
     """
 
     content: bytes
@@ -1254,42 +1263,21 @@ class ChangeSourceProtocol(Protocol):
 
     # Usage
 
-    Source setup has already prepared `source`, `selection`, `mark_id`, and
-    the two display labels. `room_lord` is the application's existing
-    `dirdiff.room_lord.RoomLord`. Capture first; render the retained Files with
-    `dirdiff.formats.Composer` and a selected diff engine afterward:
+    For application capture, pass the selected source to
+    `dirdiff.room_lord.RoomLord.corresponding_room`. That method handles
+    observation and acquisition. Its class documentation shows how to capture
+    and then compose the retained Files with a diff engine.
+
+    Direct consumers follow this order with one source instance:
 
     ```python
-    from dirdiff.engines import DirdiffError, TextDiffEngine
-    from dirdiff.formats import ComposeContext, Composer
-
-    room, snapshot_id = room_lord.corresponding_room(
-        mark_id=mark_id,
-        selection=selection,
-        source=source,
-        left_label=left_label,
-        right_label=right_label,
-    )
-    snapshot = room.meta(snapshot_id)
-    for left_path, right_path, _metadata in room.manifested(snapshot_id):
-        left, right, metadata = room.get(snapshot_id, left_path, right_path)
-        if metadata["capture_error"] is not None:
-            raise DirdiffError(metadata["capture_error"])
-        context = ComposeContext.build(
-            left_path=str(left_path) if left_path is not None else None,
-            right_path=str(right_path) if right_path is not None else None,
-            left_label=snapshot["left_label"],
-            right_label=snapshot["right_label"],
-            left_link=left.link if left is not None and left.kind == "symlink" else None,
-            right_link=right.link if right is not None and right.kind == "symlink" else None,
-            renderer=TextDiffEngine(),
-        )
-        composed = Composer().compose(
-            left.path.read_bytes() if left is not None else None,
-            right.path.read_bytes() if right is not None else None,
-            context,
-        )
+    changes = source.changes()
+    loaded_files = source.load(changes.files)
     ```
+
+    `loaded_files` contains paired `LoadedFile` results. Each result's `change`
+    is the observed input record, and `left` and `right` hold its acquired data
+    or remain `None` for an absent side.
 
     RoomLord calls `changes()` for equality facts and, when capture needs data,
     `load(changes.files)` for paired `LoadedFile` results. Keep the observed
@@ -1312,17 +1300,16 @@ class ChangeSourceProtocol(Protocol):
     new source for another capture. Source instances do not share acquired-result
     state or a cache; callers may retain the immutable returned records.
 
-    # Snapshot boundary
+    # Capture integration
 
-    `dirdiff.room_lord.RoomLord` combines File metadata, semantic properties, and
-    content identities to decide Snapshot equality. It may reuse a retained
-    Snapshot after `changes()` without calling `load()`. If loading first
-    discovers a side failure, the final identity in `FileData` lets RoomLord check
-    equality again before publication.
+    RoomLord uses the observation's equality facts and asks for data only when
+    needed for a Snapshot. Sources must support a capture that calls `changes()`
+    without calling `load()`. Loaded content identities report a failure first
+    discovered during acquisition so the capture can use that final outcome.
 
-    Sources supply bytes and link facts. RoomLord persists them and chooses
-    diagnostic content for failed outer reads; `dirdiff.formats` decodes them.
-    Sources do not select Rooms, publish Snapshots, or choose renderers.
+    Sources supply bytes and link facts. See
+    `dirdiff.room_lord.RoomLord` for persistence and
+    `dirdiff.formats.Composer` for rendering captured contents.
     """
 
     def changes(self) -> WorkspaceChanges:
@@ -1437,6 +1424,8 @@ def load_file_sides(
 
     - An invalid bound or a wrong storage result count asserts.
     - Unexpected storage failures propagate.
+
+    @private
     """
     assert max_link_target_bytes >= 0
     limit = (
@@ -1559,6 +1548,8 @@ class SourceFiles:
     retains discovered storage versions and data read to establish identity.
     Its lifetime ends with that capture's source; no state survives another
     capture. All storage scheduling and positional acquisition stay here.
+
+    @private
     """
 
     def __init__(

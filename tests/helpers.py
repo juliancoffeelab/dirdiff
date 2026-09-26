@@ -1,9 +1,8 @@
 """Shared test adapters around the production diff pipeline.
 
-Tests may use this module to assemble backend, engine, and rendering
-objects without reintroducing retired production service classes.  Helpers here
-must stay thin adapters over public dirdiff contracts, so behavior assertions
-remain in the calling tests and not hidden behind convenience fixtures.
+Tests may use this module to assemble source, engine, and rendering objects.
+Helpers here must stay thin adapters over public dirdiff contracts, so behavior
+assertions remain in the calling tests and not hidden behind convenience fixtures.
 `tool_json` maintains local raw third-party output files keyed by exact source
 hashes. It caches no rows, assertions, rendered payloads, or production state.
 """
@@ -655,15 +654,15 @@ def build_loaded_diff(
 
 
 class WorkspaceDiffServiceAdapter:
-    """Preserve the former service-shaped test API over current public pieces.
+    """Provide manifest and ref operations for real-Git integration tests.
 
-    Older backend integration tests construct this adapter and exercise
-    manifest, path, ref, and branch behavior through one object. It delegates
-    each operation directly to the supplied backend and keeps a renderer only
-    for subclasses matching the historical construction shape.
+    Ref preparation delegates to the supplied `GitRepository`. Manifest reads
+    construct a fresh `GitChangeSource`, observe its changed Files, and pass
+    their path facts to the production manifest builder. Each call observes
+    current repository state; the adapter retains no source results.
 
-    This is test compatibility, not a production abstraction. It must not add
-    behavior, retain workspace results, or hide assertions from calling tests.
+    The renderer is retained for callers to inspect and is never invoked by
+    these operations. Behavior assertions belong in the calling tests.
     """
 
     def __init__(
@@ -671,13 +670,12 @@ class WorkspaceDiffServiceAdapter:
         backend: GitRepository,
         renderer: DiffEngineProtocol,
     ) -> None:
-        """Bind the adapter to one backend and historical renderer slot.
+        """Bind the adapter to a repository and an inspectable renderer.
 
         # Parameters
 
-        - `backend`: Public workspace implementation delegated to on every call.
-        - `renderer`: Renderer retained only for subclasses matching the former
-          service construction shape; adapter methods do not invoke it.
+        - `backend`: Git repository used to prepare revisions and ref choices.
+        - `renderer`: Renderer retained for inspection; methods do not invoke it.
         """
         self.backend = backend
         self.renderer = renderer
@@ -689,14 +687,17 @@ class WorkspaceDiffServiceAdapter:
         right: str,
         show_untracked: bool = False,
     ) -> RepoManifest:
-        """Build a manifest through the production backend adapter.
+        """Observe selected Git sides and build their HUD manifest.
 
         # Parameters
 
-        - `left`: Backend side handle for the old state.
-        - `right`: Backend side handle for the new state.
-        - `show_untracked`: Whether backend discovery includes worktree-only
+        - `left`: Git ref, `index`, or `worktree` for the old state.
+        - `right`: Git input under the same convention for the new state.
+        - `show_untracked`: Whether source discovery includes worktree-only
           Files.
+
+        The repository root must be present. Ref validation, source observation,
+        and manifest-construction failures propagate to the calling test.
         """
         assert self.backend.repo_root is not None
         left_side = self.backend.normalize_side(left)

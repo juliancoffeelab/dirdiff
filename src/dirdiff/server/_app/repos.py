@@ -177,10 +177,11 @@ class RepoDefaultsResponse(ApiModel):
 
 
 class RepoRefsResponse(ApiModel):
-    """Return one coherent set of repository ref choices.
+    """Return repository choices derived from one metadata read.
 
     The route derives `ref_choices` from one repository metadata observation so
-    controls do not mix repository states from repeated Git reads.
+    controls share that result rather than deriving from separate reads. The
+    metadata itself is not an atomic observation of Git state.
 
     Choices are suggestions. They do not reserve refs or promise later
     resolution.
@@ -189,7 +190,7 @@ class RepoRefsResponse(ApiModel):
     ref_choices: RefChoices
     """Local branches, remote branches, and refs offered by the repository.
 
-    All choices come from one observation so their relationships are coherent.
+    All choices are derived from the same metadata result.
     They seed controls and do not reserve or validate a future selection.
     """
 

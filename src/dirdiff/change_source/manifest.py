@@ -38,11 +38,15 @@ from dirdiff.change_source.base import (
 
 @dataclass(frozen=True)
 class ManifestPath:
-    """Present one retained File pair without source-only mode or object ids.
+    """Present captured File paths and metadata to manifest builders.
 
-    Room reconstructs this value from persisted paths and File metadata.
-    Manifest builders use it for display and lazy policy only; it cannot be
-    passed to `dirdiff.change_source.ChangeSourceProtocol.load`.
+    # Usage
+
+    A response builder constructs these records from
+    `dirdiff.room_lord.Room.manifested` results, deriving the display label from the
+    path pair. Pass the records to `build_repo_manifest_for_paths` or
+    `build_lazy_info_for_paths`. They address retained Files for display and lazy
+    policy, not live source reads.
     """
 
     left_path: str | None

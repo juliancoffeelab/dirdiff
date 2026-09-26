@@ -100,11 +100,11 @@ class Composer:
         content, or to serve one bay's bytes, get that without rendering any bay
         and without an engine in reach.
 
-        Local path classification decides one of notebook, image, blob, or
-        presumed text. The resulting `match` calls one builder; a parser failure
-        never retries another format arm. Notebook damage is preserved as raw
-        text or byte facts, and presumed text that cannot decode is stated as
-        blob facts. Both attach visible warnings.
+        Paths select notebook, image, blob, or presumed text. Captured link
+        facts select link composition before ordinary path classification.
+        Notebook damage is preserved as raw text or byte facts, and presumed
+        text that cannot decode is stated as blob facts. Both attach visible
+        warnings. A parser failure never retries another format.
 
         # Parameters
 
@@ -127,9 +127,10 @@ class Composer:
 
         # Failures
 
-        Iteration raises `AssertionError` when neither path identifies a File or
-        when a format builder receives side facts that contradict its path
-        classification. Unexpected parser failures propagate.
+        - Missing File paths raise `AssertionError` during iteration.
+        - Side facts contradicting the selected format raise `AssertionError`
+          during iteration.
+        - Unexpected parser failures propagate during iteration.
         """
 
         if context.left_link is not None or context.right_link is not None:
@@ -236,9 +237,10 @@ class Composer:
 
         # Failures
 
-        Propagates classification and builder invariant errors from `bays`,
-        plus any engine or display-enrichment failure from a text bay. No
-        partial envelope is returned.
+        - Classification and builder invariant errors propagate from `bays`.
+        - Engine and display-enrichment failures propagate from text bays.
+
+        Either failure aborts the call without returning a partial envelope.
         """
         frames: list[FramePayload] = []
         for bay in self.bays(left, right, context.bays):

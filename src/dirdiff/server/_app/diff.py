@@ -1288,8 +1288,9 @@ class RepoManifestResponse(ApiModel):
     tree: list[RepoManifestTreeEntryResponse]
     """Every affected File arranged in the recursive directory tree.
 
-    Each manifest File appears once in source order; the tree contains metadata
-    only and no composed File contents.
+    Each manifest File appears once, grouped by its displayed path. Directories
+    precede Files at each level, and single-child directory chains are compacted.
+    The tree contains metadata, not composed File contents.
     """
 
 

@@ -109,38 +109,35 @@ class PresetCatalogDir:
 
 
 def preset_catalogs(presets_root: Path) -> tuple[PresetCatalogDir, ...]:
-    """List the catalogs under `presets_root`, ordered by id.
+    """List the currently available catalogs beneath a configured presets root.
 
-    Every directory there is a catalog and must state its display name in a
-    `preset.toml` holding exactly `name`. A directory without that file, or
-    with anything else in it, raises `DirdiffError` naming the directory rather
-    than being skipped: a mistyped key would otherwise delete a catalog from
-    the picker without saying so. A presets root that does not exist has no
-    catalogs, which is the true answer when dirdiff runs outside this
-    repository.
+    # Parameters
+
+    - `presets_root`: Directory whose immediate subdirectories are preset catalogs.
+      Each catalog must have `preset.toml` containing exactly a nonblank `name`.
 
     # Usage
 
-    The server calls this on each catalog-listing operation, then constructs a
-    `PresetCatalog` from the selected record's `root`. Adding a valid catalog
-    therefore requires no server restart.
-
-    A fixture directory may also hold a `preset.toml`, with a `lazy_reason` key
-    and no `name`. The two live at different depths and are read by different
-    callers; `PresetChangeSource.changes` reads the other one.
+    Call for each catalog-picker refresh. Choose a returned record and construct
+    `PresetCatalog` from its `root`; then use that catalog's group listing to
+    construct `PresetChangeSource`. Added catalogs appear on the next call.
 
     # Returns
 
-    - Each item contains one immediate directory's `catalog_id`, configured
-      display name, and root path suitable for constructing `PresetCatalog`.
-    - Items are ordered by `catalog_id`. An empty tuple means the presets root
-      is absent or contains no catalog directories; fixtures are never expanded.
+    Catalog records ordered by `catalog_id`. An absent root or one without
+    catalog directories returns an empty tuple. Each record provides:
+
+    - `catalog_id`: Exact selection value for this catalog.
+    - `name`: Configured label for the catalog picker.
+    - `root`: Directory passed to `PresetCatalog` for group selection.
+
+    Fixture pairs are discovered separately by the selected source.
 
     # Failures
 
-    - Missing, malformed, or wrongly shaped catalog metadata raises
-      `DirdiffError`, `TOMLDecodeError`, or a filesystem decoding error;
-      invalid catalogs are not skipped.
+    - Missing catalog metadata or unsupported keys or names raises `DirdiffError`.
+    - Invalid TOML raises `TOMLDecodeError`.
+    - Filesystem and text-decoding failures propagate.
     """
     if not presets_root.is_dir():
         return ()
@@ -453,8 +450,8 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
         # Usage
 
-        Pass a normalized group as `left` and `new` as `right`. Snapshot capture
-        loads the present path of every returned fixture pair.
+        Pass a normalized group as `left` and `new` as `right`. `SourceFiles`
+        acquires the present sides to establish this source observation.
 
         # Returns
 
@@ -744,11 +741,18 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
 
 class PresetCatalog:
-    """List selectable fixture groups in one catalog without selecting a Tab.
+    """Offer the selectable fixture groups in one preset catalog.
 
-    Picker callers use the group ids and labels. Capture constructs a separate
-    `PresetChangeSource` for the selected group. This object retains no File
-    bytes or Snapshot state.
+    # Usage
+
+    Call `preset_catalogs` with the configured presets root, choose a catalog record,
+    and construct this object with that record's `root`. `list_preset_groups`
+    provides ids and labels for the group picker. `default_preset_name` supplies a
+    usable initial group when the picker has no selection.
+
+    Construct `PresetChangeSource` with this catalog's `root` and the selected group
+    id. Listing choices does not establish a source observation; the source's
+    `changes()` call does that.
     """
 
     root: Path
@@ -770,19 +774,41 @@ class PresetCatalog:
         self._workspace = _PresetWorkspace(self.root)
 
     def list_preset_groups(self) -> list[PresetGroup]:
-        """List current selectable groups with ids and display names.
+        """Return currently selectable group ids and display labels.
 
-        An absent catalog produces no groups. This reads group directories,
-        not catalog TOML; `preset_catalogs()` validates catalog metadata.
-        Filesystem listing failures propagate.
+        # Usage
+
+        Show each result's display name in the picker and retain its exact id for
+        `PresetChangeSource` construction. Call again to refresh directory choices.
+
+        # Returns
+
+        Groups in stable directory order. An absent catalog returns an empty list.
+        Groups without usable fixture pairs are omitted. Catalog labels are read by
+        `preset_catalogs`; this method only lists groups.
+
+        # Failures
+
+        - Filesystem listing failures propagate.
         """
         return self._workspace.list_preset_groups()
 
     def default_preset_name(self) -> str:
-        """Return the first available group id for picker initialization.
+        """Return a usable group id for picker initialization.
 
-        The choice follows the catalog's stable directory order. An empty or
-        unavailable catalog raises `DirdiffError`.
+        # Usage
+
+        Use when no group has been selected. Preserve an existing selection rather than
+        replacing it with this initial choice.
+
+        # Returns
+
+        The first available group id in the same directory order as
+        `list_preset_groups`. Pass it as `PresetChangeSource`'s `group`.
+
+        # Failures
+
+        - An empty or unavailable catalog raises `DirdiffError`.
         """
         return self._workspace.default_preset_name()
 
@@ -815,8 +841,8 @@ class PresetChangeSource(ChangeSourceProtocol):
 
     `changes()` acquires fixture bytes and link facts to establish complete
     identities. A later fixture edit or removal cannot change this observation.
-    Source lazy-policy text is read once with discovery, without a later TOML
-    reread. A fresh source is required to observe fixture or policy edits.
+    Lazy policy is fixed with the same observation. A fresh source is required
+    to observe fixture or policy edits.
     """
 
     def __init__(

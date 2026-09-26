@@ -1,8 +1,8 @@
 """Integration checks for Git-backed manifest construction.
 
-The tests build real repositories on disk and assert the manifest shape exposed
-by `GitRepository` through the test service adapter.  They cover Git status,
-lazy-file, and branch-review behavior at the backend boundary rather than
+The tests build real repositories on disk and assert manifests built from
+`GitChangeSource` through the test service adapter. They cover Git status,
+lazy-file, and branch-review behavior at the source boundary rather than
 testing renderer internals.
 """
 

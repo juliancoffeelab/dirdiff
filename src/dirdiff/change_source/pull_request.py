@@ -143,8 +143,8 @@ class PreparedPullRequest:
     left_commit: str
     """Complete merge-base object id computed from the forge-observed commits.
 
-    Snapshot capture verifies and loads this commit instead of resolving a mutable
-    target branch again.
+    Source setup verifies this id and constructs the capture source without
+    resolving a mutable target branch again.
     """
 
     right_commit: str
@@ -171,7 +171,7 @@ class _GitHubPullRequest:
     """GitHub API facts needed to fetch and identify one Pull Request.
 
     GitHub URL and API parsing create this private value before matching a local
-    repository and fetching the review ref.
+    repository and fetching the recorded target and head commits.
 
     It is not returned outside Pull Request preparation.
     """
@@ -227,7 +227,7 @@ class _GitLabMergeRequest:
     """GitLab API facts needed to fetch and identify one Merge Request.
 
     GitLab URL and API parsing create this private value before matching a local
-    repository and fetching the review ref.
+    repository and fetching the recorded target and head commits.
 
     It is not a public manifest input or forge-generic record.
     """
@@ -293,10 +293,9 @@ def prepare_pull_request(
 
     The URL must point at a supported GitHub pull request or GitLab merge
     request.  The request base repository must match at least one configured
-    remote in the registered repo list.  The review ref is fetched into a
-    remote-tracking ref without checking out or creating a local branch. This
-    operation also freezes the merge base and review head to commit ids so
-    manifest does not perform Pull Request preparation.
+    remote in the registered repo list. Preparation reads the forge's current
+    target and head commits, fetches those exact revisions, and retains them
+    locally without checking out or moving tracking branches.
 
     # Parameters
 
@@ -307,8 +306,16 @@ def prepare_pull_request(
     # Usage
 
     The Pull Request preparation endpoint passes the active marks from
-    `RepoMarkStore.list`. Recapture calls it again because forge refs may have
-    advanced since the previous Snapshot.
+    `dirdiff.db.RepoMarkStore.list`. Call again when a new forge observation is
+    needed; reusing the returned value captures its already prepared revisions.
+
+    # Returns
+
+    A `PreparedPullRequest` identifying the matched Mark, canonical URL,
+    merge-base and head commits, and observed branch labels. Use its commits
+    for `GitChangeSource` and its URL for
+    `dirdiff.room_lord.PullRequestCaptureSelection`. Prepared revisions and their
+    history stay reachable locally until their retaining refs are removed.
 
     # Failures
 
