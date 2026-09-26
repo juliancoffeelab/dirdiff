@@ -47,7 +47,12 @@ from dirdiff.change_source import (
     prepare_pull_request,
 )
 from dirdiff.db import (
+    CommentCreatedAction,
+    CommentDeletedAction,
+    CommentEditedAction,
     RepoMarkStore,
+    ThreadDeletedAction,
+    ThreadStateAction,
     UserProfileStore,
 )
 from dirdiff.engines import (
@@ -2547,64 +2552,66 @@ class ExternalAgentRoutes:
                 for profile in profiles
             }
             changes: list[AgentThreadChange] = []
-            for action in actions:
-                assert action.activity_id is not None
+            for record in actions:
+                action = record.action
+                payload = action.payload
                 author = authors[action.profile_id]
                 created_at = datetime.fromisoformat(action.created_at)
                 change: AgentCommentThreadChange | AgentStateThreadChange
-                match action.kind:
-                    case "thread-created" | "comment-created":
-                        assert action.comment_id is not None
+                match payload:
+                    case CommentCreatedAction():
                         change = AgentCommentThreadChange(
-                            activity_id=action.activity_id,
+                            activity_id=record.activity_id,
                             thread_id=action.thread_id,
                             author=author,
                             created_at=created_at,
                             kind="comment_created",
-                            comment_id=action.comment_id,
-                            comment=self.agent_preview(action.body, False),
+                            comment_id=payload.comment.id,
+                            comment=self.agent_preview(
+                                payload.comment.body, False
+                            ),
                         )
-                    case "comment-edited":
-                        assert action.comment_id is not None
+                    case CommentEditedAction():
                         change = AgentCommentThreadChange(
-                            activity_id=action.activity_id,
+                            activity_id=record.activity_id,
                             thread_id=action.thread_id,
                             author=author,
                             created_at=created_at,
                             kind="comment_edited",
-                            comment_id=action.comment_id,
-                            comment=self.agent_preview(action.body, False),
+                            comment_id=payload.comment.id,
+                            comment=self.agent_preview(
+                                payload.comment.body, False
+                            ),
                         )
-                    case "comment-deleted":
-                        assert action.comment_id is not None
+                    case CommentDeletedAction():
                         change = AgentCommentThreadChange(
-                            activity_id=action.activity_id,
+                            activity_id=record.activity_id,
                             thread_id=action.thread_id,
                             author=author,
                             created_at=created_at,
                             kind="comment_deleted",
-                            comment_id=action.comment_id,
+                            comment_id=payload.comment_id,
                             comment=self.agent_preview(None, True),
                         )
-                    case "thread-resolved":
+                    case ThreadStateAction(kind="thread-resolved"):
                         change = AgentStateThreadChange(
-                            activity_id=action.activity_id,
+                            activity_id=record.activity_id,
                             thread_id=action.thread_id,
                             author=author,
                             created_at=created_at,
                             kind="thread_resolved",
                         )
-                    case "thread-reopened":
+                    case ThreadStateAction(kind="thread-reopened"):
                         change = AgentStateThreadChange(
-                            activity_id=action.activity_id,
+                            activity_id=record.activity_id,
                             thread_id=action.thread_id,
                             author=author,
                             created_at=created_at,
                             kind="thread_reopened",
                         )
-                    case "thread-deleted":
+                    case ThreadDeletedAction():
                         change = AgentStateThreadChange(
-                            activity_id=action.activity_id,
+                            activity_id=record.activity_id,
                             thread_id=action.thread_id,
                             author=author,
                             created_at=created_at,

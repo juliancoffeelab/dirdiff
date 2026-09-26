@@ -30,12 +30,21 @@ from tree_sitter import Language, Node, Parser
 
 from dirdiff.change_source import CapturedLink
 from dirdiff.db import (
-    ReviewActionRecord,
+    AuthoredComment,
+    BayStartPlacement,
+    CommentCreatedAction,
+    FileMissingPlacement,
+    FileStartPlacement,
+    FileUnreadablePlacement,
+    Placement,
+    RangePlacement,
+    ReviewActionInput,
     ReviewThreadRecord,
     RoomIdentity,
     RoomStore,
     SnapshotFileRecord,
     SnapshotRecord,
+    SnapshotSymlinkFileSideRecord,
 )
 from dirdiff.formats import (
     BayContext,
@@ -57,18 +66,11 @@ from dirdiff.review.base import (
 )
 
 __all__ = [
-    "BayStartPlacement",
-    "FileMissingPlacement",
-    "FileStartPlacement",
-    "FileUnreadablePlacement",
-    "Placement",
-    "RangePlacement",
     "ReviewReadCache",
     "build_original_excerpt",
     "derive_room_threads",
     "file_pair",
     "origin_target_view",
-    "placement_from_record",
     "plan_thread_creation",
 ]
 
@@ -142,251 +144,6 @@ class _Locator:
     Candidate relocation requires exact sequence equality. An empty tuple means
     only the complete-text root supplies a region identity.
     """
-
-
-@dataclass(frozen=True)
-class RangePlacement:
-    """A Thread placed on a selected line range inside one composed bay.
-
-    This is the shape every newly created Thread takes. Its public coordinate
-    comes from composition and its inclusive lines remain local to that bay.
-
-    The private locator is deliberately not a field. Only derivation reads one,
-    and decoding it costs several times what the rest of this conversion does, so
-    a placement carries no coordinates and `derive_room_threads()` decodes the
-    single origin locator it is about to use.
-    """
-
-    thread_id: str
-    """Global logical Thread identity to which this immutable landing belongs.
-
-    The same id may have one placement per Snapshot but never two placements in
-    the same Snapshot.
-    """
-
-    snapshot_id: str
-    """Immutable Snapshot whose composed content contains this landing.
-
-    It must agree with the referenced File and is the code universe used for
-    all public placement reads.
-    """
-
-    snapshot_file_id: str
-    """Opaque File id within `snapshot_id` containing the landing bay.
-
-    Reads authenticate it and prove that its nullable path pair equals the
-    origin File pair before exposing the placement.
-    """
-
-    bay_key: str
-    """Composition-issued bay key containing the current line range.
-
-    A matched range must retain the immutable origin bay key; derivation does
-    not relocate a region across bays.
-    """
-
-    side: Literal["left", "right"]
-    """Captured File side containing this bay-local range.
-
-    It must equal the origin side. Loss of that side produces another placement
-    variant instead of changing this value.
-    """
-
-    start_line: int
-    """Positive one-based first included line in the current bay-side source.
-
-    For an unchanged match it preserves the origin's offset within the matched
-    region; for changed content it is the candidate's first line.
-    """
-
-    end_line: int
-    """One-based last included line in the current bay-side source.
-
-    It is no earlier than `start_line`; changed-region placement may narrow
-    the range to that one structural landing line.
-    """
-
-    outdated_reason: Optional[Literal["region_changed"]]
-    """Whether the unique structural candidate changed its source bytes.
-
-    `None` means both structure and region digest matched exactly. No other
-    outdated reason is valid for a placement that still has a range.
-    """
-
-
-@dataclass(frozen=True)
-class BayStartPlacement:
-    """A Thread placed at the start of one composed bay, its region lost.
-
-    `region_not_found` means the bay the origin named still composes in this
-    Snapshot's File but the origin region inside it matched no candidate or
-    matched ambiguously, so `bay_key` is the origin's own bay.
-    `bay_not_found` means the origin's bay is gone entirely, and `bay_key` is
-    the File's first composed bay carrying `side`, chosen at derivation
-    time, when the composed bays are already in hand, and stored so reads
-    never recompute it. Derivation is the only producer; origins never take
-    this shape.
-    """
-
-    thread_id: str
-    """Global logical Thread identity receiving this bay-start landing.
-
-    It relates the immutable placement to its unique origin and action history.
-    """
-
-    snapshot_id: str
-    """Immutable Snapshot whose composition supplied the landing bay.
-
-    Publication persists this choice before the Snapshot becomes visible.
-    """
-
-    snapshot_file_id: str
-    """Opaque selected-Snapshot File id containing the landing bay.
-
-    The File must retain the origin's exact nullable path pair and selected side.
-    """
-
-    bay_key: str
-    """Composition-issued bay key whose start is the stored landing.
-
-    It is the origin bay for region loss or the first replacement bay that
-    contains the origin side for bay loss, as distinguished by `outdated_reason`.
-    """
-
-    side: Literal["left", "right"]
-    """Origin-selected side on which the landing bay still composes.
-
-    Derivation never changes sides to obtain a usable bay.
-    """
-
-    outdated_reason: Literal["region_not_found", "bay_not_found"]
-    """Exact loss that reduced navigation to a bay start.
-
-    `region_not_found` retains the origin bay; `bay_not_found` requires
-    `bay_key` to hold the replacement chosen during derivation.
-    """
-
-
-@dataclass(frozen=True)
-class FileStartPlacement:
-    """A Thread placed at File start, with no bay coordinate to land on.
-
-    It has no bay and no line range, so it is never navigable; History is
-    its home. A reason of None marks a retained historical File-level
-    origin. These are the only origins of this shape. Every placement derived
-    from such an origin also has this shape. `bay_not_found` marks a placement
-    derived from a range origin whose File composes no bay carrying the side.
-    """
-
-    thread_id: str
-    """Global logical Thread identity receiving this File-side landing.
-
-    It joins the placement to its immutable origin and append-only discussion.
-    """
-
-    snapshot_id: str
-    """Immutable Snapshot in which only the File-side coordinate remains.
-
-    The placement is not reusable for another Snapshot even when paths match.
-    """
-
-    snapshot_file_id: str
-    """Opaque File id validated within `snapshot_id` for discovery.
-
-    It identifies the exact path pair but offers no bay or line coordinate.
-    """
-
-    side: Literal["left", "right"]
-    """Origin-selected side retained for the historical File landing.
-
-    The side exists on the exact File pair, but no composed bay on it is valid
-    for navigation in this placement.
-    """
-
-    outdated_reason: Optional[Literal["bay_not_found"]]
-    """Why only a File-side landing remains, when the placement is outdated.
-
-    `None` is reserved for retained historical File-level origins;
-    `bay_not_found` means a range origin's selected side composes no bay.
-    """
-
-
-@dataclass(frozen=True)
-class FileMissingPlacement:
-    """A Thread with no code location, because its exact File pair is absent.
-
-    It references no Snapshot File, and its public outdated reason is always
-    `file_missing`, so neither is carried as a field.
-    """
-
-    thread_id: str
-    """Global logical Thread identity whose origin pair has no current File.
-
-    Discussion history remains addressable by this id even though code
-    navigation has no selected-Snapshot target.
-    """
-
-    snapshot_id: str
-    """Immutable Snapshot proven not to contain the origin File pair.
-
-    Focused File loading checks this absence before the public placement is
-    returned, so the value is not an unchecked claim.
-    """
-
-
-@dataclass(frozen=True)
-class FileUnreadablePlacement:
-    """A Thread with no code location, because its File could not be captured.
-
-    The exact File pair is present in this Snapshot because the backend listed
-    it, but capture failed. The only bytes beneath its capture directory are
-    the ones dirdiff generated to stand in for the File. Nothing here can hold
-    a Thread: a bay would name composed placeholder text, and File start would
-    name a side record whose digest describes that same text. It references no
-    Snapshot File, and its public outdated reason is always `file_unreadable`,
-    so neither is carried as a field.
-
-    This is not `FileMissingPlacement`. That one states the File pair is
-    absent from the Snapshot, and the read boundary verifies that absence;
-    this one states the opposite about the same Snapshot.
-    """
-
-    thread_id: str
-    """Global logical Thread identity whose matching File is unreadable.
-
-    The discussion remains intact while review withholds generated capture-error
-    content from placement and excerpts.
-    """
-
-    snapshot_id: str
-    """Immutable Snapshot in which the origin pair exists but capture failed.
-
-    This distinguishes the placement from true File absence without storing a
-    reference to placeholder bytes.
-    """
-
-
-Placement = (
-    RangePlacement
-    | BayStartPlacement
-    | FileStartPlacement
-    | FileMissingPlacement
-    | FileUnreadablePlacement
-)
-"""One Thread's immutable location in one Snapshot, in the shape review needs.
-
-- `RangePlacement` locates a usable line range.
-- `BayStartPlacement` locates a bay whose original region was lost.
-- `FileStartPlacement` retains a File-side landing without a bay.
-- `FileMissingPlacement` states that the exact File pair is absent.
-- `FileUnreadablePlacement` states that capture could not retain the File.
-
-`RoomStore` returns a flat record whose optional fields can describe all five
-variants without proving which one applies. `placement_from_record()` validates that
-record into exactly one variant at the read boundary; `_record_of()` converts it
-back. The union omits query-local origin labels and private reattachment
-coordinates.
-"""
 
 
 @dataclass(frozen=True)
@@ -914,18 +671,23 @@ def _composed_bays(
         - `CapturedLink`: Authenticated link facts for the selected side.
         - `None`: The side is absent or is an ordinary File.
         """
-        record = file.left_symlink if side == "left" else file.right_symlink
+        selected_side = file.left if side == "left" else file.right
+        record = (
+            selected_side.link
+            if isinstance(selected_side, SnapshotSymlinkFileSideRecord)
+            else None
+        )
         if record is None:
             return None
         return read_captured_link(
             metadata_path=Path(record.metadata_path),
             metadata_hash=record.metadata_hash,
             target_capture_path=(
-                Path(record.target_capture_path)
-                if record.target_capture_path is not None
-                else None
+                Path(record.target.path) if record.target is not None else None
             ),
-            target_hash=record.target_hash,
+            target_hash=record.target.content_hash
+            if record.target is not None
+            else None,
         )
 
     composed = Composer().bays(
@@ -1135,189 +897,28 @@ def _verify_locator(
     assert placement.end_line <= origin_region_end
 
 
-def placement_from_record(record: ReviewThreadRecord) -> Placement:
-    """Prove one stored placement's shape, once, at the read boundary.
-
-    `RoomStore` returns every placement as the same flat row because the schema
-    is one table. `target_kind` distinguishes the located shapes. The outdated
-    reason distinguishes an absent File from one that is present and
-    unreadable. `ReviewThreadRecord` has
-    already refused any row whose
-    fields disagree with its tag, so the assertions here re-state that shape to
-    narrow the record's optional fields into this module's variants; a
-    violation is a corrupt database rather than an input this code can place.
-    """
-    match record.target_kind:
-        case "range":
-            assert record.snapshot_file_id is not None
-            assert record.bay_key is not None and record.bay_key != ""
-            assert record.side is not None
-            assert record.start_line is not None
-            assert record.end_line is not None
-            assert 1 <= record.start_line <= record.end_line
-            reason = record.outdated_reason
-            assert reason is None or reason == "region_changed"
-            return RangePlacement(
-                thread_id=record.thread_id,
-                snapshot_id=record.snapshot_id,
-                snapshot_file_id=record.snapshot_file_id,
-                bay_key=record.bay_key,
-                side=record.side,
-                start_line=record.start_line,
-                end_line=record.end_line,
-                outdated_reason=reason,
-            )
-        case "bay-start":
-            assert record.snapshot_file_id is not None
-            assert record.bay_key is not None and record.bay_key != ""
-            assert record.side is not None
-            assert record.start_line is None and record.end_line is None
-            assert record.private_locator is None
-            bay_reason = record.outdated_reason
-            assert (
-                bay_reason == "region_not_found"
-                or bay_reason == "bay_not_found"
-            )
-            return BayStartPlacement(
-                thread_id=record.thread_id,
-                snapshot_id=record.snapshot_id,
-                snapshot_file_id=record.snapshot_file_id,
-                bay_key=record.bay_key,
-                side=record.side,
-                outdated_reason=bay_reason,
-            )
-        case "file-start":
-            assert record.snapshot_file_id is not None
-            assert record.bay_key is None
-            assert record.side is not None
-            assert record.start_line is None and record.end_line is None
-            assert record.private_locator is None
-            start_reason = record.outdated_reason
-            assert start_reason is None or start_reason == "bay_not_found"
-            return FileStartPlacement(
-                thread_id=record.thread_id,
-                snapshot_id=record.snapshot_id,
-                snapshot_file_id=record.snapshot_file_id,
-                side=record.side,
-                outdated_reason=start_reason,
-            )
-        case None:
-            assert record.snapshot_file_id is None
-            assert record.bay_key is None and record.side is None
-            assert record.start_line is None and record.end_line is None
-            assert record.private_locator is None
-            # Both unlocated shapes persist as the same untagged row. The
-            # reason is what separates a File that is gone from one that is
-            # here and unreadable, so it selects the variant.
-            if record.outdated_reason == "file_unreadable":
-                return FileUnreadablePlacement(
-                    thread_id=record.thread_id,
-                    snapshot_id=record.snapshot_id,
-                )
-            assert record.outdated_reason == "file_missing"
-            return FileMissingPlacement(
-                thread_id=record.thread_id,
-                snapshot_id=record.snapshot_id,
-            )
-
-
 def _record_of(
     placement: Placement,
     *,
     is_origin: bool,
     locator: Optional[_Locator],
 ) -> ReviewThreadRecord:
-    """Convert one placement back into the flat row the store persists.
+    """Attach origin metadata to one already validated placement.
 
-    `is_origin` and `locator` are the caller's facts, not the placement's.
-    `is_origin` is a per-query label rather than a stored column, and the store
-    uses it only to reject an existing origin republished into a new Snapshot.
-    `locator` belongs only to a range origin; every other row stores none.
+    Private coordinates are encoded only for a current range; the store keeps
+    those bytes opaque and stores the placement's coordinate fields separately.
 
     # Parameters
 
-    - `placement`: Proven domain variant to flatten for persistence.
-    - `is_origin`: Whether this Snapshot pair is the discussion's unique origin.
-    - `locator`: Private coordinates only for a range origin, otherwise `None`.
+    - `placement`: Validated landing variant to retain unchanged.
+    - `is_origin`: Whether this pair is the Thread's unique creation placement.
+    - `locator`: Decoded current-range origin coordinates, otherwise absent.
     """
-    assert locator is None or isinstance(placement, RangePlacement), (
-        "only a range placement stores private coordinates"
-    )
-    match placement:
-        case RangePlacement():
-            return ReviewThreadRecord(
-                thread_id=placement.thread_id,
-                snapshot_id=placement.snapshot_id,
-                snapshot_file_id=placement.snapshot_file_id,
-                is_origin=is_origin,
-                target_kind="range",
-                bay_key=placement.bay_key,
-                side=placement.side,
-                start_line=placement.start_line,
-                end_line=placement.end_line,
-                outdated_reason=placement.outdated_reason,
-                private_locator=(
-                    None
-                    if locator is None
-                    else _locator_bytes(locator, side=placement.side)
-                ),
-            )
-        case BayStartPlacement():
-            return ReviewThreadRecord(
-                thread_id=placement.thread_id,
-                snapshot_id=placement.snapshot_id,
-                snapshot_file_id=placement.snapshot_file_id,
-                is_origin=is_origin,
-                target_kind="bay-start",
-                bay_key=placement.bay_key,
-                side=placement.side,
-                start_line=None,
-                end_line=None,
-                outdated_reason=placement.outdated_reason,
-                private_locator=None,
-            )
-        case FileStartPlacement():
-            return ReviewThreadRecord(
-                thread_id=placement.thread_id,
-                snapshot_id=placement.snapshot_id,
-                snapshot_file_id=placement.snapshot_file_id,
-                is_origin=is_origin,
-                target_kind="file-start",
-                bay_key=None,
-                side=placement.side,
-                start_line=None,
-                end_line=None,
-                outdated_reason=placement.outdated_reason,
-                private_locator=None,
-            )
-        case FileMissingPlacement():
-            return ReviewThreadRecord(
-                thread_id=placement.thread_id,
-                snapshot_id=placement.snapshot_id,
-                snapshot_file_id=None,
-                is_origin=is_origin,
-                target_kind=None,
-                bay_key=None,
-                side=None,
-                start_line=None,
-                end_line=None,
-                outdated_reason="file_missing",
-                private_locator=None,
-            )
-        case FileUnreadablePlacement():
-            return ReviewThreadRecord(
-                thread_id=placement.thread_id,
-                snapshot_id=placement.snapshot_id,
-                snapshot_file_id=None,
-                is_origin=is_origin,
-                target_kind=None,
-                bay_key=None,
-                side=None,
-                start_line=None,
-                end_line=None,
-                outdated_reason="file_unreadable",
-                private_locator=None,
-            )
+    private_locator = None
+    if locator is not None:
+        assert isinstance(placement, RangePlacement)
+        private_locator = _locator_bytes(locator, side=placement.side)
+    return ReviewThreadRecord(placement, is_origin, private_locator)
 
 
 def _derive_record(
@@ -1628,7 +1229,7 @@ def derive_room_threads(
       contradicts the target Snapshot, or persisted origin data is malformed.
     """
     origins = {
-        origin.thread_id: origin
+        origin.placement.thread_id: origin
         for origin in database.review_origins_missing(
             identity,
             target_snapshot.id,
@@ -1638,13 +1239,14 @@ def derive_room_threads(
     # reference; the origin Snapshots themselves are never hydrated. The
     # target Snapshot arrives fully loaded from the capture that triggered
     # this derivation.
-    origin_refs = tuple(
-        dict.fromkeys(
-            (origin.snapshot_id, origin.snapshot_file_id)
-            for origin in origins.values()
-            if origin.snapshot_file_id is not None
+    origin_refs_list: list[tuple[str, str]] = []
+    for record in origins.values():
+        origin = record.placement
+        assert isinstance(origin, (RangePlacement, FileStartPlacement)), (
+            "invalid discussion origin"
         )
-    )
+        origin_refs_list.append((origin.snapshot_id, origin.snapshot_file_id))
+    origin_refs = tuple(dict.fromkeys(origin_refs_list))
     origin_files, _selected_files, _conflicts, _comparison_files = (
         database.review_thread_files(
             target_snapshot.id, origin_refs, (), (), ()
@@ -1661,7 +1263,7 @@ def derive_room_threads(
         ]
     ] = []
     for record in origins.values():
-        origin = placement_from_record(record)
+        origin = record.placement
         assert isinstance(origin, (RangePlacement, FileStartPlacement)), (
             "a discussion origin is a stored range or File-start row"
         )
@@ -1855,7 +1457,7 @@ def plan_thread_creation(
     snapshot_id: str,
     target_file: Optional[SnapshotFileRecord],
     cache: ReviewReadCache,
-) -> tuple[tuple[ReviewThreadRecord, ...], ReviewActionRecord]:
+) -> tuple[tuple[ReviewThreadRecord, ...], ReviewActionInput]:
     """Validate and build immutable rows for one new discussion.
 
     The caller holds the Room write lock and supplies the focused lookup
@@ -1903,18 +1505,18 @@ def plan_thread_creation(
     build_original_excerpt(origin, target_file, cache)
     return (
         (_record_of(origin, is_origin=True, locator=locator),),
-        ReviewActionRecord(
+        ReviewActionInput(
             operation_id=command.operation_id.hex,
             thread_id=command.thread_id.hex,
             snapshot_id=snapshot_id,
             sequence=0,
-            kind="thread-created",
             profile_id=profile_id,
-            comment_id=command.comment_id.hex,
-            expected_revision=None,
-            body=command.body,
             created_at=created_at,
             status_after="open",
             attention_after="author",
+            payload=CommentCreatedAction(
+                "thread-created",
+                AuthoredComment(command.comment_id.hex, command.body),
+            ),
         ),
     )

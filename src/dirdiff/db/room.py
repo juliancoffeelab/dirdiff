@@ -60,6 +60,18 @@ from dirdiff.db.base import (
 )
 
 __all__ = [
+    "AuthoredComment",
+    "BayStartPlacement",
+    "CommentCreatedAction",
+    "CommentDeletedAction",
+    "CommentEditedAction",
+    "FileMissingPlacement",
+    "FileStartPlacement",
+    "FileUnreadablePlacement",
+    "Placement",
+    "RangePlacement",
+    "ReviewActionInput",
+    "ReviewActionPayload",
     "ReviewActionRecord",
     "ReviewThreadRecord",
     "ReviewThreadsRecord",
@@ -68,8 +80,13 @@ __all__ = [
     "SnapshotFileRecord",
     "SnapshotFileSideRecord",
     "SnapshotFileSymlinkRecord",
+    "SnapshotLinkTargetRecord",
     "SnapshotMetaRecord",
     "SnapshotRecord",
+    "SnapshotRegularFileSideRecord",
+    "SnapshotSymlinkFileSideRecord",
+    "ThreadDeletedAction",
+    "ThreadStateAction",
 ]
 
 
@@ -974,12 +991,12 @@ class RoomIdentity:
 
 
 @dataclass(frozen=True)
-class SnapshotFileSideRecord:
+class SnapshotRegularFileSideRecord:
     """Expose the repository identity and digest of one present File side.
 
-    `RoomStore` creates this record while reading a `SnapshotFileRecord`.
-    Callers use the repository path for exact File identity and the digest for
-    Snapshot comparison.
+    Capture constructs this record for publication; `RoomStore` returns the
+    same shape on reads. Callers use the repository path for exact side identity
+    and the digest to authenticate captured bytes.
 
     Absence is represented by an absent side record on the File, never by
     nullable fields here. This value does not contain the captured bytes.
@@ -997,45 +1014,81 @@ class SnapshotFileSideRecord:
     Comparisons use it as immutable byte identity without reopening the repository.
     """
 
+    def __post_init__(self) -> None:
+        """Reject incomplete present-side identity or authentication facts.
+
+        # Failures
+
+        - Invalid repository path or content digest raises `AssertionError`.
+        """
+        assert isinstance(self.repository_path, str), (
+            "present side requires a repository path"
+        )
+        path = PurePosixPath(self.repository_path)
+        assert (
+            self.repository_path not in {"", ".", ".."}
+            and not path.is_absolute()
+            and ".." not in path.parts
+        ), "Snapshot File path must be repository-relative"
+        assert (
+            isinstance(self.content_hash, bytes)
+            and len(self.content_hash) == 32
+        ), "present side requires a SHA-256 digest"
+
+
+@dataclass(frozen=True)
+class SnapshotLinkTargetRecord:
+    """Locate and authenticate the terminal non-link bytes of a captured walk.
+
+    A stopped walk has no target record. A reached target always supplies both
+    its physical path and digest, even when its byte contents are empty.
+    """
+
+    path: str
+    """Absolute immutable capture path containing the reached target bytes."""
+
+    content_hash: bytes
+    """SHA-256 digest of those exact captured bytes."""
+
+    def __post_init__(self) -> None:
+        """Reject an incomplete authenticated target.
+
+        # Failures
+
+        - A relative path or digest not exactly 32 bytes raises `AssertionError`.
+        """
+        assert Path(self.path).is_absolute(), (
+            "Snapshot link target capture path must be absolute"
+        )
+        assert len(self.content_hash) == 32, (
+            "Snapshot link target hash must have length 32"
+        )
+
 
 @dataclass(frozen=True)
 class SnapshotFileSymlinkRecord:
-    """Expose one symbolic-link side's authenticated physical sidecars.
+    """Authenticate one symbolic-link side's metadata and optional reached bytes.
 
-    `RoomStore` constructs this record for a `SnapshotFileRecord` only when the
-    relational symlink row exists. Callers read exactly these paths and compare
-    exact bytes with these digests; they must not infer sidecar names or link
-    kind from filesystem state.
-
-    The optional target pair represents a stopped walk by total absence. Link
-    chain, diagnosis, and repository target path remain inside authenticated
-    metadata and are not fields of this relational descriptor.
+    The store supplies this descriptor only inside a present link-side variant.
+    Callers authenticate its metadata before interpreting the chain, diagnosis,
+    or repository target path encoded there.
     """
 
     metadata_path: str
     """Absolute path to the immutable JSON metadata sidecar."""
 
     metadata_hash: bytes
-    """SHA-256 digest of exact metadata bytes at `metadata_path`."""
+    """SHA-256 digest of the exact metadata bytes."""
 
-    target_capture_path: Optional[str]
-    """Absolute path to reached target bytes, or `None` after a stopped walk."""
-
-    target_hash: Optional[bytes]
-    """SHA-256 target digest with the same presence as its physical path."""
+    target: SnapshotLinkTargetRecord | None
+    """Complete reached-target capture, absent when traversal stopped."""
 
     def __post_init__(self) -> None:
-        """Reject descriptors that cannot name one authenticated capture.
-
-        Both database publication and hydration construct this type, so it
-        guards absolute path shape, digest length, and the optional target
-        pair at both boundaries.
+        """Reject a descriptor that cannot authenticate its metadata.
 
         # Failures
 
-        - Raises `AssertionError` for a relative metadata or target path, a
-          digest not exactly 32 bytes long, or unequal target path/hash
-          presence.
+        - A relative metadata path or non-SHA-256 digest raises `AssertionError`.
         """
         assert Path(self.metadata_path).is_absolute(), (
             "Snapshot link metadata path must be absolute"
@@ -1043,17 +1096,62 @@ class SnapshotFileSymlinkRecord:
         assert len(self.metadata_hash) == 32, (
             "Snapshot link metadata hash must have length 32"
         )
-        assert (self.target_capture_path is None) == (
-            self.target_hash is None
-        ), "Snapshot link target path and hash must have equal presence"
-        if self.target_capture_path is not None:
-            assert Path(self.target_capture_path).is_absolute(), (
-                "Snapshot link target capture path must be absolute"
-            )
-            assert self.target_hash is not None
-            assert len(self.target_hash) == 32, (
-                "Snapshot link target hash must have length 32"
-            )
+        assert self.target is None or isinstance(
+            self.target, SnapshotLinkTargetRecord
+        ), "link target must be a complete authenticated record"
+
+
+@dataclass(frozen=True)
+class SnapshotSymlinkFileSideRecord:
+    """Retain the raw outer link side together with its required descriptor.
+
+    The raw bytes have their own path identity and digest. Reached target bytes
+    are authenticated separately by `link`; they never replace the outer bytes.
+    """
+
+    repository_path: str
+    """Repository-relative identity of this present outer link side."""
+
+    content_hash: bytes
+    """SHA-256 digest of the captured raw outer link bytes."""
+
+    link: SnapshotFileSymlinkRecord
+    """Required metadata and optional reached-target authentication facts."""
+
+    def __post_init__(self) -> None:
+        """Reject incomplete present-side identity or authentication facts.
+
+        # Failures
+
+        - Invalid repository path, content digest, or required link descriptor
+          raises `AssertionError`.
+        """
+        assert isinstance(self.repository_path, str), (
+            "present side requires a repository path"
+        )
+        path = PurePosixPath(self.repository_path)
+        assert (
+            self.repository_path not in {"", ".", ".."}
+            and not path.is_absolute()
+            and ".." not in path.parts
+        ), "Snapshot File path must be repository-relative"
+        assert (
+            isinstance(self.content_hash, bytes)
+            and len(self.content_hash) == 32
+        ), "present side requires a SHA-256 digest"
+        assert isinstance(self.link, SnapshotFileSymlinkRecord), (
+            "link side requires its descriptor"
+        )
+
+
+SnapshotFileSideRecord = (
+    SnapshotRegularFileSideRecord | SnapshotSymlinkFileSideRecord
+)
+"""One present captured side, either regular bytes or a link with its descriptor.
+
+File-level `None` represents real absence; neither variant has nullable side
+identity or content digest. Inspect the variant before reading link metadata.
+"""
 
 
 @dataclass(frozen=True)
@@ -1061,7 +1159,9 @@ class SnapshotFileRecord:
     """Immutable relational facts for one affected File.
 
     `RoomStore` returns this immutable record to Room for manifest, File lookup,
-    delta, and review operations.
+    delta, and review operations. Publication supplies the same record with
+    regular or symbolic-link side variants; a link descriptor belongs inside
+    its present side.
 
     At least one captured side is present. The record has no display name,
     rendered bays, or final lazy reason.
@@ -1086,13 +1186,14 @@ class SnapshotFileRecord:
     """
 
     tracked: bool
-    """Whether this File belongs to the backend's tracked input.
+    """Whether the selected VCS tracks this File at capture time.
 
-    The record preserves the capture-time backend fact without inspecting Git again.
+    *Implementation detail:* preset fixtures use True because VCS tracking
+    does not apply to them.
     """
 
     change_type: str
-    """Backend classification retained without deriving renderer output.
+    """Source classification retained without deriving renderer output.
 
     Consumers combine it with side presence and errors when building presentation.
     """
@@ -1115,11 +1216,24 @@ class SnapshotFileRecord:
     Consumers preserve absence instead of substituting the other side or an empty file.
     """
 
-    left_symlink: Optional[SnapshotFileSymlinkRecord]
-    """Authoritative left link sidecars, or `None` for an ordinary/absent side."""
+    def __post_init__(self) -> None:
+        """Reject a File whose present sides are not captured-side variants.
 
-    right_symlink: Optional[SnapshotFileSymlinkRecord]
-    """Authoritative right link sidecars, or `None` for an ordinary/absent side."""
+        # Failures
+
+        - No present side or an invalid side value raises `AssertionError`.
+        """
+        assert self.left is not None or self.right is not None, (
+            "Snapshot File must have at least one captured side"
+        )
+        assert all(
+            side is None
+            or isinstance(
+                side,
+                (SnapshotRegularFileSideRecord, SnapshotSymlinkFileSideRecord),
+            )
+            for side in (self.left, self.right)
+        ), "Snapshot File sides must be captured-side variants"
 
 
 @dataclass(frozen=True)
@@ -1142,7 +1256,7 @@ class SnapshotRecord:
     content_hash: bytes
     """Digest identifying equal captured content inside one Room.
 
-    It supports recapture reuse but is not a globally addressable Snapshot key.
+    It supports equal-capture reuse but is not a globally addressable Snapshot key.
     """
 
     meta: SnapshotMetaRecord
@@ -1220,356 +1334,605 @@ class SnapshotFileLoadRecord:
 
 
 @dataclass(frozen=True)
-class ReviewThreadRecord:
-    """Immutable placement facts for one Thread and Snapshot pair.
+class RangePlacement:
+    """A Thread placed on a selected line range inside one composed bay.
 
-    Review derivation passes this value to `RoomStore`, and persistence reads
-    return the same validated shape to `dirdiff.review`.
+    This is the shape every newly created Thread takes. Its public coordinate
+    comes from composition and its inclusive lines remain local to that bay.
 
-    Private locator bytes occur only on a current text range and never leave the
-    persistence/review boundary.
+    Private reattachment bytes belong to the enclosing `ReviewThreadRecord`,
+    separate from the public line coordinate.
     """
 
     thread_id: str
-    """Stable logical discussion id shared by all Snapshot placements.
+    """Global logical Thread identity to which this immutable landing belongs.
 
-    Actions use it to preserve one discussion while selected-Snapshot coordinates change.
+    The same id may have one placement per Snapshot but never two placements in
+    the same Snapshot.
     """
 
     snapshot_id: str
-    """Exact captured code universe in which this placement applies.
+    """Immutable Snapshot whose composed content contains this landing.
 
-    File and range fields are invalid when combined with records from another Snapshot.
+    It must agree with the referenced File and is the code universe used for
+    all public placement reads.
     """
 
-    snapshot_file_id: Optional[str]
-    """File containing the landing, or `None` when absent or unreadable.
+    snapshot_file_id: str
+    """Opaque File id within `snapshot_id` containing the landing bay.
 
-    Its absence requires all bay, side, and range coordinates to be absent as well.
+    Review authenticates the referenced File and checks that its nullable path
+    pair equals the origin File pair before exposing a placement view.
     """
 
-    is_origin: bool
-    """Whether this record is the Thread's immutable creation placement.
+    bay_key: str
+    """Composition-issued bay key containing the current line range.
 
-    This is a query label supplied by the store, not a persisted column.
+    A matched range must retain the immutable origin bay key; derivation does
+    not relocate a region across bays.
     """
 
-    target_kind: Optional[Literal["range", "bay-start", "file-start"]]
-    """Shape of a located target, or `None` for an unlocated Thread.
+    side: Literal["left", "right"]
+    """Captured File side containing this bay-local range.
 
-    A `range` carries bay, side, and lines; `bay-start` omits the lines; and
-    `file-start` carries only the side.
+    It must equal the origin side. Loss of that side produces another placement
+    variant instead of changing this value.
     """
 
-    bay_key: Optional[str]
-    """Public bay identity for range and bay-start placements.
+    start_line: int
+    """Positive one-based first included line in the current bay-side source.
 
-    It is meaningful only with the placed File and side; File-start shapes leave it null.
+    For an unchanged match it preserves the origin's offset within the matched
+    region; for changed content it is the candidate's first line.
     """
 
-    side: Optional[Literal["left", "right"]]
-    """Captured side for every placement that still reaches a File.
+    end_line: int
+    """One-based last included line in the current bay-side source.
 
-    Unlocated records leave it null rather than preserving a coordinate with no File.
+    It is no earlier than `start_line`; changed-region placement may narrow
+    the range to that one structural landing line.
     """
 
-    start_line: Optional[int]
-    """Positive one-based inclusive start of a range placement.
+    outdated_reason: Optional[Literal["region_changed"]]
+    """Whether the unique structural candidate changed its source bytes.
 
-    Bay-start and File-start placements have no selected range and leave it null.
-    """
-
-    end_line: Optional[int]
-    """One-based inclusive range end, no earlier than `start_line`.
-
-    It must be present exactly when the start is present.
-    """
-
-    outdated_reason: Optional[
-        Literal[
-            "region_changed",
-            "region_not_found",
-            "bay_not_found",
-            "file_unreadable",
-            "file_missing",
-        ]
-    ]
-    """Why the origin did not land unchanged, or `None` when current.
-
-    `file_missing` and `file_unreadable` distinguish the unlocated shapes;
-    the remaining reasons qualify range, bay-start, or File-start landings.
-    """
-
-    private_locator: Optional[bytes]
-    """Opaque structural coordinates retained only for a current text range.
-
-    Reattachment code may decode it; HTTP and ordinary persistence callers must not.
+    `None` means both structure and region digest matched exactly. No other
+    outdated reason is valid for a placement that still has a range.
     """
 
     def __post_init__(self) -> None:
-        """Reject any placement shape review derivation cannot produce.
-
-        Placement is a tagged union in `dirdiff.review`: a range, bay start,
-        File start, missing File, or unreadable File. One flat row
-        holds all five, so the tag and the fields it implies are checked here
-        to agree. Both directions of persistence build this record:
-        `_record_of` before an insert and `_thread_record` after a select. One
-        check therefore guards the write and the read, and no stored row can
-        hold a shape review cannot interpret.
-
-        It raises instead of asserting because it is the only guard this
-        invariant has. `assert` disappears under `-O`, and a stripped check
-        would admit a row every later reader then fails on.
+        """Reject an invalid located placement before it crosses persistence.
 
         # Failures
 
-        - Raises `AssertionError` when an unlocated placement carries fields
-          other than a missing or unreadable reason; a range lacks its bay,
-          side, ordered line span, or valid changed-region reason; a bay-start
-          or File-start carries fields outside its shape; or a placement on a
-          File has no recognized target kind.
-        - Raises `AssertionError` when private locator bytes appear on anything
-          except a current range placement.
+        - Invalid File identity, side, bay, range, or reason raises `AssertionError`.
         """
-        where = f"thread {self.thread_id} in Snapshot {self.snapshot_id}"
-        if self.snapshot_file_id is None:
-            if (
-                self.target_kind is not None
-                or self.bay_key is not None
-                or self.side is not None
-                or self.start_line is not None
-                or self.end_line is not None
-                or self.outdated_reason
-                not in ("file_missing", "file_unreadable")
-            ):
-                raise AssertionError(
-                    f"an unlocated placement carries nothing but its "
-                    f"reason: {where}"
-                )
-        elif self.target_kind == "range":
-            if (
-                self.bay_key is None
-                or len(self.bay_key) == 0
-                or self.side is None
-                or self.start_line is None
-                or self.start_line < 1
-                or self.end_line is None
-                or self.end_line < self.start_line
-                or self.outdated_reason not in (None, "region_changed")
-            ):
-                raise AssertionError(
-                    f"a range placement names a bay and an ordered line "
-                    f"span: {where}"
-                )
-        elif self.target_kind == "bay-start":
-            if (
-                self.bay_key is None
-                or len(self.bay_key) == 0
-                or self.side is None
-                or self.start_line is not None
-                or self.end_line is not None
-                or self.outdated_reason
-                not in ("region_not_found", "bay_not_found")
-            ):
-                raise AssertionError(
-                    f"a bay-start placement names a bay, no line span, and a "
-                    f"lost-region reason: {where}"
-                )
-        elif self.target_kind == "file-start":
-            if (
-                self.bay_key is not None
-                or self.side is None
-                or self.start_line is not None
-                or self.end_line is not None
-                or self.outdated_reason not in (None, "bay_not_found")
-            ):
-                raise AssertionError(
-                    f"a File-start placement names a side and nothing "
-                    f"narrower: {where}"
-                )
-        else:
-            raise AssertionError(
-                f"a placement on a File states its target kind: {where}"
-            )
-        # Private coordinates retain where their author put a live range, so
-        # they belong to a range placement that has not gone outdated. Every
-        # other shape either never had them or has lost what they addressed.
-        if self.private_locator is not None and not (
-            self.target_kind == "range" and self.outdated_reason is None
-        ):
-            raise AssertionError(
-                f"only a current range placement retains private "
-                f"coordinates: {where}"
-            )
+        assert isinstance(self.thread_id, str) and isinstance(
+            self.snapshot_id, str
+        ), "placement requires Thread and Snapshot identities"
+        assert (
+            isinstance(self.snapshot_file_id, str)
+            and self.snapshot_file_id != ""
+        )
+        assert isinstance(self.bay_key, str) and self.bay_key != ""
+        assert self.side in {"left", "right"}
+        assert isinstance(self.start_line, int) and isinstance(
+            self.end_line, int
+        )
+        assert 1 <= self.start_line <= self.end_line
+        assert self.outdated_reason in {None, "region_changed"}
+
+
+@dataclass(frozen=True)
+class BayStartPlacement:
+    """A Thread placed at the start of one composed bay, its region lost.
+
+    `region_not_found` means the bay the origin named still composes in this
+    Snapshot's File but the origin region inside it matched no candidate or
+    matched ambiguously, so `bay_key` is the origin's own bay.
+    `bay_not_found` means the origin's bay is gone entirely, and `bay_key` is
+    the File's first composed bay carrying `side`. Origins never take this shape.
+
+    *Implementation detail:* derivation selects and persists that landing while
+    composition is available; later reads use the stored bay key.
+    """
+
+    thread_id: str
+    """Global logical Thread identity receiving this bay-start landing.
+
+    It relates the immutable placement to its unique origin and action history.
+    """
+
+    snapshot_id: str
+    """Immutable Snapshot whose composition supplied the landing bay.
+
+    Publication persists this choice before the Snapshot becomes visible.
+    """
+
+    snapshot_file_id: str
+    """Opaque selected-Snapshot File id containing the landing bay.
+
+    The File must retain the origin's exact nullable path pair and selected side.
+    """
+
+    bay_key: str
+    """Composition-issued bay key whose start is the stored landing.
+
+    It is the origin bay for region loss or the first replacement bay that
+    contains the origin side for bay loss, as distinguished by `outdated_reason`.
+    """
+
+    side: Literal["left", "right"]
+    """Origin-selected side on which the landing bay still composes.
+
+    Derivation never changes sides to obtain a usable bay.
+    """
+
+    outdated_reason: Literal["region_not_found", "bay_not_found"]
+    """Exact loss that reduced navigation to a bay start.
+
+    `region_not_found` retains the origin bay; `bay_not_found` requires
+    `bay_key` to hold the replacement chosen during derivation.
+    """
+
+    def __post_init__(self) -> None:
+        """Reject an invalid located placement before it crosses persistence.
+
+        # Failures
+
+        - Invalid File identity, side, bay, or loss reason raises `AssertionError`.
+        """
+        assert isinstance(self.thread_id, str) and isinstance(
+            self.snapshot_id, str
+        ), "placement requires Thread and Snapshot identities"
+        assert (
+            isinstance(self.snapshot_file_id, str)
+            and self.snapshot_file_id != ""
+        )
+        assert isinstance(self.bay_key, str) and self.bay_key != ""
+        assert self.side in {"left", "right"}
+        assert self.outdated_reason in {"region_not_found", "bay_not_found"}
+
+
+@dataclass(frozen=True)
+class FileStartPlacement:
+    """A Thread placed at File start, with no bay coordinate to land on.
+
+    It has no bay and no line range, so callers present it in History without
+    bay navigation. A reason of None marks a retained historical File-level
+    origin. These are the only origins of this shape. Every placement derived
+    from such an origin also has this shape. `bay_not_found` marks a placement
+    derived from a range origin whose File composes no bay carrying the side.
+    """
+
+    thread_id: str
+    """Global logical Thread identity receiving this File-side landing.
+
+    It joins the placement to its immutable origin and append-only discussion.
+    """
+
+    snapshot_id: str
+    """Immutable Snapshot in which only the File-side coordinate remains.
+
+    The placement is not reusable for another Snapshot even when paths match.
+    """
+
+    snapshot_file_id: str
+    """Opaque File id validated within `snapshot_id` for discovery.
+
+    It identifies the exact path pair but offers no bay or line coordinate.
+    """
+
+    side: Literal["left", "right"]
+    """Origin-selected side retained for the historical File landing.
+
+    The side exists on the exact File pair, but no composed bay on it is valid
+    for navigation in this placement.
+    """
+
+    outdated_reason: Optional[Literal["bay_not_found"]]
+    """Why only a File-side landing remains, when the placement is outdated.
+
+    `None` is reserved for retained historical File-level origins;
+    `bay_not_found` means a range origin's selected side composes no bay.
+    """
+
+    def __post_init__(self) -> None:
+        """Reject an invalid located placement before it crosses persistence.
+
+        # Failures
+
+        - Invalid File identity, side, or loss reason raises `AssertionError`.
+        """
+        assert isinstance(self.thread_id, str) and isinstance(
+            self.snapshot_id, str
+        ), "placement requires Thread and Snapshot identities"
+        assert (
+            isinstance(self.snapshot_file_id, str)
+            and self.snapshot_file_id != ""
+        )
+        assert self.side in {"left", "right"}
+        assert self.outdated_reason in {None, "bay_not_found"}
+
+
+@dataclass(frozen=True)
+class FileMissingPlacement:
+    """A Thread with no code location, because its exact File pair is absent.
+
+    It references no Snapshot File, and its public outdated reason is always
+    `file_missing`, so neither is carried as a field.
+    """
+
+    thread_id: str
+    """Global logical Thread identity whose origin pair has no current File.
+
+    Discussion history remains addressable by this id even though code
+    navigation has no selected-Snapshot target.
+    """
+
+    snapshot_id: str
+    """Immutable Snapshot in which the stored placement declares File absence.
+
+    Review verifies that declaration against captured File membership before
+    returning its public placement view; the store validates the row shape.
+    """
+
+    def __post_init__(self) -> None:
+        """Reject a landing with no Thread or Snapshot identity.
+
+        # Failures
+
+        - Missing identity values raise `AssertionError`.
+        """
+        assert isinstance(self.thread_id, str) and isinstance(
+            self.snapshot_id, str
+        ), "placement requires Thread and Snapshot identities"
+
+
+@dataclass(frozen=True)
+class FileUnreadablePlacement:
+    """A Thread without a code location because its File capture failed.
+
+    The source listed the exact File pair, but its capture error makes the File
+    unavailable for placement and excerpts even if another side succeeded.
+    No Snapshot File reference or code coordinate is carried here. Its public
+    reason is always `file_unreadable`, unlike `FileMissingPlacement`, which
+    declares that the exact pair is absent.
+    """
+
+    thread_id: str
+    """Global logical Thread identity whose matching File is unreadable.
+
+    The discussion remains intact while review withholds generated capture-error
+    content from placement and excerpts.
+    """
+
+    snapshot_id: str
+    """Immutable Snapshot in which the origin pair exists but capture failed.
+
+    This distinguishes the placement from true File absence without storing a
+    reference to placeholder bytes.
+    """
+
+    def __post_init__(self) -> None:
+        """Reject a landing with no Thread or Snapshot identity.
+
+        # Failures
+
+        - Missing identity values raise `AssertionError`.
+        """
+        assert isinstance(self.thread_id, str) and isinstance(
+            self.snapshot_id, str
+        ), "placement requires Thread and Snapshot identities"
+
+
+Placement = (
+    RangePlacement
+    | BayStartPlacement
+    | FileStartPlacement
+    | FileMissingPlacement
+    | FileUnreadablePlacement
+)
+"""One Thread's immutable location in one Snapshot, in the shape review needs.
+
+- `RangePlacement` locates a usable line range.
+- `BayStartPlacement` locates a bay whose original region was lost.
+- `FileStartPlacement` retains a File-side landing without a bay.
+- `FileMissingPlacement` states that the exact File pair is absent.
+- `FileUnreadablePlacement` states that capture could not retain the File.
+
+`RoomStore` validates SQL rows into these variants before returning them.
+A `ReviewThreadRecord` pairs a placement with its origin label and optional
+private reattachment bytes; SQL nullable columns never become caller fields.
+"""
+
+
+@dataclass(frozen=True)
+class ReviewThreadRecord:
+    """Pair one immutable placement with its origin metadata.
+
+    Derivation supplies these records for writes. `RoomStore` returns the same
+    validated variants on reads. Consumers inspect `placement` directly; private
+    reattachment bytes remain opaque outside review derivation.
+    """
+
+    placement: Placement
+    """Exactly one range, bay start, File start, missing, or unreadable landing."""
+
+    is_origin: bool
+    """Whether this Thread/Snapshot pair is the unique creation placement."""
+
+    private_locator: bytes | None
+    """Opaque coordinates for a current range origin, otherwise absent."""
+
+    def __post_init__(self) -> None:
+        """Reject private coordinates that do not describe a current range.
+
+        # Failures
+
+        - Coordinates on any other placement raise `AssertionError`.
+        """
+        assert isinstance(
+            self.placement,
+            (
+                RangePlacement,
+                BayStartPlacement,
+                FileStartPlacement,
+                FileMissingPlacement,
+                FileUnreadablePlacement,
+            ),
+        ), "Thread record requires a placement variant"
+        assert self.private_locator is None or isinstance(
+            self.private_locator, bytes
+        ), "private coordinates must be bytes"
+        assert self.private_locator is None or (
+            isinstance(self.placement, RangePlacement)
+            and self.placement.outdated_reason is None
+        ), "only a current range placement retains private coordinates"
+
+
+@dataclass(frozen=True)
+class AuthoredComment:
+    """Pair a Comment identity with the text supplied by one accepted action.
+
+    Creation, editing and optional resolve/reopen Comments carry this whole
+    value. Attribution comes from `ReviewActionInput.profile_id`; this value
+    alone does not state whether the Comment is new.
+    """
+
+    id: str
+    """Required identity of the new or edited Comment."""
+
+    body: str
+    """Nonempty authored text, retained exactly as accepted."""
+
+    def __post_init__(self) -> None:
+        """Reject missing identity or text at the typed write boundary.
+
+        # Failures
+
+        - Missing identity or empty/non-string text raises `AssertionError`.
+        """
+        assert isinstance(self.id, str), "authored Comment requires an id"
+        assert isinstance(self.body, str) and len(self.body) > 0, (
+            "authored Comment requires a body"
+        )
+
+
+@dataclass(frozen=True)
+class CommentCreatedAction:
+    """Create the first Thread Comment or a later reply."""
+
+    kind: Literal["thread-created", "comment-created"]
+    """Thread creation at sequence zero or a reply to an existing Thread."""
+
+    comment: AuthoredComment
+    """Required newly authored Comment, whose identity must be unused."""
+
+    def __post_init__(self) -> None:
+        """Reject an unknown creation tag or absent Comment.
+
+        # Failures
+
+        - Invalid tag or Comment value raises `AssertionError`.
+        """
+        assert self.kind in {"thread-created", "comment-created"}
+        assert isinstance(self.comment, AuthoredComment)
+
+
+@dataclass(frozen=True)
+class CommentEditedAction:
+    """Replace an existing Comment's text at its exact prior revision."""
+
+    comment: AuthoredComment
+    """Existing Comment identity and required replacement body."""
+
+    expected_revision: int
+    """Required prior revision checked against complete action history."""
+
+    kind: Literal["comment-edited"] = "comment-edited"
+    """Fixed discriminator for a Comment text edit."""
+
+    def __post_init__(self) -> None:
+        """Reject absent Comment/revision or an invalid edit tag.
+
+        # Failures
+
+        - Invalid typed edit fields raise `AssertionError`.
+        """
+        assert isinstance(self.comment, AuthoredComment)
+        assert isinstance(self.expected_revision, int)
+        assert self.kind == "comment-edited"
+
+
+@dataclass(frozen=True)
+class CommentDeletedAction:
+    """Tombstone an existing Comment at its exact prior revision."""
+
+    comment_id: str
+    """Required existing Comment identity; no authored body is carried."""
+
+    expected_revision: int
+    """Required prior revision checked against complete action history."""
+
+    kind: Literal["comment-deleted"] = "comment-deleted"
+    """Fixed discriminator for Comment deletion."""
+
+    def __post_init__(self) -> None:
+        """Reject absent identity/revision or an invalid deletion tag.
+
+        # Failures
+
+        - Invalid typed deletion fields raise `AssertionError`.
+        """
+        assert isinstance(self.comment_id, str)
+        assert isinstance(self.expected_revision, int)
+        assert self.kind == "comment-deleted"
+
+
+@dataclass(frozen=True)
+class ThreadStateAction:
+    """Resolve or reopen a Thread, optionally authoring one whole Comment."""
+
+    kind: Literal["thread-resolved", "thread-reopened"]
+    """Lifecycle transition whose legality is checked against prior state."""
+
+    comment: AuthoredComment | None
+    """Optional new Comment accompanying this transition, absent for a bare transition."""
+
+    def __post_init__(self) -> None:
+        """Reject an unknown transition or incomplete optional Comment.
+
+        # Failures
+
+        - Invalid transition tag or Comment value raises `AssertionError`.
+        """
+        assert self.kind in {"thread-resolved", "thread-reopened"}
+        assert self.comment is None or isinstance(self.comment, AuthoredComment)
+
+
+@dataclass(frozen=True)
+class ThreadDeletedAction:
+    """Delete a Thread without changing or creating a Comment."""
+
+    kind: Literal["thread-deleted"] = "thread-deleted"
+    """Fixed discriminator for the terminal Thread transition."""
+
+    def __post_init__(self) -> None:
+        """Reject a tag that does not identify Thread deletion.
+
+        # Failures
+
+        - An invalid tag raises `AssertionError`.
+        """
+        assert self.kind == "thread-deleted"
+
+
+ReviewActionPayload = (
+    CommentCreatedAction
+    | CommentEditedAction
+    | CommentDeletedAction
+    | ThreadStateAction
+    | ThreadDeletedAction
+)
+"""One accepted action's required, kind-specific fields.
+
+Creation/edit carries a whole authored Comment; Comment deletion carries its
+identity and prior revision; resolve/reopen carries an optional whole Comment;
+Thread deletion carries no Comment data. SQL nullability is confined to stores.
+"""
+
+
+@dataclass(frozen=True)
+class ReviewActionInput:
+    """Supply accepted operation facts for one atomic action append.
+
+    Review validates history, authorship and transitions before constructing an
+    input. The store assigns global activity order in its write transaction.
+    """
+
+    operation_id: str
+    """Fresh unique operation identity; duplicates conflict rather than replay."""
+
+    thread_id: str
+    """Logical discussion addressed by this operation."""
+
+    snapshot_id: str
+    """Exact placement Snapshot against which the action was accepted."""
+
+    sequence: int
+    """Contiguous zero-based action order within this Thread."""
+
+    profile_id: int
+    """Required positive Profile identity attributed as the author."""
+
+    payload: ReviewActionPayload
+    """Validated variant containing exactly the operation's Comment fields."""
+
+    created_at: str
+    """Accepted authored timestamp, retained unchanged on later reads."""
+
+    status_after: Literal["open", "resolved", "deleted"]
+    """Authoritative lifecycle outcome after this action."""
+
+    attention_after: Literal["author", "reviewer", "both", "none"]
+    """Authoritative role attention outcome after this action."""
+
+    def __post_init__(self) -> None:
+        """Reject an input with no relational author or invalid outcome.
+
+        # Failures
+
+        - Invalid Profile, payload, lifecycle or attention raises `AssertionError`.
+        """
+        assert all(
+            isinstance(value, str)
+            for value in (self.operation_id, self.thread_id, self.snapshot_id)
+        ), "action requires operation, Thread and Snapshot identities"
+        assert isinstance(self.sequence, int), "action requires sequence order"
+        assert isinstance(self.profile_id, int) and self.profile_id > 0, (
+            "review actions require a relational Profile"
+        )
+        assert isinstance(
+            self.payload,
+            (
+                CommentCreatedAction,
+                CommentEditedAction,
+                CommentDeletedAction,
+                ThreadStateAction,
+                ThreadDeletedAction,
+            ),
+        )
+        assert self.status_after in {"open", "resolved", "deleted"}
+        assert self.attention_after in {"author", "reviewer", "both", "none"}
 
 
 @dataclass(frozen=True)
 class ReviewActionRecord:
-    """Carry one authored Thread operation across the persistence boundary.
+    """Return one persisted action together with its assigned global cursor.
 
-    Thread methods construct this record before append; `RoomStore` assigns its
-    activity id on insertion, and later reads return records for discussion
-    materialization.
-
-    `status_after` and `attention_after` are authoritative after this operation.
-    The record does not represent mutable current Thread state by itself.
+    `RoomStore` returns records in per-Thread sequence or global activity order,
+    as specified by each read. Review folds `action`; continuation uses the
+    required cursor. This record is not an insertion input.
     """
 
-    operation_id: str
-    """Globally unique internal id of this accepted operation.
+    action: ReviewActionInput
+    """Complete accepted operation facts, including its tagged payload."""
 
-    Callers create it once for a new action and must not reuse it for retry or
-    replay; persistence treats any duplicate as a conflict.
-    """
-
-    thread_id: str
-    """Logical Thread changed by this operation.
-
-    It binds every variant to one durable discussion across placements.
-    """
-
-    snapshot_id: str
-    """Thread placement against which the operation was accepted.
-
-    It records the author's exact Snapshot boundary for conflict validation.
-    """
-
-    sequence: int
-    """Zero-based append order within `thread_id`.
-
-    The value is contiguous and acts as the discussion revision exposed to clients.
-    """
-
-    kind: Literal[
-        "thread-created",
-        "comment-created",
-        "comment-edited",
-        "comment-deleted",
-        "thread-resolved",
-        "thread-reopened",
-        "thread-deleted",
-    ]
-    """Operation variant governing the nullable Comment fields.
-
-    Creation and replies carry a new Comment and body. Edits and Comment
-    deletion also carry an expected revision. Resolve and reopen may carry a
-    newly authored Comment; Thread deletion carries no Comment fields.
-    """
-
-    profile_id: int
-    """Durable Profile attributed as the operation's author.
-
-    Current Profile display data is joined separately and may change later.
-    """
-
-    comment_id: Optional[str]
-    """Created or changed Comment id when `kind` addresses one.
-
-    Lifecycle-only variants leave it null and therefore create no hidden Comment.
-    """
-
-    expected_revision: Optional[int]
-    """Comment revision required by edit and deletion operations.
-
-    It prevents a stale actor from changing a newer Comment revision.
-    """
-
-    body: Optional[str]
-    """Non-empty authored Comment body when `kind` carries one.
-
-    Its presence is governed by the operation variant, not inferred from Comment identity.
-    """
-
-    created_at: str
-    """Authored-action timestamp in the public serialized form.
-
-    Reads preserve the accepted value as event history rather than producing a fresh time.
-    """
-
-    status_after: Literal["open", "resolved", "deleted"]
-    """Authoritative Thread lifecycle state after this operation.
-
-    Boundary reads take this value from the latest included action.
-    """
-
-    attention_after: Literal["author", "reviewer", "both", "none"]
-    """Authoritative attention state after this operation.
-
-    It expresses who needs action after the event, independently of lifecycle state.
-    """
-
-    activity_id: Optional[int] = None
-    """Global Room order after persistence; `None` only before insertion.
-
-    Input records omit it. Records reconstructed by later reads carry the assigned
-    cursor used by activity feeds.
-    """
+    activity_id: int
+    """Required positive database-assigned global action order."""
 
     def __post_init__(self) -> None:
-        """Reject any action whose fields disagree with the operation it names.
-
-        Each `kind` implies exactly which of `comment_id`, `expected_revision`,
-        and `body` are present: an authoring operation carries a Comment and a
-        non-empty body, an edit or a delete carries the revision it expected,
-        and a lifecycle operation carries a Comment and a body together or
-        neither. `thread_id` and `sequence` are required by their own types.
-
-        Both directions of persistence build this record, so one check guards
-        the insert and the select, and no stored action can name an operation
-        its fields do not describe. It raises rather than asserting for the
-        same reason the placement record does: `-O` strips `assert`, and this
-        is the only guard the invariant has.
+        """Reject a persisted output without its assigned activity order.
 
         # Failures
 
-        - Raises `AssertionError` when `profile_id` is not positive.
-        - Raises `AssertionError` when Comment identity, expected revision, or
-          body presence disagrees with `kind`. Creation requires a nonempty
-          Comment body, edit and Comment deletion require a revision, lifecycle
-          Comments require both id and body, and terminal deletion carries none.
+        - A missing or nonpositive cursor raises `AssertionError`.
         """
-        assert self.profile_id > 0, (
-            "review actions require a relational Profile"
+        assert isinstance(self.action, ReviewActionInput), (
+            "persisted action requires accepted operation facts"
         )
-        where = f"action {self.operation_id} on thread {self.thread_id}"
-        has_body = self.body is not None and len(self.body) > 0
-        match self.kind:
-            case "thread-created" | "comment-created":
-                valid = (
-                    self.comment_id is not None
-                    and self.expected_revision is None
-                    and has_body
-                )
-            case "comment-edited":
-                valid = (
-                    self.comment_id is not None
-                    and self.expected_revision is not None
-                    and has_body
-                )
-            case "comment-deleted":
-                valid = (
-                    self.comment_id is not None
-                    and self.expected_revision is not None
-                    and self.body is None
-                )
-            case "thread-resolved" | "thread-reopened":
-                # A lifecycle operation may carry a Comment written in the same
-                # action. Then it carries that Comment's body too; alone, it
-                # carries neither.
-                valid = self.expected_revision is None and (
-                    (self.comment_id is None and self.body is None)
-                    or (self.comment_id is not None and has_body)
-                )
-            case "thread-deleted":
-                valid = (
-                    self.comment_id is None
-                    and self.expected_revision is None
-                    and self.body is None
-                )
-        if not valid:
-            raise AssertionError(
-                f"{self.kind} does not carry these fields: {where}"
-            )
+        assert isinstance(self.activity_id, int) and self.activity_id > 0
 
 
 @dataclass(frozen=True)
@@ -1700,8 +2063,8 @@ class _ReviewThreadInsertValues(TypedDict):
 class _ReviewActionInsertValues(TypedDict):
     """Name the exact columns used to insert one authored review action.
 
-    `RoomStore._review_action_values` converts a validated `ReviewActionRecord`
-    to this private shape, adding `activity_id` when persistence assigns it.
+    `RoomStore._review_action_values` converts a validated `ReviewActionInput`
+    to this SQL shape. The transaction assigns `activity_id`.
 
     It is not a public command or read model and must not escape `RoomStore`.
     """
@@ -1802,6 +2165,14 @@ class RoomStore:
     `RoomIdentity` for Room-scoped reads, publish complete Snapshot records, and
     append review actions through the named operations.
 
+    Review writes supply `ReviewThreadRecord` with a `Placement` variant and
+    `ReviewActionInput` with a `ReviewActionPayload`. Reads return those same
+    placement variants and `ReviewActionRecord` values: inspect `action.payload`
+    for operation facts and `activity_id` for global continuation order. Input
+    values have no activity field; the store assigns it transactionally.
+    Snapshot reads return optional regular/link side variants whose link
+    descriptors are nested in present sides.
+
     # Boundaries
     Each operation opens a short-lived SQLAlchemy session. The store writes
     complete relational state transactionally but never touches captured files,
@@ -1823,47 +2194,99 @@ class RoomStore:
     ) -> _ReviewThreadInsertValues:
         """Translate one immutable Thread placement into insert values.
 
-        The mapping preserves nullable target-shape invariants and excludes no
-        public field that participates in later placement materialization.
+        The mapper selects SQL fields from the validated placement variant and
+        keeps query-local origin labels out of persisted columns.
         """
-        return {
-            "thread_id": record.thread_id,
-            "snapshot_id": record.snapshot_id,
-            "snapshot_file_id": record.snapshot_file_id,
-            "target_kind": record.target_kind,
-            "bay_key": record.bay_key,
-            "side": record.side,
-            "start_line": record.start_line,
-            "end_line": record.end_line,
-            "outdated_reason": record.outdated_reason,
+        placement = record.placement
+        values: _ReviewThreadInsertValues = {
+            "thread_id": placement.thread_id,
+            "snapshot_id": placement.snapshot_id,
+            "snapshot_file_id": None,
+            "target_kind": None,
+            "bay_key": None,
+            "side": None,
+            "start_line": None,
+            "end_line": None,
+            "outdated_reason": None,
             "private_locator": record.private_locator,
         }
+        match placement:
+            case RangePlacement():
+                values.update(
+                    {
+                        "snapshot_file_id": placement.snapshot_file_id,
+                        "target_kind": "range",
+                        "bay_key": placement.bay_key,
+                        "side": placement.side,
+                        "start_line": placement.start_line,
+                        "end_line": placement.end_line,
+                        "outdated_reason": placement.outdated_reason,
+                    }
+                )
+            case BayStartPlacement():
+                values.update(
+                    {
+                        "snapshot_file_id": placement.snapshot_file_id,
+                        "target_kind": "bay-start",
+                        "bay_key": placement.bay_key,
+                        "side": placement.side,
+                        "outdated_reason": placement.outdated_reason,
+                    }
+                )
+            case FileStartPlacement():
+                values.update(
+                    {
+                        "snapshot_file_id": placement.snapshot_file_id,
+                        "target_kind": "file-start",
+                        "side": placement.side,
+                        "outdated_reason": placement.outdated_reason,
+                    }
+                )
+            case FileMissingPlacement():
+                values["outdated_reason"] = "file_missing"
+            case FileUnreadablePlacement():
+                values["outdated_reason"] = "file_unreadable"
+        return values
 
     @staticmethod
     def _review_action_values(
-        record: ReviewActionRecord,
+        record: ReviewActionInput,
     ) -> _ReviewActionInsertValues:
         """Translate one immutable authored action into insert values.
 
         The caller supplies an already validated record; this conversion retains
         its discriminator-controlled nulls for the atomic insert.
         """
+        payload = record.payload
         values: _ReviewActionInsertValues = {
             "operation_id": record.operation_id,
             "thread_id": record.thread_id,
             "snapshot_id": record.snapshot_id,
             "sequence": record.sequence,
-            "kind": record.kind,
+            "kind": payload.kind,
             "profile_id": record.profile_id,
-            "comment_id": record.comment_id,
-            "expected_revision": record.expected_revision,
-            "body": record.body,
+            "comment_id": None,
+            "expected_revision": None,
+            "body": None,
             "created_at": record.created_at,
             "status_after": record.status_after,
             "attention_after": record.attention_after,
         }
-        if record.activity_id is not None:
-            values["activity_id"] = record.activity_id
+        match payload:
+            case CommentCreatedAction() | CommentEditedAction():
+                values["comment_id"] = payload.comment.id
+                values["body"] = payload.comment.body
+                if isinstance(payload, CommentEditedAction):
+                    values["expected_revision"] = payload.expected_revision
+            case CommentDeletedAction():
+                values["comment_id"] = payload.comment_id
+                values["expected_revision"] = payload.expected_revision
+            case ThreadStateAction():
+                if payload.comment is not None:
+                    values["comment_id"] = payload.comment.id
+                    values["body"] = payload.comment.body
+            case ThreadDeletedAction():
+                pass
         return values
 
     @staticmethod
@@ -1894,9 +2317,8 @@ class RoomStore:
 
         - Raises `AssertionError` when persisted target kind, side, or outdated
           reason is outside the review model's declared values.
-        - `ReviewThreadRecord` raises `AssertionError` when those discriminators
-          are individually known but their nullable fields do not form one valid
-          placement shape.
+        - Nullable SQL fields that disagree with the selected placement shape,
+          or invalid private coordinates, raise `AssertionError`.
         """
         target_kind_value = placement.target_kind
         match target_kind_value:
@@ -1929,18 +2351,69 @@ class RoomStore:
                 raise AssertionError(
                     f"invalid persisted outdated reason: {reason_value!r}"
                 )
+        file_id = placement.snapshot_file_id
+        bay_key = placement.bay_key
+        start, end = placement.start_line, placement.end_line
+        location: Placement
+        if target_kind == "range":
+            assert (
+                file_id is not None and bay_key is not None and side is not None
+            )
+            assert start is not None and end is not None
+            assert (
+                outdated_reason is None or outdated_reason == "region_changed"
+            )
+            location = RangePlacement(
+                placement.thread_id,
+                placement.snapshot_id,
+                file_id,
+                bay_key,
+                side,
+                start,
+                end,
+                outdated_reason,
+            )
+        elif target_kind == "bay-start":
+            assert (
+                file_id is not None and bay_key is not None and side is not None
+            )
+            assert start is None and end is None
+            assert (
+                outdated_reason == "region_not_found"
+                or outdated_reason == "bay_not_found"
+            )
+            location = BayStartPlacement(
+                placement.thread_id,
+                placement.snapshot_id,
+                file_id,
+                bay_key,
+                side,
+                outdated_reason,
+            )
+        elif target_kind == "file-start":
+            assert file_id is not None and side is not None and bay_key is None
+            assert start is None and end is None
+            assert outdated_reason is None or outdated_reason == "bay_not_found"
+            location = FileStartPlacement(
+                placement.thread_id,
+                placement.snapshot_id,
+                file_id,
+                side,
+                outdated_reason,
+            )
+        else:
+            assert file_id is None and bay_key is None and side is None
+            assert start is None and end is None
+            assert outdated_reason in {"file_missing", "file_unreadable"}
+            location = (
+                FileMissingPlacement(placement.thread_id, placement.snapshot_id)
+                if outdated_reason == "file_missing"
+                else FileUnreadablePlacement(
+                    placement.thread_id, placement.snapshot_id
+                )
+            )
         return ReviewThreadRecord(
-            thread_id=placement.thread_id,
-            snapshot_id=placement.snapshot_id,
-            snapshot_file_id=placement.snapshot_file_id,
-            is_origin=is_origin,
-            target_kind=target_kind,
-            bay_key=placement.bay_key,
-            side=side,
-            start_line=placement.start_line,
-            end_line=placement.end_line,
-            outdated_reason=outdated_reason,
-            private_locator=placement.private_locator,
+            location, is_origin, placement.private_locator
         )
 
     @staticmethod
@@ -1954,9 +2427,8 @@ class RoomStore:
 
         - Raises `AssertionError` when persisted action kind, lifecycle outcome,
           or attention outcome is outside the declared review values.
-        - `ReviewActionRecord` raises `AssertionError` when known discriminator
-          values disagree with Profile id, Comment identity, expected revision,
-          or body presence.
+        - Invalid Comment field presence, Profile identity, or missing assigned
+          activity order raises `AssertionError`.
         """
         kind_value = action.kind
         match kind_value:
@@ -1990,19 +2462,58 @@ class RoomStore:
                 raise AssertionError(
                     f"invalid persisted thread attention: {attention_value!r}"
                 )
+        comment_id, body, revision = (
+            action.comment_id,
+            action.body,
+            action.expected_revision,
+        )
+        payload: ReviewActionPayload
+        if kind == "thread-created" or kind == "comment-created":
+            assert (
+                comment_id is not None and body is not None and revision is None
+            )
+            payload = CommentCreatedAction(
+                kind, AuthoredComment(comment_id, body)
+            )
+        elif kind == "comment-edited":
+            assert (
+                comment_id is not None
+                and body is not None
+                and revision is not None
+            )
+            payload = CommentEditedAction(
+                AuthoredComment(comment_id, body), revision
+            )
+        elif kind == "comment-deleted":
+            assert (
+                comment_id is not None and body is None and revision is not None
+            )
+            payload = CommentDeletedAction(comment_id, revision)
+        elif kind == "thread-resolved" or kind == "thread-reopened":
+            assert revision is None
+            assert (comment_id is None) == (body is None)
+            comment = (
+                AuthoredComment(comment_id, body)
+                if comment_id is not None and body is not None
+                else None
+            )
+            payload = ThreadStateAction(kind, comment)
+        else:
+            assert kind == "thread-deleted"
+            assert comment_id is None and body is None and revision is None
+            payload = ThreadDeletedAction()
         return ReviewActionRecord(
-            operation_id=action.operation_id,
-            thread_id=action.thread_id,
-            snapshot_id=action.snapshot_id,
-            sequence=action.sequence,
-            kind=kind,
-            profile_id=action.profile_id,
-            comment_id=action.comment_id,
-            expected_revision=action.expected_revision,
-            body=action.body,
-            created_at=action.created_at,
-            status_after=status_after,
-            attention_after=attention_after,
+            ReviewActionInput(
+                operation_id=action.operation_id,
+                thread_id=action.thread_id,
+                snapshot_id=action.snapshot_id,
+                sequence=action.sequence,
+                profile_id=action.profile_id,
+                payload=payload,
+                created_at=action.created_at,
+                status_after=status_after,
+                attention_after=attention_after,
+            ),
             activity_id=action.activity_id,
         )
 
@@ -2045,11 +2556,21 @@ class RoomStore:
             assert key not in result, (
                 f"duplicate persisted Snapshot link side: {key!r}"
             )
+            assert (row.target_capture_path is None) == (
+                row.target_hash is None
+            ), "Snapshot link target path and hash must have equal presence"
+            target = None
+            if (
+                row.target_capture_path is not None
+                and row.target_hash is not None
+            ):
+                target = SnapshotLinkTargetRecord(
+                    row.target_capture_path, row.target_hash
+                )
             result[key] = SnapshotFileSymlinkRecord(
                 metadata_path=row.metadata_path,
                 metadata_hash=row.metadata_hash,
-                target_capture_path=row.target_capture_path,
-                target_hash=row.target_hash,
+                target=target,
             )
         return result
 
@@ -2088,12 +2609,24 @@ class RoomStore:
             "persisted right File path and hash must have equal presence"
         )
         left = (
-            SnapshotFileSideRecord(left_path, left_hash)
+            (
+                SnapshotRegularFileSideRecord(left_path, left_hash)
+                if left_symlink is None
+                else SnapshotSymlinkFileSideRecord(
+                    left_path, left_hash, left_symlink
+                )
+            )
             if left_path is not None and left_hash is not None
             else None
         )
         right = (
-            SnapshotFileSideRecord(right_path, right_hash)
+            (
+                SnapshotRegularFileSideRecord(right_path, right_hash)
+                if right_symlink is None
+                else SnapshotSymlinkFileSideRecord(
+                    right_path, right_hash, right_symlink
+                )
+            )
             if right_path is not None and right_hash is not None
             else None
         )
@@ -2113,11 +2646,11 @@ class RoomStore:
             assert Path(link.metadata_path).parent == directory, (
                 "Snapshot link metadata must share its File capture directory"
             )
-            if link.target_capture_path is not None:
-                assert Path(link.target_capture_path).parent == directory, (
+            if link.target is not None:
+                assert Path(link.target.path).parent == directory, (
                     "Snapshot link target must share its File capture directory"
                 )
-                assert link.target_capture_path != link.metadata_path, (
+                assert link.target.path != link.metadata_path, (
                     "Snapshot link metadata and target paths must differ"
                 )
         return SnapshotFileRecord(
@@ -2129,8 +2662,6 @@ class RoomStore:
             error=file.error,
             left=left,
             right=right,
-            left_symlink=left_symlink,
-            right_symlink=right_symlink,
         )
 
     def review_profile(self, profile_id: int) -> Optional[UserProfileRecord]:
@@ -2407,12 +2938,6 @@ class RoomStore:
             assert file.tracked or file.left is None, (
                 "an intruding File cannot have a left side"
             )
-            assert file.left_symlink is None or file.left is not None, (
-                "a left symlink requires a captured left side"
-            )
-            assert file.right_symlink is None or file.right is not None, (
-                "a right symlink requires a captured right side"
-            )
             file_repository_paths = (
                 file.left.repository_path if file.left is not None else None,
                 file.right.repository_path if file.right is not None else None,
@@ -2422,24 +2947,11 @@ class RoomStore:
                 f"{file_repository_paths!r}"
             )
             repository_paths.add(file_repository_paths)
-            for side in (file.left, file.right):
-                if side is not None:
-                    repository_path = PurePosixPath(side.repository_path)
-                    assert (
-                        side.repository_path not in {"", ".", ".."}
-                        and not repository_path.is_absolute()
-                        and ".." not in repository_path.parts
-                    ), (
-                        "Snapshot File path must be repository-relative: "
-                        f"{side.repository_path!r}"
-                    )
-                    assert len(side.content_hash) == 32, (
-                        "Snapshot File content hash must have length 32"
-                    )
             file_directory = Path(file.path)
-            for link in (file.left_symlink, file.right_symlink):
-                if link is None:
+            for side in (file.left, file.right):
+                if not isinstance(side, SnapshotSymlinkFileSideRecord):
                     continue
+                link = side.link
                 metadata_path = Path(link.metadata_path)
                 assert metadata_path.parent == file_directory, (
                     "Snapshot link metadata must share its File capture directory"
@@ -2448,15 +2960,15 @@ class RoomStore:
                     "duplicate Snapshot link metadata path"
                 )
                 symlink_storage_paths.add(link.metadata_path)
-                if link.target_capture_path is not None:
-                    target_capture_path = Path(link.target_capture_path)
+                if link.target is not None:
+                    target_capture_path = Path(link.target.path)
                     assert target_capture_path.parent == file_directory, (
                         "Snapshot link target must share its File capture directory"
                     )
-                    assert (
-                        link.target_capture_path not in symlink_storage_paths
-                    ), "duplicate Snapshot link target path"
-                    symlink_storage_paths.add(link.target_capture_path)
+                    assert link.target.path not in symlink_storage_paths, (
+                        "duplicate Snapshot link target path"
+                    )
+                    symlink_storage_paths.add(link.target.path)
         assert lazy_reasons.keys() <= file_ids, (
             "lazy reasons must identify Files in the published Snapshot"
         )
@@ -2475,16 +2987,19 @@ class RoomStore:
                 "only preset lazy reasons carry complete metadata content"
             )
         for thread in review_threads:
-            assert thread.snapshot_id == snapshot.id, (
+            assert thread.placement.snapshot_id == snapshot.id, (
                 "published review Thread must address the new Snapshot"
             )
             assert not thread.is_origin, (
                 "a new Snapshot cannot contain an existing Thread origin"
             )
-            assert (
-                thread.snapshot_file_id is None
-                or thread.snapshot_file_id in file_ids
-            ), "published review Thread references a File outside its Snapshot"
+            if isinstance(
+                thread.placement,
+                (RangePlacement, BayStartPlacement, FileStartPlacement),
+            ):
+                assert thread.placement.snapshot_file_id in file_ids, (
+                    "published review Thread references a File outside its Snapshot"
+                )
 
         mark_clause = (
             Room.mark_id.is_(None)
@@ -2568,15 +3083,17 @@ class RoomStore:
                     "side": side,
                     "metadata_path": link.metadata_path,
                     "metadata_hash": link.metadata_hash,
-                    "target_capture_path": link.target_capture_path,
-                    "target_hash": link.target_hash,
+                    "target_capture_path": link.target.path
+                    if link.target is not None
+                    else None,
+                    "target_hash": link.target.content_hash
+                    if link.target is not None
+                    else None,
                 }
                 for file in snapshot.files
-                for side, link in (
-                    ("left", file.left_symlink),
-                    ("right", file.right_symlink),
-                )
-                if link is not None
+                for side, record in (("left", file.left), ("right", file.right))
+                if isinstance(record, SnapshotSymlinkFileSideRecord)
+                for link in (record.link,)
             ]
             if symlink_rows != []:
                 session.execute(insert(SnapshotFileSymlink), symlink_rows)
@@ -3733,7 +4250,8 @@ class RoomStore:
 
         # Returns
 
-        - First, the Thread's complete action tuple in sequence order.
+        - First, the Thread's complete `ReviewActionRecord` tuple in
+          `action.sequence` order. Read each record's `action` for folding.
         - Second, current Profile records for every author referenced by those
           actions. Profile tuple order is not action order.
         - `None`: The Thread has no placement in `snapshot_id`. The caller must
@@ -3831,8 +4349,9 @@ class RoomStore:
 
         # Returns
 
-        - First, a mapping from every placed requested Thread id to its complete
-          action tuple in sequence order. Unplaced ids are absent.
+        - First, every placed Thread id maps to its complete
+          `ReviewActionRecord` tuple in `action.sequence` order. Unplaced ids
+          are absent; the record contract defines action and cursor fields.
         - Second, current Profile records for every author referenced by those
           actions. Profile tuple order is not an input-order guarantee.
         """
@@ -3963,7 +4482,9 @@ class RoomStore:
         """
         if rows == ():
             return
-        pairs = [(row.thread_id, row.snapshot_id) for row in rows]
+        pairs = [
+            (row.placement.thread_id, row.placement.snapshot_id) for row in rows
+        ]
         assert len(pairs) == len(set(pairs)), (
             "duplicate review Thread pair supplied for insertion"
         )
@@ -3995,7 +4516,9 @@ class RoomStore:
             }
             additions = []
             for record in rows:
-                previous = persisted.get((record.thread_id, record.snapshot_id))
+                previous = persisted.get(
+                    (record.placement.thread_id, record.placement.snapshot_id)
+                )
                 if previous is None:
                     additions.append(self._review_thread_values(record))
                 else:
@@ -4008,7 +4531,7 @@ class RoomStore:
     def create_review_thread(
         self,
         rows: tuple[ReviewThreadRecord, ...],
-        first_action: ReviewActionRecord,
+        first_action: ReviewActionInput,
     ) -> None:
         """Atomically create one discussion in its origin Snapshot.
 
@@ -4033,18 +4556,19 @@ class RoomStore:
         assert sum(1 for row in rows if row.is_origin) == 1, (
             "Thread creation requires exactly one origin row"
         )
-        assert {row.thread_id for row in rows} == {first_action.thread_id}, (
-            "Thread creation rows and first action must share one Thread id"
-        )
-        assert first_action.kind == "thread-created"
+        assert {row.placement.thread_id for row in rows} == {
+            first_action.thread_id
+        }, "Thread creation rows and first action must share one Thread id"
+        assert first_action.payload.kind == "thread-created"
         assert first_action.sequence == 0
-        assert first_action.activity_id is None
         with Session(self.engine) as session, session.begin():
             session.execute(
                 insert(ReviewThread).values(
                     thread_id=first_action.thread_id,
                     origin_snapshot_id=next(
-                        row.snapshot_id for row in rows if row.is_origin
+                        row.placement.snapshot_id
+                        for row in rows
+                        if row.is_origin
                     ),
                 )
             )
@@ -4062,7 +4586,7 @@ class RoomStore:
     def apply_review_batch(
         self,
         thread_rows: tuple[ReviewThreadRecord, ...],
-        actions: tuple[ReviewActionRecord, ...],
+        actions: tuple[ReviewActionInput, ...],
     ) -> None:
         """Insert prevalidated Thread placements and actions atomically.
 
@@ -4084,12 +4608,14 @@ class RoomStore:
 
         # Failures
 
-        - Asserts for an empty action batch, duplicate placement keys, or actions
-          that already carry a persistence-assigned activity id.
+        - Asserts for an empty action batch or duplicate placement keys.
         - Any constraint failure rolls back the entire batch.
         """
         assert actions != (), "review batch must contain at least one action"
-        pairs = [(row.thread_id, row.snapshot_id) for row in thread_rows]
+        pairs = [
+            (row.placement.thread_id, row.placement.snapshot_id)
+            for row in thread_rows
+        ]
         assert len(pairs) == len(set(pairs)), (
             "review batch contains duplicate Thread placements"
         )
@@ -4101,8 +4627,8 @@ class RoomStore:
                         insert(ReviewThread),
                         [
                             {
-                                "thread_id": row.thread_id,
-                                "origin_snapshot_id": row.snapshot_id,
+                                "thread_id": row.placement.thread_id,
+                                "origin_snapshot_id": row.placement.snapshot_id,
                             }
                             for row in origins
                         ],
@@ -4112,10 +4638,6 @@ class RoomStore:
                     [self._review_thread_values(row) for row in thread_rows],
                 )
             next_activity_id = self._next_review_activity_id(session)
-            for action in actions:
-                assert action.activity_id is None, (
-                    "new review action must not supply activity order"
-                )
             # One executemany insert preserves the authored order through the
             # explicit consecutive activity ids.
             session.execute(
@@ -4250,7 +4772,8 @@ class RoomStore:
 
         # Returns
 
-        - First, at most `limit` later actions ordered by activity id.
+        - First, at most `limit` later `ReviewActionRecord` values ordered by
+          their required `activity_id`.
         - Second, whether another later action exists beyond this page.
         - Third, the count of open logical Threads at the page's inclusive end
           boundary, not necessarily at the newest database action.
@@ -4441,7 +4964,7 @@ class RoomStore:
                 )
             ).scalar_one_or_none()
 
-    def append_review_action(self, record: ReviewActionRecord) -> None:
+    def append_review_action(self, record: ReviewActionInput) -> None:
         """Append one already-validated action to its Snapshot-bound Thread.
 
         The method opens and commits its own short-lived transaction. The database
@@ -4451,8 +4974,8 @@ class RoomStore:
 
         # Parameters
 
-        - `record`: Fresh action with no assigned `activity_id`; persistence assigns
-          the next database-wide cursor to the inserted row.
+        - `record`: Accepted `ReviewActionInput`; persistence assigns the next
+          database-wide cursor to the inserted row.
 
         # Usage
 
@@ -4462,11 +4985,9 @@ class RoomStore:
 
         # Failures
 
-        - Asserts when the caller supplies an assigned `activity_id`.
         - Database constraints reject a missing placement, duplicate sequence or
           operation id, invalid author, or inconsistent operation fields.
         """
-        assert record.activity_id is None
         with Session(self.engine) as session, session.begin():
             session.execute(
                 insert(ReviewAction).values(

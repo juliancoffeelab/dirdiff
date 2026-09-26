@@ -284,6 +284,15 @@ the target path and hash are present together only after a successful walk.
 Chain hops, the terminal diagnosis, and the final repository target path remain
 in the authenticated metadata rather than being duplicated relationally.
 
+Store File records expose each present side as a regular-side or link-side
+variant. The link variant requires its descriptor and the descriptor has one
+optional authenticated target record, containing both path and hash. A File's
+left/right `None` still means real side absence.
+
+*Implementation detail:* the existing side and symlink SQL relations are joined
+at the store boundary. Nullable target columns are checked for equal presence
+before becoming an optional target record.
+
 The lazy-reason content relation retains the exact preset metadata input that
 participated in identity without adding that content to source path or Room
 File metadata. No relation stores manifest ordering, directory trees, display

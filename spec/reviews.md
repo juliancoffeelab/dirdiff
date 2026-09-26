@@ -267,15 +267,24 @@ lifecycle and attention are read directly from the latest persisted outcome.
 continuation reads. There is no separate event, submission, delta, checkpoint,
 or agent-authorship action variant.
 
-Variant shape — which location fields a `target_kind` implies, when a private
-locator may be retained, which fields an action `kind` carries — is checked in
-Python, in the record dataclass both persistence directions construct, so one
-check guards the insert and the select. The database states no enumerated
-vocabulary: every such column arrives as a `Literal`, and a persisted value
-that is not one is rejected where it is read rather than restated as a list of
-strings in SQL. What the schema still enforces is what a Python type cannot
-say: identifier shapes, non-empty text, ordinal ranges, presence pairings,
-foreign keys, and uniqueness.
+The store exposes `ReviewThreadRecord.placement` as one validated range,
+bay-start, File-start, missing, or unreadable variant. Private locator bytes
+and the origin label remain separate record metadata. Review uses that same
+variant for derivation and interpretation, with no flat-record conversion.
+
+Action writes supply `ReviewActionInput` with a tagged payload. Creation and
+editing require Comment identity and text; editing and Comment deletion also
+require the prior revision. Resolve/reopen may carry one whole Comment or none;
+Thread deletion carries no Comment fields. Reads return `ReviewActionRecord`
+with the accepted action and a required positive `activity_id`. Per-Thread
+sequence, author authorization, transition legality and revision checks remain
+cross-row review invariants.
+
+*Implementation detail:* nullable SQL columns encode these variants. Store
+mappers validate their presence and discriminators before constructing typed
+values, and flatten typed inputs only at insertion. Enum vocabularies are
+validated in Python. SQL retains identifier shapes, non-empty text, ordinal
+ranges, presence pairings, foreign keys, and uniqueness constraints.
 
 There is at most one origin per `thread_id`; Thread creation establishes that
 one exists with its first action in the same transaction. Action sequence is

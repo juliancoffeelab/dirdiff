@@ -57,8 +57,11 @@ from dirdiff.db import (
     SnapshotFileRecord,
     SnapshotFileSideRecord,
     SnapshotFileSymlinkRecord,
+    SnapshotLinkTargetRecord,
     SnapshotMetaRecord,
     SnapshotRecord,
+    SnapshotRegularFileSideRecord,
+    SnapshotSymlinkFileSideRecord,
     UserProfileRecord,
 )
 from dirdiff.engines import DirdiffError
@@ -718,14 +721,8 @@ class Room:
             f"persisted Snapshot File path is not absolute: {file.path!r}"
         )
         result: list[Optional[CapturedFileSide]] = []
-        for name, side, symlink in (
-            ("left", file.left, file.left_symlink),
-            ("right", file.right, file.right_symlink),
-        ):
+        for name, side in (("left", file.left), ("right", file.right)):
             if side is None:
-                assert symlink is None, (
-                    f"persisted {name} link has no captured File side"
-                )
                 result.append(None)
                 continue
             path = directory / name
@@ -733,9 +730,10 @@ class Room:
             assert hashlib.sha256(content).digest() == side.content_hash, (
                 f"Snapshot File content hash mismatch: {path}"
             )
-            if symlink is None:
+            if isinstance(side, SnapshotRegularFileSideRecord):
                 result.append(CapturedRegularFileSide(path=path))
             else:
+                symlink = side.link
                 result.append(
                     CapturedSymlinkFileSide(
                         path=path,
@@ -743,11 +741,13 @@ class Room:
                             metadata_path=Path(symlink.metadata_path),
                             metadata_hash=symlink.metadata_hash,
                             target_capture_path=(
-                                Path(symlink.target_capture_path)
-                                if symlink.target_capture_path is not None
+                                Path(symlink.target.path)
+                                if symlink.target is not None
                                 else None
                             ),
-                            target_hash=symlink.target_hash,
+                            target_hash=symlink.target.content_hash
+                            if symlink.target is not None
+                            else None,
                         ),
                     )
                 )
@@ -1869,30 +1869,27 @@ class _SnapshotStore:
             )
             for file in visible_snapshot.files:
                 directory = Path(file.path)
-                for name, side, symlink in (
-                    ("left", file.left, file.left_symlink),
-                    ("right", file.right, file.right_symlink),
-                ):
+                for name, side in (("left", file.left), ("right", file.right)):
                     if side is None:
-                        assert symlink is None, (
-                            f"persisted {name} link has no captured File side"
-                        )
                         continue
                     captured_path = directory / name
                     content = captured_path.read_bytes()
                     assert (
                         hashlib.sha256(content).digest() == side.content_hash
                     ), f"Snapshot File content hash mismatch: {captured_path}"
-                    if symlink is not None:
+                    if isinstance(side, SnapshotSymlinkFileSideRecord):
+                        symlink = side.link
                         read_captured_link(
                             metadata_path=Path(symlink.metadata_path),
                             metadata_hash=symlink.metadata_hash,
                             target_capture_path=(
-                                Path(symlink.target_capture_path)
-                                if symlink.target_capture_path is not None
+                                Path(symlink.target.path)
+                                if symlink.target is not None
                                 else None
                             ),
-                            target_hash=symlink.target_hash,
+                            target_hash=symlink.target.content_hash
+                            if symlink.target is not None
+                            else None,
                         )
             return UUID(hex=snapshot_id)
 
@@ -1995,7 +1992,6 @@ class _SnapshotStore:
                 file_path = staging_path / file_id
                 file_path.mkdir()
                 left_record: Optional[SnapshotFileSideRecord] = None
-                left_symlink_record: Optional[SnapshotFileSymlinkRecord] = None
                 if left_path is not None and left_content is not None:
                     left_capture_path = file_path / "left"
                     left_capture_path.write_bytes(left_content)
@@ -2011,24 +2007,38 @@ class _SnapshotStore:
                             metadata_path=left_metadata_path,
                             target_capture_path=left_target_path,
                         )
-                        left_symlink_record = SnapshotFileSymlinkRecord(
-                            metadata_path=str(
-                                final_path / file_id / "left-link.json"
-                            ),
-                            metadata_hash=metadata_hash,
-                            target_capture_path=(
-                                str(final_path / file_id / "left-target")
-                                if left_target_path is not None
-                                else None
-                            ),
-                            target_hash=target_hash,
+                        assert (left_target_path is None) == (
+                            target_hash is None
+                        ), (
+                            "captured link target path and hash must have equal presence"
                         )
-                    left_record = SnapshotFileSideRecord(
-                        repository_path=left_path,
-                        content_hash=hashlib.sha256(left_content).digest(),
-                    )
+                        left_record = SnapshotSymlinkFileSideRecord(
+                            repository_path=left_path,
+                            content_hash=hashlib.sha256(left_content).digest(),
+                            link=SnapshotFileSymlinkRecord(
+                                metadata_path=str(
+                                    final_path / file_id / "left-link.json"
+                                ),
+                                metadata_hash=metadata_hash,
+                                target=(
+                                    SnapshotLinkTargetRecord(
+                                        str(
+                                            final_path / file_id / "left-target"
+                                        ),
+                                        target_hash,
+                                    )
+                                    if left_target_path is not None
+                                    and target_hash is not None
+                                    else None
+                                ),
+                            ),
+                        )
+                    else:
+                        left_record = SnapshotRegularFileSideRecord(
+                            repository_path=left_path,
+                            content_hash=hashlib.sha256(left_content).digest(),
+                        )
                 right_record: Optional[SnapshotFileSideRecord] = None
-                right_symlink_record: Optional[SnapshotFileSymlinkRecord] = None
                 if right_path is not None and right_content is not None:
                     right_capture_path = file_path / "right"
                     right_capture_path.write_bytes(right_content)
@@ -2044,22 +2054,39 @@ class _SnapshotStore:
                             metadata_path=right_metadata_path,
                             target_capture_path=right_target_path,
                         )
-                        right_symlink_record = SnapshotFileSymlinkRecord(
-                            metadata_path=str(
-                                final_path / file_id / "right-link.json"
-                            ),
-                            metadata_hash=metadata_hash,
-                            target_capture_path=(
-                                str(final_path / file_id / "right-target")
-                                if right_target_path is not None
-                                else None
-                            ),
-                            target_hash=target_hash,
+                        assert (right_target_path is None) == (
+                            target_hash is None
+                        ), (
+                            "captured link target path and hash must have equal presence"
                         )
-                    right_record = SnapshotFileSideRecord(
-                        repository_path=right_path,
-                        content_hash=hashlib.sha256(right_content).digest(),
-                    )
+                        right_record = SnapshotSymlinkFileSideRecord(
+                            repository_path=right_path,
+                            content_hash=hashlib.sha256(right_content).digest(),
+                            link=SnapshotFileSymlinkRecord(
+                                metadata_path=str(
+                                    final_path / file_id / "right-link.json"
+                                ),
+                                metadata_hash=metadata_hash,
+                                target=(
+                                    SnapshotLinkTargetRecord(
+                                        str(
+                                            final_path
+                                            / file_id
+                                            / "right-target"
+                                        ),
+                                        target_hash,
+                                    )
+                                    if right_target_path is not None
+                                    and target_hash is not None
+                                    else None
+                                ),
+                            ),
+                        )
+                    else:
+                        right_record = SnapshotRegularFileSideRecord(
+                            repository_path=right_path,
+                            content_hash=hashlib.sha256(right_content).digest(),
+                        )
                 files.append(
                     SnapshotFileRecord(
                         id=file_id,
@@ -2070,8 +2097,6 @@ class _SnapshotStore:
                         error="\n".join(errors) if errors else None,
                         left=left_record,
                         right=right_record,
-                        left_symlink=left_symlink_record,
-                        right_symlink=right_symlink_record,
                     )
                 )
                 if file.lazy_reason_override is not None:

@@ -380,6 +380,10 @@ reference the same identity. Profile usernames are globally unique and select
 one existing local identity without credentials. Agent registration adds a one-to-one UUID binding
 without changing that Profile shape. `db.room` contains these relations,
 immutable records, and transactions through `RoomStore`.
+Store records expose validated placement variants, tagged action payloads,
+and nested regular/link File sides. Review action insertion inputs omit global
+activity order; persisted outputs require it. Nullable shape columns remain
+inside the SQL mapping boundary.
 
 Profile preferences store the folding policy, Git algorithm and whitespace
 policy, Difftastic comment policy, and GumTree matcher in one row per Profile. Reads create initial values only when no

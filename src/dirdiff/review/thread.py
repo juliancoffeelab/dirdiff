@@ -25,12 +25,27 @@ from typing import Literal, Optional
 from uuid import UUID
 
 from dirdiff.db import (
-    ReviewActionRecord,
+    AuthoredComment,
+    BayStartPlacement,
+    CommentCreatedAction,
+    CommentDeletedAction,
+    CommentEditedAction,
+    FileMissingPlacement,
+    FileStartPlacement,
+    FileUnreadablePlacement,
+    Placement,
+    RangePlacement,
+    ReviewActionInput,
+    ReviewActionPayload,
     ReviewThreadRecord,
     ReviewThreadsRecord,
     RoomIdentity,
     RoomStore,
     SnapshotFileRecord,
+    SnapshotFileSideRecord,
+    SnapshotSymlinkFileSideRecord,
+    ThreadDeletedAction,
+    ThreadStateAction,
     UserProfileRecord,
 )
 from dirdiff.engines import DirdiffError
@@ -42,18 +57,11 @@ from dirdiff.review._thread.external_agent import (
     ReviewBatchResult,
 )
 from dirdiff.review._thread.placement import (
-    BayStartPlacement,
-    FileMissingPlacement,
-    FileStartPlacement,
-    FileUnreadablePlacement,
-    Placement,
-    RangePlacement,
     ReviewReadCache,
     build_original_excerpt,
     derive_room_threads,
     file_pair,
     origin_target_view,
-    placement_from_record,
     plan_thread_creation,
 )
 from dirdiff.review.base import (
@@ -162,7 +170,7 @@ class _CommentState:
 
 
 def fold_actions(
-    actions: tuple[ReviewActionRecord, ...],
+    actions: tuple[ReviewActionInput, ...],
     profiles: dict[int, UserProfileRecord],
 ) -> tuple[
     Literal["open", "resolved", "deleted"],
@@ -196,7 +204,7 @@ def fold_actions(
       repairs or skips incomplete actions.
     """
 
-    assert actions != () and actions[0].kind == "thread-created"
+    assert actions != () and actions[0].payload.kind == "thread-created"
     assert [action.sequence for action in actions] == list(
         range(len(actions))
     ), "review action sequence must be contiguous"
@@ -207,46 +215,47 @@ def fold_actions(
     for action in actions:
         profile_id = action.profile_id
         assert profile_id in profiles, "review action has no Profile"
-        if action.comment_id is not None and action.kind in {
-            "thread-created",
-            "comment-created",
-            "thread-resolved",
-            "thread-reopened",
-        }:
-            assert action.comment_id is not None and action.body is not None
-            assert action.expected_revision is None
-            assert action.comment_id not in comments
-            assert action.body.strip() != "", "persisted Comment body is blank"
-            comments[action.comment_id] = _CommentState(
-                action.comment_id,
+        payload = action.payload
+        authored = (
+            payload.comment
+            if isinstance(payload, (CommentCreatedAction, ThreadStateAction))
+            else None
+        )
+        if authored is not None:
+            assert authored.id not in comments
+            assert authored.body.strip() != "", (
+                "persisted Comment body is blank"
+            )
+            comments[authored.id] = _CommentState(
+                authored.id,
                 len(order),
                 profile_id,
                 0,
-                action.body,
+                authored.body,
                 False,
                 action.created_at,
                 action.created_at,
             )
-            order.append(action.comment_id)
-        elif action.kind == "comment-edited":
-            assert action.comment_id is not None and action.body is not None
-            assert action.body.strip() != "", "persisted Comment body is blank"
-            comment = comments[action.comment_id]
+            order.append(authored.id)
+        elif isinstance(payload, CommentEditedAction):
+            assert payload.comment.body.strip() != "", (
+                "persisted Comment body is blank"
+            )
+            comment = comments[payload.comment.id]
             assert not comment.deleted, "deleted Comment was edited"
             assert profile_id == comment.profile_id, (
                 "Comment was edited by another author"
             )
-            assert action.expected_revision == comment.revision, (
+            assert payload.expected_revision == comment.revision, (
                 "Comment edit has a stale revision"
             )
             comment.revision += 1
-            comment.body = action.body
+            comment.body = payload.comment.body
             comment.updated_at = action.created_at
-        elif action.kind == "comment-deleted":
-            assert action.comment_id is not None
-            comment = comments[action.comment_id]
+        elif isinstance(payload, CommentDeletedAction):
+            comment = comments[payload.comment_id]
             assert not comment.deleted, "Comment was deleted twice"
-            assert action.expected_revision == comment.revision, (
+            assert payload.expected_revision == comment.revision, (
                 "Comment deletion has a stale revision"
             )
             comment.revision += 1
@@ -254,11 +263,7 @@ def fold_actions(
             comment.deleted = True
             comment.updated_at = action.created_at
         else:
-            assert action.kind in {
-                "thread-resolved",
-                "thread-reopened",
-                "thread-deleted",
-            }
+            assert isinstance(payload, (ThreadStateAction, ThreadDeletedAction))
     views: list[ReviewCommentView] = []
     for comment_id in order:
         comment = comments[comment_id]
@@ -303,7 +308,7 @@ def append_review_action(
     lock_path: Path,
     thread_lock: Lock,
 ) -> tuple[
-    tuple[ReviewActionRecord, ...],
+    tuple[ReviewActionInput, ...],
     dict[int, UserProfileRecord],
 ]:
     """Validate and append one action without loading captured Snapshot Files.
@@ -360,7 +365,8 @@ def append_review_action(
             raise ReviewError(
                 "thread_not_found", f"Unknown Thread: {thread_id.hex}"
             )
-        actions, persisted_profiles = persisted
+        persisted_actions, persisted_profiles = persisted
+        actions = tuple(record.action for record in persisted_actions)
         profiles = {
             persisted_profile.id: persisted_profile
             for persisted_profile in persisted_profiles
@@ -370,11 +376,14 @@ def append_review_action(
             raise ReviewError("state_conflict", "Thread is deleted.")
         comment_by_id = {comment["comment_id"]: comment for comment in comments}
 
+        payload: ReviewActionPayload
         if kind == "comment-created":
             assert comment_id is not None and body is not None
             validate_comment_body(body)
-            accepted_revision = None
-        elif kind in {"comment-edited", "comment-deleted"}:
+            payload = CommentCreatedAction(
+                kind, AuthoredComment(comment_id.hex, body)
+            )
+        elif kind == "comment-edited" or kind == "comment-deleted":
             assert comment_id is not None
             comment = comment_by_id.get(comment_id.hex)
             if comment is None:
@@ -394,8 +403,15 @@ def append_review_action(
             if kind == "comment-edited":
                 assert body is not None
                 validate_comment_body(body)
-        else:
-            accepted_revision = None
+                payload = CommentEditedAction(
+                    AuthoredComment(comment_id.hex, body), accepted_revision
+                )
+            else:
+                assert body is None
+                payload = CommentDeletedAction(
+                    comment_id.hex, accepted_revision
+                )
+        elif kind == "thread-resolved" or kind == "thread-reopened":
             if kind == "thread-resolved" and state != "open":
                 raise ReviewError(
                     "state_conflict", "Only an open Thread may be resolved."
@@ -404,35 +420,40 @@ def append_review_action(
                 raise ReviewError(
                     "state_conflict", "Only a resolved Thread may be reopened."
                 )
+            assert (comment_id is None) == (body is None)
+            payload = ThreadStateAction(
+                kind,
+                AuthoredComment(comment_id.hex, body)
+                if comment_id is not None and body is not None
+                else None,
+            )
+        else:
+            assert (
+                kind == "thread-deleted" and comment_id is None and body is None
+            )
+            payload = ThreadDeletedAction()
 
-        record = ReviewActionRecord(
+        record = ReviewActionInput(
             operation_id=operation_id.hex,
             thread_id=thread_id.hex,
             snapshot_id=snapshot_id.hex,
             sequence=len(actions),
-            kind=kind,
             profile_id=profile_id,
-            comment_id=comment_id.hex if comment_id is not None else None,
-            expected_revision=accepted_revision,
-            body=body,
             created_at=action_timestamp(),
-            status_after=(
-                "resolved"
-                if kind == "thread-resolved"
-                else "open"
-                if kind == "thread-reopened"
-                else "deleted"
-                if kind == "thread-deleted"
-                else state
-            ),
-            attention_after=(
-                "none"
-                if kind in {"thread-resolved", "thread-deleted"}
-                else "both"
-                if kind == "thread-reopened"
-                or (kind == "comment-created" and comment_attention == "alert")
-                else attention
-            ),
+            status_after="resolved"
+            if kind == "thread-resolved"
+            else "open"
+            if kind == "thread-reopened"
+            else "deleted"
+            if kind == "thread-deleted"
+            else state,
+            attention_after="none"
+            if kind in {"thread-resolved", "thread-deleted"}
+            else "both"
+            if kind == "thread-reopened"
+            or (kind == "comment-created" and comment_attention == "alert")
+            else attention,
+            payload=payload,
         )
         database.append_review_action(record)
         profiles[profile.id] = profile
@@ -493,7 +514,7 @@ class Thread:
         thread_lock: Lock,
         placement: ReviewThreadRecord,
         origin: ReviewThreadRecord,
-        actions: tuple[ReviewActionRecord, ...],
+        actions: tuple[ReviewActionInput, ...],
         profiles: dict[int, UserProfileRecord],
         files: Optional[_ThreadFiles],
         location_source: ThreadLocationSourceView,
@@ -512,7 +533,7 @@ class Thread:
         - `thread_id`: Stable discussion identity bound for this handle's life.
         - `lock_path`: Cross-process Room write lock used by methods that append.
         - `thread_lock`: In-process lock paired with `lock_path`.
-        - `placement`: Selected-Snapshot flat row converted once on construction.
+        - `placement`: Validated selected-Snapshot placement with its origin metadata.
         - `origin`: Unique immutable origin row for the discussion.
         - `actions`: Complete ordered action sequence at construction time.
         - `profiles`: Current records for every author in `actions`.
@@ -527,11 +548,8 @@ class Thread:
         self._identity = identity
         self._lock_path = lock_path
         self._thread_lock = thread_lock
-        # The store returns the flat row shape; every read on this handle wants
-        # the proven one, so both are converted once here rather than at each
-        # interpreting read.
-        self._placement = placement_from_record(placement)
-        origin_placement = placement_from_record(origin)
+        self._placement = placement.placement
+        origin_placement = origin.placement
         assert isinstance(
             origin_placement, (RangePlacement, FileStartPlacement)
         ), "a discussion origin is a stored range or File-start row"
@@ -548,7 +566,7 @@ class Thread:
     ) -> tuple[Placement, RangePlacement | FileStartPlacement]:
         """Return the proven selected placement and unique immutable origin.
 
-        Both values were validated from flat persistence rows during handle
+        Both values were validated by the store and narrowed during handle
         construction, so callers need not repeat discriminator narrowing.
 
         # Returns
@@ -559,7 +577,7 @@ class Thread:
         """
         return self._placement, self._origin
 
-    def _actions(self) -> tuple[ReviewActionRecord, ...]:
+    def _actions(self) -> tuple[ReviewActionInput, ...]:
         """Return the handle's current complete contiguous action sequence.
 
         Construction and accepted writes keep this tuple authoritative for the
@@ -1170,81 +1188,53 @@ def _bind_threads(
         - `origin_file`: File captured with the Thread's origin Snapshot.
         - `displayed_file`: Corresponding File in the displayed Snapshot.
         """
+
+        def side_identity(
+            side: SnapshotFileSideRecord | None,
+        ) -> tuple[str, bytes, tuple[bytes, bytes | None] | None] | None:
+            """Return captured identity components independently of storage paths.
+
+            # Returns
+
+            - A present side's repository path, raw digest, and optional link
+              metadata/target digests; stopped traversal has no target digest.
+            - `None` means the File has no captured side in this slot.
+            """
+            if side is None:
+                return None
+            link_identity = None
+            if isinstance(side, SnapshotSymlinkFileSideRecord):
+                link_identity = (
+                    side.link.metadata_hash,
+                    side.link.target.content_hash
+                    if side.link.target is not None
+                    else None,
+                )
+            return side.repository_path, side.content_hash, link_identity
+
         return (
             origin_file.error is None
             and displayed_file.error is None
-            and (
-                None
-                if origin_file.left is None
-                else (
-                    origin_file.left.repository_path,
-                    origin_file.left.content_hash,
-                )
-            )
-            == (
-                None
-                if displayed_file.left is None
-                else (
-                    displayed_file.left.repository_path,
-                    displayed_file.left.content_hash,
-                )
-            )
-            and (
-                None
-                if origin_file.right is None
-                else (
-                    origin_file.right.repository_path,
-                    origin_file.right.content_hash,
-                )
-            )
-            == (
-                None
-                if displayed_file.right is None
-                else (
-                    displayed_file.right.repository_path,
-                    displayed_file.right.content_hash,
-                )
-            )
-            and (
-                None
-                if origin_file.left_symlink is None
-                else (
-                    origin_file.left_symlink.metadata_hash,
-                    origin_file.left_symlink.target_hash,
-                )
-            )
-            == (
-                None
-                if displayed_file.left_symlink is None
-                else (
-                    displayed_file.left_symlink.metadata_hash,
-                    displayed_file.left_symlink.target_hash,
-                )
-            )
-            and (
-                None
-                if origin_file.right_symlink is None
-                else (
-                    origin_file.right_symlink.metadata_hash,
-                    origin_file.right_symlink.target_hash,
-                )
-            )
-            == (
-                None
-                if displayed_file.right_symlink is None
-                else (
-                    displayed_file.right_symlink.metadata_hash,
-                    displayed_file.right_symlink.target_hash,
-                )
-            )
+            and side_identity(origin_file.left)
+            == side_identity(displayed_file.left)
+            and side_identity(origin_file.right)
+            == side_identity(displayed_file.right)
         )
 
-    placements = {row.thread_id: row for row in data.threads}
-    origins = {row.thread_id: row for row in data.origins}
-    actions: dict[str, list[ReviewActionRecord]] = {
+    placements = {row.placement.thread_id: row for row in data.threads}
+    origins = {row.placement.thread_id: row for row in data.origins}
+    origin_locations: dict[str, RangePlacement | FileStartPlacement] = {}
+    for record in data.origins:
+        origin = record.placement
+        assert isinstance(origin, (RangePlacement, FileStartPlacement)), (
+            "review origin has no Snapshot File"
+        )
+        origin_locations[origin.thread_id] = origin
+    actions: dict[str, list[ReviewActionInput]] = {
         thread_id: [] for thread_id in origins
     }
-    for action in data.actions:
+    for action_record in data.actions:
+        action = action_record.action
         actions[action.thread_id].append(action)
     assert (
         len(placements) == len(origins) == len(data.origins)
@@ -1254,53 +1244,43 @@ def _bind_threads(
     assert len(profiles) == len(data.profiles), (
         "review read contains duplicate Profiles"
     )
-    for origin in data.origins:
-        assert origin.snapshot_file_id is not None, (
-            "review origin has no Snapshot File"
-        )
     origin_refs = tuple(
         dict.fromkeys(
             (origin.snapshot_id, origin.snapshot_file_id)
-            for origin in data.origins
-            if origin.snapshot_file_id is not None
+            for origin in origin_locations.values()
         )
     )
     displayed_thread_ids = {
-        placement.thread_id
-        for placement in data.threads
-        if not placement.is_origin
+        record.placement.thread_id
+        for record in data.threads
+        if not record.is_origin
     }
     located_file_ids = tuple(
         dict.fromkeys(
-            placement.snapshot_file_id
-            for placement in data.threads
-            if placement.thread_id in displayed_thread_ids
-            and placement.snapshot_file_id is not None
+            record.placement.snapshot_file_id
+            for record in data.threads
+            if record.placement.thread_id in displayed_thread_ids
+            and isinstance(
+                record.placement,
+                (RangePlacement, BayStartPlacement, FileStartPlacement),
+            )
         )
     )
     absent_origin_refs = tuple(
         dict.fromkeys(
             (
-                origins[placement.thread_id].snapshot_id,
-                origin_file_id,
+                origin_locations[record.placement.thread_id].snapshot_id,
+                origin_locations[record.placement.thread_id].snapshot_file_id,
             )
-            for placement in data.threads
-            if placement.thread_id in displayed_thread_ids
-            # An unreadable File is unreferenced but present, so it is not an
-            # absence to prove.
-            if placement.snapshot_file_id is None
-            and placement.outdated_reason != "file_unreadable"
-            and (
-                origin_file_id := origins[placement.thread_id].snapshot_file_id
-            )
-            is not None
+            for record in data.threads
+            if record.placement.thread_id in displayed_thread_ids
+            and isinstance(record.placement, FileMissingPlacement)
         )
     )
     comparison_origin_refs = tuple(
         (origin.snapshot_id, origin.snapshot_file_id)
-        for origin in data.origins
+        for origin in origin_locations.values()
         if origin.thread_id not in displayed_thread_ids
-        and origin.snapshot_file_id is not None
     )
     origin_files, selected_files, conflicts, comparison_files = (
         database.review_thread_files(
@@ -1314,10 +1294,10 @@ def _bind_threads(
     assert conflicts == (), "file_missing placement has an exact Snapshot File"
     cache = ReviewReadCache()
     threads: list[Thread] = []
-    for origin in data.origins:
-        placement = placements[origin.thread_id]
-        assert origin.snapshot_file_id is not None
-        origin_ref = (origin.snapshot_id, origin.snapshot_file_id)
+    for origin in origin_locations.values():
+        record = placements[origin.thread_id]
+        placement = record.placement
+        origin_ref = origin.snapshot_id, origin.snapshot_file_id
         origin_file = origin_files[origin_ref]
         selected_file: Optional[SnapshotFileRecord] = None
         if origin.thread_id not in displayed_thread_ids:
@@ -1336,7 +1316,9 @@ def _bind_threads(
                 "kind": "origin-snapshot",
                 "file_state": file_state,
             }
-        elif placement.snapshot_file_id is not None:
+        elif isinstance(
+            placement, (RangePlacement, BayStartPlacement, FileStartPlacement)
+        ):
             selected_file = selected_files.get(placement.snapshot_file_id)
             assert selected_file is not None, (
                 "located placement has no exact Snapshot File"
@@ -1352,8 +1334,8 @@ def _bind_threads(
                 thread_id=UUID(hex=origin.thread_id),
                 lock_path=lock_path,
                 thread_lock=thread_lock,
-                placement=placement,
-                origin=origin,
+                placement=record,
+                origin=origins[origin.thread_id],
                 actions=tuple(actions[origin.thread_id]),
                 profiles=profiles,
                 files=_ThreadFiles(
@@ -1428,7 +1410,7 @@ def get_thread(
         thread_lock=thread_lock,
         placement=data.threads[0],
         origin=data.origins[0],
-        actions=data.actions,
+        actions=tuple(record.action for record in data.actions),
         profiles=profiles,
         files=None,
         location_source={"kind": "displayed-snapshot"},
@@ -1500,7 +1482,8 @@ def create_thread(
         )
         assert loaded_target is not None
         assert len(rows) == 1 and rows[0].is_origin
-        assert rows[0].snapshot_file_id == loaded_target.file.id
+        assert isinstance(rows[0].placement, RangePlacement)
+        assert rows[0].placement.snapshot_file_id == loaded_target.file.id
         created_file = loaded_target.file
         return Thread(
             database=database,
@@ -1602,7 +1585,7 @@ def apply_review_batch(
         }
         cache = ReviewReadCache()
         placements: list[ReviewThreadRecord] = []
-        records: list[ReviewActionRecord] = []
+        records: list[ReviewActionInput] = []
         results: list[ReviewBatchResult] = []
 
         # Set-based reads replace per-action queries: every author in one
@@ -1640,7 +1623,7 @@ def apply_review_batch(
         fold_profiles = {
             profile.id: profile for profile in history_profiles
         } | known_profiles
-        simulated: dict[str, list[ReviewActionRecord]] = {}
+        simulated: dict[str, list[ReviewActionInput]] = {}
 
         for action in batch:
             if isinstance(action, CreateThread):
@@ -1676,7 +1659,7 @@ def apply_review_batch(
                         "thread_not_found",
                         f"Unknown Thread: {thread_key}",
                     )
-                thread_actions = list(persisted_actions)
+                thread_actions = [record.action for record in persisted_actions]
                 simulated[thread_key] = thread_actions
 
             command = action.command
@@ -1708,19 +1691,19 @@ def apply_review_batch(
                     next_attention = "author"
                 else:
                     next_attention = attention
-                record = ReviewActionRecord(
+                record = ReviewActionInput(
                     operation_id=reply.operation_id.hex,
                     thread_id=thread_key,
                     snapshot_id=snapshot_id.hex,
                     sequence=len(thread_actions),
-                    kind="comment-created",
                     profile_id=profile_id,
-                    comment_id=reply.comment_id.hex,
-                    expected_revision=None,
-                    body=reply.body,
                     created_at=action_timestamp(),
                     status_after=state,
                     attention_after=next_attention,
+                    payload=CommentCreatedAction(
+                        "comment-created",
+                        AuthoredComment(reply.comment_id.hex, reply.body),
+                    ),
                 )
                 result = ReviewBatchResult(
                     action.instrument,
@@ -1737,19 +1720,19 @@ def apply_review_batch(
                         "reviewer-resolve requires an open reviewer-attention Thread.",
                     )
                 validate_comment_body(resolve.body)
-                record = ReviewActionRecord(
+                record = ReviewActionInput(
                     operation_id=resolve.operation_id.hex,
                     thread_id=thread_key,
                     snapshot_id=snapshot_id.hex,
                     sequence=len(thread_actions),
-                    kind="thread-resolved",
                     profile_id=profile_id,
-                    comment_id=resolve.comment_id.hex,
-                    expected_revision=None,
-                    body=resolve.body,
                     created_at=action_timestamp(),
                     status_after="resolved",
                     attention_after="none",
+                    payload=ThreadStateAction(
+                        "thread-resolved",
+                        AuthoredComment(resolve.comment_id.hex, resolve.body),
+                    ),
                 )
                 result = ReviewBatchResult(
                     "reviewer-resolve",
@@ -1761,19 +1744,16 @@ def apply_review_batch(
             else:
                 assert isinstance(action, DeleteThread)
                 deletion = action.command
-                record = ReviewActionRecord(
+                record = ReviewActionInput(
                     operation_id=deletion.operation_id.hex,
                     thread_id=thread_key,
                     snapshot_id=snapshot_id.hex,
                     sequence=len(thread_actions),
-                    kind="thread-deleted",
                     profile_id=profile_id,
-                    comment_id=None,
-                    expected_revision=None,
-                    body=None,
                     created_at=action_timestamp(),
                     status_after="deleted",
                     attention_after="none",
+                    payload=ThreadDeletedAction(),
                 )
                 result = ReviewBatchResult(
                     "reviewer-delete",

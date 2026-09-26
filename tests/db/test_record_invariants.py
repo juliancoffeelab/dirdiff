@@ -1,27 +1,12 @@
-"""Prove the record dataclasses reject what the schema no longer refuses.
+"""Prove persistence refuses malformed placement, action and link rows.
 
-Revision `e2a71c6b5d94` dropped the eleven check constraints that restated a
-Python vocabulary or spelled a variant shape as a SQL `CASE`. Those contracts
-now live in `ReviewThreadRecord.__post_init__`, `ReviewActionRecord`'s, and the
-matches `RoomStore` applies to persisted enum columns, and nothing else guards
-them. This module is the adversarial half of that move: for every shape the
-dropped constraints forbade, it constructs the record that would carry it and
-requires the construction to fail — and, for the shapes review genuinely
-produces, requires it to succeed.
+The schema retains nullable columns for variant storage. These cases exercise
+RoomStore's existing read mappers, which validate each row and construct typed
+records before it can reach review or capture consumers. Valid rows must retain
+their exact values; every formerly rejected malformed shape still must fail.
 
-It also exercises the symbolic-link sidecar descriptor whose record and SQL
-checks jointly guard absolute physical paths, digest length, and target-pair
-presence.
-
-Emphasis falls on the shapes SQL admitted only by accident of NULL semantics
-and on the fields that had no Python check at all before the migration,
-`status_after` and `attention_after`, since those two columns were guarded by
-their constraint alone.
-
-Some cases intentionally cross typed boundaries with invalid field shapes or
-persisted values. Those calls carry narrow type-checker suppressions because
-accepting the values in the surrounding test code would hide the contract the
-test is meant to violate.
+Some rows intentionally cross the typed ORM boundary with SimpleNamespace
+values. Narrow suppressions keep that deliberate boundary violation visible.
 """
 
 from types import SimpleNamespace
@@ -29,10 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from dirdiff.db import (
-    ReviewActionRecord,
-    ReviewThreadRecord,
     RoomStore,
-    SnapshotFileSymlinkRecord,
 )
 
 _RANGE = {
@@ -150,10 +132,11 @@ def test_valid_placements_construct(
     whole set `dirdiff.review` produces, so a check that rejected one of them
     would break persistence outright rather than merely tighten it.
     """
-    record = ReviewThreadRecord(
-        **{**_RANGE, **changes}  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    record = RoomStore._thread_record(
+        SimpleNamespace(**{**_RANGE, **changes}),  # type: ignore[arg-type]
+        True,
     )
-    assert record.thread_id == _RANGE["thread_id"]
+    assert record.placement.thread_id == _RANGE["thread_id"]
 
 
 @pytest.mark.parametrize(
@@ -264,15 +247,11 @@ def test_invalid_placement_is_refused(
 ) -> None:
     """No placement outside the tagged union may be constructed.
 
-    Each case is a row the dropped `ck_review_thread_location` or
-    `ck_review_thread_placement_locator` rejected. Construction failing here is
-    what now stops such a row from being inserted and what stops a hand-edited
-    one from being read as if it made sense.
+    Each case is a malformed SQL shape whose fields cannot form a placement
+    variant. The store must refuse it before returning any review record.
     """
     with pytest.raises(AssertionError):
-        ReviewThreadRecord(
-            **{**_RANGE, **changes}  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-        )
+        RoomStore._thread_record(SimpleNamespace(**{**_RANGE, **changes}), True)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -313,10 +292,8 @@ def test_valid_actions_construct(changes: dict[str, str | int | None]) -> None:
     The cases exercise discriminator-specific nullable fields so record validation
     cannot accidentally reject a server-supported operation shape.
     """
-    record = ReviewActionRecord(
-        **{**_ACTION, **changes}  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-    )
-    assert record.operation_id == _ACTION["operation_id"]
+    record = RoomStore._action_record(SimpleNamespace(**{**_ACTION, **changes}))  # type: ignore[arg-type]
+    assert record.action.operation_id == _ACTION["operation_id"]
 
 
 @pytest.mark.parametrize(
@@ -358,13 +335,11 @@ def test_invalid_action_is_refused(
 ) -> None:
     """No action whose fields contradict its kind may be constructed.
 
-    Each case is a row `ck_review_action_variant` rejected, plus the Profile
-    identity that `__post_init__` has always required.
+    Each malformed row must fail payload construction or the accepted-action
+    author boundary before becoming a persisted output.
     """
     with pytest.raises(AssertionError):
-        ReviewActionRecord(
-            **{**_ACTION, **changes}  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-        )
+        RoomStore._action_record(SimpleNamespace(**{**_ACTION, **changes}))  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -426,13 +401,22 @@ def test_valid_snapshot_symlink_descriptor_constructs(
       stopped walk.
     - `target_hash`: Exact 32-byte digest with matching presence.
     """
-    record = SnapshotFileSymlinkRecord(
-        metadata_path="/capture/right-link.json",
-        metadata_hash=b"m" * 32,
-        target_capture_path=target_capture_path,
-        target_hash=target_hash,
+    records = RoomStore._file_symlink_records(
+        (  # type: ignore[arg-type]
+            SimpleNamespace(
+                file_id="file",
+                side="right",
+                metadata_path="/capture/right-link.json",
+                metadata_hash=b"m" * 32,
+                target_capture_path=target_capture_path,
+                target_hash=target_hash,
+            ),
+        )
     )
-    assert record.target_capture_path == target_capture_path
+    record = records[("file", "right")]
+    assert (
+        record.target.path if record.target is not None else None
+    ) == target_capture_path
 
 
 @pytest.mark.parametrize(
@@ -477,12 +461,18 @@ def test_invalid_snapshot_symlink_descriptor_is_refused(
       descriptor.
     """
     with pytest.raises(AssertionError):
-        SnapshotFileSymlinkRecord(
-            **{
-                "metadata_path": "/capture/right-link.json",
-                "metadata_hash": b"m" * 32,
-                "target_capture_path": None,
-                "target_hash": None,
-                **changes,
-            }  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        RoomStore._file_symlink_records(
+            (  # type: ignore[arg-type]
+                SimpleNamespace(
+                    **{
+                        "file_id": "file",
+                        "side": "right",
+                        "metadata_path": "/capture/right-link.json",
+                        "metadata_hash": b"m" * 32,
+                        "target_capture_path": None,
+                        "target_hash": None,
+                        **changes,
+                    }
+                ),
+            )
         )
