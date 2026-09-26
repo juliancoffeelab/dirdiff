@@ -13,7 +13,7 @@ presets): the secret is in using `git diff --no-index`. This allows us to use
 Git's selected line-matching algorithm on any two supplied text sides.
 
 Because of that, none of the code in this package should read any git refs,
-branches, or commits. That's the responsibility of `dirdiff.backend.git` module.
+branches, or commits. That's the responsibility of `dirdiff.change_source.git` module.
 Nor should it manage semantic representation such as folds or syntax, that
 is the job of `dirdiff.rendering`.
 """

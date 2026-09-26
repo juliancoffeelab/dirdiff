@@ -37,14 +37,14 @@ from syrupy.types import (
     SnapshotIndex,
 )
 
-from dirdiff.backend import (
+from dirdiff.change_source import (
     BranchSelection,
-    GitBackend,
+    GitChangeSource,
+    GitRepository,
+    ManifestPath,
     RefChoices,
-    RepoDiffPath,
     RepoManifest,
-    WorkspaceBackendProtocol,
-    build_repo_manifest_for_backend,
+    build_repo_manifest_for_paths,
     ref_choices,
 )
 from dirdiff.engines import (
@@ -668,7 +668,7 @@ class WorkspaceDiffServiceAdapter:
 
     def __init__(
         self,
-        backend: WorkspaceBackendProtocol,
+        backend: GitRepository,
         renderer: DiffEngineProtocol,
     ) -> None:
         """Bind the adapter to one backend and historical renderer slot.
@@ -698,31 +698,47 @@ class WorkspaceDiffServiceAdapter:
         - `show_untracked`: Whether backend discovery includes worktree-only
           Files.
         """
-        return build_repo_manifest_for_backend(
-            self.backend,
-            left=left,
-            right=right,
-            show_untracked=show_untracked,
+        assert self.backend.repo_root is not None
+        left_side = self.backend.normalize_side(left)
+        right_side = self.backend.normalize_side(right)
+        prepared_left = (
+            left_side
+            if left_side in {"index", "worktree"}
+            else self.backend.commit_id(
+                left_side, allow_unborn=left_side == "HEAD"
+            )
         )
-
-    def list_repo_diff_paths(
-        self, *, left: str, right: str
-    ) -> tuple[RepoDiffPath, ...]:
-        """Return backend path facts without building a manifest tree.
-
-        # Parameters
-
-        - `left`: Backend side handle for the old state.
-        - `right`: Backend side handle for the new state.
-
-        # Returns
-
-        - `Members`: The backend's path records without manifest-tree nodes or
-          captured content.
-        - `Order`: Records retain backend discovery order; an empty tuple means
-          the selected sides have no File-local differences.
-        """
-        return self.backend.repo_diff(left=left, right=right).paths
+        prepared_right = (
+            right_side
+            if right_side in {"index", "worktree"}
+            else self.backend.commit_id(
+                right_side, allow_unborn=right_side == "HEAD"
+            )
+        )
+        changes = GitChangeSource(
+            self.backend.repo_root,
+            left=prepared_left,
+            right=prepared_right,
+            show_untracked=show_untracked,
+            max_link_target_bytes=1024 * 1024,
+        ).changes()
+        return build_repo_manifest_for_paths(
+            left_label=left_side,
+            right_label=right_side,
+            paths=tuple(
+                ManifestPath(
+                    file.left.key.path if file.left is not None else None,
+                    file.right.key.path if file.right is not None else None,
+                    file.display_name,
+                    file.change_type,
+                    file.lazy_reason_override,
+                    file.untracked,
+                )
+                for file in changes.files
+            ),
+            added_lines=changes.added_lines,
+            removed_lines=changes.removed_lines,
+        )
 
     def list_ref_choices(self) -> RefChoices:
         """Derive branch controls from one current Git metadata read.
@@ -732,7 +748,7 @@ class WorkspaceDiffServiceAdapter:
         """
         # Branch-control derivations are Git-specific; only Git-backed tests
         # exercise this adapter method.
-        assert isinstance(self.backend, GitBackend)
+        assert isinstance(self.backend, GitRepository)
         return ref_choices(self.backend.read_ref_metadata())
 
     def resolve_branch_diff_sides(
@@ -777,7 +793,7 @@ class TextDiffService(WorkspaceDiffServiceAdapter):
     historical construction shape.
     """
 
-    def __init__(self, backend: WorkspaceBackendProtocol) -> None:
+    def __init__(self, backend: GitRepository) -> None:
         """Bind the legacy adapter to a workspace and `TextDiffEngine`.
 
         `backend` remains the sole source for manifest and branch operations.
@@ -794,7 +810,7 @@ class GitDiffService(WorkspaceDiffServiceAdapter):
     remain direct backend operations.
     """
 
-    def __init__(self, backend: WorkspaceBackendProtocol) -> None:
+    def __init__(self, backend: GitRepository) -> None:
         """Bind the legacy adapter to a workspace and Git no-index rendering.
 
         `backend` remains the sole source for manifest and branch operations.

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from helpers import TextDiffService
 
-from dirdiff.backend import GitBackend
+from dirdiff.change_source import GitChangeSource, GitRepository
 from dirdiff.engines import DirdiffError
 
 
@@ -62,14 +62,26 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
         capture_output=True,
     )
 
-    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
-    paths = service.backend.repo_diff(left="HEAD", right="worktree").paths
+    head_id = GitRepository(tmp_path).commit_id("HEAD")
+    paths = (
+        GitChangeSource(
+            tmp_path,
+            left=head_id,
+            right="worktree",
+            show_untracked=False,
+            max_link_target_bytes=1024 * 1024,
+        )
+        .changes()
+        .files
+    )
 
     assert len(paths) == 1
     assert paths[0].display_name == "alpha.txt -> renamed.txt"
     assert paths[0].change_type == "rename"
-    assert paths[0].left_path == "alpha.txt"
-    assert paths[0].right_path == "renamed.txt"
+    assert paths[0].left is not None and paths[0].left.key.path == "alpha.txt"
+    assert (
+        paths[0].right is not None and paths[0].right.key.path == "renamed.txt"
+    )
 
 
 def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
@@ -169,7 +181,7 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
         capture_output=True,
     )
 
-    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
     ref_choices = service.list_ref_choices()
     resolved_base_branch, merge_base, normalized_branch, review_commit = (
         service.resolve_branch_diff_sides(
@@ -297,7 +309,7 @@ def test_ref_choices_use_configured_remote_names_with_slashes(
         capture_output=True,
     )
 
-    service = TextDiffService(GitBackend.discover(cwd=tmp_path))
+    service = TextDiffService(GitRepository.discover(cwd=tmp_path))
 
     ref_choices = service.list_ref_choices()
 
@@ -317,9 +329,9 @@ def test_numstat_parser_reads_changed_rename_records(tmp_path: Path) -> None:
     Git emits old and new names after one numeric record. The parser must consume
     both while counting additions and removals once.
     """
-    repository = GitBackend(tmp_path)
+    repository = GitRepository(tmp_path)
 
-    counts = repository._parse_numstat_output(
+    counts = repository._workspace._parse_numstat_output(
         b"2\t1\t\0old/name.txt\0new/name.txt\0"
     )
 
@@ -394,23 +406,23 @@ def test_batch_loads_literal_paths_without_argv_pathspecs(
         capture_output=True,
     )
 
-    repository = GitBackend.discover(cwd=tmp_path)
-    assert repository.load_version(stage_name, "index") == (
+    repository = GitRepository.discover(cwd=tmp_path)
+    assert repository._workspace.load_version(stage_name, "index") == (
         b"literal stage-shaped name\n"
     )
     # A gitlink has no blob; both loaders return the referenced commit id as
     # the side's content, here for a commit that is present locally.
-    assert repository.load_version("linked", "index") == (
+    assert repository._workspace.load_version("linked", "index") == (
         f"{commit_id}\n".encode()
     )
-    loaded = repository.load_versions(
+    loaded = repository._workspace.load_versions(
         (
-            (magic_name, "HEAD"),
-            (newline_name, "HEAD"),
-            (magic_name, "index"),
-            (stage_name, "index"),
-            ("linked", "index"),
-            ("missing\npath", "HEAD"),
+            (magic_name, "HEAD", None, None),
+            (newline_name, "HEAD", None, None),
+            (magic_name, "index", None, None),
+            (stage_name, "index", None, None),
+            ("linked", "index", None, None),
+            ("missing\npath", "HEAD", None, None),
         )
     )
 
@@ -473,24 +485,42 @@ def test_worktree_symlinks_load_as_git_records_them(tmp_path: Path) -> None:
     (tmp_path / "untracked-link").symlink_to("real-dir")
     (tmp_path / "broken-link").symlink_to("no-such-target")
 
-    backend = GitBackend.discover(cwd=tmp_path)
-    diff = backend.repo_diff(left="HEAD", right="worktree", show_untracked=True)
-    listed = {entry.right_path for entry in diff.paths}
+    backend = GitRepository.discover(cwd=tmp_path)
+    head_id = backend.commit_id("HEAD")
+    changes = GitChangeSource(
+        tmp_path,
+        left=head_id,
+        right="worktree",
+        show_untracked=True,
+        max_link_target_bytes=1024 * 1024,
+    ).changes()
+    listed = {
+        entry.right.key.path if entry.right is not None else None
+        for entry in changes.files
+    }
     assert {"tracked-link", "untracked-link", "broken-link"} <= listed
 
-    assert backend.load_version("tracked-link", "HEAD") == b"real-dir"
     assert (
-        backend.load_version("tracked-link", "worktree")
+        backend._workspace.load_version("tracked-link", "HEAD") == b"real-dir"
+    )
+    assert (
+        backend._workspace.load_version("tracked-link", "worktree")
         == b"real-dir/inner.txt"
     )
-    assert backend.load_version("untracked-link", "worktree") == b"real-dir"
-    assert backend.load_version("broken-link", "worktree") == b"no-such-target"
-    batch = backend.load_versions(
+    assert (
+        backend._workspace.load_version("untracked-link", "worktree")
+        == b"real-dir"
+    )
+    assert (
+        backend._workspace.load_version("broken-link", "worktree")
+        == b"no-such-target"
+    )
+    batch = backend._workspace.load_versions(
         (
-            ("tracked-link", "HEAD"),
-            ("tracked-link", "worktree"),
-            ("untracked-link", "worktree"),
-            ("broken-link", "worktree"),
+            ("tracked-link", "HEAD", None, None),
+            ("tracked-link", "worktree", None, None),
+            ("untracked-link", "worktree", None, None),
+            ("broken-link", "worktree", None, None),
         )
     )
     assert batch == (
@@ -570,20 +600,24 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
     store_dir = tmp_path / ".git" / "lfs" / "objects"
     (store_dir / held_oid[:2] / held_oid[2:4]).mkdir(parents=True)
     (store_dir / held_oid[:2] / held_oid[2:4] / held_oid).write_bytes(held)
-    backend = GitBackend.discover(cwd=tmp_path)
+    backend = GitRepository.discover(cwd=tmp_path)
     for side in ("HEAD", "index", "worktree"):
-        assert backend.load_version("held.png", side) == held
-        assert backend.file_size("held.png", side) == len(held)
-        assert backend.load_versions((("held.png", side),)) == (held,)
+        assert backend._workspace.load_version("held.png", side) == held
+        assert backend._workspace.file_size("held.png", side) == len(held)
+        assert backend._workspace.load_versions(
+            (("held.png", side, None, None),)
+        ) == (held,)
         for name in ("lookalike.txt", "documentation.txt", "pointer-link"):
             expected = (
                 pointer_text
                 if name == "pointer-link"
                 else (tmp_path / name).read_bytes()
             )
-            assert backend.load_version(name, side) == expected
-            assert backend.file_size(name, side) == len(expected)
-            assert backend.load_versions(((name, side),)) == (expected,)
+            assert backend._workspace.load_version(name, side) == expected
+            assert backend._workspace.file_size(name, side) == len(expected)
+            assert backend._workspace.load_versions(
+                ((name, side, None, None),)
+            ) == (expected,)
     # Retarget the worktree pointer at an object the store lacks, as a fresh
     # checkout with `GIT_LFS_SKIP_SMUDGE=1` leaves it.
     (tmp_path / "held.png").write_bytes(
@@ -604,9 +638,13 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
         .stdout.decode()
         .strip()
     )
-    diff = backend.repo_diff(left=empty_tree, right="HEAD")
+    changes = backend._workspace.list_changes(
+        left=empty_tree, right=backend.commit_id("HEAD"), show_untracked=False
+    )
     identities = {
-        entry.right_path: entry.right_object_id for entry in diff.paths
+        entry.right_path: entry.right_object_id
+        for entry in changes.paths
+        if entry.right_path is not None
     }
     for name in (
         "held.png",
@@ -629,26 +667,26 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
     assert identities["held.png"] != held_oid
     assert identities["pointer-link"] == identities["held.png"]
 
-    assert backend.file_size("absent.bin", "HEAD") == 12345
-    assert backend.file_size("held.png", "worktree") == 7
+    assert backend._workspace.file_size("absent.bin", "HEAD") == 12345
+    assert backend._workspace.file_size("held.png", "worktree") == 7
     with pytest.raises(
         DirdiffError, match="Unsupported Git LFS pointer version or extensions"
     ):
-        backend.load_version("extended.bin", "HEAD")
+        backend._workspace.load_version("extended.bin", "HEAD")
     with pytest.raises(DirdiffError) as absent_failure:
-        backend.load_version("absent.bin", "HEAD")
+        backend._workspace.load_version("absent.bin", "HEAD")
     assert f"object {absent_oid} (12345 bytes)" in str(absent_failure.value)
     assert "`git lfs fetch <remote> HEAD`" in str(absent_failure.value)
 
-    batch = backend.load_versions(
+    batch = backend._workspace.load_versions(
         (
-            ("held.png", "HEAD"),
-            ("absent.bin", "HEAD"),
-            ("held.png", "worktree"),
-            ("lookalike.txt", "index"),
-            ("pointer-link", "HEAD"),
-            ("pointer-link", "worktree"),
-            ("extended.bin", "index"),
+            ("held.png", "HEAD", None, None),
+            ("absent.bin", "HEAD", None, None),
+            ("held.png", "worktree", None, None),
+            ("lookalike.txt", "index", None, None),
+            ("pointer-link", "HEAD", None, None),
+            ("pointer-link", "worktree", None, None),
+            ("extended.bin", "index", None, None),
         )
     )
     assert batch[0] == held
@@ -672,10 +710,12 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
             DirdiffError,
             match=f"size mismatch, expected {len(held)} bytes",
         ):
-            backend.load_version("held.png", "HEAD")
+            backend._workspace.load_version("held.png", "HEAD")
     # Same-sized store contents are trusted, without another digest pass.
     held_path.write_bytes(b"x" * len(held))
-    assert backend.load_version("held.png", "HEAD") == b"x" * len(held)
+    assert backend._workspace.load_version("held.png", "HEAD") == b"x" * len(
+        held
+    )
     held_path.write_bytes(held)
     # Root bypasses Unix read permissions; the other cases still run there.
     if os.geteuid() != 0:
@@ -684,7 +724,7 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
             with pytest.raises(
                 DirdiffError, match="Could not load Git LFS object"
             ):
-                backend.load_version("held.png", "HEAD")
+                backend._workspace.load_version("held.png", "HEAD")
         finally:
             held_path.chmod(0o644)
 
@@ -694,7 +734,7 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
         check=True,
         capture_output=True,
     )
-    assert backend.load_version("held.png", "HEAD") == held
+    assert backend._workspace.load_version("held.png", "HEAD") == held
     subprocess.run(
         ["git", "config", "lfs.storage", "elsewhere"],
         cwd=tmp_path,
@@ -702,7 +742,7 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
         capture_output=True,
     )
     with pytest.raises(DirdiffError, match="missing from local storage"):
-        backend.load_version("held.png", "HEAD")
+        backend._workspace.load_version("held.png", "HEAD")
 
     relocated = (
         tmp_path
@@ -715,7 +755,7 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
     )
     relocated.parent.mkdir(parents=True)
     held_path.rename(relocated)
-    assert backend.load_version("held.png", "HEAD") == held
+    assert backend._workspace.load_version("held.png", "HEAD") == held
 
     # Absolute storage and a linked worktree must find the same local object.
     subprocess.run(
@@ -724,7 +764,7 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
         check=True,
         capture_output=True,
     )
-    assert backend.load_version("held.png", "index") == held
+    assert backend._workspace.load_version("held.png", "index") == held
     linked = tmp_path / "linked"
     subprocess.run(
         ["git", "worktree", "add", "--detach", str(linked), "HEAD"],
@@ -732,11 +772,15 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
         check=True,
         capture_output=True,
     )
-    linked_backend = GitBackend.discover(cwd=linked)
+    linked_backend = GitRepository.discover(cwd=linked)
     for side in ("HEAD", "index", "worktree"):
-        assert linked_backend.load_version("held.png", side) == held
-        assert linked_backend.file_size("held.png", side) == len(held)
-        assert linked_backend.load_versions((("held.png", side),)) == (held,)
+        assert linked_backend._workspace.load_version("held.png", side) == held
+        assert linked_backend._workspace.file_size("held.png", side) == len(
+            held
+        )
+        assert linked_backend._workspace.load_versions(
+            (("held.png", side, None, None),)
+        ) == (held,)
 
     # Restore default storage to exercise the shared common directory too.
     relocated.rename(held_path)
@@ -746,7 +790,7 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
         check=True,
         capture_output=True,
     )
-    assert linked_backend.load_version("held.png", "HEAD") == held
+    assert linked_backend._workspace.load_version("held.png", "HEAD") == held
 
 
 def test_submodule_sides_load_as_their_commit_ids(tmp_path: Path) -> None:
@@ -802,36 +846,56 @@ def test_submodule_sides_load_as_their_commit_ids(tmp_path: Path) -> None:
     )
     (outer / "sub" / "scratch.txt").write_text("dirty\n", encoding="utf-8")
 
-    backend = GitBackend.discover(cwd=outer)
-    (moved,) = backend.repo_diff(
+    backend = GitRepository.discover(cwd=outer)
+    (moved,) = backend._workspace.list_changes(
         left="HEAD", right="worktree", show_untracked=True
     ).paths
     assert (moved.left_path, moved.right_path) == ("sub", "sub")
     assert moved.change_type == "modify"
-    assert (moved.left_mode, moved.right_mode) == ("160000", "160000")
+    assert (
+        moved.left_properties is not None and moved.right_properties is not None
+    )
+    assert (moved.left_properties.kind, moved.right_properties.kind) == (
+        "repository_reference",
+        "repository_reference",
+    )
     assert moved.left_object_id == second
     for side in ("HEAD", "index", "worktree"):
-        assert backend.file_mode("sub", side) == "160000"
-    assert backend.load_versions(
-        (("sub", "HEAD"), ("sub", "index"), ("sub", "worktree"))
+        assert backend._workspace.file_mode("sub", side) == "160000"
+    assert backend._workspace.load_versions(
+        (
+            ("sub", "HEAD", None, None),
+            ("sub", "index", None, None),
+            ("sub", "worktree", None, None),
+        )
     ) == (
         f"{second}\n".encode(),
         f"{second}\n".encode(),
         f"{first}\n".encode(),
     )
-    assert backend.load_version("sub", "worktree") == f"{first}\n".encode()
+    assert (
+        backend._workspace.load_version("sub", "worktree")
+        == f"{first}\n".encode()
+    )
     # Size inspection precedes link-target loading, so a gitlink must report
     # its materialized size, the commit id line, on every side.
     for side in ("HEAD", "index", "worktree"):
-        assert backend.file_size("sub", side) == len(second) + 1
+        assert backend._workspace.file_size("sub", side) == len(second) + 1
 
     subprocess.run(
         ["git", "add", "sub"], cwd=outer, check=True, capture_output=True
     )
-    (staged,) = backend.repo_diff(left="HEAD", right="index").paths
+    (staged,) = backend._workspace.list_changes(
+        left="HEAD", right="index"
+    ).paths
     assert (staged.left_object_id, staged.right_object_id) == (second, first)
-    assert backend.load_version("sub", "index") == f"{first}\n".encode()
-    assert backend.repo_diff(left="index", right="worktree").paths == ()
+    assert (
+        backend._workspace.load_version("sub", "index") == f"{first}\n".encode()
+    )
+    assert (
+        backend._workspace.list_changes(left="index", right="worktree").paths
+        == ()
+    )
 
     # Back on the committed revision, the leftover file inside the submodule
     # still makes it dirty, which is not an outer change.
@@ -846,7 +910,7 @@ def test_submodule_sides_load_as_their_commit_ids(tmp_path: Path) -> None:
     )
     assert (outer / "sub" / "scratch.txt").exists()
     assert (
-        backend.repo_diff(
+        backend._workspace.list_changes(
             left="HEAD", right="worktree", show_untracked=True
         ).paths
         == ()
@@ -902,19 +966,30 @@ def test_submodule_replaced_by_a_regular_file_loads_both_sides(
     )
     (outer / "gone").write_text("plain file now\n", encoding="utf-8")
 
-    backend = GitBackend.discover(cwd=outer)
+    backend = GitRepository.discover(cwd=outer)
     entries = {
         entry.right_path: entry
-        for entry in backend.repo_diff(left="HEAD", right="worktree").paths
+        for entry in backend._workspace.list_changes(
+            left="HEAD", right="worktree"
+        ).paths
     }
     # Removing the submodule also rewrote `.gitmodules`.
     assert set(entries) == {"gone", ".gitmodules"}
     replaced = entries["gone"]
     assert replaced.left_path == "gone"
-    assert (replaced.left_mode, replaced.right_mode) == ("160000", "100644")
-    assert backend.file_mode("gone", "HEAD") == "160000"
-    assert backend.file_mode("gone", "worktree") == "100644"
-    assert backend.load_versions((("gone", "HEAD"), ("gone", "worktree"))) == (
+    assert (
+        replaced.left_properties is not None
+        and replaced.right_properties is not None
+    )
+    assert (replaced.left_properties.kind, replaced.right_properties.kind) == (
+        "repository_reference",
+        "file",
+    )
+    assert backend._workspace.file_mode("gone", "HEAD") == "160000"
+    assert backend._workspace.file_mode("gone", "worktree") == "100644"
+    assert backend._workspace.load_versions(
+        (("gone", "HEAD", None, None), ("gone", "worktree", None, None))
+    ) == (
         f"{inner_id}\n".encode(),
         b"plain file now\n",
     )
@@ -955,31 +1030,34 @@ def test_untracked_embedded_repositories_list_as_gitlinks(
     (tmp_path / "plain-dir").mkdir()
     (tmp_path / "plain-dir" / "note.txt").write_text("n\n", encoding="utf-8")
 
-    backend = GitBackend.discover(cwd=tmp_path)
+    backend = GitRepository.discover(cwd=tmp_path)
     entries = {
         entry.right_path: entry
-        for entry in backend.repo_diff(
+        for entry in backend._workspace.list_changes(
             left="HEAD", right="worktree", show_untracked=True
         ).paths
     }
     assert set(entries) == {"embedded", "hollow", "plain-dir/note.txt"}
     assert all(entry.untracked for entry in entries.values())
-    assert entries["embedded"].right_mode == "160000"
-    assert entries["hollow"].right_mode == "160000"
-    assert entries["plain-dir/note.txt"].right_mode == "100644"
-    assert backend.file_mode("embedded", "worktree") == "160000"
+    assert entries["embedded"].right_properties is not None
+    assert entries["embedded"].right_properties.kind == "repository_reference"
+    assert entries["hollow"].right_properties is not None
+    assert entries["hollow"].right_properties.kind == "repository_reference"
+    assert entries["plain-dir/note.txt"].right_properties is not None
+    assert entries["plain-dir/note.txt"].right_properties.kind == "file"
+    assert backend._workspace.file_mode("embedded", "worktree") == "160000"
     with pytest.raises(DirdiffError):
-        backend.file_mode("plain-dir", "worktree")
+        backend._workspace.file_mode("plain-dir", "worktree")
 
-    embedded, hollow, plain = backend.load_versions(
+    embedded, hollow, plain = backend._workspace.load_versions(
         (
-            ("embedded", "worktree"),
-            ("hollow", "worktree"),
-            ("plain-dir", "worktree"),
+            ("embedded", "worktree", None, None),
+            ("hollow", "worktree", None, None),
+            ("plain-dir", "worktree", None, None),
         )
     )
     assert embedded == f"{embedded_id}\n".encode()
     assert isinstance(hollow, DirdiffError)
     assert "hollow" in str(hollow) and "HEAD" in str(hollow)
     assert isinstance(plain, DirdiffError)
-    assert backend.load_version("embedded", "worktree") == embedded
+    assert backend._workspace.load_version("embedded", "worktree") == embedded

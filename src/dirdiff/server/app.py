@@ -470,6 +470,7 @@ def create_app(
     agent_skills_root: Path,
     room_lord: RoomLord,
     presets_root: str,
+    store_path: Path,
 ) -> FastAPI:
     """Create the dirdiff FastAPI app and wire request orchestration.
 
@@ -489,6 +490,9 @@ def create_app(
       onboarding.
     - `room_lord`: Application boundary for Room selection and Snapshot lookup.
     - `presets_root`: Exact catalog root selected before app construction.
+    - `store_path`: Exact Snapshot root used to construct `room_lord`; source
+      setup needs this configured path to reject persistence inside reviewed
+      inputs. It must match the supplied RoomLord configuration.
 
     # Usage
 
@@ -517,12 +521,14 @@ def create_app(
         agent_skills_root=agent_skills_root,
         room_lord=room_lord,
         presets_root=presets_root,
+        store_path=store_path,
     )
     repo_routes = RepoRoutes(db)
     diff_routes = DiffRoutes(
         db,
         room_lord=room_lord,
         presets_root=presets_root,
+        store_path=store_path,
     )
 
     app = FastAPI()
@@ -573,6 +579,7 @@ def _create_runtime_app() -> FastAPI:
         agent_skills_root=Path(config.agent_skills_path),
         room_lord=room_lord,
         presets_root=config.presets_root,
+        store_path=Path(config.store_path),
     )
 
 

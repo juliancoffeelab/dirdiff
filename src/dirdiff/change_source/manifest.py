@@ -1,10 +1,10 @@
-"""Build manifest trees and lazy-File metadata from backend path facts.
+"""Build manifest trees and lazy-File metadata from source path facts.
 
 ## Public interface
 
-`build_repo_manifest_for_paths` turns captured `RepoDiffPath` records into the
+`build_repo_manifest_for_paths` turns captured `ManifestPath` records into the
 manifest consumed by the HUD. `build_lazy_info_for_paths` selects the deferred
-Files from those same records. The File-kind helpers translate backend change
+Files from those same records. The File-kind helpers translate source change
 metadata into the public provenance union.
 
 ## Purpose and boundaries
@@ -17,15 +17,15 @@ Snapshot id added by the HTTP boundary.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Literal
 
-from dirdiff.backend.base import (
-    GitFileStatus,
+from dirdiff.change_source.base import (
+    FileStatus,
     LazyInfo,
     LazyInfoFile,
     LazyReason,
-    RepoDiffPath,
     RepoFileKind,
     RepoManifest,
     RepoManifestDirectoryNode,
@@ -33,8 +33,40 @@ from dirdiff.backend.base import (
     RepoManifestFileNode,
     RepoManifestSummary,
     RepoManifestTreeEntry,
-    WorkspaceBackendProtocol,
 )
+
+
+@dataclass(frozen=True)
+class ManifestPath:
+    """Present one retained File pair without source-only mode or object ids.
+
+    Room reconstructs this value from persisted paths and File metadata.
+    Manifest builders use it for display and lazy policy only; it cannot be
+    passed to `dirdiff.change_source.ChangeSourceProtocol.load`.
+    """
+
+    left_path: str | None
+    """Persisted repository-local left path, absent for an added File."""
+
+    right_path: str | None
+    """Persisted repository-local right path, absent for a deleted File."""
+
+    display_name: str
+    """Source File label for display; side paths address the captured File."""
+
+    change_type: Literal["modify", "add", "delete", "rename", "copy"]
+    """Persisted source relationship used for manifest status and counts."""
+
+    lazy_reason_override: LazyReason | None
+    """Persisted source policy, absent when manifest policy decides laziness."""
+
+    untracked: bool
+    """Whether the File is additional to the source's recorded change set."""
+
+    def __post_init__(self) -> None:
+        """Require one present path for a displayed File."""
+        assert self.left_path is not None or self.right_path is not None
+
 
 GENERATED_FILES = frozenset(
     {
@@ -54,10 +86,10 @@ GENERATED_FILES = frozenset(
 """Case-folded lockfile names that manifest construction defers by default.
 
 `_lazy_reason_for_repo_entry` compares only the final component of either side
-path. A backend's explicit lazy reason takes precedence over this classification.
+path. A source's explicit lazy reason takes precedence over this classification.
 """
-GIT_FILE_STATUS_BY_CHANGE_TYPE: dict[
-    Literal["modify", "add", "delete", "rename", "copy"], GitFileStatus
+FILE_STATUS_BY_CHANGE_TYPE: dict[
+    Literal["modify", "add", "delete", "rename", "copy"], FileStatus
 ] = {
     "modify": "modified",
     "add": "added",
@@ -65,83 +97,84 @@ GIT_FILE_STATUS_BY_CHANGE_TYPE: dict[
     "rename": "renamed",
     "copy": "copied",
 }
-"""Translate backend change relationships to the public Git File vocabulary.
+"""Translate source change relationships to the public File status vocabulary.
 
 Both eager manifest entries and focused lazy File responses use this complete
-mapping. An unsupported backend change type is a contract violation and raises
+mapping. An unsupported source change type is a contract violation and raises
 `KeyError` rather than producing substitute metadata.
 """
 
 __all__ = [
+    "ManifestPath",
     "RepoManifest",
     "build_lazy_info_for_paths",
-    "build_repo_manifest_for_backend",
     "build_repo_manifest_for_paths",
     "file_kind_for_change_type",
 ]
 
 
-def file_kind_for_repo_entry(entry: RepoDiffPath) -> RepoFileKind:
-    """Encode one backend File pair in the manifest provenance union.
+def file_kind_for_repo_entry(entry: ManifestPath) -> RepoFileKind:
+    """Encode one source File pair in the manifest provenance union.
 
-    Untracked entries select the untracked variant. Every tracked entry maps its
-    change relationship through the complete Git status table.
+    Untracked entries select the untracked variant. Every recorded entry maps
+    its change relationship through the complete source status table.
 
     # Usage
 
-    Manifest and lazy-info builders call this for each `RepoDiffPath`. Preserve
+    Manifest and lazy-info builders call this for each `ManifestPath`. Preserve
     the untracked discriminator instead of inferring provenance from the change
     type or missing side.
 
     # Failures
 
-    A tracked entry with a change type outside the declared `RepoDiffPath`
+    A recorded entry with a change type outside the declared `ManifestPath`
     contract raises `KeyError`.
     """
     if entry.untracked:
         return {"type": "untracked"}
     return {
-        "type": "git",
-        "status": GIT_FILE_STATUS_BY_CHANGE_TYPE[entry.change_type],
+        "type": "recorded",
+        "status": FILE_STATUS_BY_CHANGE_TYPE[entry.change_type],
     }
 
 
 def file_kind_for_change_type(
     change_type: Literal["modify", "add", "delete", "rename", "copy"],
     *,
-    file_kind: Literal["git", "untracked"] | None = None,
+    file_kind: Literal["recorded", "untracked"] | None = None,
 ) -> RepoFileKind:
     """Encode captured change metadata in the manifest File-kind contract.
 
     # Parameters
 
-    - `change_type`: Captured backend relationship between the File sides.
-    - `file_kind`: Provenance override; `untracked` omits Git status metadata.
+    - `change_type`: Captured source relationship between the File sides.
+    - `file_kind`: Provenance override; `untracked` omits source status metadata.
 
-    The default and explicit `git` cases require a recognized change type.
+    The default and explicit `recorded` cases require a recognized change type.
 
     # Usage
 
     The focused File endpoint calls this when converting captured Room metadata
     back to the same provenance shape published by the manifest. Pass
-    `untracked` explicitly when the captured File did not come from Git.
+    `untracked` explicitly when the captured File is additional to the recorded
+    change set.
 
     # Failures
 
-    A Git-kind value with an unsupported `change_type` raises `KeyError`.
+    A recorded value with an unsupported `change_type` raises `KeyError`.
     """
     if file_kind == "untracked":
         return {"type": "untracked"}
     return {
-        "type": "git",
-        "status": GIT_FILE_STATUS_BY_CHANGE_TYPE[change_type],
+        "type": "recorded",
+        "status": FILE_STATUS_BY_CHANGE_TYPE[change_type],
     }
 
 
-def _lazy_reason_for_repo_entry(entry: RepoDiffPath) -> LazyReason | None:
-    """Derive the initial loading policy for one backend File pair.
+def _lazy_reason_for_repo_entry(entry: ManifestPath) -> LazyReason | None:
+    """Derive the initial loading policy for one source File pair.
 
-    An explicit backend reason wins, followed by untracked, deleted, and known
+    An explicit source reason wins, followed by untracked, deleted, and known
     generated-file classifications. `None` leaves the File eager.
 
     # Returns
@@ -178,7 +211,7 @@ def _empty_repo_summary() -> RepoManifestSummary:
     """Create the mutable starting summary for one manifest build.
 
     File counters and skipped Files start at zero. Aggregate line totals start
-    absent and are replaced together from backend or Snapshot metadata.
+    absent and are replaced together from source or Snapshot metadata.
     """
     return {
         "changed_files": 0,
@@ -192,7 +225,7 @@ def _empty_repo_summary() -> RepoManifestSummary:
 
 
 def _to_lazy_info_file_entry(
-    entry: RepoDiffPath, lazy: LazyReason
+    entry: ManifestPath, lazy: LazyReason
 ) -> LazyInfoFile:
     """Expose enough metadata for the frontend to render unloaded file rows.
 
@@ -201,7 +234,7 @@ def _to_lazy_info_file_entry(
 
     # Parameters
 
-    - `entry`: Backend File pair whose metadata is exposed without contents.
+    - `entry`: Source File pair whose metadata is exposed without contents.
     - `lazy`: Concrete reason already derived for that exact entry.
     """
     return {
@@ -319,7 +352,7 @@ def _compact_single_directory_chains(
 
 
 def _build_repo_manifest_tree(
-    entries: list[RepoDiffPath],
+    entries: list[ManifestPath],
 ) -> list[RepoManifestTreeEntry]:
     """Build the ordered, compact directory tree consumed by the File sidebar.
 
@@ -362,55 +395,11 @@ def _build_repo_manifest_tree(
     return _compact_single_directory_chains(_root_files_last(tree_entries))
 
 
-def build_repo_manifest_for_backend(
-    backend: WorkspaceBackendProtocol,
-    *,
-    left: str,
-    right: str,
-    show_untracked: bool = False,
-) -> RepoManifest:
-    """Read one backend diff and build its manifest payload.
-
-    # Parameters
-
-    - `backend`: Backend used to normalize sides and list affected Files.
-    - `left`: User-facing left side accepted by that backend.
-    - `right`: User-facing right side accepted by that backend.
-    - `show_untracked`: Whether supported worktree diffs add untracked Files.
-
-    # Usage
-
-    Use this when the caller needs a manifest directly from a backend and does
-    not already have captured `RepoDiffPath` records. Snapshot-backed HTTP code
-    uses `build_repo_manifest_for_paths` so it describes the retained capture.
-
-    # Failures
-
-    Side normalization and backend comparison failures propagate as
-    `DirdiffError`. Invalid path pairs or inconsistent aggregate totals fail in
-    `build_repo_manifest_for_paths`.
-    """
-    normalized_left = backend.normalize_side(left)
-    normalized_right = backend.normalize_side(right)
-    diff = backend.repo_diff(
-        left=normalized_left,
-        right=normalized_right,
-        show_untracked=show_untracked,
-    )
-    return build_repo_manifest_for_paths(
-        left_label=normalized_left,
-        right_label=normalized_right,
-        paths=diff.paths,
-        added_lines=diff.added_lines,
-        removed_lines=diff.removed_lines,
-    )
-
-
 def build_repo_manifest_for_paths(
     *,
     left_label: str,
     right_label: str,
-    paths: list[RepoDiffPath] | tuple[RepoDiffPath, ...],
+    paths: list[ManifestPath] | tuple[ManifestPath, ...],
     added_lines: int | None,
     removed_lines: int | None,
 ) -> RepoManifest:
@@ -421,11 +410,11 @@ def build_repo_manifest_for_paths(
     - `left_label`: Human-readable label for the captured left side.
     - `right_label`: Human-readable label for the captured right side.
     - `paths`: Captured File pairs in the order used to construct the tree.
-    - `added_lines`: Backend-wide added-line total, or `None` if unavailable.
-    - `removed_lines`: Backend-wide removed-line total, or `None` if unavailable.
+    - `added_lines`: Source-wide added-line total, or `None` if unavailable.
+    - `removed_lines`: Source-wide removed-line total, or `None` if unavailable.
 
     Added and removed totals must either both exist or both be absent. They are
-    backend metadata and are not recomputed from rendered bays.
+    source metadata and are not recomputed from rendered bays.
 
     # Usage
 
@@ -466,7 +455,7 @@ def build_repo_manifest_for_paths(
 
 def build_lazy_info_for_paths(
     *,
-    paths: list[RepoDiffPath] | tuple[RepoDiffPath, ...],
+    paths: list[ManifestPath] | tuple[ManifestPath, ...],
 ) -> LazyInfo:
     """Return placeholder metadata for only the paths classified as lazy.
 
@@ -481,7 +470,7 @@ def build_lazy_info_for_paths(
 
     # Failures
 
-    A lazy tracked entry with a change type outside the `RepoDiffPath` contract
+    A lazy recorded entry with a change type outside the `ManifestPath` contract
     raises `KeyError` while its File kind is built.
     """
     files: list[LazyInfoFile] = []

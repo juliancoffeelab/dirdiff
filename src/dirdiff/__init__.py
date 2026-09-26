@@ -1,7 +1,7 @@
 """The Python package for the dirdiff application.
 
 The root has no application-level interface. Import the capability you need
-from its public package, such as `dirdiff.backend`, `dirdiff.db`,
+from its public package, such as `dirdiff.change_source`, `dirdiff.db`,
 `dirdiff.engines`, `dirdiff.formats`, or `dirdiff.rendering`.
 
 ## Purpose and boundaries

@@ -9,7 +9,7 @@ This document maps the Python modules and the responsibilities between them.
 ```text
 CLI
  └─ server
-     ├─ backend
+     ├─ change_source
      ├─ db
      ├─ engines
      ├─ formats
@@ -17,21 +17,44 @@ CLI
 
 formats ──► engines
         └─► rendering
+        └─► change_source data
 
 rendering ──► engines
-backend ──► engine contracts
+change_source ──► engine contracts
 ```
 
 Dependencies do not point from engines into rendering.
 
-## `dirdiff.backend`
+## `dirdiff.change_source`
 
-Provides repository and preset data.
+Provides repository and preset data. `ChangeSourceProtocol` has two operations for one
+selected Tab capture: `changes()` observes ordered `FileChange` records and
+optional aggregate line totals; `load(files)` accepts observed `FileChange`
+records and supplies ordered
+`LoadedFile` results retaining each exact change and named left/right `FileData`
+outcomes. Absent sides remain absent; callers never reconstruct File pairing.
+A present `FileSide` carries a source-local
+`FileKey`, semantic `FileProperties`, and an opaque `content_identity`.
+Properties distinguish regular Files, symbolic links, and references to another
+repository revision; only regular Files can be executable. The key names a
+source slot and canonical repository-local path for semantic File addressing,
+while the opaque identity is stable across captures under the same
+materialization rules. Raw Git modes and object addresses remain private.
 
-It resolves refs, lists changed paths and stable File metadata including each
-present side's Git-compatible mode, reports
-backend-reported aggregate added/removed line counts when available, loads exact
-materialized file contents without decoding their format, and prepares pull requests. Pull Request
+Observation obtains complete identities, acquiring any data required to do so.
+The source retains those acquired results for its one capture lifetime. Later
+`load` calls return the observed data or read the exact listed immutable version;
+they do not reread mutable sides. Acquisition order and storage optimizations
+remain private to the source. Expected outer failures are contained by side
+and have their own final content identities. Sources do not compute whole
+Snapshot equality.
+
+`GitChangeSource` and `PresetChangeSource` fix selected inputs at construction.
+A `FileChange` also carries change classification, display label, whether it is
+additional untracked content, and explicit lazy policy with the complete source
+text supplying it. The separate `GitRepository` and `PresetCatalog` interfaces
+prepare refs and picker groups; neither exposes capture storage operations.
+Pull Request
 preparation parses the URL, identifies the marked repository and forge remote,
 retains the forge's recorded target and head SHAs, and fetches those object ids
 directly without moving tracking refs. Content-addressed local refs retain every
@@ -42,10 +65,10 @@ logged and skipped while searching for the matching remote; other inspection
 failures remain visible. Missing objects, unavailable forge metadata, and
 missing history fail explicitly. The result includes the URL,
 exact merge-base and head commits, and observed branch names for HUD display.
-Additional untracked Files need not participate in those backend totals. Loading a listed
-File either returns its complete contents or raises `DirdiffError` with the
-backend failure reason. Workspace backends do not select Rooms, retain state
-between HTTP requests, classify contents for renderers, or invent
+Additional untracked Files need not participate in those backend totals. An
+outer-side loading failure occupies its own `FileData.content` as `DirdiffError`;
+successful siblings remain available. Sources do not select Rooms, retain state
+between captures, classify contents for renderers, or invent
 renderer-dependent line counts.
 
 Git loading expands canonical LFS v1 SHA-256 pointers from local storage,
@@ -58,14 +81,21 @@ Missing objects include a manual fetch hint. No download or filter runs.
 Single and batch loading share this behavior. Size inspection reads small
 candidate pointers to report payload size without loading that payload.
 
-Loading stops at bytes. A link loads as its raw target bytes, and the backend can
-report the mode and materialized size, then load any normalized
-repository-local path reached while Snapshot capture walks that link. What
+Loading stops at bytes. The source walks links inside the same selected side,
+retains the raw outer bytes and nested link facts, and checks the exact
+materialized terminal size before and after loading against the caller's bound.
+Expected target failures become a terminal diagnosis on a successful
+`FileData`; unexpected failures propagate. What
 final bytes are — text, a notebook, an image — is `dirdiff.formats`' decision,
 and the definition of what this project calls text lives there with the
 classification that asks it.
 
-Its public interface is exported from `dirdiff.backend`.
+Manifest File classification is source-independent. The `recorded` variant
+carries a File status from the selected recorded change set, including preset
+fixtures; `untracked` identifies additional content. Neither variant identifies
+a VCS implementation or implies successful capture.
+
+Its public interface is exported from `dirdiff.change_source`.
 
 ## `dirdiff.engines`
 
@@ -296,8 +326,8 @@ Its first text bay contains only the outer link payload. A collapsed second bay
 contains safely reached target bytes or a stopped-walk diagnosis: text and blob
 facts stay text, images keep the picture, and notebooks flatten to script-like
 text without outputs. Nested textual links become `# %% path` sections in that
-target document. Link traversal and the repository jail belong to Snapshot
-capture, never the composer.
+target document. Link traversal and the source-path boundary belong to the
+change source, never the composer or Snapshot publication.
 
 The facts are the same three lines in both builders — `type:`, `size:`, and
 `sha256:`, one per line — and the ordinary engine diffs them, so a reviewer
@@ -371,19 +401,19 @@ Exposes `RoomLord` and `Room`. `RoomLord.corresponding_room` applies a Tab's law
 for the shared manifest/agent-review capture and returns the Room and current
 Snapshot key separately;
 `RoomLord.find_room` recovers a Room from an existing Snapshot key for follow-up
-operations. RoomLord does nothing beyond handing out Rooms. Room methods
-require that key explicitly while providing metadata, manifested filepath
+operations. RoomLord selects Rooms and publishes supplied source observations.
+Room methods require that key explicitly while providing metadata, manifested filepath
 iteration, direct captured-file lookup, and Thread access through `threads`,
 `get_thread`, `thread_for_comment`, and `create_thread`; Comment and lifecycle
 writes belong to the returned bound Threads. The agent boundary also uses the
-Room's explicit activity reads, atomic review batch, persisted-Tab
-`capture_context` and `recapture`, and read-only `path_for_snapshot` access to the
-already published Snapshot directory. Capture walks symlink sides iteratively,
-stops before a repeated normalized path, refuses targets outside the repository,
-and asks the backend for final-target size before reading it. Targets through
-1 MiB are published beside the raw link side; capture also checks the returned
-byte count so a concurrently changed target cannot escape the bound. Larger
-targets stop with a visible diagnosis. Capture and publication stores remain
+Room's explicit activity reads, atomic review batch, complete persisted
+`capture_context`, `RoomLord.recapture` orchestration, and read-only
+`path_for_snapshot` access to the already published Snapshot directory.
+Concrete source setup supplies the 1 MiB reached-link limit at construction. RoomLord captures and persists the source's raw
+bytes and link facts. The source stops before
+a repeated normalized path, refuses targets outside the repository, and checks
+the terminal size before and after reading. Larger targets stop with a visible
+diagnosis. Capture and publication stores remain
 private. `Room.get`
 authenticates the raw side and the exact link sidecars named by persistence,
 returning parsed link facts with the captured path. The module calls
@@ -391,6 +421,15 @@ returning parsed link facts with the captured path. The module calls
 
 The Room and Snapshot lifecycle is described in
 [`rooms.md`](rooms.md).
+
+Room correspondence receives only prepared law facts, an already constructed
+`ChangeSourceProtocol`, and display/diagnostic labels. Head and Refs state
+identities are opaque; Branch Review symbolic identities are caller-owned
+non-null JSON values; Pull Request uses its URL; Preset uses catalog/group ids.
+`Room.capture_context` decodes every retained fact for concrete continuation
+setup. Source setup validates revisions and physical placement outside this
+module. RoomLord recapture preserves the original Room identity and verifies
+that the Room belongs to its database and capture-store context.
 
 ## `dirdiff.review`
 
@@ -444,8 +483,8 @@ diagnostic. Release requires and serves the installed HUD entry and asset
 directory. The complete installation and launch contract is documented in
 [`release.md`](release.md).
 
-It validates HTTP inputs and outputs, constructs the concrete workspace backend,
-calls `RoomLord` for manifests and follow-up Snapshot lookup, asks
+It validates HTTP inputs and outputs, prepares the selected concrete source
+and correspondence facts, calls `RoomLord` for manifests and follow-up Snapshot lookup, asks
 `dirdiff.engines` for the renderer a request names, and builds one composed diff
 per File through `dirdiff.formats`, attaching the manifest's display name and
 file kind to the returned envelope. Snapshot-context browser review

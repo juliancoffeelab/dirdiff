@@ -10,7 +10,7 @@ porcelain word patch for two strings.
 No-index mode gives any loaded text pair Git's diff algorithm without tying the
 engine to a repository. Path hints name temporary files but never authorize a
 filesystem read. Repository refs and File loading therefore remain in
-`dirdiff.backend`; row construction and engine behavior remain in
+`dirdiff.change_source`; row construction and engine behavior remain in
 `dirdiff.engines.git.logic`.
 """
 

@@ -1,11 +1,11 @@
-"""Read preset fixture catalogs through the backend contract.
+"""Prepare preset catalog choices and observe selected fixture Files.
 
 ## Public interface
 
 `preset_catalogs` lists the catalogs available below one presets root.
 `PresetCatalogDir` carries each catalog's id, label, and directory.
-`PresetBackend` lists one selected catalog's fixture groups and exposes their
-old/new files through `WorkspaceBackendProtocol`.
+`PresetCatalog` lists selectable groups. `PresetChangeSource` reads one selected
+group through `ChangeSourceProtocol.changes` and `ChangeSourceProtocol.load`.
 
 ## Purpose and boundaries
 
@@ -21,25 +21,32 @@ import os
 import posixpath
 import stat
 import tomllib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Never, TypeIs, override
+from typing import TypeIs, override
 
-from dirdiff.backend.base import (
-    SYMLINK_MODE,
-    BranchSelection,
+from dirdiff.change_source.base import (
+    ChangeSourceProtocol,
+    FileChange,
+    FileProperties,
     LazyReason,
+    ListedChanges,
+    ListedPath,
+    LoadedFile,
     PresetGroup,
-    RepoDiff,
-    RepoDiffPath,
     SideName,
-    WorkspaceBackendProtocol,
+    SourceFiles,
+    StorageFile,
+    WorkspaceChanges,
+    WorkspaceStorageProtocol,
 )
 from dirdiff.engines import DirdiffError
 
 __all__ = [
-    "PresetBackend",
+    "PresetCatalog",
     "PresetCatalogDir",
+    "PresetChangeSource",
     "preset_catalogs",
 ]
 
@@ -72,7 +79,7 @@ class PresetCatalogDir:
     """Describe one preset catalog discovered below the presets root.
 
     Catalog discovery returns these records to the picker and manifest
-    boundary. A caller constructs `PresetBackend` with `root` to inspect the
+    boundary. A caller constructs `PresetCatalog` with `root` to inspect the
     catalog's groups and fixtures.
 
     This is directory metadata. It holds no group listing, no fixture, and no
@@ -93,10 +100,10 @@ class PresetCatalogDir:
     """
 
     root: Path
-    """Catalog directory path used to construct `PresetBackend`.
+    """Catalog directory path used to construct `PresetCatalog`.
 
     Discovery preserves the `presets_root` spelling supplied by its caller;
-    `PresetBackend` resolves the path when constructed. The record does not
+    `PresetCatalog` resolves the path when constructed. The record does not
     promise the directory remains available after the catalog scan.
     """
 
@@ -115,17 +122,17 @@ def preset_catalogs(presets_root: Path) -> tuple[PresetCatalogDir, ...]:
     # Usage
 
     The server calls this on each catalog-listing operation, then constructs a
-    `PresetBackend` from the selected record's `root`. Adding a valid catalog
+    `PresetCatalog` from the selected record's `root`. Adding a valid catalog
     therefore requires no server restart.
 
     A fixture directory may also hold a `preset.toml`, with a `lazy_reason` key
     and no `name`. The two live at different depths and are read by different
-    callers; `PresetBackend.lazy_reason_metadata` reads the other one.
+    callers; `PresetChangeSource.changes` reads the other one.
 
     # Returns
 
     - Each item contains one immediate directory's `catalog_id`, configured
-      display name, and root path suitable for constructing `PresetBackend`.
+      display name, and root path suitable for constructing `PresetCatalog`.
     - Items are ordered by `catalog_id`. An empty tuple means the presets root
       is absent or contains no catalog directories; fixtures are never expanded.
 
@@ -162,77 +169,19 @@ def preset_catalogs(presets_root: Path) -> tuple[PresetCatalogDir, ...]:
     return tuple(catalogs)
 
 
-class PresetBackend(WorkspaceBackendProtocol):
-    """Expose one preset catalog through `WorkspaceBackendProtocol`.
+class _PresetWorkspace(WorkspaceStorageProtocol):
+    """Supply private fixture storage for one selected catalog.
 
-    # Usage
-
-    Construct one backend from the `root` returned by `preset_catalogs`. Use a
-    group id as the left side and `new` as the right side, then follow the same
-    `repo_diff` and loading flow used for other workspace backends.
-
-    The backend reads one catalog and does not enumerate its siblings. Presets
-    have no repository refs or aggregate line counts.
+    `PresetCatalog` uses this to list groups; `PresetChangeSource` uses it for
+    discovery and shared side loading. A group id selects fixture discovery,
+    while each canonical catalog-local path identifies its exact side data.
+    This object does not enumerate sibling catalogs, expose repository refs,
+    or compute aggregate line counts.
     """
 
-    def __init__(self, presets_root: Path, *, cwd: Path | None = None) -> None:
-        """Bind this backend to one preset catalog and command directory.
-
-        # Parameters
-
-        - `presets_root`: Catalog directory containing fixture groups.
-        - `cwd`: Stable command directory, defaulting to the process directory.
-
-        # Usage
-
-        Pass `PresetCatalogDir.root` for the catalog selected by the caller.
-
-        # Failures
-
-        Construction normalizes both paths but does not read the catalog.
-        Filesystem resolution failures propagate.
-        """
+    def __init__(self, presets_root: Path) -> None:
+        """Bind fixture storage to one absolute catalog root."""
         self.presets_root = presets_root.expanduser().resolve()
-        self._repo_root = self.presets_root
-        selected_cwd = cwd if cwd is not None else Path.cwd()
-        self._cwd = selected_cwd.resolve()
-
-    @property
-    @override
-    def repo_root(self) -> Path | None:
-        """Return the stored absolute preset catalog root without filesystem work.
-
-        Preset backends always have a root even when the directory later becomes
-        unavailable. Catalog reads report that state through their own contract.
-
-        # Usage
-
-        Read this when Snapshot storage must stay outside fixture input. Access
-        performs no filesystem work and has no expected failure.
-
-        # Returns
-
-        - The absolute catalog root retained at construction. This concrete
-          backend always has one.
-        - `None`: Never returned by `PresetBackend`; the shared protocol allows
-          it only for a backend not bound to a repository-like root.
-        """
-        return self._repo_root
-
-    @property
-    @override
-    def cwd(self) -> Path:
-        """Return the stored absolute command directory without filesystem work.
-
-        It is fixed at construction and does not change when fixture paths are
-        read from the preset catalog.
-
-        # Usage
-
-        External renderers may reuse this command directory. Access performs no
-        filesystem work and has no expected failure.
-        """
-        return self._cwd
 
     def _preset_group_dirs(self) -> list[Path]:
         """List immediate catalog directories in stable path order.
@@ -253,11 +202,11 @@ class PresetBackend(WorkspaceBackendProtocol):
 
         One listing globs every fixture directory exactly once; validity means
         at most one old.* and at most one new.* file, with at least one of them
-        present. A fixture holding only one side is a File the comparison adds
+        present. A fixture holding only one side is a File the Tab adds
         or deletes, which is an ordinary shape a preset must be able to
         express. Callers reuse the returned pairs instead of re-globbing per
         fixture, which measured 84 directory traversals for a single preset
-        repo_diff.
+        list_changes.
 
         # Returns
 
@@ -413,12 +362,12 @@ class PresetBackend(WorkspaceBackendProtocol):
 
         `repository_path` must identify one old/new fixture inside this preset
         catalog. Absence of `preset.toml` returns `None`; malformed metadata is
-        rejected through the same backend error contract as path listing.
+        rejected through the same source error contract as path listing.
 
         # Usage
 
-        `repo_diff` calls this with the present side path while building each
-        `RepoDiffPath`. A caller that receives a value must retain both the
+        `list_changes` calls this with the present side path while building each
+        `ListedPath`. A caller that receives a value must retain both the
         narrowed reason and the exact metadata text.
 
         This is the fixture-level `preset.toml`, which states a `lazy_reason`.
@@ -453,14 +402,13 @@ class PresetBackend(WorkspaceBackendProtocol):
             raise DirdiffError(f"Unsupported preset lazy_reason: {reason!r}")
         return reason, content
 
-    @override
     def normalize_side(self, raw_side: str) -> SideName:
         """Normalize the built-in right side or one selectable left-side group.
 
         # Usage
 
         Normalize the selected group and literal `new` before calling
-        `repo_diff` on this same instance.
+        `list_changes` on this same instance.
 
         # Failures
 
@@ -472,74 +420,20 @@ class PresetBackend(WorkspaceBackendProtocol):
             return side
         return self._preset_group_name(side)
 
-    @override
-    def discover_default_path(self) -> str:
-        """Pick the first fixture's path for single-file startup mode.
-
-        # Usage
-
-        Single-File startup calls this when no fixture path was supplied, then
-        passes the result back through `normalize_repo_path`.
-
-        The old side when the fixture has one, and the new side otherwise: a
-        fixture describing an addition has no old file to open, and startup
-        must still name a File that exists.
-
-        # Failures
-
-        An unavailable or empty catalog raises `DirdiffError`; filesystem
-        iteration failures propagate.
-        """
-        preset_group = self.default_preset_name()
-        preset_dir, old_path, new_path = self._fixture_pairs_for_group(
-            preset_group
-        )[0]
-        side_path = old_path if old_path is not None else new_path
-        assert side_path is not None, (
-            "a listed fixture has at least one present side"
-        )
-        return f"{preset_group}/{preset_dir.name}/{side_path.name}"
-
-    @override
-    def resolve_branch_diff_sides(
-        self,
-        *,
-        base_selection: BranchSelection,
-        review_selection: BranchSelection,
-    ) -> Never:
-        """Reject branch-review resolution for preset-backed fixtures.
-
-        # Parameters
-
-        - `base_selection`: Unused branch base supplied through the shared protocol.
-        - `review_selection`: Unused review branch supplied through the protocol.
-
-        # Usage
-
-        Do not call this method on `PresetBackend`. Callers must select a Git
-        backend before offering Branch Review or resolving its branch sides.
-
-        # Failures
-
-        Presets have no repository refs, so this always raises `DirdiffError`.
-        """
-        raise DirdiffError("Preset backend does not support branch review.")
-
-    @override
-    def repo_diff(
+    def list_changes(
         self,
         *,
         left: SideName,
         right: SideName,
         show_untracked: bool = False,
-    ) -> RepoDiff:
+    ) -> ListedChanges:
         """Return each fixture pair and explicitly absent aggregate totals.
 
         A fixture holding both sides is a modification, one holding only a
         new.* file is an addition, and one holding only an old.* file is a
         deletion. The change type is read from which files exist rather than
         declared anywhere, so a fixture directory is the whole statement of
-        what the comparison does to that File.
+        what the Tab does to that File.
 
         # Parameters
 
@@ -574,7 +468,7 @@ class PresetBackend(WorkspaceBackendProtocol):
             raise DirdiffError(
                 f"Preset group has no fixtures: {normalized_left}"
             )
-        entries: list[RepoDiffPath] = []
+        entries: list[ListedPath] = []
         for preset_dir, old_path, new_path in pairs:
             prefix = f"{normalized_left}/{preset_dir.name}"
             left_side = (
@@ -584,7 +478,7 @@ class PresetBackend(WorkspaceBackendProtocol):
                 None if new_path is None else f"{prefix}/{new_path.name}"
             )
             # The File is named by the side it ends on, and by the side it
-            # started on when the comparison deletes it. Metadata is read from
+            # started on when the Tab deletes it. Metadata is read from
             # the same path: it lives beside both sides in the fixture
             # directory, so either one reaches it.
             display_name = right_side if right_side is not None else left_side
@@ -593,7 +487,7 @@ class PresetBackend(WorkspaceBackendProtocol):
             )
             lazy_reason = self.lazy_reason_metadata(display_name)
             entries.append(
-                RepoDiffPath(
+                ListedPath(
                     left_path=left_side,
                     right_path=right_side,
                     display_name=display_name,
@@ -607,20 +501,27 @@ class PresetBackend(WorkspaceBackendProtocol):
                     lazy_reason_override=(
                         lazy_reason[0] if lazy_reason is not None else None
                     ),
-                    left_mode=(
+                    lazy_metadata_content=(
+                        lazy_reason[1] if lazy_reason is not None else None
+                    ),
+                    left_properties=(
                         None
                         if old_path is None
-                        else self.file_mode(f"{prefix}/{old_path.name}", left)
+                        else self.file_properties(
+                            f"{prefix}/{old_path.name}", left
+                        )
                     ),
-                    right_mode=(
+                    right_properties=(
                         None
                         if new_path is None
-                        else self.file_mode(f"{prefix}/{new_path.name}", right)
+                        else self.file_properties(
+                            f"{prefix}/{new_path.name}", right
+                        )
                     ),
                 )
             )
         assert not show_untracked, "preset diffs do not support untracked Files"
-        return RepoDiff(tuple(entries), None, None)
+        return ListedChanges(tuple(entries), None, None)
 
     @override
     def normalize_repo_path(self, raw_path: str) -> str:
@@ -628,7 +529,7 @@ class PresetBackend(WorkspaceBackendProtocol):
 
         # Usage
 
-        Pass catalog paths returned by `repo_diff` or formed while following a
+        Pass catalog paths returned by `list_changes` or formed while following a
         fixture link before direct loading.
 
         # Failures
@@ -659,8 +560,8 @@ class PresetBackend(WorkspaceBackendProtocol):
         return normalized
 
     @override
-    def file_mode(self, path: str, side: SideName) -> str:
-        """Return one fixture path's Git-compatible File mode without following links.
+    def file_properties(self, path: str, side: SideName) -> FileProperties:
+        """Return one fixture path's semantic properties without following links.
 
         The normalized path may name the old/new fixture itself or an auxiliary
         target reached from a fixture link. `side` is retained by the shared
@@ -669,7 +570,7 @@ class PresetBackend(WorkspaceBackendProtocol):
         # Parameters
 
         - `path`: Normalized fixture or auxiliary-target path to inspect.
-        - `side`: Preset side retained for the shared backend interface.
+        - `side`: Preset side retained for the shared storage contract.
 
         # Failures
 
@@ -687,12 +588,12 @@ class PresetBackend(WorkspaceBackendProtocol):
                 f"Could not inspect preset file {normalized}: {exc}"
             ) from exc
         if stat.S_ISLNK(mode):
-            return SYMLINK_MODE
+            return FileProperties("symbolic_link", False)
         if not stat.S_ISREG(mode):
             raise DirdiffError(
                 f"Preset path is not a regular file or symbolic link: {normalized}"
             )
-        return "100755" if mode & stat.S_IXUSR else "100644"
+        return FileProperties("file", bool(mode & stat.S_IXUSR))
 
     @override
     def file_size(self, path: str, side: SideName) -> int:
@@ -701,12 +602,12 @@ class PresetBackend(WorkspaceBackendProtocol):
         The normalized path may name an old/new fixture or an auxiliary target
         reached from a fixture link. Filesystem inspection does not follow
         links; link size is the byte length of its raw target payload. `side`
-        remains present only for the shared backend interface.
+        remains present only for the shared storage contract.
 
         # Parameters
 
         - `path`: Normalized fixture or auxiliary-target path to inspect.
-        - `side`: Preset side retained for the shared backend interface.
+        - `side`: Preset side retained for the shared storage contract.
 
         # Failures
 
@@ -746,7 +647,7 @@ class PresetBackend(WorkspaceBackendProtocol):
 
         # Usage
 
-        Load a present path returned by this backend or reached through a
+        Load a present path returned by this catalog storage or reached through a
         fixture link. `side` does not select a different fixture File.
 
         # Failures
@@ -790,18 +691,19 @@ class PresetBackend(WorkspaceBackendProtocol):
 
     @override
     def load_versions(
-        self, requests: tuple[tuple[str, SideName], ...]
+        self, sides: tuple[StorageFile, ...]
     ) -> tuple[bytes | DirdiffError, ...]:
         """Load fixture sides in order while retaining individual failures.
 
         # Usage
 
-        Snapshot capture supplies present `(path, side)` pairs and consumes the
-        result by position.
+        Source observation supplies `dirdiff.change_source.base.StorageFile` values and consumes results
+        by position. Preset paths identify their concrete fixture sides; they
+        have no immutable storage object id.
 
         # Returns
 
-        - One result position per `(path, side)` input, preserving input order.
+        - One result position per private side input, preserving input order.
         - A `bytes` item is the fixture's exact File content at that position.
         - A `DirdiffError` item describes only that fixture-side failure;
           successful sibling results remain available.
@@ -812,9 +714,190 @@ class PresetBackend(WorkspaceBackendProtocol):
         Unexpected parsing and filesystem exceptions abort the complete batch.
         """
         results: list[bytes | DirdiffError] = []
-        for path, side in requests:
+        for path, side, _properties, _object_id in sides:
             try:
                 results.append(self.load_version(path, side))
             except DirdiffError as exc:
                 results.append(exc)
         return tuple(results)
+
+
+class PresetCatalog:
+    """List selectable fixture groups in one catalog without selecting a Tab.
+
+    Picker callers use the group ids and labels. Capture constructs a separate
+    `PresetChangeSource` for the selected group. This object retains no File
+    bytes or Snapshot state.
+    """
+
+    root: Path
+    """Stable absolute catalog path used for source construction.
+
+    Reading it does no filesystem work. Fixture availability is checked by
+    listing or loading operations after construction.
+    """
+
+    def __init__(self, root: Path) -> None:
+        """Bind group discovery to the selected catalog root.
+
+        # Parameters
+
+        - `root`: Directory from `preset_catalogs`, containing group
+          directories. Construction normalizes it but does not list fixtures.
+        """
+        self.root = root.expanduser().resolve()
+        self._workspace = _PresetWorkspace(self.root)
+
+    def list_preset_groups(self) -> list[PresetGroup]:
+        """List current selectable groups with ids and display names.
+
+        An absent catalog produces no groups. This reads group directories,
+        not catalog TOML; `preset_catalogs()` validates catalog metadata.
+        Filesystem listing failures propagate.
+        """
+        return self._workspace.list_preset_groups()
+
+    def default_preset_name(self) -> str:
+        """Return the first available group id for picker initialization.
+
+        The choice follows the catalog's stable directory order. An empty or
+        unavailable catalog raises `DirdiffError`.
+        """
+        return self._workspace.default_preset_name()
+
+
+class PresetChangeSource(ChangeSourceProtocol):
+    """Observe one fixture group and supply its acquired data for capture.
+
+    Implements `dirdiff.change_source.ChangeSourceProtocol`. See that protocol
+    for observing Files, loading their paired data, and source lifetime.
+
+    # Usage
+
+    Use the catalog root and exact group id selected by the preset picker:
+
+    ```python
+    from dirdiff.change_source import PresetChangeSource
+
+    source = PresetChangeSource(
+        catalog.root,
+        group=selected_group["id"],
+        max_link_target_bytes=1024 * 1024,
+    )
+    changes = source.changes()
+    ```
+
+    Here `catalog` is an existing `PresetCatalog` and `selected_group` is one
+    of its `list_preset_groups()` results.
+
+    # Fixture observation
+
+    `changes()` acquires fixture bytes and link facts to establish complete
+    identities. A later fixture edit or removal cannot change this observation.
+    Source lazy-policy text is read once with discovery, without a later TOML
+    reread. A fresh source is required to observe fixture or policy edits.
+    """
+
+    def __init__(
+        self, catalog_root: Path, *, group: str, max_link_target_bytes: int
+    ) -> None:
+        """Bind one selected catalog group and reached-link policy.
+
+        # Parameters
+
+        - `catalog_root`: Selected catalog directory from `preset_catalogs`.
+        - `group`: Exact group id selected by the picker.
+        - `max_link_target_bytes`: Nonnegative size limit for the reached
+          non-link target, checked before and after reading. Outer content and
+          raw link payloads are unbounded.
+
+        # Usage
+
+        Construction normalizes the root without acquiring fixture data.
+        `changes()` validates and observes the selected group.
+
+        # Failures
+
+        A negative bound raises `AssertionError`. Filesystem path-resolution
+        failures propagate; group availability is checked by `changes()`.
+        """
+        assert max_link_target_bytes >= 0
+        self._workspace = _PresetWorkspace(catalog_root)
+        self._group = group
+        self._max_link_target_bytes = max_link_target_bytes
+        self._files: SourceFiles | None = None
+
+    @override
+    def changes(self) -> WorkspaceChanges:
+        """Observe usable fixture pairs and acquire their side data once.
+
+        # Usage
+
+        Call before `load()`. Ambiguous fixture directories with multiple
+        candidates for a side, and directories with no sides, are skipped.
+        Each accepted fixture supplies its source lazy policy alongside the
+        acquired side data.
+
+        # Returns
+
+        A `dirdiff.change_source.WorkspaceChanges` in fixture presentation order.
+        Both aggregate totals are absent. Fixtures have `untracked=False`
+        because they form the complete selected change set, without asserting
+        VCS tracking. Repeated successful calls return the same observation.
+
+        # Failures
+
+        A missing group or one without usable fixtures raises
+        `dirdiff.engines.DirdiffError`. Invalid policy TOML fails before any
+        partial observation returns. Expected outer read failures belong to
+        their individual sides; readable links with unreachable targets retain
+        a target diagnosis. Unexpected failures propagate.
+        """
+        if self._files is None:
+            self._files = SourceFiles(
+                self._workspace,
+                self._workspace.list_changes(left=self._group, right="new"),
+                left=self._group,
+                right="new",
+                identity_namespace=b"preset-materialized-bytes-v1-links-v1",
+                max_link_target_bytes=self._max_link_target_bytes,
+            )
+        return self._files.changes
+
+    @override
+    def load(self, files: Sequence[FileChange]) -> Sequence[LoadedFile]:
+        """Return the fixture data acquired by this observation without rereading.
+
+        # Parameters
+
+        - `files`: Exact File records from this source's successful `changes()`;
+          membership and ordering follow
+          `dirdiff.change_source.ChangeSourceProtocol.load`.
+
+        # Usage
+
+        A fixture edit or removal after observation cannot replace the acquired
+        data. Construct a new source for a later capture instead of retrying
+        this observation.
+
+        # Returns
+
+        A sequence of `dirdiff.change_source.LoadedFile` in input order, each
+        retaining its exact observed File and named side outcomes. Present sides
+        retain these content outcomes:
+
+        - `bytes` for a successful outer read, with any acquired link facts.
+        - `dirdiff.engines.DirdiffError` for an expected outer read failure,
+          with no link facts.
+
+        Every present side outcome keeps its observed content identity, including
+        failures.
+        No additional fixture or policy reads occur here.
+
+        # Failures
+
+        Calling before successful observation or passing foreign, reconstructed,
+        or unlisted File records raises `AssertionError`.
+        """
+        assert self._files is not None, "changes() must precede load()"
+        return self._files.load(files)

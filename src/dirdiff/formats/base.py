@@ -19,10 +19,10 @@ pre-render `ImageBay`, but never in a serialized payload.
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass
 from typing import Literal, TypedDict
 
+from dirdiff.change_source import CapturedLink
 from dirdiff.engines import (
     DiffEngineProtocol,
     DiffSide,
@@ -48,7 +48,6 @@ __all__ = [
     "BayKindPayload",
     "BayPayload",
     "BayWarning",
-    "CapturedLink",
     "ChangeStatus",
     "ComposeContext",
     "ComposedFilePayload",
@@ -67,63 +66,6 @@ __all__ = [
     "try_decode_text",
     "whole_file_change",
 ]
-
-
-@dataclass(frozen=True)
-class CapturedLink:
-    """Retain nested links, a terminal diagnosis, and reached content.
-
-    The outer link's exact payload remains the ordinary captured side. Each
-    `nested_links` entry records a subsequently visited link's repository path
-    and decoded payload. A stopped walk carries `diagnosis`; a successful walk
-    instead carries the normalized final repository path and exact bytes reached
-    there. Rendering never consults live workspace state.
-    """
-
-    nested_links: tuple[tuple[str, str], ...]
-    """Subsequent visited links as `(path, payload)` pairs, each exactly once."""
-
-    diagnosis: str | None
-    """Terminal resolution failure, or `None` when final content was reached."""
-
-    target_path: str | None
-    """Normalized final repository path, or `None` when resolution stopped."""
-
-    target_data: bytes | None
-    """Exact final bytes, or `None` when resolution stopped before content."""
-
-    def __post_init__(self) -> None:
-        """Reject incomplete link captures at their construction boundary."""
-        assert (self.target_path is None) == (self.target_data is None), (
-            "captured link target path and bytes must have equal presence"
-        )
-        assert (self.diagnosis is None) != (self.target_data is None), (
-            "captured link must contain either final bytes or a diagnosis"
-        )
-        assert all(path != "" for path, _payload in self.nested_links), (
-            "captured nested link paths cannot be empty"
-        )
-
-    def identity_bytes(self) -> bytes:
-        """Return an unambiguous encoding for Snapshot content equality."""
-        path = (
-            b""
-            if self.target_path is None
-            else self.target_path.encode("utf-8")
-        )
-        data = b"" if self.target_data is None else self.target_data
-        nested = json.dumps(
-            self.nested_links,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        diagnosis = (
-            b"" if self.diagnosis is None else self.diagnosis.encode("utf-8")
-        )
-        return b"".join(
-            len(part).to_bytes(8, "big") + part
-            for part in (nested, diagnosis, path, data)
-        )
 
 
 class ChangeStatus(TypedDict):

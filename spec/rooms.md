@@ -16,7 +16,14 @@ not know Room identity, Room lifetime, or storage layout.
 `RoomLord` has two distinct lookup operations:
 
 ```python
-corresponding_room(...) -> tuple[Room, UUID]
+corresponding_room(
+    *, mark_id: int | None, selection: CaptureSelection,
+    source: ChangeSourceProtocol, left_label: str, right_label: str,
+) -> tuple[Room, UUID]
+recapture(
+    room: Room, *, source: ChangeSourceProtocol,
+    left_label: str, right_label: str,
+) -> UUID
 find_room(snapshot_id: UUID) -> Room
 ```
 
@@ -28,7 +35,7 @@ separately. Snapshot identity never participates in correspondence.
 
 `find_room` is used by follow-up endpoints. A Snapshot key is globally unique,
 so it finds the containing Room directly without executing a correspondence law
-or reading live backend state.
+or reading live source state.
 
 A Room never stores or implies a selected Snapshot key. Every File and Thread
 operation names the exact state explicitly:
@@ -62,12 +69,15 @@ thread_for_comment(snapshot_id: UUID, comment_id: UUID) -> Thread
 create_thread(snapshot_id: UUID, command: CreateThread) -> Thread
 ```
 
-A Room also continues its own persisted Tab. `capture_context()` exposes the
-persisted facts the HTTP boundary needs to construct the concrete backend and
-any prepared Pull Request commits; `recapture(backend, ...)` captures those
-inputs into a new Snapshot of the same Room; `path_for_snapshot(snapshot_id)`
-returns the already published durable directory of one of this Room's
-Snapshots. RoomLord itself only hands out Rooms.
+`Room.capture_context()` returns the complete persisted `CaptureSelection` and
+Mark id. Source setup interprets those values outside Room, locates the active
+Mark, and constructs a new source. `RoomLord.recapture(room, source=...,
+left_label=..., right_label=...)` publishes it under that Room's original
+correspondence. The Room must belong to the same database and capture-store
+context as RoomLord. Preset continuation remains rejected.
+`Room.path_for_snapshot(snapshot_id)` returns an already published Snapshot
+directory. Neither Room nor RoomLord receives a repository/catalog service or
+live source root, resolves a revision, or constructs a source.
 
 `manifested` yields repository-relative left/right Paths, including Files whose
 contents could not be captured. `get` accepts one such pair and returns each
@@ -79,8 +89,11 @@ For a File with a persisted capture error, `get` returns that exact reason
 in `FileMeta.capture_error`; rendering boundaries reject or classify it before
 decoding the generated diagnostic contents.
 
-`FileMeta` contains tracked provenance, backend change classification, an
-explicit lazy override, and required-with-null `capture_error`. A non-null
+`FileMeta.untracked` reports content additional to the selected recorded change
+set, matching source and manifest metadata. The database stores the inverse in
+its `tracked` column; capture and Room reads invert explicitly at that boundary.
+Recorded fixture content makes no VCS-tracking claim. File metadata also contains
+source classification, an explicit lazy override, and required-with-null `capture_error`. A non-null
 capture error is the exact persisted reason the File contents are unavailable.
 It contains no renderer output or per-File line counts.
 
@@ -94,7 +107,7 @@ Snapshot. Room neither interprets private source coordinates nor implements
 discussion state transitions.
 
 `SnapshotMeta` exposes the containing Room's persisted Tab, the two captured
-side labels, and the backend-supplied aggregate added/removed line counts. The
+side labels, and the source-supplied aggregate added/removed line counts. The
 Tab is not duplicated in the Snapshot relation; `Room.meta()` combines the
 Room and Snapshot facts. The counts are both present or both `None`.
 
@@ -108,16 +121,24 @@ Room and Snapshot facts. The counts are both present or both `None`.
   than cross-Tab absence;
 - an opaque correspondence key derived from that selection.
 
-The key is constructed as follows:
+Source setup prepares the identities below; RoomLord constructs the canonical
+JSON key without interpreting their storage meaning. The key encodings are:
 
-- Diff against HEAD uses the current HEAD commit id, or Git's empty-tree hash
-  when HEAD has no commit;
+- Head uses `{"commit": baseline}`. Git setup supplies the current HEAD commit
+  id or empty-tree hash for unborn HEAD. Continuation keeps this original
+  baseline even after HEAD advances; a new Head capture selects a new Room;
 - Compare Refs freezes commit-backed refs to commit ids and retains `index` and
   `worktree` as explicit ephemeral sides. Snapshot labels use those same
-  canonical values rather than the request's ref spelling;
-- Branch Review uses the structured symbolic base/review branch pair;
-- Pull Request uses the Pull Request URL;
-- each preset catalog/subset pair uses one Mark-less Room.
+  canonical values rather than the request's ref spelling. The key is
+  `{"left": identity, "right": identity}` and continuation keeps the frozen
+  identities while explicit ephemeral inputs remain live;
+- Branch Review uses `{"base": identity, "review": identity}`. These non-null
+  JSON values are opaque to Room; current Git setup supplies the structured
+  local/remote branch pair and resolves it freshly for each capture;
+- Pull Request uses the URL as a JSON string; continuation prepares fresh
+  revisions for that same URL outside Room;
+- each preset catalog/subset pair uses `{"catalog": id, "subset": id}` in one
+  Mark-less Room.
 
 SQLite compares the complete opaque key for equality but does not interpret its
 structure. Partial unique indexes preserve the intended marked and Mark-less
@@ -130,70 +151,65 @@ Room and cannot replace, extend, or verify the URL correspondence key.
 
 ## Captured state
 
-Manifest observation asks the concrete `WorkspaceBackend` for affected filepath
-pairs, File metadata, and one aggregate added/removed line-count pair. Git asks
-Git for the aggregate counts. Backends without an authoritative aggregate return
-`(None, None)`. Additional untracked worktree Files do not suppress Git's
-reported aggregate; they remain additional to the tracked diff counted by Git.
-A replaced or modified line count does not exist before a diff engine aligns
-one File and is never manifest or Snapshot metadata.
+Manifest observation asks the selected `ChangeSourceProtocol` for ordered `FileChange`
+records and optional aggregate added/removed line counts. Git obtains its
+counts from Git. Sources without an authoritative aggregate return both counts
+absent. Additional untracked worktree Files remain outside the tracked aggregate.
+Per-File replaced or modified line counts belong to diff engines, never Snapshot
+metadata.
 
-The private capture implementation loads every present side through the backend
-content interface and stores it unchanged. Backend storage encodings have
-already been materialized: a Git LFS File captures its local payload, not
-its pointer. Capture has no LFS-specific state. It records each present side's mode.
-For a symlink mode it also decodes only the raw target spellings needed to walk
-inside the repository, retaining nested link payloads, any terminal diagnosis,
-and exact safely reached final bytes beside the unchanged raw side. Before
-loading a reached non-link File, capture asks the backend for its exact size;
-it checks the returned byte count against the same bound after loading. Targets
-larger than 1 MiB stop with a diagnosis and are not retained. Other File contents
-remain unclassified.
-A backend loading failure is contained to that File: capture retains its
-repository paths and metadata, writes clearly machine-generated diagnostic
-content for each failed side, and persists the actual `DirdiffError` reason.
-The genuine contents of a side that loaded successfully are retained. Unrelated
-Files continue to be captured. Unexpected programming failures still abort the
-operation.
+RoomLord combines semantic side properties and source-supplied content
+identities with File metadata to determine Snapshot equality. It first checks
+for an equal retained Snapshot. Otherwise it asks the source for paired
+`LoadedFile` results, verifies their
+count and exact observed File association, checks equality again if acquisition
+changed a side identity, and publishes the acquired results. RoomLord never chooses
+acquisition order from
+entry kind, Git modes, storage ids, or link facts. The source holds one complete
+observation for this capture and hides exact-version reads, filesystem access,
+LFS expansion, gitlinks, and link traversal.
+
+Source setup supplies the reached-link size limit at source construction.
+The source returns exact outer bytes and any `CapturedLink` facts; RoomLord persists
+those facts beside the raw link data. Targets larger than 1 MiB stop with a
+visible diagnosis. Other File contents remain unclassified. An expected outer
+failure is contained to its side: capture retains File metadata, writes the
+established machine-generated diagnostic content, and persists its exact error.
+Successful siblings remain available. Unexpected programming failures abort
+capture.
 
 Snapshot equality includes:
 
 - left and right repository-path presence;
-- each present side's File mode;
-- each present side's identity token: the backend's content-addressed object
-  id (a Git blob id) when the side has one, otherwise the captured bytes;
-- each link side's nested link payloads, terminal diagnosis or normalized final
-  path, and final target bytes when resolution succeeded;
-- tracked provenance and backend change classification;
+- semantic entry kind and executable permission for each present side;
+- each side's opaque source content identity, covering its data and link facts;
+- untracked provenance and source change classification;
 - explicit lazy override;
-- complete `preset.toml` content when it supplies that override.
+- complete source policy text supplying that override.
 
-Sides without an object id (worktree, untracked files, preset fixtures) are
-read before the retained check, and a failed read substitutes the established
-error content, keeping eager errors part of identity through the content
-token. Sides with an object id are read only when the Snapshot turns out to
-be new, except links, whose raw target and reached content are required for
-identity before the retained check. A deferred loading failure records the same
-File error and diagnostic content as an eager failure. Its side token becomes
-that diagnostic content instead of the unavailable object's id, and capture
-recomputes equality before publication. Successful siblings retain their bytes
-and object identities. A subsequent capture loads the failed side again through
-the ordinary content lookup; an already captured successful Snapshot remains
-independent of backend availability. Backend order,
-human labels, aggregate line counts, directory-tree output, and renderer output do not participate in
-equality. Canonical filepath sorting is used only while hashing this set; it
-is not persisted presentation order.
+Source order, human labels, aggregate counts, directory-tree output, and
+renderer output do not participate in equality. Canonical path sorting defines
+the hash input set only. Sources namespace their side identity encodings so
+incompatible materialization rules cannot silently identify equal data. Room
+combines these side identities under the Snapshot hash domain; it does not
+interpret them as storage addresses.
 
-SHA-256 over the token set identifies equal captured state inside one Room.
-Per-side SHA-256 content digests validate each raw captured side. A symbolic
-link relation separately authenticates its metadata and optional reached target
-bytes before `Room.get` returns the side and parsed link facts. Repeating
-manifest with equal captured state
-returns the existing `snapshot_id` without re-reading backend contents.
-Incompatible capture changes advance the hash-domain version.
+A source can establish ordinary immutable content identity without loading its
+bytes, allowing an already captured successful Snapshot to remain independent
+of source availability. If acquisition for a new Snapshot finds an unavailable
+side, that result supplies a failure identity. Room recomputes equality before
+publication. A subsequent capture uses a new source and performs normal lookup;
+it can reuse successful retained state or acquire the formerly unavailable data.
+Mutable sides and links acquired during observation are returned unchanged by
+later load calls, even if live input changes afterward. Observation itself is
+sequential across Files and does not promise an atomic worktree view or retries.
 
-Index and worktree capture remains sequential. No atomic multi-file view or
-implicit retry is claimed while another process mutates the repository.
+SHA-256 over the semantic token set identifies equal captured state inside one
+Room. Per-side content digests authenticate each published raw side; symbolic
+link relations separately authenticate metadata and optional reached data.
+Reusing equal retained state verifies those published artifacts. Advancing the
+Snapshot hash domain for an incompatible equality encoding leaves existing
+Snapshots readable; the new encoding selects its own retained states.
 
 ## Relational state
 
@@ -256,7 +272,7 @@ Chain hops, the terminal diagnosis, and the final repository target path remain
 in the authenticated metadata rather than being duplicated relationally.
 
 The lazy-reason content relation retains the exact preset metadata input that
-participated in identity without adding that content to backend path or Room
+participated in identity without adding that content to source path or Room
 File metadata. No relation stores manifest ordering, directory trees, display
 names, rendered rows, or per-File line counts.
 
@@ -317,8 +333,10 @@ No part of that operation belongs to manifest.
 
 `/api/manifest` accepts one complete Tab parameter value in order to show the
 specified repository state and provide keys for later `/api/file-diff` operations.
-It constructs the workspace backend and calls `corresponding_room`. It asks the
-returned Room for `meta(snapshot_id)` and `manifested(snapshot_id)`, builds the
+Its concrete source setup validates controls and storage placement, constructs
+the source, and separately supplies prepared correspondence facts and labels to
+`corresponding_room`. No raw revision controls or source roots enter Room APIs.
+It asks the returned Room for `meta(snapshot_id)` and `manifested(snapshot_id)`, builds the
 manifest tree and File totals, copies the aggregate line counts, and returns the
 same Snapshot key. For Pull Request parameters, manifest uses the URL only for
 Room correspondence and the two commits only for capture. It does not parse a

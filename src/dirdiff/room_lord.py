@@ -8,13 +8,13 @@ capture. Follow-up operations use `RoomLord.find_room` to recover the containing
 Room from an existing Snapshot key without reading live workspace state.
 
 A `Room` provides Snapshot metadata, captured File lookup, review Threads, and
-continuation of its persisted Tab. It contains multiple Snapshots but retains no
-selected Snapshot, so every Snapshot-scoped operation requires the exact key.
+persisted context for continuation through `RoomLord.recapture`. It contains
+multiple Snapshots but retains no selected Snapshot, so every Snapshot-scoped operation requires the exact key.
 
 ## Purpose and boundaries
 
-This module joins workspace backends to `dirdiff.db.RoomStore`: it captures the
-Files reported by a backend, publishes immutable Snapshot contents, and returns
+This module joins selected `dirdiff.change_source.ChangeSourceProtocol` instances to `dirdiff.db.RoomStore`:
+it captures the Files they report, publishes immutable Snapshot contents, and returns
 Room handles limited by the selected correspondence identity. Callers receive
 repository-relative File pairs and validated paths to captured contents;
 they never receive staging paths or mutable publication state.
@@ -31,20 +31,24 @@ import hashlib
 import json
 import shutil
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from threading import Lock
 from typing import Literal, Optional, TypedDict
 from uuid import UUID, uuid4
 
-from dirdiff.backend import (
-    SYMLINK_MODE,
-    BranchSelection,
-    GitBackend,
+from dirdiff.change_source import (
+    CapturedLink,
+    ChangeSourceProtocol,
+    FileChange,
+    FileData,
+    FileKey,
+    FileProperties,
+    FileSide,
     LazyReason,
-    PresetBackend,
-    WorkspaceBackendProtocol,
+    LoadedFile,
+    WorkspaceChanges,
 )
 from dirdiff.db import (
     ReviewActionRecord,
@@ -59,7 +63,6 @@ from dirdiff.db import (
 )
 from dirdiff.engines import DirdiffError
 from dirdiff.formats import (
-    CapturedLink,
     read_captured_link,
     write_captured_link,
 )
@@ -82,10 +85,12 @@ __all__ = [
     "CaptureSelection",
     "CapturedFileSide",
     "FileMeta",
+    "HeadCaptureSelection",
     "PresetCaptureSelection",
     "PullRequestCaptureSelection",
     "RevisionsCaptureSelection",
     "Room",
+    "RoomCaptureContext",
     "RoomLord",
 ]
 
@@ -108,7 +113,7 @@ identity. It is not a frontend view state or a diff-engine selection.
 """
 
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
-"""Backend classification of how one captured File pair changed.
+"""Source classification of how one captured File pair changed.
 
 - `modify` keeps the same path on both sides.
 - `add` and `delete` are one-sided.
@@ -121,104 +126,60 @@ line changes produced later by a diff engine.
 
 
 @dataclass(frozen=True)
-class RevisionsCaptureSelection:
-    """Select the head or refs Tab: two explicit side names of one Mark.
+class HeadCaptureSelection:
+    """Identify a Head Room by its prepared original baseline.
 
-    Manifest conversion constructs this value for `head` and `refs`, then
-    RoomLord applies the matching correspondence and capture law.
-
-    The value has no Mark, resolved content, or Snapshot id.
+    Source setup supplies this opaque identity after preparing the selected
+    state. Room uses equality only; it does not interpret revisions or storage.
     """
 
-    tab: Literal["head", "refs"]
-    """Repository revision Tab whose correspondence law this selection uses.
+    baseline: str
+    """Nonblank source identity of the original baseline, retained on continuation."""
 
-    `head` requires the canonical HEAD/worktree pair; `refs` accepts two
-    explicit revision-like sides. Callers must construct the matching value
-    before Room selection rather than reinterpret it later.
+
+@dataclass(frozen=True)
+class RevisionsCaptureSelection:
+    """Identify a Refs Room by its ordered prepared side identities.
+
+    Source setup freezes revision-backed selections and preserves explicit
+    ephemeral selections. Room compares these opaque values without resolving
+    refs or deciding how to load them.
     """
 
     left: str
-    """Caller-supplied left revision handle for the selected Tab.
-
-    Head capture requires it to normalize to `HEAD`. Refs capture requires a
-    nonblank value and resolves commits while preserving `index` or `worktree`.
-    """
+    """Nonblank prepared identity for the selected left state."""
 
     right: str
-    """Caller-supplied right revision handle for the selected Tab.
-
-    Head capture requires it to normalize to `worktree`; Refs accepts a
-    nonblank revision, index, or worktree handle under the same resolution law.
-    """
-
-    show_untracked: bool
-    """Whether backend discovery includes untracked worktree Files.
-
-    The option affects capture identity through the resulting File set. Callers
-    use it only where the selected revision pair includes supported worktree
-    content; it does not alter tracked-file classification.
-    """
+    """Nonblank prepared identity for the selected right state."""
 
 
 @dataclass(frozen=True)
 class BranchReviewCaptureSelection:
-    """Select the Branch Review Tab through symbolic base and review branches.
+    """Identify a Branch Review Room by two opaque symbolic branch identities.
 
-    Manifest conversion constructs this value from validated base and review
-    controls, then RoomLord uses it for correspondence and commit resolution.
-
-    Local and remote branches remain structured. The value has no resolved
-    commits, Mark identity, or Snapshot state.
+    Source setup validates its concrete branch representation. Room only embeds
+    these JSON values in the canonical correspondence key. Mutable containers
+    belong to the caller and must not change while this selection is in use.
+    No resolved revision or live source is part of this law.
     """
 
-    base: BranchSelection
-    """Symbolic local or remote branch chosen as review ancestry.
+    base: JsonValue
+    """Non-null JSON identity of the selected symbolic base branch."""
 
-    Room correspondence persists this structure so recapture can resolve a new
-    merge base from the same branch choice rather than freeze its old commit.
-    """
-
-    review: BranchSelection
-    """Symbolic local or remote branch whose changes form the review side.
-
-    It is resolved together with `base`; callers must keep the structured source
-    and remote information instead of reducing it to a display label.
-    """
+    review: JsonValue
+    """Non-null JSON identity of the selected symbolic review branch."""
 
 
 @dataclass(frozen=True)
 class PullRequestCaptureSelection:
-    """Select the Pull Request Tab: prepared URL and frozen commit ids.
+    """Identify a Pull Request Room by its prepared canonical review URL.
 
-    Manifest conversion builds this only from `PreparedPullRequest` output, then
-    RoomLord uses the canonical URL for correspondence and the commits for
-    capture.
-
-    Preparation has already fetched forge state. This value cannot contain
-    symbolic branches or trigger preparation itself.
+    Source setup acquires revisions separately. Room uses the URL for
+    correspondence without interpreting the forge or inspecting its storage.
     """
 
     url: str
-    """Canonical nonblank forge URL identifying the logical Pull Request Room.
-
-    It selects correspondence across recaptures. The prepared commits may
-    advance independently while this URL remains the Room identity.
-    """
-
-    left_commit: str
-    """Complete prepared merge-base commit id used for this capture's left side.
-
-    RoomLord verifies that backend normalization returns the identical full id;
-    abbreviated or symbolic revisions are rejected.
-    """
-
-    right_commit: str
-    """Complete prepared Pull Request head commit id for the right side.
-
-    It must already have been fetched and normalized by preparation. Capture
-    never resolves a branch or contacts the forge through this value.
-    """
+    """Nonblank canonical review URL retained across fresh source preparations."""
 
 
 @dataclass(frozen=True)
@@ -235,7 +196,7 @@ class PresetCaptureSelection:
     catalog: str
     """Nonblank validated preset catalog identity.
 
-    It selects the `PresetBackend` and participates in Room correspondence; the
+    It selects a catalog identity and participates in Room correspondence; the
     value is not opened as a caller-supplied filesystem path.
     """
 
@@ -243,7 +204,7 @@ class PresetCaptureSelection:
     """Nonblank fixture-group identity within the selected catalog.
 
     It selects the old/new preset pair and joins `catalog` in correspondence.
-    The actual fixture bytes remain the backend's responsibility.
+    The actual fixture bytes remain the source's responsibility.
     """
 
 
@@ -251,16 +212,18 @@ class PresetCaptureSelection:
 # Tab's law consumes, so callers never manufacture irrelevant nulls and the
 # law never branches on cross-Tab nullability.
 CaptureSelection = (
-    RevisionsCaptureSelection
+    HeadCaptureSelection
+    | RevisionsCaptureSelection
     | BranchReviewCaptureSelection
     | PullRequestCaptureSelection
     | PresetCaptureSelection
 )
-"""Complete capture inputs for one supported Tab.
+"""Prepared correspondence facts for one supported Tab.
 
-- `RevisionsCaptureSelection` supplies sides for Head or Refs.
+- `HeadCaptureSelection` supplies the original prepared baseline identity.
+- `RevisionsCaptureSelection` supplies the prepared Refs side identities.
 - `BranchReviewCaptureSelection` supplies symbolic branch selections.
-- `PullRequestCaptureSelection` supplies a canonical URL and prepared commits.
+- `PullRequestCaptureSelection` supplies a canonical review URL.
 - `PresetCaptureSelection` supplies a catalog and fixture group.
 
 Manifest conversion constructs the matching variant before asking `RoomLord`
@@ -268,23 +231,16 @@ for a Room. No variant contains Snapshot identity, renderer selection, or HTTP
 presentation state.
 """
 
-_SNAPSHOT_HASH_DOMAIN = b"dirdiff-snapshot-v10"
+_SNAPSHOT_HASH_DOMAIN = b"dirdiff-snapshot-v11"
 """Versioned prefix that keeps Snapshot equality tied to its token format.
 
 Changing which capture facts participate in identity requires a new value so
 old digests cannot be mistaken for the new definition.
 """
-_MAX_CAPTURED_LINK_TARGET_BYTES = 1 << 20
-"""Largest final link target retained in one immutable Snapshot.
-
-Capture asks the backend for exact size before loading the reached non-link
-File, then checks the returned byte count against the same bound. Larger targets
-stop the walk with a diagnosis instead of entering Snapshot identity.
-"""
 _CAPTURE_ERROR_PREAMBLE = (
     "MACHINE-GENERATED BY DIRDIFF\nThe original file could not be captured."
 )
-"""Stable marker placed before captured backend failure details.
+"""Stable marker placed before captured source failure details.
 
 Render and review boundaries use the persisted failure reason, while this text
 makes the substituted side unmistakably generated if inspected on disk.
@@ -306,89 +262,86 @@ class SnapshotMeta(TypedDict):
     """
 
     left_label: str
-    """Human-facing label frozen with the captured left backend state.
+    """Human-facing label frozen with the captured left source state.
 
     Callers may present it but must not use it as repository identity or assume
     it follows a branch name after capture.
     """
 
     right_label: str
-    """Human-facing label frozen with the captured right backend state.
+    """Human-facing label frozen with the captured right source state.
 
     It remains paired with this immutable Snapshot even if live refs or
-    worktree state later change.
+    source state later changes.
     """
 
     added_lines: Optional[int]
-    """Backend-wide added-line total, or `None` when unavailable.
+    """Source-wide added-line total, or `None` when unavailable.
 
     This field and `removed_lines` always have equal presence.
     """
 
     removed_lines: Optional[int]
-    """Backend-wide removed-line total, or `None` when unavailable.
+    """Source-wide removed-line total, or `None` when unavailable.
 
     This field and `added_lines` always have equal presence.
     """
 
 
 class RoomCaptureContext(TypedDict):
-    """Expose only the persisted facts needed to continue one agent review.
+    """Supply complete persisted correspondence for source setup on continuation.
 
-    `Room.capture_context` returns this to agent continuation so it can build a
-    backend and capture the Room's current repository state. Preset Rooms are
-    outside that operation.
-    """
-
-    tab: Literal["head", "refs", "branch-review", "pull-request"]
-    """Repository-backed Tab whose persisted law continuation must replay.
-
-    It tells the HTTP boundary whether to reuse stored revisions or branches or
-    prepare fresh Pull Request commits before calling `Room.recapture`.
+    `Room.capture_context` returns a fresh selection and the active Mark identity.
+    Concrete setup interprets these facts to construct a new source; this record
+    contains no source, storage path, or loaded data. Preset continuation is
+    rejected before this value is returned.
     """
 
     mark_id: int
-    """Positive persisted Mark id naming the repository used by this Room.
+    """Positive persisted Mark id used to locate the active source externally."""
 
-    The continuation boundary resolves the current registered path from it and
-    constructs a fresh backend; Room never stores or returns a live backend.
-    """
+    selection: (
+        HeadCaptureSelection
+        | RevisionsCaptureSelection
+        | BranchReviewCaptureSelection
+        | PullRequestCaptureSelection
+    )
+    """Complete supported continuation law, retaining the original Head baseline.
 
-    pull_request_url: Optional[str]
-    """Canonical URL to prepare again for a Pull Request Room.
-
-    It is `None` for every other supported Tab.
+    Branch JSON containers are newly decoded and belong to the caller. They
+    must remain unchanged while used for source setup or correspondence.
     """
 
 
 class FileMeta(TypedDict):
-    """Facts that go with capture file pair
+    """Expose persisted classification and read status for one captured File pair.
 
-    Provided by the workspace backends, and then snapshot machinery and used by
-    callers mainly to display information to the user, or to pick which files
-    to produce.
+    # Usage
+
+    `Room.manifested` and `Room.get` return this with the exact side-path pair.
+    Manifest builders combine its source policy with derived lazy policy;
+    rendering checks its capture error before reading the captured bytes.
+    No live source access or renderer output is part of this record.
     """
 
-    tracked: bool
-    """
-    Whether a particular change is tracked in VCS or not.
+    untracked: bool
+    """Whether this File is additional to the source's recorded change set.
 
-    *Implementation detail: presets always has it as True, since for them it is
-    irrelevant.*
+    The source supplies this fact. False includes preset fixtures without
+    claiming that a VCS tracks them.
     """
     change_type: ChangeType
     """
     What kind of change the file has.
     """
     # TODO: should this be an *override* over *derived* values?
-    # Can't backend report lazy reason on its own?
     #
     # At the very least, maybe pick a better name.
     lazy_reason_override: Optional[LazyReason]
     """
-    WorkspaceBackend reason to make a file lazy that can't be derived.
+    Explicit source policy for laziness that manifest metadata cannot derive.
 
-    Callers expected to combine it with `tracked`, `change_type` and other
+    Callers expected to combine it with `untracked`, `change_type` and other
     strategies (like filtering for generated files) to produce a final
     `lazy_reason`.
     """
@@ -502,6 +455,13 @@ class Room:
     Exception to this rule is `apply_review_batch`, because it spans multiple
     threads, and is a forced performance optimization.
 
+    # Capture boundary
+
+    Room exposes persisted correspondence through `capture_context`. Concrete
+    source setup interprets it outside this module; `RoomLord.recapture`
+    publishes the supplied source within the same Room. Room does not construct
+    sources, interpret revisions, or inspect source roots.
+
     # Entrypoints
 
     The most basic usage is to get a `Room` from `RoomLord.corresponding_room`,
@@ -562,7 +522,7 @@ class Room:
         # Usage
 
         Call this when a Snapshot-scoped response needs labels, Tab identity, or
-        backend totals without loading the manifest.
+        source totals without loading the manifest.
 
         # Failures
 
@@ -606,7 +566,7 @@ class Room:
         complete manifest without treating generated error bytes as source.
 
         Lazy overrides are loaded once for the Snapshot and must reference its
-        Files. The iterator performs no live backend access and does not read
+        Files. The iterator performs no live source access and does not read
         captured contents.
 
         # Usage
@@ -674,7 +634,7 @@ class Room:
                 if file.right is not None
                 else None,
                 {
-                    "tracked": file.tracked,
+                    "untracked": not file.tracked,
                     "change_type": change_type,
                     "lazy_reason_override": lazy_reason,
                     "capture_error": file.error,
@@ -813,7 +773,7 @@ class Room:
             result[0],
             result[1],
             {
-                "tracked": file.tracked,
+                "untracked": not file.tracked,
                 "change_type": change_type,
                 "lazy_reason_override": lazy_reason,
                 "capture_error": file.error,
@@ -1367,111 +1327,26 @@ class Room:
         )
 
     def capture_context(self) -> RoomCaptureContext:
-        """Return the repository context required to continue this Room.
-
-        The HTTP boundary needs the Mark and any Pull Request URL to construct
-        the concrete backend and prepared commits before `recapture` runs.
-        Preset Rooms have no repository to continue and are rejected.
+        """Return the complete persisted selection and Mark for continuation.
 
         # Usage
 
-        Read this before agent continuation. Use `mark_id` to reconstruct the
-        backend, and prepare the returned Pull Request URL before calling
-        `recapture` when the Tab is `pull-request`.
+        Source setup looks up the active Mark and interprets `selection` outside
+        Room. It then supplies a constructed source and labels to
+        `RoomLord.recapture`. Head uses its original baseline; Branch Review
+        prepares fresh revisions from the retained symbolic pair; Pull Request
+        prepares the same URL again.
+
+        # Returns
+
+        A `RoomCaptureContext` containing freshly decoded law facts. No source
+        operations or filesystem reads occur here.
 
         # Failures
 
-        - Raises `DirdiffError` for a Preset Room, which cannot be continued by
-          the agent API.
-        - Raises `AssertionError` when persisted correspondence is malformed.
+        Preset continuation raises `DirdiffError`. Malformed persisted
+        correspondence raises `AssertionError`; no missing facts are replaced.
         """
-        identity = self._identity
-        if identity.mark_id is None or identity.tab == "preset":
-            raise DirdiffError("Agent review does not support preset Rooms.")
-        try:
-            correspondence = json.loads(identity.correspondence_key)
-        except (TypeError, ValueError) as exc:
-            raise AssertionError(
-                "invalid persisted Room correspondence"
-            ) from exc
-        match identity.tab:
-            case "head" | "refs" | "branch-review":
-                assert isinstance(correspondence, dict)
-                tab: Literal[
-                    "head", "refs", "branch-review", "pull-request"
-                ] = identity.tab
-                pull_request_url = None
-            case "pull-request":
-                tab = "pull-request"
-                assert isinstance(correspondence, str) and correspondence != ""
-                pull_request_url = correspondence
-            case _:
-                raise AssertionError(
-                    f"invalid persisted Room Tab: {identity.tab!r}"
-                )
-        return {
-            "tab": tab,
-            "mark_id": identity.mark_id,
-            "pull_request_url": pull_request_url,
-        }
-
-    def recapture(
-        self,
-        backend: WorkspaceBackendProtocol,
-        *,
-        pull_request_left: Optional[str] = None,
-        pull_request_right: Optional[str] = None,
-    ) -> UUID:
-        """Capture this Room's persisted Tab context into a new Snapshot.
-
-        The concrete backend comes from the HTTP boundary's active Mark. A Pull
-        Request continuation must supply the newly prepared complete commits;
-        other Tabs reject them. The new Snapshot remains in this exact Room.
-
-        # Parameters
-
-        - `backend`: Workspace backend constructed from this Room's active Mark.
-        - `pull_request_left`: Newly prepared merge-base commit for a Pull
-          Request Room, otherwise `None`.
-        - `pull_request_right`: Newly prepared head commit for a Pull Request
-          Room, otherwise `None`.
-
-        # Usage
-
-        Obtain the Mark and Tab from `capture_context`, construct the matching
-        `GitBackend`, and prepare fresh Pull Request commits only when that
-        context names a Pull Request.
-
-        # Failures
-
-        - Raises `DirdiffError` for Preset Rooms, missing Pull Request commits,
-          or commits that are not complete ids.
-        - Raises `AssertionError` when the backend kind, extra parameters, or
-          persisted Tab correspondence contradict this Room.
-        """
-
-        def persisted_branch(value: JsonValue) -> BranchSelection:
-            """Decode one persisted symbolic branch into the backend contract.
-
-            The value is read only during branch-review recapture. It must carry
-            a nonblank branch and either local source or a nonblank remote;
-            malformed persisted correspondence is an invariant failure.
-            """
-            assert isinstance(value, dict)
-            source = value.get("source")
-            branch = value.get("branch")
-            assert isinstance(branch, str) and branch != ""
-            if source == "local":
-                return {"source": "local", "branch": branch}
-            assert source == "remote"
-            remote = value.get("remote")
-            assert isinstance(remote, str) and remote != ""
-            return {
-                "source": "remote",
-                "remote": remote,
-                "branch": branch,
-            }
-
         identity = self._identity
         if identity.mark_id is None or identity.tab == "preset":
             raise DirdiffError("Agent review does not support preset Rooms.")
@@ -1481,82 +1356,32 @@ class Room:
             raise AssertionError(
                 "invalid persisted Room correspondence"
             ) from exc
-        assert isinstance(backend, GitBackend)
-        left_side: str
-        right_side: str
-
-        if identity.tab == "head":
-            assert pull_request_left is None and pull_request_right is None
-            assert isinstance(correspondence, dict)
-            stored_commit = correspondence.get("commit")
-            assert isinstance(stored_commit, str) and stored_commit != ""
-            left_side = stored_commit
-            right_side = "worktree"
-            left_label = "HEAD"
-            right_label = "worktree"
-            show_untracked = True
-        elif identity.tab == "refs":
-            assert pull_request_left is None and pull_request_right is None
-            assert isinstance(correspondence, dict)
-            stored_left = correspondence.get("left")
-            stored_right = correspondence.get("right")
-            assert isinstance(stored_left, str) and stored_left != ""
-            assert isinstance(stored_right, str) and stored_right != ""
-            left_side = stored_left
-            right_side = stored_right
-            left_label = left_side
-            right_label = right_side
-            show_untracked = False
-        elif identity.tab == "branch-review":
-            assert pull_request_left is None and pull_request_right is None
-            assert isinstance(correspondence, dict)
-            base_value = correspondence.get("base")
-            review_value = correspondence.get("review")
-            resolved_base, left_side, review_side, right_side = (
-                backend.resolve_branch_diff_sides(
-                    base_selection=persisted_branch(base_value),
-                    review_selection=persisted_branch(review_value),
-                )
+        selection: CaptureSelection
+        if identity.tab == "pull-request":
+            assert (
+                isinstance(correspondence, str) and correspondence.strip() != ""
             )
-            left_label = f"{resolved_base.strip()}...{review_side}"
-            right_label = review_side
-            show_untracked = False
+            selection = PullRequestCaptureSelection(correspondence)
         else:
-            assert identity.tab == "pull-request"
-            assert isinstance(correspondence, str) and correspondence != ""
-            if pull_request_left is None or pull_request_right is None:
-                raise DirdiffError(
-                    "Pull Request continuation requires prepared commits."
-                )
-            left_side = backend.commit_id(pull_request_left)
-            right_side = backend.commit_id(pull_request_right)
-            if (
-                left_side != pull_request_left
-                or right_side != pull_request_right
-            ):
-                raise DirdiffError(
-                    "Pull Request continuation requires complete commit ids."
-                )
-            left_label = left_side
-            right_label = right_side
-            show_untracked = False
-
-        store = _SnapshotStore(
-            database=self._database,
-            staging_path=self._staging_path,
-            snapshots_path=self._snapshots_path,
-            lock_path=self._lock_path,
-            thread_lock=self._thread_lock,
-            identity=identity,
-        )
-        return store.capture(
-            backend=backend,
-            left_side=left_side,
-            right_side=right_side,
-            left_label=left_label,
-            right_label=right_label,
-            show_untracked=show_untracked,
-        )
+            assert isinstance(correspondence, dict)
+            if identity.tab == "head":
+                assert set(correspondence) == {"commit"}
+                baseline = correspondence["commit"]
+                assert isinstance(baseline, str) and baseline.strip() != ""
+                selection = HeadCaptureSelection(baseline)
+            elif identity.tab == "refs":
+                assert set(correspondence) == {"left", "right"}
+                left, right = correspondence["left"], correspondence["right"]
+                assert isinstance(left, str) and left.strip() != ""
+                assert isinstance(right, str) and right.strip() != ""
+                selection = RevisionsCaptureSelection(left, right)
+            else:
+                assert identity.tab == "branch-review"
+                assert set(correspondence) == {"base", "review"}
+                base, review = correspondence["base"], correspondence["review"]
+                assert base is not None and review is not None
+                selection = BranchReviewCaptureSelection(base, review)
+        return {"mark_id": identity.mark_id, "selection": selection}
 
     def path_for_snapshot(self, snapshot_id: UUID) -> Path:
         """Return the existing durable directory of one captured Snapshot.
@@ -1588,7 +1413,8 @@ class RoomLord:
 
     `corresponding_room` applies the law for one explicit capture and returns
     both the Room and the captured Snapshot key. `find_room` uses an existing
-    Snapshot key to recover its Room for follow-up operations.
+    Snapshot key to recover its Room for follow-up operations. `recapture`
+    publishes an externally prepared source in that Room's original identity.
 
     The returned `Room` is the entrypoint for Snapshot reads and review work.
     `RoomLord` does not retain a selected Room or Snapshot between calls.
@@ -1598,8 +1424,8 @@ class RoomLord:
         """Create the application boundary for one database and store root.
 
         The paths are normalized but not created here. This keeps construction
-        harmless; the first valid manifest capture creates storage only after
-        repository-placement checks succeed.
+        harmless. Concrete setup must validate physical source placement before
+        calling capture; sources without physical roots need no such check.
 
         # Parameters
 
@@ -1632,173 +1458,89 @@ class RoomLord:
     def corresponding_room(
         self,
         *,
-        mark_id: Optional[int],
-        backend: WorkspaceBackendProtocol,
+        mark_id: int | None,
         selection: CaptureSelection,
+        source: ChangeSourceProtocol,
+        left_label: str,
+        right_label: str,
     ) -> tuple[Room, UUID]:
-        """Apply one Tab's law and return its Room and current Snapshot key.
+        """Apply one correspondence law and capture the supplied source in its Room.
 
-        The selection variant carries exactly its Tab's inputs, so validity
-        checks concern values, never cross-Tab absence. The law of
-        correspondence selects only the Room. The independently derived sides
-        are supplied to Snapshot capture after that Room identity is
-        complete.
+        Source setup prepares the selection and constructs the source before
+        this call. Correspondence identifies only the Room; source results
+        independently determine Snapshot equality.
 
         # Parameters
 
-        - `mark_id`: Active repository mark, or `None` only for presets.
-        - `backend`: Concrete source of paths, bytes, and backend line totals.
-        - `selection`: Complete discriminated Tab inputs governing both
-          correspondence and capture.
+        - `mark_id`: Positive active Mark id, or `None` only for a Preset Room.
+        - `selection`: Complete prepared law facts. Source identities are opaque
+          here; branch JSON values must remain unchanged during the call.
+        - `source`: One selected observation source, used only through
+          `dirdiff.change_source.ChangeSourceProtocol.changes` and `load`.
+        - `left_label`: Human label persisted with the left captured state and
+          used in any left-side diagnosis.
+        - `right_label`: Corresponding right-state label.
 
         # Usage
 
-        Construct exactly one `CaptureSelection` variant from the active Tab and
-        pair it with the matching backend. Retain both returned values: the Room
-        bounds follow-up operations, while the Snapshot id selects captured
-        state inside it.
+        Pass an already constructed source alongside its independent law facts.
+        Storage placement and concrete input validation belong to source setup.
+        Keep both returned values for Snapshot-scoped follow-up operations.
 
         # Returns
 
-        - First, the selected or newly created `Room` under the Tab's
-          correspondence law.
-        - Second, the current immutable Snapshot id captured inside that Room.
-          The Room does not retain it, so callers must preserve both values.
+        - First, the existing or newly selected `Room` under this law.
+        - Second, the immutable Snapshot id captured or reused within that Room.
 
         # Failures
 
-        - Raises `DirdiffError` for incomplete or contradictory Tab values,
-          unresolved refs, or a database or Snapshot store placed inside the
-          reviewed repository.
-        - Asserts when a selection is paired with the wrong backend or Mark
-          presence.
+        Invalid law values or Mark presence assert. Source and persistence
+        operation failures propagate; expected side failures remain captured
+        under the source contract.
         """
-        repo_root = backend.repo_root
-        if mark_id is not None and repo_root is not None:
-            reviewed_root = repo_root.resolve()
-            database = self._database.engine.url.database
-            if database is not None and database != ":memory:":
-                database_path = Path(database).expanduser().resolve()
-                if database_path.is_relative_to(reviewed_root):
-                    raise DirdiffError(
-                        "The dirdiff database must be outside the reviewed "
-                        f"repository: {database_path}"
-                    )
-            if self._store_path.is_relative_to(reviewed_root):
-                raise DirdiffError(
-                    "The dirdiff Snapshot store must be outside the reviewed "
-                    f"repository: {self._store_path}"
-                )
-
-        tab: RoomTab
-        show_untracked = False
-        git_backend: Optional[GitBackend] = None
-        if not isinstance(selection, PresetCaptureSelection):
-            assert isinstance(backend, GitBackend), (
-                "repository Rooms require GitBackend"
-            )
-            git_backend = backend
-
+        assert mark_id is None or mark_id > 0
+        correspondence: JsonValue
         if isinstance(selection, PresetCaptureSelection):
-            tab = "preset"
-            assert mark_id is None, "preset Rooms cannot belong to a Mark"
-            if (catalog := selection.catalog.strip()) == "":
-                raise DirdiffError(
-                    "preset_catalog is required for the Preset Tab."
-                )
-            if (subset := selection.subset.strip()) == "":
-                raise DirdiffError(
-                    "preset_subset is required for the Preset Tab."
-                )
-            left_side = backend.normalize_side(subset)
-            right_side = "new"
-            left_label = "old"
-            right_label = "new"
-            correspondence: str | dict[str, str | BranchSelection] = {
-                "catalog": catalog,
-                "subset": subset,
-            }
-        elif isinstance(selection, PullRequestCaptureSelection):
-            tab = "pull-request"
-            assert mark_id is not None, "Pull Request Rooms require a Mark"
-            if (corresponding_url := selection.url.strip()) == "":
-                raise DirdiffError(
-                    "pull_request_url is required for the Pull Request Tab."
-                )
-            if (prepared_left := selection.left_commit.strip()) == "":
-                raise DirdiffError(
-                    "left_commit is required for the Pull Request Tab."
-                )
-            if (prepared_right := selection.right_commit.strip()) == "":
-                raise DirdiffError(
-                    "right_commit is required for the Pull Request Tab."
-                )
-            assert git_backend is not None
-            left_side = git_backend.commit_id(prepared_left)
-            right_side = git_backend.commit_id(prepared_right)
-            if left_side != prepared_left or right_side != prepared_right:
-                raise DirdiffError(
-                    "Pull Request capture inputs must be complete commit ids."
-                )
-            left_label = left_side
-            right_label = right_side
-            correspondence = corresponding_url
-        elif isinstance(selection, BranchReviewCaptureSelection):
-            tab = "branch-review"
-            assert mark_id is not None, "Branch Review Rooms require a Mark"
-            assert git_backend is not None
-            resolved_base, left_side, review, right_side = (
-                git_backend.resolve_branch_diff_sides(
-                    base_selection=selection.base,
-                    review_selection=selection.review,
-                )
+            tab: RoomTab = "preset"
+            assert mark_id is None
+            assert (
+                selection.catalog.strip() != ""
+                and selection.subset.strip() != ""
             )
-            left_label = f"{resolved_base.strip()}...{review}"
-            right_label = review
             correspondence = {
-                "base": selection.base,
-                "review": selection.review,
+                "catalog": selection.catalog,
+                "subset": selection.subset,
             }
-        elif selection.tab == "head":
-            tab = "head"
-            show_untracked = selection.show_untracked
-            assert mark_id is not None, "Diff against HEAD requires a Mark"
-            left_label = backend.normalize_side(selection.left.strip())
-            right_label = backend.normalize_side(selection.right.strip())
-            if left_label != "HEAD" or right_label != "worktree":
-                raise DirdiffError(
-                    "Diff against HEAD requires left=HEAD and right=worktree."
-                )
-            assert git_backend is not None
-            left_side = git_backend.commit_id(left_label, allow_unborn=True)
-            right_side = right_label
-            correspondence = {"commit": left_side}
         else:
-            assert selection.tab == "refs"
-            tab = "refs"
-            show_untracked = selection.show_untracked
-            assert mark_id is not None, "repo Rooms require a Mark"
-            assert git_backend is not None
-            if selection.left.strip() == "":
-                raise DirdiffError("left is required for the Refs Tab.")
-            if selection.right.strip() == "":
-                raise DirdiffError("right is required for the Refs Tab.")
-            left_label = backend.normalize_side(selection.left.strip())
-            right_label = backend.normalize_side(selection.right.strip())
-            left_side = (
-                left_label
-                if left_label in {"index", "worktree"}
-                else git_backend.commit_id(left_label)
-            )
-            right_side = (
-                right_label
-                if right_label in {"index", "worktree"}
-                else git_backend.commit_id(right_label)
-            )
-            left_label = left_side
-            right_label = right_side
-            correspondence = {"left": left_side, "right": right_side}
-
+            assert mark_id is not None
+            if isinstance(selection, HeadCaptureSelection):
+                tab = "head"
+                assert selection.baseline.strip() != ""
+                correspondence = {"commit": selection.baseline}
+            elif isinstance(selection, RevisionsCaptureSelection):
+                tab = "refs"
+                assert (
+                    selection.left.strip() != ""
+                    and selection.right.strip() != ""
+                )
+                correspondence = {
+                    "left": selection.left,
+                    "right": selection.right,
+                }
+            elif isinstance(selection, BranchReviewCaptureSelection):
+                tab = "branch-review"
+                assert (
+                    selection.base is not None and selection.review is not None
+                )
+                correspondence = {
+                    "base": selection.base,
+                    "review": selection.review,
+                }
+            else:
+                assert isinstance(selection, PullRequestCaptureSelection)
+                tab = "pull-request"
+                assert selection.url.strip() != ""
+                correspondence = selection.url
         identity = RoomIdentity(
             mark_id=mark_id,
             tab=tab,
@@ -1807,6 +1549,14 @@ class RoomLord:
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode(),
+        )
+        room = Room(
+            database=self._database,
+            identity=identity,
+            staging_path=self._staging_path,
+            snapshots_path=self._snapshots_path,
+            lock_path=self._lock_path,
+            thread_lock=self._thread_lock,
         )
         store = _SnapshotStore(
             database=self._database,
@@ -1817,27 +1567,70 @@ class RoomLord:
             identity=identity,
         )
         snapshot_id = store.capture(
-            backend=backend,
-            left_side=left_side,
-            right_side=right_side,
+            source=source,
             left_label=left_label,
             right_label=right_label,
-            show_untracked=show_untracked,
         )
-        return Room(
+        return room, snapshot_id
+
+    def recapture(
+        self,
+        room: Room,
+        *,
+        source: ChangeSourceProtocol,
+        left_label: str,
+        right_label: str,
+    ) -> UUID:
+        """Capture an externally prepared source in this Room's existing identity.
+
+        # Parameters
+
+        - `room`: Room bound to this service's database and capture stores.
+        - `source`: New observation source constructed from `Room.capture_context`
+          by concrete source setup.
+        - `left_label`: Prepared left display and diagnosis label.
+        - `right_label`: Prepared right display and diagnosis label.
+
+        # Usage
+
+        Read the Room's persisted context, prepare the new source externally,
+        then call this without selecting another Room. The original correspondence
+        remains intact even when the source revisions advance.
+
+        # Returns
+
+        The new or reused immutable Snapshot id within the supplied Room.
+
+        # Failures
+
+        Preset continuation raises `DirdiffError`. A Room bound to another
+        database or capture-store context asserts. Source and publication
+        failures follow the ordinary capture contract.
+        """
+        assert room._database is self._database
+        assert room._staging_path == self._staging_path
+        assert room._snapshots_path == self._snapshots_path
+        assert room._lock_path == self._lock_path
+        assert room._thread_lock is self._thread_lock
+        if room._identity.tab == "preset" or room._identity.mark_id is None:
+            raise DirdiffError("Agent review does not support preset Rooms.")
+        store = _SnapshotStore(
             database=self._database,
-            identity=identity,
             staging_path=self._staging_path,
             snapshots_path=self._snapshots_path,
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
-        ), snapshot_id
+            identity=room._identity,
+        )
+        return store.capture(
+            source=source, left_label=left_label, right_label=right_label
+        )
 
     def find_room(self, snapshot_id: UUID) -> Room:
         """Return the Room containing an existing Snapshot key.
 
         The Snapshot id is globally unique in this database. Missing keys are
-        rejected; this lookup neither executes a Tab law nor reads live backend
+        rejected; this lookup neither executes a Tab law nor reads live source
         state.
 
         # Usage
@@ -1876,7 +1669,7 @@ class RoomLord:
 class _SnapshotStore:
     """Implement immutable Snapshot capture for one private Room.
 
-    `RoomLord.corresponding_room` and `Room.recapture` construct and call the
+    `RoomLord.corresponding_room` and `RoomLord.recapture` construct and call the
     store for exactly one capture. It manages publication directories, locking,
     relational records, and digest validation; API code never receives it.
     """
@@ -1920,513 +1713,110 @@ class _SnapshotStore:
     def capture(
         self,
         *,
-        backend: WorkspaceBackendProtocol,
-        left_side: str,
-        right_side: str,
+        source: ChangeSourceProtocol,
         left_label: str,
         right_label: str,
-        show_untracked: bool,
     ) -> UUID:
-        """Capture current backend state and return its retained Snapshot key.
+        """Capture current source state and return its retained Snapshot key.
 
-        Equality includes repository paths, tracked provenance, change type,
-        captured contents, capture errors, and complete explicit preset metadata.
-        Backend order, human labels, and aggregate line counts do not affect
+        Equality combines repository paths, semantic properties, source content
+        identities, untracked provenance, change type, and explicit policy text.
+        Source order, human labels, and aggregate line counts do not affect
         identity. Every Thread contained by the Room is placed in the captured
         Snapshot before it becomes visible.
 
         # Parameters
 
-        - `backend`: Workspace source used for manifest facts and side bytes.
-        - `left_side`: Backend handle for the captured left state.
-        - `right_side`: Backend handle for the captured right state.
-        - `left_label`: Human label retained for the left state.
-        - `right_label`: Human label retained for the right state.
-        - `show_untracked`: Whether backend discovery includes untracked Files.
+        - `source`: Selected `dirdiff.change_source.ChangeSourceProtocol` used for File facts and side bytes.
+        - `left_label`: Human display and diagnostic label retained for the left state.
+        - `right_label`: Human display and diagnostic label retained for the right state.
 
         # Usage
 
-        `RoomLord.corresponding_room` or `Room.recapture` calls this once after
-        selecting complete backend sides and labels for one Room identity.
+        `RoomLord.corresponding_room` or `RoomLord.recapture` calls this once after
+        receiving the selected source and labels for one Room identity.
 
         # Failures
 
-        - Raises `DirdiffError` for backend capture failures that cannot produce
+        - Raises `DirdiffError` for source capture failures that cannot produce
           an immutable side.
-        - Raises `AssertionError` when backend output, retained contents, or
+        - Raises `AssertionError` when source output, retained contents, or
           publication records violate Snapshot invariants.
         """
         self._staging_path.mkdir(parents=True, exist_ok=True)
         self._snapshots_path.mkdir(parents=True, exist_ok=True)
         self._lock_path.touch(exist_ok=True)
 
-        diff = backend.repo_diff(
-            left=left_side,
-            right=right_side,
-            show_untracked=show_untracked,
-        )
-        paths = diff.paths
-        added_lines = diff.added_lines
-        removed_lines = diff.removed_lines
-        assert (added_lines is None) == (removed_lines is None), (
-            "backend aggregate line counts must have equal presence"
-        )
-        normalized_paths: list[
-            tuple[
-                Optional[str],
-                Optional[str],
-                Optional[str],
-                Optional[str],
-                bool,
-                ChangeType,
-                Optional[LazyReason],
-                Optional[str],
-                Optional[str],
-            ]
-        ] = []
-        captured_paths: set[tuple[Optional[str], Optional[str]]] = set()
-        for path in paths:
-            repository_paths = (path.left_path, path.right_path)
-            if repository_paths in captured_paths:
+        changes: WorkspaceChanges = source.changes()
+        paths: tuple[FileChange, ...] = changes.files
+        added_lines = changes.added_lines
+        removed_lines = changes.removed_lines
+        captured_paths: set[tuple[FileKey | None, FileKey | None]] = set()
+        for file in paths:
+            keys = (
+                file.left.key if file.left is not None else None,
+                file.right.key if file.right is not None else None,
+            )
+            if keys in captured_paths:
                 raise DirdiffError(
-                    "Backend returned duplicate left/right paths: "
-                    f"{repository_paths!r}"
+                    "Source returned duplicate left/right paths: "
+                    f"{tuple(key.path if key is not None else None for key in keys)!r}"
                 )
-            captured_paths.add(repository_paths)
-            left_path = (
-                backend.normalize_repo_path(path.left_path)
-                if path.left_path is not None
-                else None
-            )
-            right_path = (
-                backend.normalize_repo_path(path.right_path)
-                if path.right_path is not None
-                else None
-            )
-            assert (left_path is None) == (path.left_mode is None), (
-                "backend left File path and mode must have equal presence"
-            )
-            assert (right_path is None) == (path.right_mode is None), (
-                "backend right File path and mode must have equal presence"
-            )
-            normalized_paths.append(
-                (
-                    left_path,
-                    path.left_mode,
-                    right_path,
-                    path.right_mode,
-                    not path.untracked,
-                    path.change_type,
-                    path.lazy_reason_override,
-                    path.left_object_id,
-                    path.right_object_id,
-                )
-            )
-
-        # Ordinary sides carrying a backend object id participate in Snapshot
-        # identity by that id, so their bytes are read only for a new Snapshot.
-        # Object-id-less sides and all links are read before the retained check:
-        # a link's walk and final target are additional identity facts. Loading
-        # failures use the established error content. A deferred failure must
-        # replace its object-id token with those bytes before publication.
-        eager_requests: list[tuple[str, str]] = []
-        for (
-            left_path,
-            left_mode,
-            right_path,
-            right_mode,
-            _tracked,
-            _change_type,
-            _lazy_reason_override,
-            left_object_id,
-            right_object_id,
-        ) in normalized_paths:
-            if left_path is not None and (
-                left_object_id is None or left_mode == SYMLINK_MODE
-            ):
-                eager_requests.append((left_path, left_side))
-            if right_path is not None and (
-                right_object_id is None or right_mode == SYMLINK_MODE
-            ):
-                eager_requests.append((right_path, right_side))
-        eager_versions = iter(backend.load_versions(tuple(eager_requests)))
-
-        # Per file: side slots hold loaded bytes for eager sides and None for
-        # deferred object-id sides; error strings collect per file in side
-        # order exactly as the previous single-pass capture did.
-        interim: list[
-            tuple[
-                Optional[str],
-                Optional[str],
-                Optional[bytes],
-                Optional[str],
-                Optional[str],
-                Optional[str],
-                Optional[bytes],
-                Optional[str],
-                bool,
-                ChangeType,
-                Optional[LazyReason],
-                Optional[str],
-                list[str],
-                Optional[CapturedLink],
-                Optional[CapturedLink],
-            ]
-        ] = []
-
-        def substituted_side(
-            loaded: bytes | DirdiffError,
-            side_path: str,
-            side_name: str,
-            side_label: str,
-            errors: list[str],
-        ) -> bytes:
-            """Return one loaded side, substituting established error text.
-
-            # Parameters
-
-            - `loaded`: Exact bytes or the expected backend loading failure.
-            - `side_path`: Repository path used in the persisted failure.
-            - `side_name`: Capture slot, `left` or `right`.
-            - `side_label`: Backend state label paired with the path.
-            - `errors`: File-local failure list updated on substitution.
-            """
-            if isinstance(loaded, DirdiffError):
-                failure = (
-                    f"Could not capture {side_name} side "
-                    f"{side_label}:{side_path}: {loaded}"
-                )
-                errors.append(failure)
-                return f"{_CAPTURE_ERROR_PREAMBLE}\n\n{failure}\n".encode()
-            return loaded
-
-        def captured_link(
-            *,
-            path: str,
-            mode: str,
-            content: bytes,
-            side: str,
-        ) -> CapturedLink | None:
-            """Walk one captured link iteratively inside its backend side.
-
-            Each normalized link path enters `visited` before its target is
-            loaded. Repeating a path therefore records the loop immediately and
-            never loads that link twice. Absolute and repo-escaping targets fail
-            normalization; missing, directory-shaped, and unsupported targets
-            fail backend inspection. Every such expected resolution failure is
-            retained as the terminal diagnosis and leaves final content absent.
-
-            Non-link modes return `None`. A successful link walk returns its
-            nested links plus exact final non-link bytes for immutable Snapshot
-            publication. The outer link payload remains the ordinary side.
-
-            # Parameters
-
-            - `path`: Normalized path of the outer link File.
-            - `mode`: Git-compatible mode already captured for that side.
-            - `content`: Raw target bytes loaded for the outer link.
-            - `side`: Backend side in which every target must be inspected.
-
-            # Returns
-
-            - `CapturedLink`: Complete stopped or successfully resolved walk.
-            - `None`: The supplied mode identifies an ordinary File.
-            """
-            if mode != SYMLINK_MODE:
-                return None
-            visited: set[str] = set()
-            nested_links: list[tuple[str, str]] = []
-            current_path = path
-            current_content = content
-            while True:
-                assert current_path not in visited, (
-                    "link loops stop before a repeated path is loaded"
-                )
-                visited.add(current_path)
-                try:
-                    target = current_content.decode("utf-8")
-                except UnicodeDecodeError:
-                    escaped = json.dumps(
-                        current_content.decode(
-                            "utf-8", errors="backslashreplace"
-                        ),
-                        ensure_ascii=False,
-                    )
-                    if current_path != path:
-                        nested_links.append((current_path, escaped))
-                    return CapturedLink(
-                        nested_links=tuple(nested_links),
-                        diagnosis="stopped: link target is not UTF-8",
-                        target_path=None,
-                        target_data=None,
-                    )
-                displayed_target = (
-                    target
-                    if target.isprintable()
-                    else json.dumps(target, ensure_ascii=False)
-                )
-                if current_path != path:
-                    nested_links.append((current_path, displayed_target))
-                if target == "" or "\x00" in target:
-                    return CapturedLink(
-                        nested_links=tuple(nested_links),
-                        diagnosis=(
-                            "stopped: link target is empty or contains NUL"
-                        ),
-                        target_path=None,
-                        target_data=None,
-                    )
-                unresolved = str(PurePosixPath(current_path).parent / target)
-                try:
-                    next_path = backend.normalize_repo_path(unresolved)
-                except DirdiffError as exc:
-                    return CapturedLink(
-                        nested_links=tuple(nested_links),
-                        diagnosis=f"stopped: {exc}",
-                        target_path=None,
-                        target_data=None,
-                    )
-                if next_path in visited:
-                    return CapturedLink(
-                        nested_links=tuple(nested_links),
-                        diagnosis=(f"loop: {next_path} was already visited"),
-                        target_path=None,
-                        target_data=None,
-                    )
-                try:
-                    next_mode = backend.file_mode(next_path, side)
-                    if (
-                        next_mode != SYMLINK_MODE
-                        and backend.file_size(next_path, side)
-                        > _MAX_CAPTURED_LINK_TARGET_BYTES
-                    ):
-                        return CapturedLink(
-                            nested_links=tuple(nested_links),
-                            diagnosis="stopped: link target exceeds 1 MiB",
-                            target_path=None,
-                            target_data=None,
-                        )
-                    next_content = backend.load_version(next_path, side)
-                except DirdiffError as exc:
-                    return CapturedLink(
-                        nested_links=tuple(nested_links),
-                        diagnosis=f"stopped: {exc}",
-                        target_path=None,
-                        target_data=None,
-                    )
-                if next_mode != SYMLINK_MODE:
-                    if len(next_content) > _MAX_CAPTURED_LINK_TARGET_BYTES:
-                        return CapturedLink(
-                            nested_links=tuple(nested_links),
-                            diagnosis="stopped: link target exceeds 1 MiB",
-                            target_path=None,
-                            target_data=None,
-                        )
-                    return CapturedLink(
-                        nested_links=tuple(nested_links),
-                        diagnosis=None,
-                        target_path=next_path,
-                        target_data=next_content,
-                    )
-                current_path = next_path
-                current_content = next_content
-
-        for (
-            left_path,
-            left_mode,
-            right_path,
-            right_mode,
-            tracked,
-            change_type,
-            lazy_reason_override,
-            left_object_id,
-            right_object_id,
-        ) in normalized_paths:
-            errors: list[str] = []
-            left_content: Optional[bytes] = None
-            left_failed = False
-            if left_path is not None and (
-                left_object_id is None or left_mode == SYMLINK_MODE
-            ):
-                loaded_left = next(eager_versions)
-                left_failed = isinstance(loaded_left, DirdiffError)
-                left_content = substituted_side(
-                    loaded_left, left_path, "left", left_side, errors
-                )
-            right_content: Optional[bytes] = None
-            right_failed = False
-            if right_path is not None and (
-                right_object_id is None or right_mode == SYMLINK_MODE
-            ):
-                loaded_right = next(eager_versions)
-                right_failed = isinstance(loaded_right, DirdiffError)
-                right_content = substituted_side(
-                    loaded_right,
-                    right_path,
-                    "right",
-                    right_side,
-                    errors,
-                )
-            assert left_path is not None or right_path is not None, (
-                "Snapshot File must have at least one side"
-            )
-            left_link = (
-                None
-                if left_path is None
-                or left_mode is None
-                or left_content is None
-                or left_failed
-                else captured_link(
-                    path=left_path,
-                    mode=left_mode,
-                    content=left_content,
-                    side=left_side,
-                )
-            )
-            right_link = (
-                None
-                if right_path is None
-                or right_mode is None
-                or right_content is None
-                or right_failed
-                else captured_link(
-                    path=right_path,
-                    mode=right_mode,
-                    content=right_content,
-                    side=right_side,
-                )
-            )
-
-            lazy_metadata: Optional[tuple[LazyReason, str]] = None
-            if self._identity.tab == "preset":
-                assert isinstance(backend, PresetBackend), (
-                    "preset Rooms require PresetBackend"
-                )
-                # A fixture's metadata lives beside both of its sides, so
-                # either path reaches it. A deleted fixture has only the old
-                # side, which is the one the preset backend named the File by
-                # when it built this entry.
-                metadata_path = (
-                    right_path if right_path is not None else left_path
-                )
-                assert metadata_path is not None, (
-                    "a captured File has at least one side"
-                )
-                lazy_metadata = backend.lazy_reason_metadata(metadata_path)
-                assert (
-                    lazy_metadata[0] if lazy_metadata is not None else None
-                ) == lazy_reason_override, (
-                    "preset lazy reason changed during Snapshot capture"
-                )
-            else:
-                assert lazy_metadata is None
-            interim.append(
-                (
-                    left_path,
-                    left_mode,
-                    left_content,
-                    left_object_id,
-                    right_path,
-                    right_mode,
-                    right_content,
-                    right_object_id,
-                    tracked,
-                    change_type,
-                    lazy_reason_override,
-                    lazy_metadata[1] if lazy_metadata is not None else None,
-                    errors,
-                    left_link,
-                    right_link,
-                )
-            )
-        try:
-            next(eager_versions)
-        except StopIteration:
-            pass
-        else:
-            raise AssertionError("backend returned excess captured sides")
-
-        # Canonicalization makes the digest describe a set of Files; it does
-        # not define storage or manifest presentation order. Each present side
-        # contributes one identity token: its backend object id when it has
-        # one, otherwise its captured bytes (which already embed any eager
-        # read failure).
-        interim.sort(key=lambda item: (item[0] or "", item[4] or ""))
+            captured_paths.add(keys)
+        # Sorting describes a set for equality. Source observation and all
+        # acquisition timing remain independent of Snapshot publication.
+        sorted_files = sorted(
+            paths,
+            key=lambda file: (
+                file.left.key.path if file.left is not None else "",
+                file.right.key.path if file.right is not None else "",
+            ),
+        )
+        identities = {
+            side.key: side.content_identity
+            for file in sorted_files
+            for side in (file.left, file.right)
+            if side is not None
+        }
 
         def captured_state_hash() -> bytes:
-            """Hash the observed sides using object ids or captured contents.
+            """Hash semantic File facts and source-supplied side identities.
 
-            Successful deferred sides keep the cheap object-id path. A failed
-            load replaces only that side with the established diagnostic bytes
-            before hashing again, just like an eager loading failure.
+            The source determines each side's content identity. RoomLord combines
+            it with paths, properties, and File metadata to define equality
+            inside this Room. It never interprets a content identity as a
+            storage address or acquisition instruction.
             """
-            digest = hashlib.sha256()
-            digest.update(_SNAPSHOT_HASH_DOMAIN)
-            for (
-                left_path,
-                left_mode,
-                left_content,
-                left_object_id,
-                right_path,
-                right_mode,
-                right_content,
-                right_object_id,
-                tracked,
-                change_type,
-                lazy_reason,
-                metadata_content,
-                _errors,
-                left_link,
-                right_link,
-            ) in interim:
-
-                def side_token(
-                    content: Optional[bytes], object_id: Optional[str]
-                ) -> Optional[bytes]:
-                    """Encode one side's identity token, or `None` when absent.
-
-                    # Parameters
-
-                    - `content`: Eager bytes for an object-id-less side or link.
-                    - `object_id`: Backend content identity for a deferred side.
-
-                    An eager link backed by a Git object carries both; the object id
-                    remains the raw side token and its walk joins identity separately.
-
-                    # Returns
-
-                    - A tagged byte token. `O` prefixes a backend object id and `C`
-                      prefixes eager captured contents, keeping the two identity
-                      sources distinct in the Snapshot digest.
-                    - `None`: Both inputs are absent, so this Snapshot File has no
-                      side in this position and contributes the absent marker.
-                    """
-                    if object_id is not None:
-                        return b"O" + object_id.encode("ascii")
-                    if content is not None:
-                        return b"C" + content
-                    return None
-
-                for value in (
-                    left_path.encode() if left_path is not None else None,
-                    left_mode.encode() if left_mode is not None else None,
-                    side_token(left_content, left_object_id),
-                    left_link.identity_bytes()
-                    if left_link is not None
-                    else None,
-                    right_path.encode() if right_path is not None else None,
-                    right_mode.encode() if right_mode is not None else None,
-                    side_token(right_content, right_object_id),
-                    right_link.identity_bytes()
-                    if right_link is not None
-                    else None,
-                    b"1" if tracked else b"0",
-                    change_type.encode(),
-                    lazy_reason.encode() if lazy_reason is not None else None,
-                    metadata_content.encode()
-                    if metadata_content is not None
-                    else None,
-                ):
+            digest = hashlib.sha256(_SNAPSHOT_HASH_DOMAIN)
+            for file in sorted_files:
+                values: list[bytes | None] = []
+                side: FileSide | None
+                for side in (file.left, file.right):
+                    if side is None:
+                        values.extend((None, None, None, None))
+                    else:
+                        properties: FileProperties = side.properties
+                        values.extend(
+                            (
+                                side.key.path.encode(),
+                                properties.kind.encode(),
+                                b"1" if properties.executable else b"0",
+                                identities[side.key],
+                            )
+                        )
+                values.extend(
+                    (
+                        b"1" if file.untracked else b"0",
+                        file.change_type.encode(),
+                        None
+                        if file.lazy_reason_override is None
+                        else file.lazy_reason_override.encode(),
+                        None
+                        if file.lazy_reason_content is None
+                        else file.lazy_reason_content.encode(),
+                    )
+                )
+                for value in values:
                     if value is None:
                         digest.update(b"\x00")
                     else:
@@ -2488,166 +1878,105 @@ class _SnapshotStore:
             return UUID(hex=snapshot_id)
 
         retained_id = self._database.snapshot_id_for_content(
-            self._identity,
-            snapshot_hash,
+            self._identity, snapshot_hash
         )
         if retained_id is not None:
             return verified_retained_snapshot(retained_id)
 
-        # The Snapshot is new: read the deferred object-id sides and assemble
-        # the complete captured rows the storage loop below persists.
-        deferred_requests: list[tuple[str, str]] = []
-        for (
-            left_path,
-            left_mode,
-            _left_content,
-            left_object_id,
-            right_path,
-            right_mode,
-            _right_content,
-            right_object_id,
-            *_rest,
-        ) in interim:
-            if (
-                left_path is not None
-                and left_object_id is not None
-                and left_mode != SYMLINK_MODE
-            ):
-                deferred_requests.append((left_path, left_side))
-            if (
-                right_path is not None
-                and right_object_id is not None
-                and right_mode != SYMLINK_MODE
-            ):
-                deferred_requests.append((right_path, right_side))
-        deferred_versions = iter(
-            backend.load_versions(tuple(deferred_requests))
+        # A new Snapshot needs all data. The source returns observed results or
+        # acquires exact listed versions without exposing which operation ran.
+        acquired: Sequence[LoadedFile] = source.load(sorted_files)
+        assert len(acquired) == len(sorted_files), (
+            "source returned wrong File count"
         )
-        captured: list[
-            tuple[
-                Optional[str],
-                Optional[bytes],
-                Optional[str],
-                Optional[bytes],
-                bool,
-                ChangeType,
-                Optional[LazyReason],
-                Optional[str],
-                Optional[str],
-                Optional[CapturedLink],
-                Optional[CapturedLink],
-            ]
-        ] = []
-
-        # Deferred errors use the same contents, persistence, and display path
-        # as eager errors. Recompute equality only if a deferred load failed.
-        deferred_failed = False
-        for index, (
-            left_path,
-            left_mode,
-            left_content,
-            left_object_id,
-            right_path,
-            right_mode,
-            right_content,
-            right_object_id,
-            tracked,
-            change_type,
-            lazy_reason_override,
-            metadata_content,
-            errors,
-            left_link,
-            right_link,
-        ) in enumerate(interim):
-            full_left = left_content
-            captured_left_id = left_object_id
-            captured_right_id = right_object_id
-            if (
-                left_path is not None
-                and left_object_id is not None
-                and left_mode != SYMLINK_MODE
-            ):
-                loaded = next(deferred_versions)
-                full_left = substituted_side(
-                    loaded, left_path, "left", left_side, errors
-                )
-                if isinstance(loaded, DirdiffError):
-                    captured_left_id = None
-                    deferred_failed = True
-            full_right = right_content
-            if (
-                right_path is not None
-                and right_object_id is not None
-                and right_mode != SYMLINK_MODE
-            ):
-                loaded = next(deferred_versions)
-                full_right = substituted_side(
-                    loaded, right_path, "right", right_side, errors
-                )
-                if isinstance(loaded, DirdiffError):
-                    captured_right_id = None
-                    deferred_failed = True
-            if (
-                captured_left_id != left_object_id
-                or captured_right_id != right_object_id
-            ):
-                # The successful sibling keeps its object identity. Only the
-                # failed side contributes diagnostic content instead.
-                interim[index] = (
-                    left_path,
-                    left_mode,
-                    full_left,
-                    captured_left_id,
-                    right_path,
-                    right_mode,
-                    full_right,
-                    captured_right_id,
-                    tracked,
-                    change_type,
-                    lazy_reason_override,
-                    metadata_content,
-                    errors,
-                    left_link,
-                    right_link,
-                )
-            assert (left_path is None) == (full_left is None), (
-                "left repository path and captured contents must have equal presence"
+        for position, loaded in enumerate(acquired):
+            assert loaded.change is sorted_files[position], (
+                "source returned a different observed File"
             )
-            assert (right_path is None) == (full_right is None), (
-                "right repository path and captured contents must have equal presence"
-            )
-            assert full_left is not None or full_right is not None, (
-                "Snapshot File must have at least one side"
-            )
-            captured.append(
-                (
-                    left_path,
-                    full_left,
-                    right_path,
-                    full_right,
-                    tracked,
-                    change_type,
-                    lazy_reason_override,
-                    metadata_content,
-                    "\n".join(errors) if errors else None,
-                    left_link,
-                    right_link,
-                )
-            )
-        try:
-            next(deferred_versions)
-        except StopIteration:
-            pass
-        else:
-            raise AssertionError("backend returned excess captured sides")
-
-        if deferred_failed:
-            snapshot_hash = captured_state_hash()
+            file = loaded.change
+            assert (loaded.left is None) == (file.left is None)
+            assert (loaded.right is None) == (file.right is None)
+            if loaded.left is not None and file.left is not None:
+                identities[file.left.key] = loaded.left.content_identity
+            if loaded.right is not None and file.right is not None:
+                identities[file.right.key] = loaded.right.content_identity
+        acquired_hash = captured_state_hash()
+        if acquired_hash != snapshot_hash:
+            snapshot_hash = acquired_hash
             retained_id = self._database.snapshot_id_for_content(
                 self._identity, snapshot_hash
             )
             if retained_id is not None:
                 return verified_retained_snapshot(retained_id)
+
+        def substituted_side(
+            loaded: FileData,
+            side_path: str,
+            side_name: str,
+            side_label: str,
+            errors: list[str],
+        ) -> bytes:
+            """Create persisted diagnostic bytes for an expected outer failure.
+
+            # Parameters
+
+            - `loaded`: Complete source result for this present side.
+            - `side_path`: Canonical path retained beside the captured data.
+            - `side_name`: Left or right display slot for the diagnosis.
+            - `side_label`: Prepared capture label for that selected state.
+            - `errors`: This File's side-ordered failure messages.
+            """
+            if isinstance(loaded.content, DirdiffError):
+                failure = (
+                    f"Could not capture {side_name} side "
+                    f"{side_label}:{side_path}: {loaded.content}"
+                )
+                errors.append(failure)
+                return f"{_CAPTURE_ERROR_PREAMBLE}\n\n{failure}\n".encode()
+            return loaded.content
+
+        captured: list[
+            tuple[
+                str | None,
+                bytes | None,
+                str | None,
+                bytes | None,
+                bool,
+                ChangeType,
+                LazyReason | None,
+                str | None,
+                str | None,
+                CapturedLink | None,
+                CapturedLink | None,
+            ]
+        ] = []
+        for loaded in acquired:
+            file = loaded.change
+            errors: list[str] = []
+            left, right = loaded.left, loaded.right
+            captured.append(
+                (
+                    file.left.key.path if file.left is not None else None,
+                    substituted_side(
+                        left, file.left.key.path, "left", left_label, errors
+                    )
+                    if left is not None and file.left is not None
+                    else None,
+                    file.right.key.path if file.right is not None else None,
+                    substituted_side(
+                        right, file.right.key.path, "right", right_label, errors
+                    )
+                    if right is not None and file.right is not None
+                    else None,
+                    not file.untracked,
+                    file.change_type,
+                    file.lazy_reason_override,
+                    file.lazy_reason_content,
+                    "\n".join(errors) if errors else None,
+                    left.link if left is not None else None,
+                    right.link if right is not None else None,
+                )
+            )
 
         snapshot_id = uuid4()
         staging_path = Path(

@@ -30,13 +30,14 @@ from pydantic import (
     model_validator,
 )
 
-from dirdiff.backend import (
+from dirdiff.change_source import (
     BranchSelection,
     BranchSource,
+    CapturedLink,
     LazyReason,
-    PresetBackend,
+    ManifestPath,
+    PresetCatalog,
     PresetCatalogDir,
-    RepoDiffPath,
     build_lazy_info_for_paths,
     build_repo_manifest_for_paths,
     display_name_for_repo_paths,
@@ -55,7 +56,6 @@ from dirdiff.engines import (
 )
 from dirdiff.formats import (
     BayContext,
-    CapturedLink,
     ComposeContext,
     Composer,
     ImageBay,
@@ -67,20 +67,20 @@ from dirdiff.review import (
     FilePair,
 )
 from dirdiff.room_lord import (
-    BranchReviewCaptureSelection,
     CapturedFileSide,
-    CaptureSelection,
     FileMeta,
     PresetCaptureSelection,
-    PullRequestCaptureSelection,
-    RevisionsCaptureSelection,
     Room,
     RoomLord,
 )
 from dirdiff.server.base import (
     ApiModel,
+    BranchReviewCaptureInput,
+    CaptureInput,
     ClassRoutes,
     ErrorResponse,
+    PullRequestCaptureInput,
+    RevisionsCaptureInput,
     capture_snapshot,
     preset_catalog_dirs,
 )
@@ -115,7 +115,7 @@ BranchSourceParam = BranchSource
 branch and remote parameters. It does not carry either name by itself.
 """
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
-"""Validate backend File relationships before HTTP conversion.
+"""Validate source File relationships before HTTP conversion.
 
 - `modify` keeps one File path relationship.
 - `add` and `delete` are one-sided.
@@ -190,7 +190,7 @@ class PresetCatalogResponse(ApiModel):
     groups: list[PresetGroupResponse]
     """Complete selectable fixture groups for this catalog.
 
-    The backend supplies their display order. Each group id is meaningful only
+    The catalog supplies their display order. Each group id is meaningful only
     with this catalog, and the HUD must preserve the association.
     """
 
@@ -385,7 +385,7 @@ class DiffRowResponse(ApiModel):
 
     Other rows carry `None`. Display enrichment numbers each bay's own rows from
     zero, so a hunk coordinate is this index plus the enclosing bay's key; the
-    backend never numbers a File as a whole. The value is assigned before
+    renderer never numbers a File as a whole. The value is assigned before
     frontend folding and virtualization and is therefore independent of DOM
     layout.
     """
@@ -420,7 +420,7 @@ class DiffSummaryResponse(ApiModel):
     """Count of rendered rows that have only a right source line.
 
     It aggregates text bays for this File and does not include repository
-    additions that the backend did not render as lines.
+    additions that the renderer did not render as lines.
     """
 
     removed_lines: int
@@ -453,11 +453,10 @@ class DiffSummaryResponse(ApiModel):
 
 
 class RepoDiffSummaryResponse(ApiModel):
-    """Validate manifest-wide File totals and optional backend line totals.
+    """Validate manifest-wide File totals and optional source line totals.
 
-    Added and removed line counts are either both backend-reported integers or
-    both absent. They need not include additional untracked Files. Cell totals
-    remain optional because only notebook-aware payloads can provide them.
+    Added and removed line counts are either both source-reported integers or
+    both absent. They need not include additional untracked Files. The cell-summary fields are currently absent from manifest payloads.
     """
 
     changed_files: int
@@ -470,76 +469,76 @@ class RepoDiffSummaryResponse(ApiModel):
     added_files: int
     """Count of affected File pairs with only a right side.
 
-    The backend computes this before rendering. Additional untracked entries
-    follow the backend's manifest policy rather than line totals.
+    Manifest construction counts right-only path pairs, including additional
+    untracked entries. Rendering does not change this count.
     """
 
     removed_files: int
     """Count of affected File pairs with only a left side.
 
-    The backend computes this before rendering. The value is independent of how
-    many deleted source rows an engine later produces.
+    Manifest construction counts left-only path pairs. The value is independent
+    of how many deleted source rows an engine later produces.
     """
 
     updated_files: int
     """Count of affected File relationships present on both sides.
 
-    Modified, renamed, and copied tracked Files contribute here. The value does
+    Modified, renamed, and copied Files contribute here. The value does
     not claim the side paths are equal.
     """
 
     added_lines: Optional[int]
-    """Backend-wide added-line total, or `None` when unavailable.
+    """Source-wide added-line total, or `None` when unavailable.
 
     This field and `removed_lines` always have equal presence.
     """
 
     removed_lines: Optional[int]
-    """Backend-wide removed-line total, or `None` when unavailable.
+    """Source-wide removed-line total, or `None` when unavailable.
 
     This field and `added_lines` always have equal presence.
     """
 
     skipped_files: int
-    """Count of backend-reported entries not included as manifest Files.
+    """Count of source entries deliberately omitted from the manifest.
 
-    This records backend summary damage or filtering and is not a lazy-File
-    count. Consumers must not add it to the manifest tree.
+    Current builders omit none and report zero. Invalid path pairs fail the
+    build instead of incrementing this value; lazy Files remain included.
     """
 
     changed_cells: int | None = None
     """Aggregate count of notebook cells with any reported change.
 
-    `None` means the selected backend supplied no cell summary, not zero. A
-    present value is repository-wide and separate from File line counts.
+    Current manifest payloads omit this field, so it remains `None`. It must
+    not be presented as zero changed cells.
     """
 
     added_cells: int | None = None
     """Aggregate count of notebook cells present only on the right.
 
-    `None` means no cell summary was supplied. Consumers must preserve that
-    distinction instead of presenting an unavailable count as zero.
+    Current manifest payloads omit this field. Consumers must preserve `None`
+    instead of presenting an unavailable count as zero.
     """
 
     removed_cells: int | None = None
     """Aggregate count of notebook cells present only on the left.
 
-    `None` means no cell summary was supplied. The value is metadata, not a
-    count derived from composed notebook bays.
+    Current manifest payloads omit this field. Rendering does not derive a
+    manifest-wide count from composed notebook bays.
     """
 
     modified_cells: int | None = None
     """Aggregate count of paired notebook cells whose content changed.
 
-    `None` means the backend supplied no cell summary. Moved-only or format
-    details remain governed by the backend's summary contract.
+    Current manifest payloads omit this field. Consumers retain `None` rather
+    than infer a count from moved or modified notebook bays.
     """
 
     @model_validator(mode="after")
     def validate_line_count_presence(self) -> RepoDiffSummaryResponse:
         """Require repository added and removed line totals as one unit.
 
-        Both backend totals must be integers or both must be unavailable. Return
+        Both source totals must be integers or both must be unavailable. Return
         the summary unchanged after rejecting a partial pair.
 
         # Usage
@@ -558,55 +557,39 @@ class RepoDiffSummaryResponse(ApiModel):
         return self
 
 
-class GitFileKindResponse(ApiModel):
-    """Return tracked Git provenance for one manifest or composed File.
+class RecordedFileKindResponse(ApiModel):
+    """Return source-independent classification for a recorded File change.
 
-    The `git` discriminator selects this variant; `status` describes the File
-    relationship reported by the backend.
-
-    It does not identify side paths, loading state, or line changes.
+    Manifest and composed File responses share this contract. A source may be a
+    VCS or a fixture catalog; this value does not claim VCS tracking.
     """
 
-    type: Literal["git"]
-    """Select the tracked Git provenance variant.
-
-    Only the literal `git` is valid. Consumers may then rely on `status`; the
-    value does not mean the File currently exists on both sides.
-    """
+    type: Literal["recorded"]
+    """Select the source's recorded change-set variant."""
 
     status: Literal["modified", "added", "deleted", "renamed", "copied"]
-    """Tracked relationship the Git backend reported for this File pair.
-
-    The closed value distinguishes one-sided, same-path, and cross-path changes.
-    It does not summarize rendered line or bay status.
-    """
+    """Source-reported File relationship, independent of rendered line changes."""
 
 
 class UntrackedFileKindResponse(ApiModel):
-    """Return untracked provenance for one worktree File.
+    """Return classification for content additional to the recorded change set.
 
-    The `untracked` discriminator lets the HUD present content absent from Git's
-    tracked state.
-
-    Side paths and lazy reason remain on the enclosing File response.
+    The source supplied this fact. Paths and lazy policy remain on the enclosing
+    File response, and no recorded change status accompanies this variant.
     """
 
     type: Literal["untracked"]
-    """Select provenance for a File not present in Git's tracked state.
-
-    Only the literal `untracked` is valid. No tracked change status accompanies
-    it; path presence and lazy loading stay on the enclosing File model.
-    """
+    """Select additional content outside the source's recorded change set."""
 
 
-FileKindResponse = GitFileKindResponse | UntrackedFileKindResponse
-"""Return one complete File provenance variant to the HUD.
+FileKindResponse = RecordedFileKindResponse | UntrackedFileKindResponse
+"""Return source-independent File classification to the HUD.
 
-- `GitFileKindResponse` includes tracked Git status.
-- `UntrackedFileKindResponse` identifies worktree-only content.
+- `RecordedFileKindResponse` includes the source's File relationship.
+- `UntrackedFileKindResponse` identifies additional content.
 
-Consumers branch on `type`. This union is not a File identity or rendered diff
-classification.
+Consumers branch on `type` without inferring a VCS implementation. This union
+is not a File identity, loading state, or rendered diff classification.
 """
 
 
@@ -898,14 +881,14 @@ class BayResponse(ApiModel):
     """
 
     label: str
-    """Backend-authored name shown for the bay as a whole.
+    """Server-authored name shown for the bay as a whole.
 
     It is presentation text and may repeat across bays, so callers must not use it
     as the stable coordinate.
     """
 
     detail: str | None = None
-    """Optional secondary backend-authored description.
+    """Optional secondary server-authored description.
 
     Null means the format supplied no additional text; consumers omit the detail
     instead of substituting change status or widget metadata.
@@ -969,7 +952,7 @@ class FrameResponse(ApiModel):
     """
 
     heading: str | None = None
-    """Backend-authored frame heading, or `None` for a heading-less frame.
+    """Server-authored frame heading, or `None` for a heading-less frame.
 
     Absence instructs the HUD to render no heading and must not be replaced with
     a File name or frame key.
@@ -1003,17 +986,17 @@ class ComposedDiffResponse(ApiModel):
     """
 
     left_label: str
-    """Human-readable label for the complete left comparison side.
+    """Human-readable label for the complete left selected state.
 
     Individual text bays may supply their own column labels, so this value names
     the File envelope rather than every widget column.
     """
 
     right_label: str
-    """Human-readable label for the complete right comparison side.
+    """Human-readable label for the complete right selected state.
 
     It remains valid when the File's right path is absent because it describes
-    the comparison side, not side presence.
+    the selected state, not side presence.
     """
 
     left_path: str | None = None
@@ -1031,7 +1014,7 @@ class ComposedDiffResponse(ApiModel):
     """
 
     file_kind: FileKindResponse
-    """Tracked or untracked provenance copied from manifest metadata.
+    """Recorded or additional source content copied from manifest metadata.
 
     Composition retains this capture-time classification and does not infer it
     from rendered content or path presence.
@@ -1071,7 +1054,7 @@ class RepoFileEntryResponse(ApiModel):
     """
 
     file_kind: FileKindResponse
-    """Tracked or untracked provenance and backend change classification.
+    """Recorded or additional source content and source change classification.
 
     The HUD passes this capture-time metadata to File loading and must not derive
     it from path nullability or lazy policy.
@@ -1164,10 +1147,10 @@ class RepoManifestDirectoryNodeResponse(ApiModel):
     """
 
     entries: list[RepoManifestTreeEntryResponse]
-    """File and directory children in backend-supplied order.
+    """File and directory children in source-supplied order.
 
     The order reflects manifest construction; the HUD must not sort it and thereby
-    separate it from backend File sequence.
+    separate it from source File sequence.
     """
 
 
@@ -1198,7 +1181,7 @@ class LazyInfoFileResponse(ApiModel):
     # This response must contain enough data for the frontend to construct a
     # lazy placeholder FileEntry without copying fields from /api/manifest.
     file_kind: FileKindResponse
-    """Tracked or untracked provenance and backend change classification.
+    """Recorded or additional source content and source change classification.
 
     The deferred placeholder receives the same manifest fact as a later loaded
     File, so loading must not change classification.
@@ -1272,7 +1255,7 @@ class RepoManifestResponse(ApiModel):
     """
 
     display_name: str
-    """Human-readable name of the complete comparison.
+    """Human-readable name of the complete Tab.
 
     It labels the Tab but is not an identity and may be shared by distinct Rooms
     or recaptures.
@@ -1288,21 +1271,21 @@ class RepoManifestResponse(ApiModel):
     right_label: str
     """Human-readable label for the captured right side.
 
-    The label describes the comparison side even when an individual File is
+    The label describes the selected state even when an individual File is
     removed and has no right-side content.
     """
 
     summary: RepoDiffSummaryResponse
-    """Repository-wide File totals and optional backend line totals.
+    """Repository-wide File totals and optional source line totals.
 
     File counts are manifest-authoritative while nullable line totals remain
-    unknown when the backend deferred or could not calculate them.
+    unknown when the source deferred or could not calculate them.
     """
 
     tree: list[RepoManifestTreeEntryResponse]
     """Every affected File arranged in the recursive directory tree.
 
-    Each manifest File appears once in backend order; the tree contains metadata
+    Each manifest File appears once in source order; the tree contains metadata
     only and no composed File contents.
     """
 
@@ -1318,7 +1301,7 @@ class LazyInfoResponse(ApiModel):
     """
 
     files: list[LazyInfoFileResponse]
-    """Deferred File entries in the manifest's backend path order.
+    """Deferred File entries in the manifest's source path order.
 
     The collection excludes eager Files and lets the HUD create placeholders
     without joining partial data from the manifest tree.
@@ -1410,10 +1393,9 @@ def _preset_project_parts(
     The Preset Tab uses `project_id` as the catalog id. It is the name of a
     directory under the presets root. `preset_subset` is the selected
     group within that catalog. Both are required; whether the catalog exists is
-    settled by `preset_backend_for_catalog`, which is the one place that reads
-    the presets root, so this parser does not carry a second copy of the
-    catalog set. Follow-up endpoints find the prepared Room by Snapshot key and
-    do not call this parser. The preset backend still validates traversal and
+    validated during source setup against the discovered catalogs. This
+    parser does not carry a second copy of the catalog set. Follow-up endpoints find the prepared Room by Snapshot key and
+    do not call this parser. The preset source still validates traversal and
     unknown-group errors while preparing the manifest.
 
     # Parameters
@@ -1425,12 +1407,12 @@ def _preset_project_parts(
     # Usage
 
     Call only for the Preset Tab while translating manifest parameters. Use the
-    returned catalog id to choose a backend and the subset as its capture side.
+    returned catalog id to select a catalog and the subset as its capture side.
 
     # Returns
 
-    - First, the unchanged catalog id used to select `PresetBackend`.
-    - Second, the unchanged fixture-group id used as that backend's capture side.
+    - First, the unchanged catalog id used to select `PresetCatalog`.
+    - Second, the unchanged fixture-group id used as that catalog's fixture group.
 
     # Failures
 
@@ -1518,7 +1500,7 @@ class DiffRoutes:
 
     One instance retains the repository registry, Room service, and preset root
     used to capture or read Snapshots. The route group owns no captured bytes,
-    backend state, or rendered result after an HTTP entity completes.
+    source state, or rendered result after an HTTP entity completes.
     """
 
     routes = ClassRoutes()
@@ -1530,6 +1512,7 @@ class DiffRoutes:
         *,
         room_lord: RoomLord,
         presets_root: str,
+        store_path: Path,
     ) -> None:
         """Retain the interfaces required by capture and File routes.
 
@@ -1538,10 +1521,13 @@ class DiffRoutes:
         - `db`: Repository registry used by Snapshot capture.
         - `room_lord`: Room selection and Snapshot lookup interface.
         - `presets_root`: Exact root rescanned for preset catalogs.
+        - `store_path`: Configured Snapshot root, matching RoomLord; source
+          setup checks physical placement against it.
         """
         self.db = db
         self.room_lord = room_lord
         self.presets_root = presets_root
+        self.store_path = store_path
 
     def preset_catalog_response(
         self,
@@ -1558,13 +1544,13 @@ class DiffRoutes:
         Map each value from `preset_catalog_dirs` through this helper when
         building the preset-list response.
         """
-        preset_backend = PresetBackend(catalog.root)
+        preset_catalog = PresetCatalog(catalog.root)
         return PresetCatalogResponse.model_validate(
             {
                 "id": catalog.catalog_id,
                 "name": catalog.name,
-                "default_preset": preset_backend.default_preset_name(),
-                "groups": preset_backend.list_preset_groups(),
+                "default_preset": preset_catalog.default_preset_name(),
+                "groups": preset_catalog.list_preset_groups(),
             }
         )
 
@@ -1581,7 +1567,7 @@ class DiffRoutes:
         right_commit: str | None,
         preset_subset: str | None,
         show_untracked: bool,
-    ) -> CaptureSelection:
+    ) -> CaptureInput:
         """Translate one manifest query into its concrete Tab selection.
 
         The query parameters carry every cross-Tab value, so this is the
@@ -1647,7 +1633,7 @@ class DiffRoutes:
                 raise DirdiffError(
                     "right_commit is required for the Pull Request Tab."
                 )
-            return PullRequestCaptureSelection(
+            return PullRequestCaptureInput(
                 url=pull_request_url,
                 left_commit=left_commit,
                 right_commit=right_commit,
@@ -1662,7 +1648,7 @@ class DiffRoutes:
             )
             if selected_base is None or selected_review is None:
                 raise DirdiffError("branch selections are required.")
-            return BranchReviewCaptureSelection(
+            return BranchReviewCaptureInput(
                 base=selected_base,
                 review=selected_review,
             )
@@ -1681,7 +1667,7 @@ class DiffRoutes:
                 raise DirdiffError("left is required for the Refs Tab.")
             if right is None or right.strip() == "":
                 raise DirdiffError("right is required for the Refs Tab.")
-        return RevisionsCaptureSelection(
+        return RevisionsCaptureInput(
             tab=tab,
             left=left,
             right=right,
@@ -1770,8 +1756,8 @@ class DiffRoutes:
         # from the manifest, which already emits one per File. Until then the
         # HTTP boundary attaches both here: the two envelope fields composition
         # deliberately does not produce.
-        file_kind: Literal["git", "untracked"] = (
-            "git" if file_meta["tracked"] else "untracked"
+        file_kind: Literal["recorded", "untracked"] = (
+            "untracked" if file_meta["untracked"] else "recorded"
         )
         display_name = (
             pair.right_path
@@ -1801,7 +1787,7 @@ class DiffRoutes:
         """List current preset catalogs and their selectable groups.
 
         The root is rescanned for every call, so hot-added catalogs appear
-        without restarting the backend. Invalid metadata is reported as a bad
+        without restarting the server. Invalid metadata is reported as a bad
         request; unexpected catalog failures are logged and contained.
 
         # Failures
@@ -1872,9 +1858,9 @@ class DiffRoutes:
     ) -> RepoManifestResponse:
         """Show the supplied repository state and provide follow-up keys.
 
-        The handler constructs the concrete backend and supplies the complete
+        The handler prepares the concrete source and supplies the complete
         Tab state to `RoomLord.corresponding_room`. The response contains the
-        manifest tree, aggregate backend totals, and the opaque Snapshot key
+        manifest tree, aggregate source totals, and the opaque Snapshot key
         required by follow-up endpoints. It does not prepare Pull Requests;
         Pull Request parameters already contain the URL and capture commits.
 
@@ -1896,7 +1882,7 @@ class DiffRoutes:
         # Failures
 
         - Raises `HTTPException` with status 400 for invalid Tab parameters,
-          Mark, backend, or capture input.
+          Mark, source setup, or capture input.
         - Logs unexpected capture or persistence failures and raises status 500.
         """
         try:
@@ -1904,6 +1890,7 @@ class DiffRoutes:
                 self.db,
                 self.room_lord,
                 self.presets_root,
+                store_path=self.store_path,
                 project_id=project_id,
                 selection=self.manifest_capture_selection(
                     project_id=project_id,
@@ -1922,7 +1909,7 @@ class DiffRoutes:
             manifest_paths = tuple(
                 sorted(
                     (
-                        RepoDiffPath(
+                        ManifestPath(
                             left_path=left_path.as_posix()
                             if left_path is not None
                             else None,
@@ -1946,7 +1933,7 @@ class DiffRoutes:
                             lazy_reason_override=file_meta[
                                 "lazy_reason_override"
                             ],
-                            untracked=not file_meta["tracked"],
+                            untracked=file_meta["untracked"],
                         )
                         for left_path, right_path, file_meta in room.manifested(
                             snapshot_id
@@ -2018,7 +2005,7 @@ class DiffRoutes:
             lazy_paths = tuple(
                 sorted(
                     (
-                        RepoDiffPath(
+                        ManifestPath(
                             left_path=left_path.as_posix()
                             if left_path is not None
                             else None,
@@ -2042,7 +2029,7 @@ class DiffRoutes:
                             lazy_reason_override=file_meta[
                                 "lazy_reason_override"
                             ],
-                            untracked=not file_meta["tracked"],
+                            untracked=file_meta["untracked"],
                         )
                         for left_path, right_path, file_meta in room.manifested(
                             snapshot_key
@@ -2083,7 +2070,7 @@ class DiffRoutes:
         The opaque key finds the containing Room and is passed again with the
         repository-relative paths to select the exact captured File. Rendering
         reads only the returned absolute capture paths; it never reloads the
-        workspace backend.
+        live source.
 
         # Parameters
 

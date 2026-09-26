@@ -21,7 +21,7 @@ import tree_sitter_typescript
 from helpers import ToolText, tool_json
 from tree_sitter import Language, Node, Parser
 
-from dirdiff.backend import GitBackend
+from dirdiff.change_source import GitChangeSource, GitRepository
 from dirdiff.engines import DiffEngineRow, DirdiffError
 from dirdiff.engines.difftastic.logic import difftastic_rows_from_json
 from dirdiff.formats import TextRejection, try_decode_text
@@ -128,7 +128,7 @@ def _current_diff_cases() -> list[WorktreeCase]:
     absent side as empty bytes, and skips capture failures, non-text content,
     and equal pairs such as pure renames. Each result contains display name,
     left and right parser names, then decoded left and right text, in backend
-    manifest order. An empty current diff returns an empty parameter list.
+    manifest order. An empty changed-file listing returns an empty parameter list.
 
     # Usage
 
@@ -141,27 +141,22 @@ def _current_diff_cases() -> list[WorktreeCase]:
     - `Selection and order`: Cases retain backend manifest order; equal,
       non-text, capture-failed, and unreadable pairs are absent.
     """
-    backend = GitBackend.discover(cwd=REPO_ROOT)
-    cases: list[WorktreeCase] = []
-    for entry in backend.repo_diff(
-        left="HEAD",
+    head_id = GitRepository(REPO_ROOT).commit_id("HEAD", allow_unborn=True)
+    source = GitChangeSource(
+        REPO_ROOT,
+        left=head_id,
         right="worktree",
         show_untracked=True,
-    ).paths:
-        # An absent path is an addition or a deletion, which replays against
-        # empty content. `load_versions` answers with the concrete failure for
-        # a side it cannot read instead of raising, so a File that vanished
-        # between listing and loading drops out of the corpus here.
-        left_content = (
-            b""
-            if entry.left_path is None
-            else backend.load_versions(((entry.left_path, "HEAD"),))[0]
-        )
-        right_content = (
-            b""
-            if entry.right_path is None
-            else backend.load_versions(((entry.right_path, "worktree"),))[0]
-        )
+        max_link_target_bytes=1024 * 1024,
+    )
+    cases: list[WorktreeCase] = []
+    for entry in source.changes().files:
+        # Absent sides replay against empty content. A side whose observation
+        # or acquisition failed drops out of this changing corpus.
+        loaded = source.load((entry,))[0]
+        left_loaded, right_loaded = loaded.left, loaded.right
+        left_content = b"" if left_loaded is None else left_loaded.content
+        right_content = b"" if right_loaded is None else right_loaded.content
         if isinstance(left_content, DirdiffError):
             continue
         if isinstance(right_content, DirdiffError):
@@ -182,8 +177,16 @@ def _current_diff_cases() -> list[WorktreeCase]:
         # there is no diff to check.
         if left_text == right_text:
             continue
-        left_name = entry.left_path or entry.display_name
-        right_name = entry.right_path or entry.display_name
+        left_name = (
+            entry.left.key.path
+            if entry.left is not None
+            else entry.display_name
+        )
+        right_name = (
+            entry.right.key.path
+            if entry.right is not None
+            else entry.display_name
+        )
         cases.append(
             {
                 "display_name": entry.display_name,

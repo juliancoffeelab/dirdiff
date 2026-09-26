@@ -179,6 +179,12 @@ api.pullRequest.prepare()
 
 Each facade operation returns a TanStack query or mutation definition. HUD modules decide when to observe, prefetch, refetch, or execute it.
 
+Manifest, lazy-info, and composed File payloads share source-independent
+`file_kind`: `recorded` carries modified/added/deleted/renamed/copied status;
+`untracked` has no status and denotes content additional to the source's
+recorded change set. Recorded preset fixtures make no VCS-tracking claim. HUD
+status text and styling use those same statuses independently of source kind.
+
 File rendering accepts a complete `EngineConfig`: Git carries its engine tag and
 required algorithm, `ignore_space_change` and `word_diff` booleans, `word_boundary`,
 `color_moved`, and `color_moved_ws`. `word_boundary` is `{mode: "default"}`,

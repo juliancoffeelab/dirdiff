@@ -15,10 +15,10 @@ from pathlib import Path
 
 from fastapi import HTTPException, Query
 
-from dirdiff.backend import (
+from dirdiff.change_source import (
     BranchSelection,
     DefaultBaseSelection,
-    GitBackend,
+    GitRepository,
     PreparedPullRequest,
     RefChoices,
     preferred_review_selection,
@@ -53,7 +53,7 @@ def branch_selection_request_to_selection(
 
     # Usage
 
-    Convert a validated `AgentBranch` before passing it to backend branch
+    Convert a validated `AgentBranch` before passing it to repository branch
     selection. Use the returned dictionary as a complete value; do not add a
     remote to its local variant.
 
@@ -88,7 +88,7 @@ def repo_main_branch_record_to_selection(
     # Usage
 
     Use this after `RepoMarkStore.get_main_branch` returns a record. Pass the
-    resulting value to branch-default responses or backend selection unchanged.
+    resulting value to branch-default responses or repository selection unchanged.
 
     # Failures
 
@@ -169,7 +169,7 @@ class RepoDefaultsResponse(ApiModel):
     """
 
     preferred_review_selection: BranchSelection
-    """Backend-preferred symbolic selection for the review-side control.
+    """Repository-preferred symbolic selection for the review-side control.
 
     The HUD may present it beside the base result, but capture still receives
     and resolves explicit selections from the eventual manifest call.
@@ -179,7 +179,7 @@ class RepoDefaultsResponse(ApiModel):
 class RepoRefsResponse(ApiModel):
     """Return one coherent set of repository ref choices.
 
-    The route derives `ref_choices` from one backend metadata observation so
+    The route derives `ref_choices` from one repository metadata observation so
     controls do not mix repository states from repeated Git reads.
 
     Choices are suggestions. They do not reserve refs or promise later
@@ -187,7 +187,7 @@ class RepoRefsResponse(ApiModel):
     """
 
     ref_choices: RefChoices
-    """Local branches, remote branches, and refs offered by the backend.
+    """Local branches, remote branches, and refs offered by the repository.
 
     All choices come from one observation so their relationships are coherent.
     They seed controls and do not reserve or validate a future selection.
@@ -198,7 +198,7 @@ class PullRequestPrepareRequest(ApiModel):
     """Request preparation of one supported Pull Request URL.
 
     The route matches the URL to a marked repository and asks the forge-specific
-    backend preparation code to fetch the forge-recorded commit objects.
+    repository preparation code to fetch the forge-recorded commit objects.
 
     The request cannot supply repository identity or commit overrides.
     """
@@ -259,7 +259,7 @@ class PullRequestPrepareResponse(ApiModel):
 def _pull_request_prepare_response(
     prepared: PreparedPullRequest,
 ) -> PullRequestPrepareResponse:
-    """Validate a backend preparation result as the public HTTP response.
+    """Validate a repository preparation result as the public HTTP response.
 
     The conversion copies the matched repository id, URL, immutable commits,
     and branch display names without resolving or normalizing them again.
@@ -267,12 +267,12 @@ def _pull_request_prepare_response(
 
     # Usage
 
-    Call immediately after backend Pull Request preparation and return the
+    Call immediately after repository Pull Request preparation and return the
     resulting model from the HTTP endpoint.
 
     # Failures
 
-    - Raises Pydantic validation errors when backend output cannot satisfy the
+    - Raises Pydantic validation errors when repository output cannot satisfy the
       declared response contract.
     """
 
@@ -309,14 +309,14 @@ class RepoMarkResponse(ApiModel):
     path: str
     """Canonical workspace path recorded for the mark.
 
-    Server routes use it to construct the repository backend. The response does
+    Server routes use it to construct the repository. The response does
     not promise that external filesystem changes leave it readable later.
     """
 
     name: str
     """Presentation name associated with the marked repository.
 
-    The HUD may display it, but identity and backend lookup use `id` and `path`.
+    The HUD may display it, but identity and repository lookup use `id` and `path`.
     It is not a Git remote or Room name.
     """
 
@@ -364,7 +364,7 @@ class RepoRoutes:
         # Failures
 
         - Raises `HTTPException` with status 400 when the Mark is absent or the
-          repository backend cannot provide coherent ref metadata.
+          repository cannot provide coherent ref metadata.
         """
         mark = self.db.get(project_id)
         if mark is None:
@@ -372,15 +372,15 @@ class RepoRoutes:
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail=f"Invalid project_id: {project_id}",
             )
-        backend = GitBackend.discover(repo_root=Path(mark.path))
+        repository = GitRepository.discover(repo_root=Path(mark.path))
         # One metadata snapshot feeds both derivations so base and review
         # defaults cannot come from different repository states.
-        metadata = backend.read_ref_metadata()
+        metadata = repository.read_ref_metadata()
         saved_main_branch = self.db.get_main_branch(project_id)
         default_base_selection = (
             repo_main_branch_record_to_selection(saved_main_branch)
             if saved_main_branch is not None
-            else backend.default_base_selection(metadata)
+            else repository.default_base_selection(metadata)
         )
         return RepoDefaultsResponse.model_validate(
             {
@@ -400,9 +400,9 @@ class RepoRoutes:
     ) -> RepoRefsResponse:
         """Return ref choices for repository-backed controls.
 
-        The active Mark supplies the workspace, and one backend metadata snapshot is
+        The active Mark supplies the workspace, and one repository metadata snapshot is
         converted into autocomplete choices without changing saved defaults or resolving
-        a comparison. Invalid Mark identity is reported as a client error.
+        selected revisions. Invalid Mark identity is reported as a client error.
 
         # Parameters
 
@@ -411,7 +411,7 @@ class RepoRoutes:
         # Failures
 
         - Raises `HTTPException` with status 400 when the Mark is absent or the
-          repository backend cannot read its refs.
+          repository cannot read its refs.
         """
         mark = self.db.get(project_id)
         if mark is None:
@@ -419,9 +419,9 @@ class RepoRoutes:
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail=f"Invalid project_id: {project_id}",
             )
-        backend = GitBackend.discover(repo_root=Path(mark.path))
+        repository = GitRepository.discover(repo_root=Path(mark.path))
         return RepoRefsResponse.model_validate(
-            {"ref_choices": ref_choices(backend.read_ref_metadata())}
+            {"ref_choices": ref_choices(repository.read_ref_metadata())}
         )
 
     @routes.post(

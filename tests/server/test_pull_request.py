@@ -8,7 +8,7 @@ tests that monkeypatch half the backend.
 
 from __future__ import annotations
 
-from dirdiff.backend import pull_request
+from dirdiff.change_source import pull_request
 
 
 def test_github_pull_request_url_parses_repo_and_number() -> None:

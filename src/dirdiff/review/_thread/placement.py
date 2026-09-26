@@ -28,6 +28,7 @@ from typing import Literal, Optional
 
 from tree_sitter import Language, Node, Parser
 
+from dirdiff.change_source import CapturedLink
 from dirdiff.db import (
     ReviewActionRecord,
     ReviewThreadRecord,
@@ -38,7 +39,6 @@ from dirdiff.db import (
 )
 from dirdiff.formats import (
     BayContext,
-    CapturedLink,
     Composer,
     MediaSide,
     TextBay,

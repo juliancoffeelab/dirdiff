@@ -39,9 +39,10 @@ from pydantic import (
 )
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from dirdiff.backend import (
+from dirdiff.change_source import (
     BranchSelection,
-    GitBackend,
+    GitChangeSource,
+    GitRepository,
     prepare_pull_request,
 )
 from dirdiff.db import (
@@ -70,17 +71,23 @@ from dirdiff.review import (
 )
 from dirdiff.room_lord import (
     BranchReviewCaptureSelection,
-    CaptureSelection,
+    HeadCaptureSelection,
     PullRequestCaptureSelection,
     RevisionsCaptureSelection,
     Room,
+    RoomCaptureContext,
     RoomLord,
 )
 from dirdiff.server.base import (
     ApiModel,
+    BranchReviewCaptureInput,
+    CaptureInput,
     ClassRoutes,
+    PullRequestCaptureInput,
     ReviewExcerptResponse,
+    RevisionsCaptureInput,
     capture_snapshot,
+    validate_source_placement,
 )
 from dirdiff.util import JsonValue
 
@@ -111,7 +118,7 @@ class AgentBranch(ApiModel):
     """Name one symbolic branch in an agent Branch Review Tab.
 
     `remote=None` selects a local branch; a remote name keeps the two parts
-    structured for backend resolution.
+    structured for repository resolution.
 
     The value is not an arbitrary Git ref or resolved commit.
     """
@@ -120,7 +127,7 @@ class AgentBranch(ApiModel):
     """Remote namespace containing `name`, when one is selected.
 
     `None` makes the branch local. A present value is passed separately to the
-    backend and must not be joined with the branch into an arbitrary ref string.
+    repository and must not be joined with the branch into an arbitrary ref string.
     """
 
     name: str = Field(min_length=1)
@@ -156,16 +163,16 @@ class AgentHeadTab(ApiModel):
 
 
 class AgentRefsTab(ApiModel):
-    """Ask the agent API to capture two explicit backend sides.
+    """Ask the agent API to capture two explicit repository sides.
 
     Join-review validates the marked repository and normalizes `left` and
-    `right` through its backend before capture.
+    `right` through its repository before capture.
 
     The values are side names, not display labels or guaranteed commits.
     """
 
     kind: Literal["refs"]
-    """Select capture of the two explicitly named backend sides.
+    """Select capture of the two explicitly named repository sides.
 
     Only the literal `refs` is valid. It requires both `left` and `right` and
     does not apply Branch Review merge-base semantics.
@@ -175,26 +182,26 @@ class AgentRefsTab(ApiModel):
     """Exact workspace path of an already active repository mark.
 
     Join review looks it up without creating a mark. The path selects the
-    backend that normalizes both side names.
+    repository that normalizes both side names.
     """
 
     left: str = Field(min_length=1)
-    """Non-empty backend side name for the left capture input.
+    """Non-empty repository side name for the left capture input.
 
-    The selected repository backend normalizes and loads it. The caller must not
+    The selected repository normalizes and loads it. The caller must not
     assume the value is already an immutable commit.
     """
 
     right: str = Field(min_length=1)
-    """Non-empty backend side name for the right capture input.
+    """Non-empty repository side name for the right capture input.
 
-    It is interpreted by the same backend as `left`; the ordered pair defines
-    the comparison and must not be reversed during continuation.
+    It is interpreted by the same repository as `left`; the ordered pair defines
+    the ordered Tab sides and must not be reversed during continuation.
     """
 
 
 class AgentBranchReviewTab(ApiModel):
-    """Ask the agent API to capture one Branch Review comparison.
+    """Ask the agent API to capture one Branch Review Tab.
 
     Join-review resolves the structured base and review branches to immutable
     commits, then applies Branch Review correspondence.
@@ -207,18 +214,19 @@ class AgentBranchReviewTab(ApiModel):
     """Select Branch Review resolution and capture.
 
     Only the literal `branch-review` is valid. It requires structured `base`
-    and `review` selections and applies their merge-base comparison law.
+    and `review` selections. Source setup prepares capture sides using their
+    merge base.
     """
 
     repo_path: str = Field(min_length=1)
     """Exact workspace path of an already active repository mark.
 
-    The mark selects the backend that resolves both symbolic branch selections.
+    The mark selects the repository that resolves both symbolic branch selections.
     Join review does not register an unmarked path.
     """
 
     base: AgentBranch
-    """Symbolic base branch used to establish the comparison boundary.
+    """Symbolic base branch used to establish the review baseline.
 
     Capture resolves it together with `review`; callers provide no merge-base
     commit and must retain the symbolic selection for later recapture.
@@ -1476,6 +1484,7 @@ class ExternalAgentRoutes:
         agent_skills_root: Path,
         room_lord: RoomLord,
         presets_root: str,
+        store_path: Path,
     ) -> None:
         """Retain the exact interfaces used by external-agent handlers.
 
@@ -1487,6 +1496,8 @@ class ExternalAgentRoutes:
           workflow skills exposed by onboarding.
         - `room_lord`: Room selection and Snapshot lookup interface.
         - `presets_root`: Exact Preset catalog root used by review opening.
+        - `store_path`: Configured Snapshot root, matching the RoomLord store;
+          concrete source setup uses it for physical placement checks.
 
         # Failures
 
@@ -1505,6 +1516,7 @@ class ExternalAgentRoutes:
         self.agent_skill_paths = tuple(str(path) for path in skill_paths)
         self.room_lord = room_lord
         self.presets_root = presets_root
+        self.store_path = store_path
 
     def snapshot_room(self, snapshot_id: UUID) -> Room:
         """Return the Room containing one exact agent-selected Snapshot.
@@ -2125,8 +2137,9 @@ class ExternalAgentRoutes:
                     self.db,
                     self.room_lord,
                     self.presets_root,
+                    store_path=self.store_path,
                     project_id=str(prepared.project_id),
-                    selection=PullRequestCaptureSelection(
+                    selection=PullRequestCaptureInput(
                         url=prepared.pull_request_url,
                         left_commit=prepared.left_commit,
                         right_commit=prepared.right_commit,
@@ -2143,7 +2156,7 @@ class ExternalAgentRoutes:
                 project_id = str(matches[0].id)
 
                 def branch(value: AgentBranch) -> BranchSelection:
-                    """Translate one explicit API branch to backend input.
+                    """Translate one explicit API branch to repository input.
 
                     A missing remote produces the local branch shape; a concrete
                     remote produces the remote shape with the same symbolic name.
@@ -2162,16 +2175,16 @@ class ExternalAgentRoutes:
                         "branch": value.name,
                     }
 
-                selection: CaptureSelection
+                selection: CaptureInput
                 if isinstance(tab, AgentHeadTab):
-                    selection = RevisionsCaptureSelection(
+                    selection = RevisionsCaptureInput(
                         tab="head",
                         left="HEAD",
                         right="worktree",
                         show_untracked=True,
                     )
                 elif isinstance(tab, AgentRefsTab):
-                    selection = RevisionsCaptureSelection(
+                    selection = RevisionsCaptureInput(
                         tab="refs",
                         left=tab.left,
                         right=tab.right,
@@ -2179,7 +2192,7 @@ class ExternalAgentRoutes:
                     )
                 else:
                     assert isinstance(tab, AgentBranchReviewTab)
-                    selection = BranchReviewCaptureSelection(
+                    selection = BranchReviewCaptureInput(
                         base=branch(tab.base),
                         review=branch(tab.review),
                     )
@@ -2187,6 +2200,7 @@ class ExternalAgentRoutes:
                     self.db,
                     self.room_lord,
                     self.presets_root,
+                    store_path=self.store_path,
                     project_id=project_id,
                     selection=selection,
                 )
@@ -2421,7 +2435,7 @@ class ExternalAgentRoutes:
         - `ContinueAgentReviewResponse` with the recaptured Snapshot, captured
           File delta, bounded action delta, resulting cursor, open-Thread count,
           and whether more actions remain.
-        - `PlainTextResponse` when Room recovery, backend preparation, recapture,
+        - `PlainTextResponse` when Room recovery, repository preparation, recapture,
           or continuation fails. The variant contains no replacement Snapshot
           or cursor for the agent to adopt.
 
@@ -2434,25 +2448,77 @@ class ExternalAgentRoutes:
         try:
             previous_id = UUID(hex=request.snapshot_id)
             room = self.room_lord.find_room(previous_id)
-            context = room.capture_context()
+            context: RoomCaptureContext = room.capture_context()
             mark = self.db.get(context["mark_id"])
             if mark is None:
                 raise DirdiffError("Snapshot Mark no longer exists.")
-            backend = GitBackend.discover(repo_root=Path(mark.path))
-            if context["tab"] == "pull-request":
-                assert context["pull_request_url"] is not None
+            root = Path(mark.path)
+            validate_source_placement(self.db, self.store_path, root)
+            repository = GitRepository.discover(repo_root=root)
+            selection = context["selection"]
+            show_untracked = False
+            if isinstance(selection, PullRequestCaptureSelection):
                 prepared = prepare_pull_request(
-                    url=context["pull_request_url"], repo_marks=self.db.list()
+                    url=selection.url, repo_marks=self.db.list()
                 )
                 if prepared.project_id != mark.id:
                     raise DirdiffError("Pull Request Mark changed.")
-                snapshot_id = room.recapture(
-                    backend,
-                    pull_request_left=prepared.left_commit,
-                    pull_request_right=prepared.right_commit,
-                )
+                left, right = prepared.left_commit, prepared.right_commit
+                left_label, right_label = left, right
+            elif isinstance(selection, HeadCaptureSelection):
+                left, right = selection.baseline, "worktree"
+                left_label, right_label = "HEAD", "worktree"
+                show_untracked = True
+            elif isinstance(selection, RevisionsCaptureSelection):
+                left, right = selection.left, selection.right
+                left_label, right_label = left, right
             else:
-                snapshot_id = room.recapture(backend)
+                assert isinstance(selection, BranchReviewCaptureSelection)
+
+                def persisted_branch(value: JsonValue) -> BranchSelection:
+                    """Decode this Git setup's persisted symbolic branch identity.
+
+                    Room exposes the JSON value without knowing this shape.
+                    A malformed concrete identity asserts before repository
+                    preparation; no branch or remote is substituted.
+                    """
+                    assert isinstance(value, dict)
+                    source = value.get("source")
+                    branch = value.get("branch")
+                    assert isinstance(branch, str) and branch != ""
+                    if source == "local":
+                        assert set(value) == {"source", "branch"}
+                        return {"source": "local", "branch": branch}
+                    assert source == "remote"
+                    assert set(value) == {"source", "remote", "branch"}
+                    remote = value.get("remote")
+                    assert isinstance(remote, str) and remote != ""
+                    return {
+                        "source": "remote",
+                        "remote": remote,
+                        "branch": branch,
+                    }
+
+                base, left, review, right = (
+                    repository.resolve_branch_diff_sides(
+                        base_selection=persisted_branch(selection.base),
+                        review_selection=persisted_branch(selection.review),
+                    )
+                )
+                left_label, right_label = f"{base.strip()}...{review}", review
+            source = GitChangeSource(
+                root,
+                left=left,
+                right=right,
+                show_untracked=show_untracked,
+                max_link_target_bytes=1 << 20,
+            )
+            snapshot_id = self.room_lord.recapture(
+                room,
+                source=source,
+                left_label=left_label,
+                right_label=right_label,
+            )
             snapshot_path = room.path_for_snapshot(snapshot_id)
 
             file_delta = room.file_delta(previous_id, snapshot_id)

@@ -113,6 +113,7 @@ def test_fastapi_docs_are_enabled(tmp_path: Path) -> None:
         create_app(
             store,
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
+            store_path=tmp_path / "store",
             room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
             presets_root=str(Path(__file__).parents[2] / "tests" / "presets"),
         )
@@ -141,6 +142,7 @@ def test_repo_list_is_sorted_by_name_and_path(tmp_path: Path) -> None:
         create_app(
             store,
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
+            store_path=tmp_path / "store",
             room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
             presets_root=str(Path(__file__).parents[2] / "tests" / "presets"),
         )
@@ -173,6 +175,7 @@ def test_repo_mark_delete_deactivates_registry_state(tmp_path: Path) -> None:
         create_app(
             store,
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
+            store_path=tmp_path / "store",
             room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
             presets_root=str(Path(__file__).parents[2] / "tests" / "presets"),
         )
@@ -197,6 +200,7 @@ def test_repo_mark_delete_reports_missing_id(tmp_path: Path) -> None:
         create_app(
             store,
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
+            store_path=tmp_path / "store",
             room_lord=RoomLord(RoomStore(store.engine), tmp_path / "store"),
             presets_root=str(Path(__file__).parents[2] / "tests" / "presets"),
         )
@@ -228,7 +232,7 @@ def test_file_diff_response_schema_rejects_unknown_fields() -> None:
                     "left_exists": True,
                     "right_exists": True,
                 },
-                "file_kind": {"type": "git", "status": "modified"},
+                "file_kind": {"type": "recorded", "status": "modified"},
                 "left_path": "alpha.txt",
                 "right_path": "alpha.txt",
                 "frames": [],
@@ -254,7 +258,7 @@ def test_composed_diff_response_accepts_real_composition() -> None:
     composed = Composer().compose(b"x = 1\n", b"x = 2\n", context)
     payload = dict(composed)
     payload["display_name"] = "a.py"
-    payload["file_kind"] = {"type": "git", "status": "modified"}
+    payload["file_kind"] = {"type": "recorded", "status": "modified"}
 
     response = ComposedDiffResponse.model_validate(payload)
     assert len(response.frames) == 1

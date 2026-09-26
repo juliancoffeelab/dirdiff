@@ -186,7 +186,7 @@ Use the following words only for their defined meaning, avoid for anything else:
   `pull_request`. Parameters to an HTTP request are parameters or options.
 - **draft** means potentially persisted, unfinished material intended to be
   revised, accepted, or rejected. Input is input, it's not a draft.
-- **comparison** means a logical comparison. The UI entity is a Tab; a
+- **comparison** means a logical comparison (=, <, >). The UI entity is a Tab; a
   file-local entity is a diff.
 - **region** means a span of source content: a reattachment origin, a fold
   hint, or an engine's internal span. It never means the composed unit, which

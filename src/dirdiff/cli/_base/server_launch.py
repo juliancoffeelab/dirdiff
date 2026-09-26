@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import quote, urlencode
 
-from dirdiff.backend import BranchSelection
+from dirdiff.change_source import BranchSelection
 from dirdiff.db import RepoMarkStore, open_sqlite_engine
 from dirdiff.server import RUNTIME_CONFIG_ENV, RuntimeConfig
 

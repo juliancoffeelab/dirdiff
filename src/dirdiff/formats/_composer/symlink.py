@@ -24,11 +24,11 @@ import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from dirdiff.change_source import CapturedLink
 from dirdiff.engines import DiffSide
 from dirdiff.formats.base import (
     Bay,
     BayContext,
-    CapturedLink,
     TextBay,
     TextRejection,
     try_decode_text,
@@ -47,8 +47,8 @@ __all__ = [
 SYMLINK_BAY_KEY = "symlink"
 """Bay key for the exact payload stored by the outer symbolic link.
 
-The bay contains only the target spelling itself, matching the bytes Git stores
-for the link. Repository paths, arrows, nested links, and diagnoses do not
+The bay contains only the target spelling itself, preserving the raw bytes
+supplied by the source for the link. Repository paths, arrows, nested links, and diagnoses do not
 belong in it.
 """
 
@@ -255,7 +255,7 @@ def symlink_composition(
     """Build link-specific facts before `Composer` selects a target builder.
 
     At least one context side must carry captured link facts. The outer bay
-    mirrors Git by showing only the exact link payload. A safely reached target
+    shows only the exact raw link payload. A safely reached target
     contributes its captured bytes and final repository path; a stopped walk
     becomes a synthetic text document containing nested links and its terminal
     diagnosis.

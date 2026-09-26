@@ -19,35 +19,119 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from dirdiff.backend import (
+from dirdiff.change_source import (
     BranchSelection,
-    GitBackend,
-    PresetBackend,
+    ChangeSourceProtocol,
+    GitChangeSource,
+    GitRepository,
+    PresetCatalog,
     PresetCatalogDir,
-    WorkspaceBackendProtocol,
+    PresetChangeSource,
     preset_catalogs,
 )
 from dirdiff.db import RepoMarkStore
 from dirdiff.engines import DirdiffError
 from dirdiff.room_lord import (
+    BranchReviewCaptureSelection,
     CaptureSelection,
+    HeadCaptureSelection,
     PresetCaptureSelection,
+    PullRequestCaptureSelection,
+    RevisionsCaptureSelection,
     Room,
     RoomLord,
 )
 from dirdiff.server._base.magic import ClassRoutes
+from dirdiff.util import JsonValue
 
 __all__ = [
     "RUNTIME_CONFIG_ENV",
     "ApiModel",
+    "BranchReviewCaptureInput",
+    "CaptureInput",
     "ClassRoutes",
     "ErrorResponse",
+    "PullRequestCaptureInput",
     "Responses",
     "ReviewExcerptResponse",
+    "RevisionsCaptureInput",
     "RuntimeConfig",
     "capture_snapshot",
     "preset_catalog_dirs",
+    "validate_source_placement",
 ]
+
+
+@dataclass(frozen=True)
+class RevisionsCaptureInput:
+    """Carry concrete revision controls from HTTP into Git source setup.
+
+    This is unprepared input, separate from Room's opaque correspondence facts.
+    Setup validates the Head pair or freezes Refs before constructing a source.
+    """
+
+    tab: Literal["head", "refs"]
+    """Tab whose concrete source-input rules apply."""
+
+    left: str
+    """Required raw left revision handle from the selected controls."""
+
+    right: str
+    """Required raw right revision handle from the selected controls."""
+
+    show_untracked: bool
+    """Whether source discovery includes additional worktree Files."""
+
+
+@dataclass(frozen=True)
+class BranchReviewCaptureInput:
+    """Carry validated concrete branch controls into Git source preparation.
+
+    Setup resolves current revisions and separately copies symbolic identities
+    into Room's law facts. No live repository object crosses this record.
+    """
+
+    base: BranchSelection
+    """Validated local or remote base selection for Git ancestry preparation."""
+
+    review: BranchSelection
+    """Validated local or remote review selection prepared with the base."""
+
+
+@dataclass(frozen=True)
+class PullRequestCaptureInput:
+    """Carry prepared Git revisions separately from review correspondence.
+
+    Forge preparation has already fetched these complete ids. Source setup
+    checks them before construction; Room receives only the canonical URL.
+    """
+
+    url: str
+    """Canonical nonblank URL used solely for review correspondence."""
+
+    left_commit: str
+    """Complete prepared merge-base revision for the left source state."""
+
+    right_commit: str
+    """Complete prepared head revision for the right source state."""
+
+
+CaptureInput = (
+    RevisionsCaptureInput
+    | BranchReviewCaptureInput
+    | PullRequestCaptureInput
+    | PresetCaptureSelection
+)
+"""Selected HTTP inputs interpreted by concrete source setup before capture.
+
+- Revision inputs provide raw Head or Refs controls.
+- Branch inputs provide structured concrete branch controls.
+- Pull Request inputs provide prepared revisions and review correspondence.
+- Preset inputs provide selected catalog and group identities.
+
+These records carry values only. They are not Room law facts, repositories,
+source services, or loaded results.
+"""
 
 
 RUNTIME_CONFIG_ENV = "DIRDIFF_RUNTIME_CONFIG"
@@ -126,15 +210,15 @@ class RuntimeConfig:
 
     left: str = "HEAD"
     """
-    Left backend side placed in the initial Refs Tab URL.
+    Left revision handle placed in the initial Refs Tab URL.
 
     The CLI passes the string through as startup navigation state. The manifest
-    route later normalizes and validates it through the selected backend.
+    route later normalizes and validates it during source setup.
     """
 
     right: str = "worktree"
     """
-    Right backend side placed in the initial Refs Tab URL.
+    Right revision handle placed in the initial Refs Tab URL.
 
     It forms an ordered pair with `left` only when `tab` is `refs`. Other startup
     Tabs do not treat the default as implicit manifest input.
@@ -309,18 +393,18 @@ def preset_catalog_dirs(
     # Returns
 
     - Each item contains one visible catalog's id, configured display name,
-      and root path used to construct its backend.
+      and root path used by catalog setup.
     - Items follow catalog-id order. An empty tuple means the current root
       has no catalog directories.
     """
     return preset_catalogs(Path(presets_root))
 
 
-def _preset_backend_for_catalog(
+def _preset_catalog_for_id(
     presets_root: str,
     catalog_id: str,
-) -> PresetBackend:
-    """Construct the backend reading one named preset catalog.
+) -> PresetCatalog:
+    """Construct the picker catalog for one validated catalog id.
 
     This is the only place a catalog id is checked against the catalogs
     that exist; an id no directory answers to is refused here rather than
@@ -335,7 +419,7 @@ def _preset_backend_for_catalog(
 
     # Usage
 
-    Parse a nonblank catalog id first, then use the returned backend for the
+    Parse a nonblank catalog id first, then use the returned catalog for the
     selected subset's capture.
 
     # Failures
@@ -344,14 +428,14 @@ def _preset_backend_for_catalog(
     """
     for catalog in preset_catalog_dirs(presets_root):
         if catalog.catalog_id == catalog_id:
-            return PresetBackend(catalog.root)
+            return PresetCatalog(catalog.root)
     raise DirdiffError(f"Unknown preset catalog: {catalog_id}")
 
 
 def _marked_project_id(project_id: str | None) -> int:
     """Parse a positive Mark id from a repo-backed HTTP parameter.
 
-    Manifest uses the result to construct the workspace backend. Follow-up
+    Manifest uses the result to prepare the repository source. Follow-up
     operations never call this parser because their Snapshot id is sufficient.
 
     # Usage
@@ -375,66 +459,194 @@ def _marked_project_id(project_id: str | None) -> int:
     return parsed_project_id
 
 
+def validate_source_placement(
+    db: RepoMarkStore,
+    store_path: Path,
+    source_root: Path,
+) -> None:
+    """Reject application persistence within a selected physical source root.
+
+    # Parameters
+
+    - `db`: Registry whose engine identifies the application's database path.
+    - `store_path`: Exact configured Snapshot store path, matching RoomLord.
+    - `source_root`: Physical reviewed root known only by concrete source setup.
+
+    # Usage
+
+    Initial and continuation setup call this before constructing a repository
+    source. Room and source-neutral capture APIs never receive this root.
+
+    # Failures
+
+    A database or Snapshot store inside the reviewed root raises `DirdiffError`.
+    Filesystem resolution failures propagate.
+    """
+    reviewed_root = source_root.expanduser().resolve()
+    database = db.engine.url.database
+    if database is not None and database != ":memory:":
+        database_path = Path(database).expanduser().resolve()
+        if database_path.is_relative_to(reviewed_root):
+            raise DirdiffError(
+                "The dirdiff database must be outside the reviewed "
+                f"repository: {database_path}"
+            )
+    snapshot_path = store_path.expanduser().resolve()
+    if snapshot_path.is_relative_to(reviewed_root):
+        raise DirdiffError(
+            "The dirdiff Snapshot store must be outside the reviewed "
+            f"repository: {snapshot_path}"
+        )
+
+
 def capture_snapshot(
     db: RepoMarkStore,
     room_lord: RoomLord,
     presets_root: str,
     *,
+    store_path: Path,
     project_id: str,
-    selection: CaptureSelection,
+    selection: CaptureInput,
 ) -> tuple[Room, UUID, str | None]:
-    """Capture one exact Tab selection for browser and agent callers.
+    """Prepare a selected source, then capture it under independent Room law facts.
 
-    The caller supplies the concrete selection variant. This operation
-    selects its active mark or preset backend, applies Room
-    correspondence, and returns the immutable Snapshot address plus the
-    validated preset subset used only for its display name.
+    Concrete setup validates controls, freezes revisions, and checks physical
+    source placement here. Only the constructed source and opaque law facts
+    reach RoomLord. Browser and agent opening use this same operation.
 
     # Parameters
 
-    - `db`: Repository registry used to resolve repository-backed selections.
-    - `room_lord`: Room service that applies correspondence and captures state.
-    - `presets_root`: Exact root used to resolve preset-backed selections.
-    - `project_id`: Active Mark id for repository selections or catalog id
-      for a preset selection.
-    - `selection`: Complete discriminated Tab input already validated.
+    - `db`: Active Mark registry and application database location.
+    - `room_lord`: Correspondence and Snapshot service for this application.
+    - `presets_root`: Configured root containing selectable preset catalogs.
+    - `store_path`: Configured Snapshot root, matching the supplied RoomLord.
+    - `project_id`: Active Mark id, or selected preset catalog id.
+    - `selection`: Complete unprepared source inputs validated by the HTTP Tab
+      parser; these are separate from Room's prepared `CaptureSelection`.
 
     # Usage
 
-    Pass the result of `manifest_capture_selection` or an agent Tab
-    conversion. Keep the returned Room and Snapshot id together for all
-    follow-up work.
+    Pass `manifest_capture_selection` output or agent opening inputs. Preserve
+    the returned Room and Snapshot id together for follow-up operations.
 
     # Returns
 
-    - First, the Room selected by the Tab's correspondence law.
-    - Second, the immutable Snapshot id captured inside that Room.
-    - Third, the validated preset subset used for display when `selection`
-      is a Preset Tab, or `None` for every repository-backed Tab because
-      those selections have no preset display suffix.
+    - First, the Room selected by its prepared correspondence facts.
+    - Second, the immutable Snapshot id captured or reused inside that Room.
+    - Third, the preset group for display, or `None` for repository Tabs.
 
     # Failures
 
-    - Raises `DirdiffError` when the Mark or preset catalog is absent, or
-      when backend preparation and capture reject the selection.
+    Missing Marks/catalogs, invalid controls or revisions, and unsafe storage
+    placement raise `DirdiffError`. Source and capture failures propagate.
     """
     preset_name: str | None = None
-    parsed_project_id: int | None = None
+    mark_id: int | None = None
+    source: ChangeSourceProtocol
+    law: CaptureSelection
     if isinstance(selection, PresetCaptureSelection):
-        preset_name = selection.subset
-        backend: WorkspaceBackendProtocol = _preset_backend_for_catalog(
-            presets_root,
-            selection.catalog,
+        catalog = selection.catalog.strip()
+        preset_name = selection.subset.strip()
+        if catalog == "" or preset_name == "":
+            raise DirdiffError("Preset capture requires catalog and subset.")
+        selected_catalog = _preset_catalog_for_id(presets_root, catalog)
+        source = PresetChangeSource(
+            selected_catalog.root,
+            group=preset_name,
+            max_link_target_bytes=1 << 20,
         )
+        law = PresetCaptureSelection(catalog, preset_name)
+        left_label, right_label = "old", "new"
     else:
-        parsed_project_id = _marked_project_id(project_id)
-        mark = db.get(parsed_project_id)
+        mark_id = _marked_project_id(project_id)
+        mark = db.get(mark_id)
         if mark is None:
-            raise DirdiffError(f"Invalid project_id: {parsed_project_id}")
-        backend = GitBackend.discover(repo_root=Path(mark.path))
+            raise DirdiffError(f"Invalid project_id: {mark_id}")
+        root = Path(mark.path)
+        validate_source_placement(db, store_path, root)
+        repository = GitRepository.discover(repo_root=root)
+        show_untracked = False
+        if isinstance(selection, PullRequestCaptureInput):
+            if selection.url.strip() == "":
+                raise DirdiffError(
+                    "pull_request_url is required for the Pull Request Tab."
+                )
+            if (
+                selection.left_commit.strip() == ""
+                or selection.right_commit.strip() == ""
+            ):
+                raise DirdiffError(
+                    "Pull Request capture requires prepared commits."
+                )
+            left = repository.commit_id(selection.left_commit.strip())
+            right = repository.commit_id(selection.right_commit.strip())
+            if (
+                left != selection.left_commit.strip()
+                or right != selection.right_commit.strip()
+            ):
+                raise DirdiffError(
+                    "Pull Request capture inputs must be complete commit ids."
+                )
+            law = PullRequestCaptureSelection(selection.url.strip())
+            left_label, right_label = left, right
+        elif isinstance(selection, BranchReviewCaptureInput):
+            base, left, review, right = repository.resolve_branch_diff_sides(
+                base_selection=selection.base,
+                review_selection=selection.review,
+            )
+            # Copy the validated concrete identities into caller-owned JSON law
+            # values. Room embeds these without interpreting their branch shape.
+            identities: list[dict[str, JsonValue]] = []
+            for branch in (selection.base, selection.review):
+                identity: dict[str, JsonValue] = {}
+                for key, value in branch.items():
+                    assert isinstance(value, str)
+                    identity[key] = value
+                identities.append(identity)
+            law = BranchReviewCaptureSelection(identities[0], identities[1])
+            left_label, right_label = f"{base.strip()}...{review}", review
+        else:
+            show_untracked = selection.show_untracked
+            if selection.left.strip() == "" or selection.right.strip() == "":
+                raise DirdiffError(
+                    "left and right are required for revision Tabs."
+                )
+            left = repository.normalize_side(selection.left.strip())
+            right = repository.normalize_side(selection.right.strip())
+            if selection.tab == "head":
+                if left != "HEAD" or right != "worktree":
+                    raise DirdiffError(
+                        "Diff against HEAD requires left=HEAD and right=worktree."
+                    )
+                left_label, right_label = left, right
+                left = repository.commit_id(left, allow_unborn=True)
+                law = HeadCaptureSelection(left)
+            else:
+                assert selection.tab == "refs"
+                left = (
+                    left
+                    if left in {"index", "worktree"}
+                    else repository.commit_id(left)
+                )
+                right = (
+                    right
+                    if right in {"index", "worktree"}
+                    else repository.commit_id(right)
+                )
+                law = RevisionsCaptureSelection(left, right)
+                left_label, right_label = left, right
+        source = GitChangeSource(
+            root,
+            left=left,
+            right=right,
+            show_untracked=show_untracked,
+            max_link_target_bytes=1 << 20,
+        )
     room, snapshot_id = room_lord.corresponding_room(
-        mark_id=parsed_project_id,
-        backend=backend,
-        selection=selection,
+        mark_id=mark_id,
+        selection=law,
+        source=source,
+        left_label=left_label,
+        right_label=right_label,
     )
     return room, snapshot_id, preset_name

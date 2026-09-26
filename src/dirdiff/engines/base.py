@@ -337,7 +337,7 @@ class DiffSide:
 
     Missing sides carry `text=None`.  Added/deleted file handling is still an
     engine concern, but fetching the contents or deciding that a side is absent
-    belongs to `dirdiff.backend` and server orchestration.
+    belongs to `dirdiff.change_source` and server orchestration.
     """
 
     text: str | None

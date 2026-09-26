@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import json
 
+from dirdiff.change_source import CapturedLink
 from dirdiff.engines import TextDiffEngine
-from dirdiff.formats import CapturedLink, ComposeContext, Composer
+from dirdiff.formats import ComposeContext, Composer
 
 
 def test_link_payload_precedes_one_collapsed_text_target() -> None:

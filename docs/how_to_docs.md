@@ -78,7 +78,7 @@ real functionality with any option it gives (i.e. different diff algorithm,
 even if we don't use any at the moment), on any two files we want.
 
 Because of that, none of the code in this package should read any git refs,
-branches, or commits. That's the responsibility of `dirdiff.backend.git` module.
+branches, or commits. That's the responsibility of `dirdiff.change_source.git` module.
 Nor should it manage semantic representation such as folds or syntax, that
 is the job of `dirdiff.rendering`.
 """
@@ -898,7 +898,7 @@ class WorkspaceBackendProtocol(Protocol):
         ...
 
 
-# ... in dirdiff.backend.git ...
+# ... in dirdiff.change_source.git ...
 
 class GitBackend(WorkspaceBackendProtocol):
     @property
@@ -942,7 +942,7 @@ class WorkspaceBackendProtocol(Protocol):
         ...
 
 
-# ... in dirdiff.backend.git ...
+# ... in dirdiff.change_source.git ...
 
 class GitBackend(WorkspaceBackendProtocol):
     @property

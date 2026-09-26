@@ -65,6 +65,8 @@ def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
                 / ".agents"
                 / "skills",
                 room_lord=room_lord,
+                store_path=repo_path.parent
+                / f".{repo_path.name}-dirdiff-test-store",
                 presets_root=str(
                     Path(__file__).parents[2] / "tests" / "presets"
                 ),
@@ -353,6 +355,7 @@ def test_historical_file_review_migration_never_reads_captured_text(
             RepoMarkStore(current_engine),
             UserProfileStore(current_engine),
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
+            store_path=tmp_path / "store",
             room_lord=RoomLord(RoomStore(current_engine), tmp_path / "store"),
             presets_root=str(Path(__file__).parents[2] / "tests" / "presets"),
         )
@@ -898,7 +901,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
                 "lazy": "generated",
                 "left_path": "Cargo.lock",
                 "right_path": "Cargo.lock",
-                "file_kind": {"type": "git", "status": "modified"},
+                "file_kind": {"type": "recorded", "status": "modified"},
             },
         }
     ]
@@ -918,7 +921,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         "changed_lines": None,
         "added_lines": None,
         "removed_lines": None,
-        "file_kind": {"type": "git", "status": "modified"},
+        "file_kind": {"type": "recorded", "status": "modified"},
     }
 
     response = client.get(
@@ -934,7 +937,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
 
     assert response.status_code == 200
     assert payload["display_name"] == "Cargo.lock"
-    assert payload["file_kind"] == {"type": "git", "status": "modified"}
+    assert payload["file_kind"] == {"type": "recorded", "status": "modified"}
     bay = payload["frames"][0]["bays"][0]
     assert bay["kind_data"]["kind"] == "text"
     assert bay["bay_key"] == "flatfile"
@@ -984,6 +987,7 @@ def test_preset_manifest_and_file_diff_do_not_require_a_mark(
             repo_marks,
             user_profile,
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
+            store_path=tmp_path / "store",
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets"),
         )
@@ -1080,6 +1084,7 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
             repo_marks,
             user_profile,
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
+            store_path=tmp_path / "store",
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets"),
         )
@@ -1121,6 +1126,7 @@ def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
             RepoMarkStore(engine),
             UserProfileStore(engine),
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
+            store_path=tmp_path / "store",
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets"),
         )
@@ -1174,6 +1180,7 @@ def test_preset_manifest_validates_required_preset_fields(
             repo_marks,
             user_profile,
             agent_skills_root=Path(__file__).parents[2] / ".agents" / "skills",
+            store_path=tmp_path / "store",
             room_lord=RoomLord(RoomStore(engine), tmp_path / "store"),
             presets_root=str(Path.cwd() / "tests" / "presets"),
         )
@@ -1277,7 +1284,7 @@ def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
                 "lazy": "deleted",
                 "left_path": "alpha.txt",
                 "right_path": None,
-                "file_kind": {"type": "git", "status": "deleted"},
+                "file_kind": {"type": "recorded", "status": "deleted"},
             },
         }
     ]

@@ -794,43 +794,43 @@ const ManifestSummarySchema = z
 export type ManifestSummary = z.infer<typeof ManifestSummarySchema>;
 
 /**
- * Validates the tracked-file arm and its exact Git change classification.
+ * Validates an ordinary file pair and its source-reported change classification.
  *
  * The literal discriminant keeps these statuses unavailable to untracked files.
  */
-const GitFileKindSchema = z.strictObject({
-  /** Discriminant selecting tracked Git classification. */
-  type: z.literal("git"),
-  /** Exact Git relationship; side presence remains in the containing File pair. */
+const RecordedFileKindSchema = z.strictObject({
+  /** Discriminant selecting ordinary content recorded by the change source. */
+  type: z.literal("recorded"),
+  /** Source-reported relationship; side presence remains in the File pair. */
   status: z.enum(["modified", "added", "deleted", "renamed", "copied"]),
 });
 
 /**
- * Validates the untracked-file arm without inventing a Git status.
+ * Validates additional source content without inventing an ordinary status.
  *
  * Strict validation rejects status-like fields that blur the two variants.
  */
 const UntrackedFileKindSchema = z.strictObject({
-  /** Discriminant for worktree content absent from Git's tracked set. */
+  /** Discriminant for content the source includes outside its recorded set. */
   type: z.literal("untracked"),
 });
 
 /**
- * Validates backend file classification by its tracked/untracked discriminant.
+ * Validates source file classification by its recorded/untracked discriminant.
  *
  * Manifest, lazy-info, and file responses share this union so a File's kind has
  * one meaning throughout progressive loading.
  */
 const FileKindSchema = z.discriminatedUnion("type", [
-  GitFileKindSchema,
+  RecordedFileKindSchema,
   UntrackedFileKindSchema,
 ]);
 
 /**
- * Identifies how Git classifies one manifest or rendered-file entry.
+ * Identifies how the change source classifies one captured file pair.
  *
- * The discriminant keeps Git status unavailable for untracked content. This is
- * backend provenance, not File presentation state.
+ * Recorded content carries its source-reported status; additional untracked
+ * content carries none. This classification does not identify a VCS or engine.
  */
 export type FileKind = z.infer<typeof FileKindSchema>;
 
@@ -913,7 +913,7 @@ function validateFilePaths(
  */
 const ManifestEntrySchema = z
   .strictObject({
-    /** Tracked or untracked provenance shared with later File responses. */
+    /** Source classification shared with later File responses. */
     file_kind: FileKindSchema,
     /** Non-empty old-side path, or null when the File exists only on the right. */
     left_path: FilePathSchema.nullable(),
@@ -1073,7 +1073,7 @@ export type Manifest = z.infer<typeof ManifestSchema>;
  */
 const LazyInfoFileSchema = z
   .strictObject({
-    /** Tracked or untracked provenance repeated independently of the manifest. */
+    /** Source classification repeated independently of the manifest. */
     file_kind: FileKindSchema,
     /** Non-empty old-side path, or null when absent from capture. */
     left_path: FilePathSchema.nullable(),
@@ -1585,7 +1585,7 @@ const ComposedDiffSchema = z
     right_label: z.string(),
     /** File-wide text-line totals and captured-side existence. */
     summary: TextFileSummarySchema,
-    /** Tracked or untracked provenance repeated with the rendered response. */
+    /** Source classification repeated with the rendered response. */
     file_kind: FileKindSchema,
     /** Non-empty old-side path, or null when absent from capture. */
     left_path: FilePathSchema.nullable(),
