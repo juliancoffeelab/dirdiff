@@ -433,6 +433,9 @@ publication extracts values only when constructing SQL parameters.
 The focused `snapshot_file` lookup returns `Ok[SnapshotFileLoadRecord]`, or an
 `Err` distinguishing an unavailable Snapshot from an absent File. Room and
 review boundaries preserve their respective error messages and validation order.
+`snapshot_files_by_pairs`, `review_threads`, and `review_thread` also return
+Result, with `Err("snapshot-unavailable")` for a Snapshot outside the Room.
+Empty File mappings and empty discussion records remain successful reads.
 
 Profile preferences store the folding policy, Git algorithm and whitespace
 policy, Difftastic comment policy, and GumTree matcher in one row per Profile. Reads create initial values only when no

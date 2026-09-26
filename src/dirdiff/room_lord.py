@@ -917,13 +917,14 @@ class Room:
         - Raises `AssertionError` when a placement pair or captured side is
           missing from the immutable Snapshot.
         """
-        snapshot_exists, found = self._database.snapshot_files_by_pairs(
+        lookup = self._database.snapshot_files_by_pairs(
             self._identity,
             snapshot_id=snapshot_id.hex,
             pairs=tuple((left.get(), right.get()) for left, right in pairs),
         )
-        if not snapshot_exists:
+        if not Ok.good(lookup):
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
+        found = lookup.value
         result: dict[
             tuple[Option[str], Option[str]],
             tuple[Option[Path], Option[Path]],

@@ -3489,15 +3489,16 @@ class RoomStore:
         *,
         snapshot_id: str,
         pairs: tuple[tuple[Optional[str], Optional[str]], ...],
-    ) -> tuple[
-        bool, dict[tuple[Optional[str], Optional[str]], SnapshotFileRecord]
+    ) -> Result[
+        dict[tuple[Optional[str], Optional[str]], SnapshotFileRecord],
+        Literal["snapshot-unavailable"],
     ]:
-        """Return Snapshot existence and its pair-addressed Files in one read.
+        """Load pair-addressed Files from a visible Snapshot in one read.
 
         Each pair is an exact nullable left/right repository-path pair; pairs
         naming no File of the visible Snapshot are absent from the result.
-        `(False, {})` means the Snapshot is not visible in this Room. Nullable
-        sides make a tuple IN unusable, so the pairs become one OR of exact
+        `Err("snapshot-unavailable")` means the Snapshot is not visible in this
+        Room. Nullable sides make a tuple IN unusable, so the pairs become one OR of exact
         per-pair conditions inside a single query and transaction.
 
         # Parameters
@@ -3509,16 +3510,15 @@ class RoomStore:
         # Usage
 
         Use this when review placement starts with public File pairs rather than
-        internal File ids. Preserve the returned Snapshot-exists flag separately
-        from the mapping.
+        internal File ids. Check `Ok.good` before accessing the mapping.
 
         # Returns
 
-        - First, whether the Snapshot belongs to `identity`.
-        - Second, a mapping from each found path pair to its unique File record.
+        - `Ok`: A mapping from each found path pair to its unique File record.
           Each key's first item is the nullable left path and its second is the
           nullable right path. Requested pairs with no File are absent, and the
-          mapping is empty when the first returned item is false.
+          mapping may be empty for a visible Snapshot.
+        - `Err`: The Snapshot is missing or outside `identity`.
         """
         mark_clause = (
             Room.mark_id.is_(None)
@@ -3613,8 +3613,8 @@ class RoomStore:
                     ).one_or_none()
                     is not None
                 )
-                return exists, {}
-        return True, found
+                return Ok({}) if exists else Err("snapshot-unavailable")
+        return Ok(found)
 
     def review_thread_files(
         self,
@@ -3824,7 +3824,9 @@ class RoomStore:
         *,
         scope: Literal["snapshot", "room"],
         through_activity_id: Optional[int],
-    ) -> Optional[tuple[ReviewThreadsRecord, int]]:
+    ) -> Result[
+        tuple[ReviewThreadsRecord, int], Literal["snapshot-unavailable"]
+    ]:
         """Load one ordered, bounded set of Snapshot or Room Threads.
 
         `identity` must identify the Room containing `snapshot_id`.
@@ -3843,7 +3845,7 @@ class RoomStore:
         `None` chooses the greatest current Room activity in this same database
         session. The concrete pivot is returned for use by subsequent pages.
 
-        This function returns `None` when the Snapshot does not belong to the
+        This function returns `Err` when the Snapshot does not belong to the
         supplied Room.
         Otherwise returns the selected placements or origin rows, unique
         origins, actions, Profiles, total matching Thread count, and concrete
@@ -3871,12 +3873,12 @@ class RoomStore:
 
         # Returns
 
-        - First, the selected placements or origin rows, unique origins, ordered
-          actions, authors, and count before pagination in one
+        - `Ok.value[0]`: The selected placements or origin rows, unique origins,
+          ordered actions, authors, and count before pagination in one
           `ReviewThreadsRecord`.
-        - Second, the concrete inclusive activity pivot used for every row in
-          that record; later pages must repeat it.
-        - `None`: The Snapshot is missing or belongs to another Room. The
+        - `Ok.value[1]`: The concrete inclusive activity pivot used for every
+          row in that record; later pages must repeat it.
+        - `Err`: The Snapshot is missing or belongs to another Room. The
           caller must reject the page instead of treating it as an empty one.
 
         # Failures
@@ -3906,7 +3908,7 @@ class RoomStore:
                 )
             ).scalar_one_or_none()
             if room_id is None:
-                return None
+                return Err("snapshot-unavailable")
             if through_activity_id is None:
                 latest_activity_id: int | None = session.execute(
                     select(func.max(ReviewAction.activity_id))
@@ -4033,9 +4035,11 @@ class RoomStore:
             selected_rows = session.execute(selected_query).all()
             thread_ids = [row[0] for row in selected_rows]
             if thread_ids == []:
-                return (
-                    ReviewThreadsRecord((), (), (), (), total_threads),
-                    through_activity_id,
+                return Ok(
+                    (
+                        ReviewThreadsRecord((), (), (), (), total_threads),
+                        through_activity_id,
+                    )
                 )
             origin_rows = session.execute(
                 select(
@@ -4086,17 +4090,21 @@ class RoomStore:
         assert {profile.id for profile in profiles} == profile_ids, (
             "review action references a missing Profile"
         )
-        return (
-            ReviewThreadsRecord(
-                threads=tuple(selected_records),
-                origins=tuple(self._thread_record(*row) for row in origin_rows),
-                actions=tuple(
-                    self._action_record(action) for action in actions
+        return Ok(
+            (
+                ReviewThreadsRecord(
+                    threads=tuple(selected_records),
+                    origins=tuple(
+                        self._thread_record(*row) for row in origin_rows
+                    ),
+                    actions=tuple(
+                        self._action_record(action) for action in actions
+                    ),
+                    profiles=tuple(profiles),
+                    total_threads=total_threads,
                 ),
-                profiles=tuple(profiles),
-                total_threads=total_threads,
-            ),
-            through_activity_id,
+                through_activity_id,
+            )
         )
 
     def review_thread(
@@ -4104,12 +4112,12 @@ class RoomStore:
         identity: RoomIdentity,
         snapshot_id: str,
         thread_id: str,
-    ) -> Optional[ReviewThreadsRecord]:
+    ) -> Result[ReviewThreadsRecord, Literal["snapshot-unavailable"]]:
         """Load one discussion at one exact Snapshot without bulk hydration.
 
-        `None` means the Snapshot is absent or belongs to another Room. An empty
-        record means that Snapshot contains no such Thread. A present result
-        contains exactly its selected placement, unique origin, complete action
+        `Err` means the Snapshot is absent or belongs to another Room. An empty
+        record in `Ok` means that Snapshot contains no such Thread. A nonempty
+        record contains exactly its selected placement, unique origin, complete action
         sequence, and referenced Profile authors.
 
         # Parameters
@@ -4121,16 +4129,16 @@ class RoomStore:
         # Usage
 
         Use this for one discussion page or write preparation. Distinguish
-        `None` from an empty `ReviewThreadsRecord`: the former means the Snapshot
-        is outside the Room, while the latter means the Thread is absent.
+        `Err` means the Snapshot is outside the Room; `Ok` with an empty
+        `ReviewThreadsRecord` means the Thread is absent.
 
         # Returns
 
-        - A record containing exactly one selected placement, its origin,
+        - `Ok`: A record containing exactly one selected placement, its origin,
           ordered actions, and authors when the Thread is present.
-        - An empty `ReviewThreadsRecord` when the Snapshot is valid but the
-          Thread has no selected placement there.
-        - `None`: The Snapshot is missing or outside `identity`. Callers must
+        - `Ok` with an empty `ReviewThreadsRecord` when the Snapshot is valid
+          but the Thread has no selected placement there.
+        - `Err`: The Snapshot is missing or outside `identity`. Callers must
           not collapse this into the empty-record case.
         """
         mark_clause = (
@@ -4150,7 +4158,7 @@ class RoomStore:
                 )
             ).scalar_one_or_none()
             if room_id is None:
-                return None
+                return Err("snapshot-unavailable")
             selected_row = session.execute(
                 select(
                     ReviewThreadPlacement,
@@ -4183,9 +4191,9 @@ class RoomStore:
                 assert selected_row is None, (
                     "Snapshot placement exists without a Room Thread origin"
                 )
-                return ReviewThreadsRecord((), (), (), (), 0)
+                return Ok(ReviewThreadsRecord((), (), (), (), 0))
             if selected_row is None:
-                return ReviewThreadsRecord((), (), (), (), 0)
+                return Ok(ReviewThreadsRecord((), (), (), (), 0))
             actions = session.scalars(
                 select(ReviewAction)
                 .where(ReviewAction.thread_id == thread_id)
@@ -4205,12 +4213,16 @@ class RoomStore:
         assert {profile.id for profile in profiles} == profile_ids, (
             "review action references a missing Profile"
         )
-        return ReviewThreadsRecord(
-            threads=(self._thread_record(*selected_row),),
-            origins=(self._thread_record(*origin_row),),
-            actions=tuple(self._action_record(action) for action in actions),
-            profiles=profiles,
-            total_threads=1,
+        return Ok(
+            ReviewThreadsRecord(
+                threads=(self._thread_record(*selected_row),),
+                origins=(self._thread_record(*origin_row),),
+                actions=tuple(
+                    self._action_record(action) for action in actions
+                ),
+                profiles=profiles,
+                total_threads=1,
+            )
         )
 
     def review_actions(

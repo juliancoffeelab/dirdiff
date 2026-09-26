@@ -1124,9 +1124,9 @@ def thread_objects(
         scope=scope,
         through_activity_id=through_activity_id,
     )
-    if result is None:
+    if not Ok.good(result):
         raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
-    data, concrete_activity_id = result
+    data, concrete_activity_id = result.value
     return (
         _bind_threads(
             database=database,
@@ -1389,13 +1389,14 @@ def get_thread(
     - Raises `AssertionError` when persisted discussion rows violate review
       invariants.
     """
-    data = database.review_thread(
+    result = database.review_thread(
         identity,
         snapshot_id.hex,
         thread_id.hex,
     )
-    if data is None:
+    if not Ok.good(result):
         raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
+    data = result.value
     if data.origins == ():
         raise ReviewError(
             "thread_not_found", f"Unknown Thread: {thread_id.hex}"
@@ -1578,7 +1579,7 @@ def apply_review_batch(
                 if isinstance(action, CreateThread)
             )
         )
-        snapshot_exists, found_by_pair = database.snapshot_files_by_pairs(
+        lookup = database.snapshot_files_by_pairs(
             identity,
             snapshot_id=snapshot_id.hex,
             pairs=tuple(
@@ -1586,8 +1587,9 @@ def apply_review_batch(
                 for pair in creation_pairs
             ),
         )
-        if not snapshot_exists:
+        if not Ok.good(lookup):
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
+        found_by_pair = lookup.value
         selected_files_by_pair: dict[FilePair, SnapshotFileRecord] = {
             pair: found_by_pair[(pair.left_path.get(), pair.right_path.get())]
             for pair in creation_pairs
