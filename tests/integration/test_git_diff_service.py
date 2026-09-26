@@ -14,7 +14,7 @@ from helpers import TextDiffService
 from dirdiff.change_source import GitChangeSource, GitRepository
 from dirdiff.engines import GitDiffEngine, TextDiffEngine
 from dirdiff.formats import ComposeContext, Composer
-from dirdiff.util import Nothing, Some
+from dirdiff.util import Nothing, Ok, Some
 
 
 def test_build_repo_manifest_lists_changed_tracked_files(
@@ -354,12 +354,12 @@ def test_untracked_lazy_file_can_be_loaded_from_worktree(
     assert not Some.present(change.left) and Some.present(change.right)
     loaded = source.load((change,))[0].right
     assert Some.present(loaded)
-    assert isinstance(loaded.value.content, bytes)
+    assert Ok.good(loaded.value.content)
     # An untracked File exists only in the worktree, so the left side is
     # absent and composition receives no bytes for it at all.
     composed = Composer().compose(
         Nothing(),
-        Some(loaded.value.content),
+        Some(loaded.value.content.value),
         ComposeContext.build(
             left_path=Nothing(),
             right_path=Some("beta.txt"),
@@ -563,10 +563,10 @@ def test_git_diff_service_uses_git_delete_insert_rows(
     loaded = source.load((change,))[0]
     head_side, worktree_side = loaded.left, loaded.right
     assert Some.present(head_side) and Some.present(worktree_side)
-    assert isinstance(head_side.value.content, bytes)
-    assert isinstance(worktree_side.value.content, bytes)
-    head_content = head_side.value.content
-    worktree_content = worktree_side.value.content
+    assert Ok.good(head_side.value.content)
+    assert Ok.good(worktree_side.value.content)
+    head_content = head_side.value.content.value
+    worktree_content = worktree_side.value.content.value
 
     # The same two byte sides, composed three times: the legacy textdiff
     # prototype, the Git no-index engine, and Git no-index with the sides swapped.
