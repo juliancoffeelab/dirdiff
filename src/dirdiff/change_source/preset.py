@@ -656,9 +656,9 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
         # Usage
 
-        Source observation supplies `dirdiff.change_source.base.StorageFile` values and consumes results
-        by position. Preset paths identify their concrete fixture sides; they
-        have no immutable storage object id.
+        Source observation supplies `dirdiff.change_source.base.StorageFile`
+        values and consumes results by position. Preset paths identify their
+        concrete fixture sides; they have no immutable storage object id.
 
         # Returns
 

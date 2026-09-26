@@ -1350,7 +1350,7 @@ class ChangeSourceProtocol(Protocol):
 
         # Parameters
 
-        - `files`: Exact `FileChange` objects returned by this instance's successful
+        - `files`: Exact `FileChange` objects from this instance's successful
           `changes()`. Equal reconstructed objects and other sources' objects
           are invalid. Subsets, reordering, and duplicates are allowed.
 
@@ -1363,12 +1363,13 @@ class ChangeSourceProtocol(Protocol):
         # Returns
 
         A sequence of `LoadedFile` with exactly the input File count and order.
-        Duplicate input Files retain the same acquired side outcomes. Each result carries
-        its exact input in `LoadedFile.change`; named left/right fields preserve
-        side absence. Each present `FileData.content` has one of these outcomes:
+        Duplicate input Files retain the same acquired side outcomes. Each
+        result carries its exact input in `LoadedFile.change`; named left/right
+        fields preserve side absence. Each present `FileData.content` has one
+        of these outcomes:
 
-        - `Ok[bytes]` contains the exact materialized outer data. A symbolic link
-          keeps its raw payload here and has separate walk facts in
+        - `Ok[bytes]` contains the exact materialized outer data. A symbolic
+          link keeps its raw payload here and has separate walk facts in
           `FileData.link`. A target diagnosis is still this successful outcome.
         - `Err[DirdiffError]` describes an expected failure to read
           that outer side. Its link facts are absent; successful sibling sides
@@ -1415,8 +1416,8 @@ def load_file_sides(
 
     # Returns
 
-    - Each `Ok[LoadedSide]` keeps exact outer bytes. Linked sides also keep their
-      stopped or reached target facts.
+    - Each `Ok[LoadedSide]` keeps exact outer bytes. Linked sides also keep
+      their stopped or reached target facts.
     - Each expected outer `Err[DirdiffError]` remains in its input position.
       Expected failures after an outer link load become link diagnoses.
 

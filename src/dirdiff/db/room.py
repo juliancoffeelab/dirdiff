@@ -3498,8 +3498,8 @@ class RoomStore:
         Each pair is an exact nullable left/right repository-path pair; pairs
         naming no File of the visible Snapshot are absent from the result.
         `Err("snapshot-unavailable")` means the Snapshot is not visible in this
-        Room. Nullable sides make a tuple IN unusable, so the pairs become one OR of exact
-        per-pair conditions inside a single query and transaction.
+        Room. Nullable sides make a tuple IN unusable, so the pairs become one
+        OR of exact per-pair conditions inside a single query and transaction.
 
         # Parameters
 
@@ -4117,8 +4117,8 @@ class RoomStore:
 
         `Err` means the Snapshot is absent or belongs to another Room. An empty
         record in `Ok` means that Snapshot contains no such Thread. A nonempty
-        record contains exactly its selected placement, unique origin, complete action
-        sequence, and referenced Profile authors.
+        record contains exactly its selected placement, unique origin,
+        complete action sequence, and referenced Profile authors.
 
         # Parameters
 

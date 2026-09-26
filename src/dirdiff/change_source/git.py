@@ -1340,8 +1340,9 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Usage
 
-        Source observation supplies `dirdiff.change_source.base.StorageFile` values with canonical paths,
-        selected states, discovered properties, and any exact object ids.
+        Source observation supplies `dirdiff.change_source.base.StorageFile`
+        values with canonical paths, selected states, discovered properties,
+        and any exact object ids.
         Reached or raw unlisted reads leave the last two facts absent.
 
         # Returns
@@ -1891,8 +1892,8 @@ class GitRepository:
         """Choose a Branch Review base from one `read_ref_metadata` result.
 
         A remote without a locally known default branch may require
-        `git remote show` and can contact the network. When no safe base is known,
-        the result is the explicit `heuristic_fail` variant.
+        `git remote show` and can contact the network. When no safe base is
+        known, the result is the explicit `heuristic_fail` variant.
 
         # Returns
 

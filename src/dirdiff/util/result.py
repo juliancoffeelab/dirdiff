@@ -1,4 +1,4 @@
-"""Successful and failed values with typed transformations and explicit narrowing.
+"""Successful and failed values with typed transformations and narrowing.
 
 Inspired by the type from ML, `Result[T, E]` is the union of `Ok[T]` and
 `Err[E]`.
@@ -49,11 +49,13 @@ You can just pattern match, since `Result` is just a union, or use
 `Ok.good` to achieve the same thing, but also return a boolean.
 
 # Implementation details
-Both variants retain their payloads by reference without copying or freezing them.
+Both variants retain their payloads by reference without copying or freezing
+them.
 - `Ok` is a frozen dataclass.
 - `Err.error` is Final, so type checkers reject reassignment. Deletion is
 rejected at runtime.
-- Caught exceptions retain their traceback, including references to local values.
+- Caught exceptions retain their traceback, including references to local
+  values.
 
 These types perform no I/O and assign no domain meaning to errors.
 Transformations catch no callback failures; only `catch` converts the explicitly
@@ -105,13 +107,10 @@ class Ok[T]:
 
         # Usage
 
-        ```python
         >>> Ok("notes").map(str.upper)
         Ok(value='NOTES')
         >>> Err("unreadable").map(str.upper)
         Err(error='unreadable')
-
-        ```
 
         # Returns
 
@@ -139,7 +138,6 @@ class Ok[T]:
         loop variable. Both `map` and `map_bind` call immediately; but this form
         is more lint-friendly.
 
-        ```python
         >>> paths = []
         >>> for suffix in (".md", ".txt"):
         ...     paths.append(Ok("notes").map_bind(
@@ -147,8 +145,6 @@ class Ok[T]:
         ...     ))
         >>> paths
         [Ok(value='notes.md'), Ok(value='notes.txt')]
-
-        ```
 
         # Returns
 
@@ -176,7 +172,6 @@ class Ok[T]:
 
         # Usage
 
-        ```python
         >>> def first(items: list[str]) -> Result[str, str]:
         ...     'Return the first item, or an error for an empty list.'
         ...     return Ok(items[0]) if len(items) > 0 else Err("empty list")
@@ -186,8 +181,6 @@ class Ok[T]:
         Err(error='empty list')
         >>> Err("unreadable").and_then(first)
         Err(error='unreadable')
-
-        ```
 
         # Returns
 
@@ -267,13 +260,10 @@ class Err[E]:
 
         # Usage
 
-        ```python
         >>> Err("unreadable").map_err(str.upper)
         Err(error='UNREADABLE')
         >>> Ok("notes").map_err(str.upper)
         Ok(value='notes')
-
-        ```
 
         # Returns
 
@@ -299,11 +289,11 @@ class Err[E]:
 
         The error must be an Exception. The type checker rejects this method for
         other error types; use `map_err` to convert them into exceptions.
-        Caught exceptions keep their original traceback, and raising adds this call.
+        Caught exceptions keep their original traceback, and raising adds
+        this call.
 
         # Usage
 
-        ```python
         >>> Err(ValueError("unreadable")).or_raise()
         Traceback (most recent call last):
             ...
@@ -313,8 +303,6 @@ class Err[E]:
         Traceback (most recent call last):
             ...
         ValueError: unreadable
-
-        ```
         """
         raise self.error
 
@@ -601,7 +589,8 @@ def catch[
     The decorator's wrapped function returns:
 
     - `Ok[T]`: The function's result.
-    - `Err[E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8]`: The caught exception, unchanged.
+    - `Err[E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8]`: The caught exception,
+      unchanged.
     """
     ...
 
@@ -655,7 +644,8 @@ def catch[
     The decorator's wrapped function returns:
 
     - `Ok[T]`: The function's result.
-    - `Err[E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | E9]`: The caught exception, unchanged.
+    - `Err[E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | E9]`: The caught exception,
+      unchanged.
     """
     ...
 
@@ -712,7 +702,8 @@ def catch[
     The decorator's wrapped function returns:
 
     - `Ok[T]`: The function's result.
-    - `Err[E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | E9 | E10]`: The caught exception, unchanged.
+    - `Err[E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | E9 | E10]`: The caught
+      exception, unchanged.
     """
     ...
 
@@ -727,20 +718,19 @@ def catch[E: Exception, **P, T](
 
     The wrapped function keeps its parameter types and metadata.
 
-    # Capture scope
-    This decorator would only catch supplied exception classes. Everything
-    else will escape and propagate naturally (i.e. raise).
-
     # Parameters
 
     - `errors`: One through ten `Exception` classes (not instances).
+
+    # Capture scope
+    This decorator would only catch supplied exception classes. Everything
+    else will escape and propagate naturally (i.e. raise).
 
     # Usage
 
     Provide a sequence of errors you want to catch, we don't support TypeForms
     (yet).
 
-    ```python
     >>> @catch(ValueError, OverflowError)
     ... def number(text: str) -> int:
     ...     'Parse an integer or return its conversion error.'
@@ -755,8 +745,6 @@ def catch[E: Exception, **P, T](
     >>> isinstance(result.error, ValueError)
     True
 
-    ```
-
     # Returns
 
     A decorator whose wrapped function returns:
@@ -767,9 +755,9 @@ def catch[E: Exception, **P, T](
     # Failures
 
     Raises AssertionError for invalid exception classes, an invalid number of
-    classes, or a coroutine or generator function. Their bodies run after the call
-    returns, outside the catch block. An ordinary function returning an iterator or
-    awaitable wraps that value; it does not execute it.
+    classes, or a coroutine or generator function. Their bodies run after the
+    call returns, outside the catch block. An ordinary function returning an
+    iterator or awaitable wraps that value; it does not execute it.
     """
     assert 1 <= len(errors) <= 10, (
         "catch requires one through ten exception classes"
@@ -784,8 +772,10 @@ def catch[E: Exception, **P, T](
 
         # Returns
 
-        - Normal return: The wrapped function supplies Ok with the returned value.
-        - Selected exception: The wrapped function supplies Err with that exception.
+        - Normal return: The wrapped function supplies Ok with the returned
+          value.
+        - Selected exception: The wrapped function supplies Err with that
+          exception.
         """
         assert not (
             iscoroutinefunction(function)

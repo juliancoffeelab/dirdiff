@@ -965,7 +965,8 @@ def try_decode_text(data: bytes) -> Result[str, TextRejection]:
     flatfile builder. A rejection hands the File to the blob builder; accepted
     text is the value the engine later receives.
 
-    Invalid text returns `Err[TextRejection]` rather than raising a decoding error.
+    Invalid text returns `Err[TextRejection]` rather than raising a decoding
+    error.
     Composition turns that result into blob facts and a visible warning.
 
     # Usage
@@ -977,14 +978,14 @@ def try_decode_text(data: bytes) -> Result[str, TextRejection]:
 
     - `Ok[str]`: The complete decoded contents after removing an optional UTF-8
       byte-order mark.
-    - `Err[TextRejection]`: The exact NUL-byte or invalid-UTF-8 boundary failure;
-      callers must represent the File as byte facts instead of using text.
+    - `Err[TextRejection]`: The exact NUL-byte or invalid-UTF-8 boundary
+      failure; callers must represent the File as byte facts instead of text.
 
     # Failures
 
     A NUL byte returns `Err(TextRejection(reason="nul-byte"))`. Invalid UTF-8
-    returns `Err(TextRejection(reason="invalid-utf8"))`; neither condition raises
-    `UnicodeDecodeError`.
+    returns `Err(TextRejection(reason="invalid-utf8"))`; neither condition
+    raises `UnicodeDecodeError`.
     """
     nul_offset = data.find(b"\x00")
     if nul_offset >= 0:

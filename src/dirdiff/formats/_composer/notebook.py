@@ -230,7 +230,8 @@ type NotebookOutputEntry = Result[NotebookOutput, RejectedNotebookPart]
 """Hold one code-cell output after notebook boundary validation.
 
 - `Ok[NotebookOutput]` contains a supported structured output variant.
-- `Err[RejectedNotebookPart]` preserves malformed output as raw JSON with a warning.
+- `Err[RejectedNotebookPart]` preserves malformed output as raw JSON with a
+  warning.
 
 Composition handles both without dropping content. The union does not repair a
 rejected output or treat it as structured data.
@@ -322,7 +323,8 @@ type NotebookCellEntry = Result[NotebookCell, RejectedNotebookPart]
 """Hold one notebook cell after document boundary validation.
 
 - `Ok[NotebookCell]` contains the supported cell fields composition reads.
-- `Err[RejectedNotebookPart]` preserves a malformed cell as raw JSON with a warning.
+- `Err[RejectedNotebookPart]` preserves a malformed cell as raw JSON with a
+  warning.
 
 Cell pairing and rendering consume this union. Rejected values never masquerade
 as valid cells.
