@@ -9,12 +9,15 @@ the matching mark, the trimmed URL, and immutable commits for capture.
 ## Purpose and boundaries
 
 Preparation is separate from manifest loading because it may call a forge API
-and fetch Git objects. It fetches the recorded SHAs into content-addressed local
-refs without moving tracking refs or checking out a branch. These refs retain
-every prepared revision for later capture, including after Git garbage collection.
+and fetch Git objects. It fetches the recorded SHAs without moving tracking
+refs or checking out a branch. Every prepared revision stays reachable for
+later capture, including after Git garbage collection.
 A forge that cannot supply those objects fails explicitly.
 The server chooses when to run it; Snapshot capture and diff rendering consume
 the result without repeating forge work.
+
+*Implementation detail:* Content-addressed local refs retain the prepared
+revisions and their reachable history.
 """
 
 from __future__ import annotations
@@ -315,7 +318,10 @@ def prepare_pull_request(
     merge-base and head commits, and observed branch labels. Use its commits
     for `GitChangeSource` and its URL for
     `dirdiff.room_lord.PullRequestCaptureSelection`. Prepared revisions and their
-    history stay reachable locally until their retaining refs are removed.
+    history stay reachable locally for later capture.
+
+    *Implementation detail:* Local retaining refs have no automatic cleanup;
+    removing them releases this protection against Git garbage collection.
 
     # Failures
 

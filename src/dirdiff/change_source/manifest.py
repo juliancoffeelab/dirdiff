@@ -67,8 +67,8 @@ class ManifestPath:
     untracked: bool
     """Whether the File is untracked by the selected VCS.
 
-    *Implementation detail: preset fixture Files report false because VCS
-    tracking does not apply.*"""
+    *Implementation detail:* preset fixture Files report false because VCS
+    tracking does not apply."""
 
     def __post_init__(self) -> None:
         """Require one present path for a displayed File."""

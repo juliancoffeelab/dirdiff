@@ -9,11 +9,12 @@ picker, and manifest values used by the HTTP boundary.
 
 ## Purpose and boundaries
 
-Git and preset sources share observation, acquisition, and link traversal here.
-Private listing and storage contracts support their concrete implementations.
 An observation holds only its own discovered facts and acquired data. This
 module does not publish Snapshots, choose engines, or decode
 formats. `dirdiff.formats` classifies and decodes supplied bytes later.
+
+*Implementation detail:* Git and preset sources share observation, acquisition,
+and link traversal here, using private listing and storage contracts.
 """
 
 from __future__ import annotations
@@ -55,8 +56,9 @@ LazyReason = Literal[
 A reason to mark the file as lazy, which in the end means that we won't
 produce the file's contents to the user instantly and instead wait on the user
 to ask for it.
-*Implementation detail: currently it means that frontend won't ask us to diff and
-process the file alongside other files when loading the page*
+
+*Implementation detail:* currently it means that frontend won't ask us to diff and
+process the file alongside other files when loading the page.
 
 Reasons for that are different, and here they are:
 - `too_big` is used when file is generally too big, and might not be useful
@@ -120,8 +122,8 @@ class TrackedFileKind(TypedDict):
     Manifest builders derive this from source tracking and change metadata.
     Side paths, loading policy, and rendered data remain on the enclosing File.
 
-    *Implementation detail: preset fixtures use this variant because VCS
-    tracking does not apply to them.*
+    *Implementation detail:* preset fixtures use this variant because VCS
+    tracking does not apply to them.
     """
 
     type: Literal["tracked"]
@@ -151,8 +153,8 @@ type RepoFileKind = TrackedFileKind | UntrackedFileKind
 Branch on `type`; it does not identify a particular VCS, File identity, or
 loading state.
 
-*Implementation detail: presets use the tracked variant because VCS tracking
-is not applicable to fixture content.*
+*Implementation detail:* presets use the tracked variant because VCS tracking
+is not applicable to fixture content.
 """
 
 
@@ -205,8 +207,9 @@ class RepoManifestSummary(TypedDict):
     skipped_files: int
     """Count of source entries deliberately omitted from File loading.
 
-    Current builders skip none and report zero. Invalid path pairs fail the build
-    instead of incrementing this value.
+    Invalid path pairs fail the build instead of incrementing this value.
+
+    *Implementation detail:* Current builders skip no Files and report zero.
     """
 
 
@@ -551,8 +554,8 @@ class ListedPath:
     Manifest construction uses this fact for tracking classification and lazy
     policy.
 
-    *Implementation detail: presets leave this false because VCS tracking does
-    not apply to fixture content.*
+    *Implementation detail:* presets leave this false because VCS tracking does
+    not apply to fixture content.
     """
 
     left_object_id: str | None = None
@@ -1062,8 +1065,8 @@ class FileChange:
     untracked: bool
     """Whether this File is untracked by the selected VCS.
 
-    *Implementation detail: presets report false because VCS tracking does not
-    apply to fixture content.*
+    *Implementation detail:* presets report false because VCS tracking does not
+    apply to fixture content.
     """
 
     lazy_reason_override: LazyReason | None
@@ -1073,7 +1076,10 @@ class FileChange:
     """Complete source policy text supplying the override, or `None`.
 
     This input participates in Snapshot equality even when editing the text
-    leaves the selected lazy reason unchanged. Presets supply fixture TOML.
+    leaves the selected lazy reason unchanged.
+
+    *Implementation detail:* Preset sources use complete fixture TOML for this
+    field.
     """
 
     def __post_init__(self) -> None:

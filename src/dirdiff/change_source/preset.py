@@ -202,8 +202,8 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
         present. A fixture holding only one side is a File the Tab adds or
         deletes.
 
-        *Implementation detail: callers reuse this listing to avoid repeating
-        directory traversal for each fixture side.*
+        *Implementation detail:* callers reuse this listing to avoid repeating
+        directory traversal for each fixture side.
 
         # Returns
 
@@ -459,7 +459,7 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
           order. Ambiguous or empty fixture directories are omitted.
         - `ListedChanges.added_lines` and `removed_lines` are absent.
 
-        *Implementation detail: presets do not calculate aggregate line totals.*
+        *Implementation detail:* presets do not calculate aggregate line totals.
 
         # Failures
 
@@ -891,8 +891,8 @@ class PresetChangeSource(ChangeSourceProtocol):
         Both aggregate totals are absent. Repeated successful calls return the
         same observation.
 
-        *Implementation detail: fixtures have `untracked=False` because VCS
-        tracking does not apply to them.*
+        *Implementation detail:* fixtures have `untracked=False` because VCS
+        tracking does not apply to them.
 
         # Failures
 

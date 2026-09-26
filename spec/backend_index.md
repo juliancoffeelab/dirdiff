@@ -78,8 +78,10 @@ objects without recomputing their digest. Missing or wrong-sized objects and
 recognized unsupported versions or transformation extensions use the ordinary
 backend loading error. Nonmatching pointer-like text stays ordinary content.
 Missing objects include a manual fetch hint. No download or filter runs.
-Single and batch loading share this behavior. Size inspection reads small
-candidate pointers to report payload size without loading that payload.
+
+*Implementation detail:* Single and batch loading share this behavior. Size
+inspection reads small candidate pointers to report payload size without
+loading that payload.
 
 Loading stops at bytes. The source walks links inside the same selected side,
 retains the raw outer bytes and nested link facts, and checks the exact
@@ -94,8 +96,8 @@ Manifest File classification describes VCS tracking. The `tracked` variant
 carries a File change status; `untracked` identifies content not tracked by the
 VCS. Neither variant identifies a particular VCS or implies successful capture.
 
-*Implementation detail: preset fixtures use the tracked variant because VCS
-tracking does not apply to them.*
+*Implementation detail:* preset fixtures use the tracked variant because VCS
+tracking does not apply to them.
 
 Its public interface is exported from `dirdiff.change_source`.
 

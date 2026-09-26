@@ -10,10 +10,12 @@ Branch Review picker values.
 ## Purpose and boundaries
 
 Git is the VCS implemented by this source.
-Its private storage handles Git output, batch object loading, and local Git
-LFS pointers. The source returns materialized bytes; RoomLord decides Snapshot
-identity and publication. This module does not decode formats, render content,
-or download LFS objects.
+The source returns materialized bytes; RoomLord decides Snapshot identity and
+publication. This module does not decode formats, render content, or download
+LFS objects.
+
+*Implementation detail:* Private storage handles Git output, batch object
+loading, and local Git LFS pointers.
 """
 
 from __future__ import annotations
@@ -935,8 +937,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         - `ListedChanges.added_lines` and `removed_lines` contain tracked totals
           or are both absent when complete counts are unavailable.
 
-        *Implementation detail: Git numstat supplies tracked line totals; a
-        binary record makes both totals unavailable.*
+        *Implementation detail:* Git numstat supplies tracked line totals; a
+        binary record makes both totals unavailable.
 
         # Failures
 
@@ -2136,7 +2138,7 @@ class GitChangeSource(ChangeSourceProtocol):
 
         - Calling before successful observation or passing invalid File
           records asserts.
-        - A Git failure that prevents the batch operation raises
+        - A Git failure that prevents loading the submitted Files raises
           `dirdiff.engines.DirdiffError`.
         - Unexpected storage failures propagate.
         """

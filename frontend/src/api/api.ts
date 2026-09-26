@@ -832,8 +832,8 @@ const FileKindSchema = z.discriminatedUnion("type", [
  * Tracked files carry a VCS change status; untracked files carry none. These
  * values describe file changes, not rendered line changes or loading state.
  *
- * *Implementation detail: preset fixtures use the tracked variant to carry
- * their change status, although VCS tracking does not apply to fixtures.*
+ * *Implementation detail:* preset fixtures use the tracked variant to carry
+ * their change status, although VCS tracking does not apply to fixtures.
  */
 export type FileKind = z.infer<typeof FileKindSchema>;
 

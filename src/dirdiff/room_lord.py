@@ -303,8 +303,8 @@ class RoomCaptureContext(TypedDict):
     selection: CaptureSelection
     """Complete persisted Tab law, retaining its original correspondence facts.
 
-    Branch JSON containers are newly decoded and belong to the caller. They
-    must remain unchanged while used for source setup or correspondence.
+    Branch JSON containers belong to the caller. They must remain unchanged
+    while used for source setup or correspondence.
     """
 
 
@@ -322,8 +322,8 @@ class FileMeta(TypedDict):
     untracked: bool
     """Whether this File is untracked by the selected VCS.
 
-    *Implementation detail: presets report false because VCS tracking does not
-    apply to fixture content.*
+    *Implementation detail:* presets report false because VCS tracking does not
+    apply to fixture content.
     """
     change_type: ChangeType
     """
@@ -344,8 +344,8 @@ class FileMeta(TypedDict):
     """
     Reported and persisted when snapshot capture couldn't load a file side.
 
-    *Implementation detail: Set by snapshot machinery to avoid aborting entire
-    snapshot, while still signaling the error.*
+    *Implementation detail:* Set by snapshot machinery to avoid aborting entire
+    snapshot, while still signaling the error.
     """
 
 
@@ -417,10 +417,12 @@ class SnapshotFileDelta(TypedDict):
     """
 
     changed: tuple[Path, ...]
-    """Absolute later-Snapshot side paths with a changed captured digest.
+    """Absolute later-Snapshot side paths whose captured raw bytes changed.
 
-    The side and repository path exist in both Snapshots; only their immutable
-    byte identity differs. Returned paths always name the newer capture.
+    The side and repository path exist in both Snapshots. Only outer-side bytes
+    participate; changes only to reached target bytes do not add the outer link
+    side to the delta.
+    Returned paths always name the newer capture.
     """
 
     removed: tuple[Path, ...]
@@ -439,8 +441,9 @@ class Room:
     Since it owns multiple snapshots, most methods here will require
     `snapshot_id` key, as `Room` doesn't store any of them, and must not store
     any of them.
-    *Implementation detail: it does store its own hidden identity to ensure
-    validity of operations, to avoid handing access to unrelated information.*
+
+    *Implementation detail:* it does store its own hidden identity to ensure
+    validity of operations, to avoid handing access to unrelated information.
 
     # Thread boundary
     Room is not and must not be responsible for creating or managing comments
@@ -785,7 +788,7 @@ class Room:
     def file_delta(
         self, previous_snapshot_id: UUID, snapshot_id: UUID
     ) -> SnapshotFileDelta:
-        """Compare persisted File-side hashes without rereading captured bytes.
+        """Return added, changed, and removed captured side paths between Snapshots.
 
         # Parameters
 
@@ -796,9 +799,22 @@ class Room:
 
         # Usage
 
-        Agent continuation calls this after recapture. Use returned absolute
+        Agent continuation calls this after capture. Use returned absolute
         paths as handles into the two immutable Snapshot directories; do not
         reinterpret them as repository paths.
+
+        # Returns
+
+        A `SnapshotFileDelta` with sorted captured paths:
+
+        - `added`: Newly present side/path identities in the later Snapshot.
+        - `changed`: Existing side/path identities whose raw captured bytes
+          changed, addressed in the later Snapshot.
+        - `removed`: No-longer-present side/path identities, addressed in the
+          earlier Snapshot.
+
+        *Implementation detail:* The delta compares persisted side digests
+        without rereading captured bytes.
 
         # Failures
 
@@ -1352,6 +1368,8 @@ class Room:
             assert identity.mark_id is None
         else:
             assert identity.mark_id is not None and identity.mark_id > 0
+        # Decode fresh containers so returned branch values do not share mutable
+        # state with other capture-context reads.
         try:
             correspondence: JsonValue = json.loads(identity.correspondence_key)
         except (TypeError, ValueError) as exc:

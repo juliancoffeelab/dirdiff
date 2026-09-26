@@ -184,8 +184,8 @@ carries the VCS's modified/added/deleted/renamed/copied status; `untracked` has
 no status and denotes files outside the VCS's tracked set. HUD status text and
 styling use those values independently of the selected diff engine.
 
-*Implementation detail: preset fixtures use the tracked variant to carry their
-change status, although VCS tracking does not apply to fixtures.*
+*Implementation detail:* preset fixtures use the tracked variant to carry their
+change status, although VCS tracking does not apply to fixtures.
 
 File rendering accepts a complete `EngineConfig`: Git carries its engine tag and
 required algorithm, `ignore_space_change` and `word_diff` booleans, `word_boundary`,

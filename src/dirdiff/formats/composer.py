@@ -74,10 +74,12 @@ tracking, or caller-selectable rendering option.
 class Composer:
     """Compose two captured byte sides into one composed diff.
 
-    The class is stateless and pure: construct one and reuse it. Its two methods
-    share `bays()` as the single enumeration of a File's bays, so the
-    bay identity review replay recomputes and the identity `compose()` renders
-    can never disagree.
+    The class is stateless and pure: construct one and reuse it. For the same
+    captured sides and context, engine-free bay lookup and composed rendering
+    use the same bay identities.
+
+    *Implementation detail:* `compose()` consumes `bays()` as the single
+    enumeration of a File's bays; review replay uses that enumeration too.
 
     # Usage
 

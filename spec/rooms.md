@@ -95,11 +95,13 @@ in `FileMeta.capture_error`; rendering boundaries reject or classify it before
 decoding the generated diagnostic contents.
 
 `FileMeta.untracked` reports whether a File is untracked by the selected VCS,
-matching source and manifest metadata. The database stores the inverse in its
-`tracked` column; capture and Room reads invert explicitly at that boundary.
+matching source and manifest metadata.
 
-*Implementation detail: preset fixtures report `untracked=False` because VCS
-tracking does not apply to them.*
+*Implementation detail:* The database stores the inverse in its `tracked`
+column; capture and Room reads invert explicitly at that boundary.
+
+*Implementation detail:* preset fixtures report `untracked=False` because VCS
+tracking does not apply to them.
 
 File metadata also contains source classification, an explicit lazy override,
 and required-with-null `capture_error`. A non-null capture error is the exact
@@ -117,8 +119,10 @@ discussion state transitions.
 
 `SnapshotMeta` exposes the containing Room's persisted Tab, the two captured
 side labels, and the source-supplied aggregate added/removed line counts. The
-Tab is not duplicated in the Snapshot relation; `Room.meta()` combines the
-Room and Snapshot facts. The counts are both present or both `None`.
+counts are both present or both `None`.
+
+*Implementation detail:* The Tab is stored on the Room relation, not duplicated
+in the Snapshot relation; `Room.meta()` combines those facts.
 
 ## Law of correspondence
 

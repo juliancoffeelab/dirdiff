@@ -502,8 +502,10 @@ class RepoDiffSummaryResponse(ApiModel):
     skipped_files: int
     """Count of source entries deliberately omitted from the manifest.
 
-    Current builders omit none and report zero. Invalid path pairs fail the
-    build instead of incrementing this value; lazy Files remain included.
+    Invalid path pairs fail the build instead of incrementing this value; lazy
+    Files remain included.
+
+    *Implementation detail:* Current builders omit no Files and report zero.
     """
 
     changed_cells: int | None = None
@@ -563,8 +565,8 @@ class TrackedFileKindResponse(ApiModel):
     Manifest and composed File responses share this contract. The discriminator
     does not identify a particular VCS.
 
-    *Implementation detail: preset fixtures use this variant because VCS
-    tracking does not apply to them.*
+    *Implementation detail:* preset fixtures use this variant because VCS
+    tracking does not apply to them.
     """
 
     type: Literal["tracked"]
