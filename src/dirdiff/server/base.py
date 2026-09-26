@@ -2,12 +2,12 @@
 
 `RuntimeConfig` carries startup values between the CLI and application factory.
 `ApiModel`, response metadata, the review excerpt, and `ClassRoutes` are shared
-HTTP contracts. `capture_snapshot` prepares raw Tab controls for initial
+HTTP contracts. Validated Tab selections explicitly prepare sources for initial
 manifest and agent captures; `dirdiff.room_lord.RoomLord.corresponding_room` is
 the capture entrypoint shared with persisted-selection operations.
 
 Source setup interprets HTTP capture inputs, validates storage placement, and
-passes a selected source and prepared law facts to `dirdiff.room_lord.RoomLord`.
+returns a selected source and prepared law facts for `dirdiff.room_lord.RoomLord`.
 Route groups also use the shared `ClassRoutes` declarations. Application
 construction and rendering have separate entrypoints.
 """
@@ -16,10 +16,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
-from typing import Literal, Self, TypedDict
-from uuid import UUID
+from typing import Annotated, Literal, Self, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from dirdiff.change_source import (
     BranchSelection,
@@ -40,107 +46,27 @@ from dirdiff.room_lord import (
     PresetCaptureSelection,
     PullRequestCaptureSelection,
     RevisionsCaptureSelection,
-    Room,
-    RoomLord,
 )
 from dirdiff.server._base.magic import ClassRoutes
-from dirdiff.util import JsonValue
 
 __all__ = [
     "RUNTIME_CONFIG_ENV",
     "ApiModel",
-    "BranchReviewCaptureInput",
-    "CaptureInput",
+    "BranchReviewManifestSelection",
     "ClassRoutes",
     "ErrorResponse",
-    "PullRequestCaptureInput",
+    "HeadManifestSelection",
+    "ManifestSelection",
+    "PreparedCapture",
+    "PresetManifestSelection",
+    "PullRequestManifestSelection",
+    "RefsManifestSelection",
     "Responses",
     "ReviewExcerptResponse",
-    "RevisionsCaptureInput",
     "RuntimeConfig",
-    "capture_snapshot",
     "preset_catalog_dirs",
     "validate_source_placement",
 ]
-
-
-@dataclass(frozen=True)
-class RevisionsCaptureInput:
-    """Carry concrete revision controls from HTTP into Git source setup.
-
-    This is unprepared input, separate from Room's opaque correspondence facts.
-    Setup validates the Head pair or freezes Refs before constructing a source.
-    """
-
-    tab: Literal["head", "refs"]
-    """Tab whose concrete source-input rules apply."""
-
-    left: str
-    """Raw left revision control; `HEAD` for the Head Tab.
-
-    Refs accepts a commit-backed Git ref, `index`, or `worktree`. Setup freezes
-    commit-backed refs before capture.
-    """
-
-    right: str
-    """Raw right revision control; `worktree` for the Head Tab.
-
-    Refs follows the same accepted controls as `left`, preserving side order.
-    """
-
-    show_untracked: bool
-    """Include untracked Files when the selected right state is `worktree`."""
-
-
-@dataclass(frozen=True)
-class BranchReviewCaptureInput:
-    """Carry validated concrete branch controls into Git source preparation.
-
-    Setup resolves current revisions and separately copies symbolic identities
-    into Room's law facts. No live repository object crosses this record.
-    """
-
-    base: BranchSelection
-    """Validated local or remote base selection for Git ancestry preparation."""
-
-    review: BranchSelection
-    """Validated local or remote review selection prepared with the base."""
-
-
-@dataclass(frozen=True)
-class PullRequestCaptureInput:
-    """Carry prepared Git revisions separately from review correspondence.
-
-    Forge preparation has already fetched these complete ids. Source setup
-    checks them before construction; Room receives only the canonical URL.
-    """
-
-    url: str
-    """Canonical nonblank URL used solely for review correspondence."""
-
-    left_commit: str
-    """Complete prepared merge-base revision for the left source state."""
-
-    right_commit: str
-    """Complete prepared head revision for the right source state."""
-
-
-CaptureInput = (
-    RevisionsCaptureInput
-    | BranchReviewCaptureInput
-    | PullRequestCaptureInput
-    | PresetCaptureSelection
-)
-"""Selected HTTP inputs interpreted by concrete source setup before capture.
-
-- Revision inputs provide raw Head or Refs controls.
-- Branch inputs provide structured concrete branch controls.
-- Pull Request inputs provide prepared revisions and review correspondence.
-- Preset inputs provide selected catalog and group identities.
-
-These records carry values only. They are not Room law facts, repositories,
-source services, or loaded results.
-"""
 
 
 RUNTIME_CONFIG_ENV = "DIRDIFF_RUNTIME_CONFIG"
@@ -284,6 +210,434 @@ class ApiModel(BaseModel):
         validate_default=True,
         allow_inf_nan=False,
     )
+
+
+class HeadManifestSelection(ApiModel):
+    """Select HEAD against the worktree of one active Mark.
+
+    Source preparation freezes the current HEAD baseline. Untracked inclusion
+    is explicit; the Tab always uses HEAD and worktree as its two sides.
+    """
+
+    tab: Literal["head"]
+    """Discriminator selecting the Head Tab."""
+    project_id: Annotated[int, Field(gt=0)]
+    """Positive active repository Mark id."""
+    show_untracked: bool
+    """Whether to include untracked worktree Files."""
+
+    def prepare(
+        self,
+        db: RepoMarkStore,
+        presets_root: str,
+        *,
+        store_path: Path,
+    ) -> PreparedCapture:
+        """Freeze the current HEAD baseline and select its complete worktree.
+
+        Call explicitly after model validation. An unborn HEAD uses Empty as
+        its baseline. Construction and validation of this model perform no I/O.
+
+        # Parameters
+
+        - `db`: Active Mark registry and application database location.
+        - `presets_root`: Application preset root supplied with capture
+          configuration.
+        - `store_path`: Snapshot root configured for the caller's RoomLord.
+
+        # Returns
+
+        One `PreparedCapture` with Head correspondence, the selected source,
+        Mark id, and fixed `HEAD`/`worktree` labels.
+
+        # Failures
+
+        - Missing Marks/repositories and unsafe storage placement raise
+          `DirdiffError`.
+        - Unexpected repository and filesystem failures propagate.
+        """
+        root, repository = _capture_repository(db, self.project_id, store_path)
+        left = repository.commit_id("HEAD", allow_unborn=True)
+        source = GitChangeSource(
+            root,
+            left=left,
+            right="worktree",
+            show_untracked=self.show_untracked,
+            max_link_target_bytes=1 << 20,
+        )
+        return PreparedCapture(
+            source,
+            HeadCaptureSelection(left),
+            self.project_id,
+            "HEAD",
+            "worktree",
+        )
+
+
+class RefsManifestSelection(ApiModel):
+    """Select two explicit revision controls of one active Mark.
+
+    Commit-backed controls are frozen during preparation. Explicit `index` and
+    `worktree` select their current state for this capture.
+    """
+
+    tab: Literal["refs"]
+    """Discriminator selecting the Refs Tab."""
+    project_id: Annotated[int, Field(gt=0)]
+    """Positive active repository Mark id."""
+    left: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    """Nonblank old Git revision, `index`, or `worktree`."""
+    right: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1)
+    ]
+    """Nonblank new Git revision, `index`, or `worktree`."""
+    show_untracked: bool
+    """Whether to include untracked Files when the new side is the worktree."""
+
+    def prepare(
+        self,
+        db: RepoMarkStore,
+        presets_root: str,
+        *,
+        store_path: Path,
+    ) -> PreparedCapture:
+        """Prepare the selected revision pair and freeze commit-backed controls.
+
+        `index` and `worktree` remain explicit live sides for this capture;
+        other controls become immutable commit ids. Model validation checks
+        nonblank syntax without accessing Git.
+
+        # Parameters
+
+        - `db`: Active Mark registry and application database location.
+        - `presets_root`: Application preset root supplied with capture
+          configuration.
+        - `store_path`: Snapshot root configured for the caller's RoomLord.
+
+        # Returns
+
+        One `PreparedCapture` with frozen Refs correspondence, the selected
+        source, Mark id, and prepared side identities as labels.
+
+        # Failures
+
+        - Missing Marks/repositories, unavailable revision controls, and unsafe
+          storage placement raise `DirdiffError`.
+        - Unexpected repository and filesystem failures propagate.
+        """
+        root, repository = _capture_repository(db, self.project_id, store_path)
+        left = repository.normalize_side(self.left)
+        right = repository.normalize_side(self.right)
+        left = (
+            left
+            if left in {"index", "worktree"}
+            else repository.commit_id(left)
+        )
+        right = (
+            right
+            if right in {"index", "worktree"}
+            else repository.commit_id(right)
+        )
+        source = GitChangeSource(
+            root,
+            left=left,
+            right=right,
+            show_untracked=self.show_untracked,
+            max_link_target_bytes=1 << 20,
+        )
+        return PreparedCapture(
+            source,
+            RevisionsCaptureSelection(left, right),
+            self.project_id,
+            left,
+            right,
+        )
+
+
+class BranchReviewManifestSelection(ApiModel):
+    """Select symbolic base and review branches of one active Mark.
+
+    Each branch uses the local or remote `dirdiff.change_source.BranchSelection`
+    shape. Preparation reads their current revisions and merge base.
+    """
+
+    tab: Literal["branch-review"]
+    """Discriminator selecting the Branch Review Tab."""
+    project_id: Annotated[int, Field(gt=0)]
+    """Positive active repository Mark id."""
+    base: BranchSelection
+    """Complete symbolic base branch, including remote only for remote source."""
+    review: BranchSelection
+    """Complete symbolic review branch under the same local/remote rules."""
+
+    @field_validator("base", "review")
+    @classmethod
+    def nonblank_branch_names(cls, value: BranchSelection) -> BranchSelection:
+        """Trim symbolic names and reject blank branch or remote fields.
+
+        The local/remote shape is already validated. This field boundary keeps
+        names nonblank before concrete source preparation receives them.
+        """
+        value = value.copy()
+        value["branch"] = value["branch"].strip()
+        if value["branch"] == "":
+            raise ValueError("branch must be nonblank")
+        if value["source"] == "remote":
+            value["remote"] = value["remote"].strip()
+            if value["remote"] == "":
+                raise ValueError("remote must be nonblank")
+        return value
+
+    def prepare(
+        self,
+        db: RepoMarkStore,
+        presets_root: str,
+        *,
+        store_path: Path,
+    ) -> PreparedCapture:
+        """Prepare current branch revisions and their merge base.
+
+        Correspondence retains the validated symbolic branch identities;
+        source contents use freshly prepared commit ids. Model validation checks
+        branch shape and nonblank names without accessing Git.
+
+        # Parameters
+
+        - `db`: Active Mark registry and application database location.
+        - `presets_root`: Application preset root supplied with capture
+          configuration.
+        - `store_path`: Snapshot root configured for the caller's RoomLord.
+
+        # Returns
+
+        One `PreparedCapture` with symbolic Branch Review correspondence, the
+        merge-base/review source, Mark id, and branch display labels.
+
+        # Failures
+
+        - Missing Marks/repositories, unavailable branches or merge base, and
+          unsafe storage placement raise `DirdiffError`.
+        - Unexpected repository and filesystem failures propagate.
+        """
+        root, repository = _capture_repository(db, self.project_id, store_path)
+        base, left, review, right = repository.resolve_branch_diff_sides(
+            base_selection=self.base,
+            review_selection=self.review,
+        )
+        identities = self.model_dump(mode="json", include={"base", "review"})
+        correspondence = BranchReviewCaptureSelection(
+            identities["base"], identities["review"]
+        )
+        source = GitChangeSource(
+            root,
+            left=left,
+            right=right,
+            show_untracked=False,
+            max_link_target_bytes=1 << 20,
+        )
+        return PreparedCapture(
+            source,
+            correspondence,
+            self.project_id,
+            f"{base}...{review}",
+            review,
+        )
+
+
+class PullRequestManifestSelection(ApiModel):
+    """Select already prepared revisions under a canonical review URL.
+
+    Forge preparation must have fetched these complete revision ids into the
+    selected Mark before this input is submitted.
+    """
+
+    tab: Literal["pull-request"]
+    """Discriminator selecting the Pull Request Tab."""
+    project_id: Annotated[int, Field(gt=0)]
+    """Positive active Mark id containing the prepared revisions."""
+    url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    """Canonical review URL used for Room correspondence."""
+    left_commit: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True, pattern=r"\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z"
+        ),
+    ]
+    """Complete lowercase SHA-1 or SHA-256 prepared merge-base commit id."""
+    right_commit: Annotated[
+        str,
+        StringConstraints(
+            strip_whitespace=True, pattern=r"\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z"
+        ),
+    ]
+    """Complete lowercase SHA-1 or SHA-256 prepared review head commit id."""
+
+    def prepare(
+        self,
+        db: RepoMarkStore,
+        presets_root: str,
+        *,
+        store_path: Path,
+    ) -> PreparedCapture:
+        """Verify prepared commit objects and select them under the review URL.
+
+        Model validation accepts complete lowercase SHA-1 or SHA-256 object
+        ids. This explicit operation checks availability and requires each id
+        to identify a commit directly in the selected repository, not a tag.
+
+        # Parameters
+
+        - `db`: Active Mark registry and application database location.
+        - `presets_root`: Application preset root supplied with capture
+          configuration.
+        - `store_path`: Snapshot root configured for the caller's RoomLord.
+
+        # Returns
+
+        One `PreparedCapture` with URL correspondence, immutable commit source,
+        Mark id, and the two complete commit ids as labels.
+
+        # Failures
+
+        - Missing Marks/repositories, absent or non-commit objects, object ids
+          incompatible with the repository format, and unsafe placement raise
+          `DirdiffError`.
+        - Unexpected repository and filesystem failures propagate.
+        """
+        root, repository = _capture_repository(db, self.project_id, store_path)
+        left = repository.commit_id(self.left_commit)
+        right = repository.commit_id(self.right_commit)
+        if left != self.left_commit or right != self.right_commit:
+            raise DirdiffError(
+                "Pull Request capture sides must identify commit objects directly."
+            )
+        source = GitChangeSource(
+            root,
+            left=left,
+            right=right,
+            show_untracked=False,
+            max_link_target_bytes=1 << 20,
+        )
+        return PreparedCapture(
+            source,
+            PullRequestCaptureSelection(self.url),
+            self.project_id,
+            left,
+            right,
+        )
+
+
+class PresetManifestSelection(ApiModel):
+    """Choose a catalog-local fixture group without a repository Mark.
+
+    Obtain `catalog` and `subset` from the preset picker. Preparation constructs
+    the selected fixture source; the response uses the subset as its display
+    label. Neither value is a numeric repository project id.
+    """
+
+    tab: Literal["preset"]
+    """Discriminator selecting the Preset Tab."""
+    catalog: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1)
+    ]
+    """Nonblank catalog directory id from the preset picker."""
+    subset: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1)
+    ]
+    """Nonblank fixture-group directory id within that catalog."""
+
+    def prepare(
+        self,
+        db: RepoMarkStore,
+        presets_root: str,
+        *,
+        store_path: Path,
+    ) -> PreparedCapture:
+        """Select a fixture source from the configured catalog and group.
+
+        Model validation checks nonblank catalog/group input without reading
+        directories. Call this explicitly to discover the catalog and construct
+        its selected source. Group-path and fixture availability checks occur
+        when capture calls the source's `changes()`. Response display naming
+        remains the caller's work.
+
+        # Parameters
+
+        - `db`: Active Mark registry and application database location.
+        - `presets_root`: Application preset root supplied with capture
+          configuration.
+        - `store_path`: Snapshot root configured for the caller's RoomLord.
+
+        # Returns
+
+        One `PreparedCapture` with catalog/group correspondence, fixture source,
+        absent Mark id, and `old`/`new` labels.
+
+        # Failures
+
+        - Unknown catalogs raise `DirdiffError`.
+        - Unexpected catalog and filesystem failures propagate.
+        """
+        catalog = _preset_catalog_for_id(presets_root, self.catalog)
+        source = PresetChangeSource(
+            catalog.root, group=self.subset, max_link_target_bytes=1 << 20
+        )
+        return PreparedCapture(
+            source,
+            PresetCaptureSelection(self.catalog, self.subset),
+            None,
+            "old",
+            "new",
+        )
+
+
+type ManifestSelection = Annotated[
+    HeadManifestSelection
+    | RefsManifestSelection
+    | BranchReviewManifestSelection
+    | PullRequestManifestSelection
+    | PresetManifestSelection,
+    Field(discriminator="tab"),
+]
+"""Complete per-Tab input for manifest HTTP validation and source preparation.
+
+The `tab` discriminator selects required fields. Unknown fields are rejected,
+including controls belonging to another Tab. These are concrete source inputs,
+not the prepared correspondence facts consumed by RoomLord.
+
+# Usage
+
+After Pydantic validates the selected variant, call
+`selection.prepare(db, presets_root, store_path=store_path)`. Pass the returned
+`PreparedCapture` fields to `dirdiff.room_lord.RoomLord.corresponding_room`.
+
+Validation checks only input syntax. Explicit preparation reads repositories or
+catalogs and verifies their availability, but does not observe Files, select a
+Room, or publish a Snapshot. Supply the application's configured preset and
+Snapshot roots on every variant; repository variants use `db` and `store_path`,
+while Preset uses `presets_root` and carries no Mark identity.
+"""
+
+
+@dataclass(frozen=True)
+class PreparedCapture:
+    """Inputs for one `dirdiff.room_lord.RoomLord.corresponding_room` call.
+
+    A selection's explicit `prepare()` constructs this value without observing
+    Files or writing a Snapshot. Callers invoke RoomLord explicitly, then consume
+    Room metadata to build their HTTP response.
+    """
+
+    source: ChangeSourceProtocol
+    """Selected source whose observation belongs to this capture."""
+    correspondence: CaptureSelection
+    """Prepared law facts passed as RoomLord's `selection` argument."""
+    mark_id: int | None
+    """Active Mark id for repository Tabs; absent for Preset."""
+    left_label: str
+    """Display and diagnostic label for the old source state."""
+    right_label: str
+    """Display and diagnostic label for the new source state."""
 
 
 class ReviewExcerptResponse(ApiModel):
@@ -442,33 +796,6 @@ def _preset_catalog_for_id(
     raise DirdiffError(f"Unknown preset catalog: {catalog_id}")
 
 
-def _marked_project_id(project_id: str | None) -> int:
-    """Parse a positive Mark id from a repo-backed HTTP parameter.
-
-    Manifest uses the result to prepare the repository source. Follow-up
-    operations never call this parser because their Snapshot id is sufficient.
-
-    # Usage
-
-    Call while translating a repository-backed manifest selection, then use the
-    positive integer for `RepoMarkStore` and Room correspondence.
-
-    # Failures
-
-    - Raises `DirdiffError` when the value is absent, blank, nonnumeric, or not
-      positive.
-    """
-    if project_id is None or project_id.strip() == "":
-        raise DirdiffError("project_id is required for repo-backed Tabs.")
-    try:
-        parsed_project_id = int(project_id)
-    except ValueError as exc:
-        raise DirdiffError(f"Invalid project_id: {project_id}") from exc
-    if parsed_project_id <= 0:
-        raise DirdiffError(f"Invalid project_id: {project_id}")
-    return parsed_project_id
-
-
 def validate_source_placement(
     db: RepoMarkStore,
     store_path: Path,
@@ -510,157 +837,37 @@ def validate_source_placement(
         )
 
 
-def capture_snapshot(
+def _capture_repository(
     db: RepoMarkStore,
-    room_lord: RoomLord,
-    presets_root: str,
-    *,
+    project_id: int,
     store_path: Path,
-    project_id: str,
-    selection: CaptureInput,
-) -> tuple[Room, UUID, str | None]:
-    """Prepare a selected source, then capture it under independent Room law facts.
+) -> tuple[Path, GitRepository]:
+    """Open the selected Mark's repository after checking application placement.
 
-    Concrete setup validates controls, freezes revisions, and checks physical
-    source placement here. Only the constructed source and opaque law facts
-    reach RoomLord. Browser and agent opening use this same operation.
+    The four repository selection variants share Mark lookup, reviewed-root
+    placement checks, and repository discovery. Their explicit `prepare()` calls
+    use this operation before interpreting their own revision controls.
 
     # Parameters
 
     - `db`: Active Mark registry and application database location.
-    - `room_lord`: Correspondence and Snapshot service for this application.
-    - `presets_root`: Configured root containing selectable preset catalogs.
-    - `store_path`: Configured Snapshot root, matching the supplied RoomLord.
-    - `project_id`: Active Mark id, or selected preset catalog id.
-    - `selection`: Complete unprepared source inputs validated by the HTTP Tab
-      parser; these are separate from Room's prepared `CaptureSelection`.
-
-    # Usage
-
-    Construct a `RevisionsCaptureInput`, `BranchReviewCaptureInput`, or
-    `PullRequestCaptureInput` from validated HTTP controls, or use a
-    `dirdiff.room_lord.PresetCaptureSelection` for a chosen catalog/group.
-    Preserve the returned Room and Snapshot id together for follow-up operations.
+    - `project_id`: Validated positive Mark id.
+    - `store_path`: Exact Snapshot root configured for the caller's RoomLord.
 
     # Returns
 
-    - First, the Room selected by its prepared correspondence facts.
-    - Second, the immutable Snapshot id captured or reused inside that Room.
-    - Third, the preset group for display, or `None` for repository Tabs.
+    - First, the selected Mark's physical root for source construction.
+    - Second, its discovered repository for concrete revision preparation.
 
     # Failures
 
-    - Missing Marks/catalogs, invalid controls or revisions, and unsafe
-      storage placement raise `DirdiffError`.
-    - Source and capture failures propagate.
+    - A missing Mark, unavailable repository, or unsafe application placement
+      raises `DirdiffError`.
+    - Filesystem and unexpected discovery failures propagate.
     """
-    preset_name: str | None = None
-    mark_id: int | None = None
-    source: ChangeSourceProtocol
-    law: CaptureSelection
-    if isinstance(selection, PresetCaptureSelection):
-        catalog = selection.catalog.strip()
-        preset_name = selection.subset.strip()
-        if catalog == "" or preset_name == "":
-            raise DirdiffError("Preset capture requires catalog and subset.")
-        selected_catalog = _preset_catalog_for_id(presets_root, catalog)
-        source = PresetChangeSource(
-            selected_catalog.root,
-            group=preset_name,
-            max_link_target_bytes=1 << 20,
-        )
-        law = PresetCaptureSelection(catalog, preset_name)
-        left_label, right_label = "old", "new"
-    else:
-        mark_id = _marked_project_id(project_id)
-        mark = db.get(mark_id)
-        if mark is None:
-            raise DirdiffError(f"Invalid project_id: {mark_id}")
-        root = Path(mark.path)
-        validate_source_placement(db, store_path, root)
-        repository = GitRepository.discover(repo_root=root)
-        show_untracked = False
-        if isinstance(selection, PullRequestCaptureInput):
-            if selection.url.strip() == "":
-                raise DirdiffError(
-                    "pull_request_url is required for the Pull Request Tab."
-                )
-            if (
-                selection.left_commit.strip() == ""
-                or selection.right_commit.strip() == ""
-            ):
-                raise DirdiffError(
-                    "Pull Request capture requires prepared commits."
-                )
-            left = repository.commit_id(selection.left_commit.strip())
-            right = repository.commit_id(selection.right_commit.strip())
-            if (
-                left != selection.left_commit.strip()
-                or right != selection.right_commit.strip()
-            ):
-                raise DirdiffError(
-                    "Pull Request capture inputs must be complete commit ids."
-                )
-            law = PullRequestCaptureSelection(selection.url.strip())
-            left_label, right_label = left, right
-        elif isinstance(selection, BranchReviewCaptureInput):
-            base, left, review, right = repository.resolve_branch_diff_sides(
-                base_selection=selection.base,
-                review_selection=selection.review,
-            )
-            # Copy the validated concrete identities into caller-owned JSON law
-            # values. Room embeds these without interpreting their branch shape.
-            identities: list[dict[str, JsonValue]] = []
-            for branch in (selection.base, selection.review):
-                identity: dict[str, JsonValue] = {}
-                for key, value in branch.items():
-                    assert isinstance(value, str)
-                    identity[key] = value
-                identities.append(identity)
-            law = BranchReviewCaptureSelection(identities[0], identities[1])
-            left_label, right_label = f"{base.strip()}...{review}", review
-        else:
-            show_untracked = selection.show_untracked
-            if selection.left.strip() == "" or selection.right.strip() == "":
-                raise DirdiffError(
-                    "left and right are required for revision Tabs."
-                )
-            left = repository.normalize_side(selection.left.strip())
-            right = repository.normalize_side(selection.right.strip())
-            if selection.tab == "head":
-                if left != "HEAD" or right != "worktree":
-                    raise DirdiffError(
-                        "Diff against HEAD requires left=HEAD and right=worktree."
-                    )
-                left_label, right_label = left, right
-                left = repository.commit_id(left, allow_unborn=True)
-                law = HeadCaptureSelection(left)
-            else:
-                assert selection.tab == "refs"
-                left = (
-                    left
-                    if left in {"index", "worktree"}
-                    else repository.commit_id(left)
-                )
-                right = (
-                    right
-                    if right in {"index", "worktree"}
-                    else repository.commit_id(right)
-                )
-                law = RevisionsCaptureSelection(left, right)
-                left_label, right_label = left, right
-        source = GitChangeSource(
-            root,
-            left=left,
-            right=right,
-            show_untracked=show_untracked,
-            max_link_target_bytes=1 << 20,
-        )
-    room, snapshot_id = room_lord.corresponding_room(
-        mark_id=mark_id,
-        selection=law,
-        source=source,
-        left_label=left_label,
-        right_label=right_label,
-    )
-    return room, snapshot_id, preset_name
+    mark = db.get(project_id)
+    if mark is None:
+        raise DirdiffError(f"Invalid project_id: {project_id}")
+    root = Path(mark.path)
+    validate_source_placement(db, store_path, root)
+    return root, GitRepository.discover(repo_root=root)

@@ -34,6 +34,7 @@ from fastapi.responses import (
 )
 from pydantic import (
     Field,
+    ValidationError,
     field_validator,
     model_validator,
 )
@@ -81,13 +82,13 @@ from dirdiff.room_lord import (
 )
 from dirdiff.server.base import (
     ApiModel,
-    BranchReviewCaptureInput,
-    CaptureInput,
+    BranchReviewManifestSelection,
     ClassRoutes,
-    PullRequestCaptureInput,
+    HeadManifestSelection,
+    ManifestSelection,
+    PullRequestManifestSelection,
+    RefsManifestSelection,
     ReviewExcerptResponse,
-    RevisionsCaptureInput,
-    capture_snapshot,
     validate_source_placement,
 )
 from dirdiff.util import JsonValue
@@ -2134,17 +2135,12 @@ class ExternalAgentRoutes:
                 prepared = prepare_pull_request(
                     url=tab.url, repo_marks=self.db.list()
                 )
-                room, snapshot_id, _ = capture_snapshot(
-                    self.db,
-                    self.room_lord,
-                    self.presets_root,
-                    store_path=self.store_path,
-                    project_id=str(prepared.project_id),
-                    selection=PullRequestCaptureInput(
-                        url=prepared.pull_request_url,
-                        left_commit=prepared.left_commit,
-                        right_commit=prepared.right_commit,
-                    ),
+                selection: ManifestSelection = PullRequestManifestSelection(
+                    tab="pull-request",
+                    project_id=prepared.project_id,
+                    url=prepared.pull_request_url,
+                    left_commit=prepared.left_commit,
+                    right_commit=prepared.right_commit,
                 )
             else:
                 matches = [
@@ -2154,7 +2150,7 @@ class ExternalAgentRoutes:
                 ]
                 if len(matches) != 1:
                     raise DirdiffError("Tab path does not identify one Mark.")
-                project_id = str(matches[0].id)
+                project_id = matches[0].id
 
                 def branch(value: AgentBranch) -> BranchSelection:
                     """Translate one explicit API branch to repository input.
@@ -2176,35 +2172,46 @@ class ExternalAgentRoutes:
                         "branch": value.name,
                     }
 
-                selection: CaptureInput
-                if isinstance(tab, AgentHeadTab):
-                    selection = RevisionsCaptureInput(
-                        tab="head",
-                        left="HEAD",
-                        right="worktree",
-                        show_untracked=True,
-                    )
-                elif isinstance(tab, AgentRefsTab):
-                    selection = RevisionsCaptureInput(
-                        tab="refs",
-                        left=tab.left,
-                        right=tab.right,
-                        show_untracked=False,
-                    )
-                else:
-                    assert isinstance(tab, AgentBranchReviewTab)
-                    selection = BranchReviewCaptureInput(
-                        base=branch(tab.base),
-                        review=branch(tab.review),
-                    )
-                room, snapshot_id, _ = capture_snapshot(
-                    self.db,
-                    self.room_lord,
-                    self.presets_root,
-                    store_path=self.store_path,
-                    project_id=project_id,
-                    selection=selection,
-                )
+                try:
+                    if isinstance(tab, AgentHeadTab):
+                        selection = HeadManifestSelection(
+                            tab="head",
+                            project_id=project_id,
+                            show_untracked=True,
+                        )
+                    elif isinstance(tab, AgentRefsTab):
+                        selection = RefsManifestSelection(
+                            tab="refs",
+                            project_id=project_id,
+                            left=tab.left,
+                            right=tab.right,
+                            show_untracked=False,
+                        )
+                    else:
+                        assert isinstance(tab, AgentBranchReviewTab)
+                        selection = BranchReviewManifestSelection(
+                            tab="branch-review",
+                            project_id=project_id,
+                            base=branch(tab.base),
+                            review=branch(tab.review),
+                        )
+                except ValidationError as exc:
+                    # Agent input uses its existing HTTP schema. Invalid names
+                    # rejected by the shared source-selection boundary remain
+                    # expected plain-text input failures, not result failures.
+                    raise DirdiffError(str(exc)) from exc
+            prepared_capture = selection.prepare(
+                self.db,
+                self.presets_root,
+                store_path=self.store_path,
+            )
+            room, snapshot_id = self.room_lord.corresponding_room(
+                mark_id=prepared_capture.mark_id,
+                selection=prepared_capture.correspondence,
+                source=prepared_capture.source,
+                left_label=prepared_capture.left_label,
+                right_label=prepared_capture.right_label,
+            )
             try:
                 profile = self.user_profile_store.create_agent(
                     request.name, request.agent_uuid

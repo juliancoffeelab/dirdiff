@@ -801,10 +801,10 @@ def test_repo_defaults_local_only_repo_to_main(
     }
 
 
-def test_branch_review_query_validation_returns_bad_request(
+def test_branch_review_query_validation_returns_unprocessable_entity(
     tmp_path: Path,
 ) -> None:
-    """Branch Review dependency validation returns 400, not an uncaught 500.
+    """Branch Review selection validation returns 422, not an uncaught 500.
 
     Invalid structured choices are caller errors and must not escape the HTTP boundary.
     """
@@ -819,17 +819,21 @@ def test_branch_review_query_validation_returns_bad_request(
     response = client.get(
         "/api/manifest",
         params={
-            "project_id": str(project_id),
-            "tab": "branch-review",
-            "base_branch": "master",
-            "review_source": "local",
-            "review_branch": "feature",
+            "selection": json.dumps(
+                {
+                    "tab": "branch-review",
+                    "project_id": project_id,
+                    "base": {"branch": "master"},
+                    "review": {"source": "local", "branch": "feature"},
+                }
+            )
         },
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == (
-        "base_source is required for the Branch Review Tab."
+    assert response.status_code == 422
+    assert any(
+        error["type"] == "missing" and error["loc"][-1] == "source"
+        for error in response.json()["detail"]
     )
 
 
@@ -882,10 +886,15 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     repo_response = client.get(
         "/api/manifest",
         params={
-            "project_id": str(project_id),
-            "tab": "refs",
-            "left": "index",
-            "right": "worktree",
+            "selection": json.dumps(
+                {
+                    "tab": "refs",
+                    "project_id": project_id,
+                    "left": "index",
+                    "right": "worktree",
+                    "show_untracked": False,
+                }
+            )
         },
     )
     repo_payload = repo_response.json()
@@ -946,10 +955,15 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
     reloaded_manifest_response = client.get(
         "/api/manifest",
         params={
-            "project_id": str(project_id),
-            "tab": "refs",
-            "left": "index",
-            "right": "worktree",
+            "selection": json.dumps(
+                {
+                    "tab": "refs",
+                    "project_id": project_id,
+                    "left": "index",
+                    "right": "worktree",
+                    "show_untracked": False,
+                }
+            )
         },
     )
     reloaded_snapshot_id = reloaded_manifest_response.json()["snapshot_id"]
@@ -996,9 +1010,9 @@ def test_preset_manifest_and_file_diff_do_not_require_a_mark(
     manifest_response = client.get(
         "/api/manifest",
         params={
-            "tab": "preset",
-            "project_id": "diff",
-            "preset_subset": "python",
+            "selection": json.dumps(
+                {"tab": "preset", "catalog": "diff", "subset": "python"}
+            )
         },
     )
     manifest = manifest_response.json()
@@ -1099,9 +1113,13 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
         response = client.get(
             "/api/manifest",
             params={
-                "tab": "preset",
-                "project_id": project_id,
-                "preset_subset": preset_subset,
+                "selection": json.dumps(
+                    {
+                        "tab": "preset",
+                        "catalog": project_id,
+                        "subset": preset_subset,
+                    }
+                )
             },
         )
         payload = response.json()
@@ -1135,9 +1153,9 @@ def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
     manifest_response = client.get(
         "/api/manifest",
         params={
-            "tab": "preset",
-            "project_id": "scroll",
-            "preset_subset": "lazy-files",
+            "selection": json.dumps(
+                {"tab": "preset", "catalog": "scroll", "subset": "lazy-files"}
+            )
         },
     )
     snapshot_id = manifest_response.json()["snapshot_id"]
@@ -1188,32 +1206,25 @@ def test_preset_manifest_validates_required_preset_fields(
 
     missing_subset = client.get(
         "/api/manifest",
-        params={
-            "tab": "preset",
-            "project_id": "diff",
-        },
+        params={"selection": json.dumps({"tab": "preset", "catalog": "diff"})},
     )
     missing_project = client.get(
         "/api/manifest",
-        params={
-            "tab": "preset",
-            "preset_subset": "python",
-        },
+        params={"selection": json.dumps({"tab": "preset", "subset": "python"})},
     )
     traversal = client.get(
         "/api/manifest",
         params={
-            "tab": "preset",
-            "project_id": "diff",
-            "preset_subset": "../python",
+            "selection": json.dumps(
+                {"tab": "preset", "catalog": "diff", "subset": "../python"}
+            )
         },
     )
 
-    assert missing_subset.status_code == 400
-    assert missing_subset.json()["detail"] == (
-        "preset_subset is required for the Preset Tab."
-    )
+    assert missing_subset.status_code == 422
+    assert missing_subset.json()["detail"][0]["loc"][-1] == "subset"
     assert missing_project.status_code == 422
+    assert missing_project.json()["detail"][0]["loc"][-1] == "catalog"
     assert traversal.status_code == 400
     assert traversal.json()["detail"] == (
         "Preset name must stay inside the presets root."
@@ -1267,10 +1278,15 @@ def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
     response = client.get(
         "/api/manifest",
         params={
-            "project_id": str(project_id),
-            "tab": "refs",
-            "left": "index",
-            "right": "worktree",
+            "selection": json.dumps(
+                {
+                    "tab": "refs",
+                    "project_id": project_id,
+                    "left": "index",
+                    "right": "worktree",
+                    "show_untracked": False,
+                }
+            )
         },
     )
     payload = response.json()
@@ -2108,10 +2124,15 @@ def test_symlink_loop_stops_before_loading_a_link_twice(tmp_path: Path) -> None:
     manifest = client.get(
         "/api/manifest",
         params={
-            "project_id": str(project_id),
-            "tab": "refs",
-            "left": "index",
-            "right": "worktree",
+            "selection": json.dumps(
+                {
+                    "tab": "refs",
+                    "project_id": project_id,
+                    "left": "index",
+                    "right": "worktree",
+                    "show_untracked": False,
+                }
+            )
         },
     )
     assert manifest.status_code == 200
@@ -2180,10 +2201,15 @@ def test_file_media_serves_captured_symlink_target_images(
     manifest = client.get(
         "/api/manifest",
         params={
-            "project_id": str(project_id),
-            "tab": "refs",
-            "left": "index",
-            "right": "worktree",
+            "selection": json.dumps(
+                {
+                    "tab": "refs",
+                    "project_id": project_id,
+                    "left": "index",
+                    "right": "worktree",
+                    "show_untracked": False,
+                }
+            )
         },
     )
     assert manifest.status_code == 200
@@ -2309,10 +2335,15 @@ def test_symlink_target_cannot_escape_the_repository(tmp_path: Path) -> None:
     manifest = client.get(
         "/api/manifest",
         params={
-            "project_id": str(project_id),
-            "tab": "refs",
-            "left": "index",
-            "right": "worktree",
+            "selection": json.dumps(
+                {
+                    "tab": "refs",
+                    "project_id": project_id,
+                    "left": "index",
+                    "right": "worktree",
+                    "show_untracked": False,
+                }
+            )
         },
     )
     assert manifest.status_code == 200
@@ -2533,10 +2564,15 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
     manifest = client.get(
         "/api/manifest",
         params={
-            "project_id": str(project_id),
-            "tab": "refs",
-            "left": "index",
-            "right": "worktree",
+            "selection": json.dumps(
+                {
+                    "tab": "refs",
+                    "project_id": project_id,
+                    "left": "index",
+                    "right": "worktree",
+                    "show_untracked": False,
+                }
+            )
         },
     )
     assert manifest.status_code == 200
@@ -2780,10 +2816,15 @@ def test_file_media_selects_a_notebook_image_by_bay_key(
     manifest = client.get(
         "/api/manifest",
         params={
-            "project_id": str(project_id),
-            "tab": "refs",
-            "left": "index",
-            "right": "worktree",
+            "selection": json.dumps(
+                {
+                    "tab": "refs",
+                    "project_id": project_id,
+                    "left": "index",
+                    "right": "worktree",
+                    "show_untracked": False,
+                }
+            )
         },
     )
     assert manifest.status_code == 200
@@ -3129,10 +3170,15 @@ def test_symlink_to_a_submodule_captures_its_commit_id(tmp_path: Path) -> None:
         manifest = client.get(
             "/api/manifest",
             params={
-                "project_id": str(project_id),
-                "tab": "refs",
-                "left": "HEAD",
-                "right": "worktree",
+                "selection": json.dumps(
+                    {
+                        "tab": "refs",
+                        "project_id": project_id,
+                        "left": "HEAD",
+                        "right": "worktree",
+                        "show_untracked": False,
+                    }
+                )
             },
         )
         assert manifest.status_code == 200, manifest.text

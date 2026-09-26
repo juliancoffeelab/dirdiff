@@ -344,14 +344,16 @@ have no automatic expiry and are independent of Room and Snapshot identity.
 Fetching never selects a newer revision by reading updated tracking refs.
 No part of that operation belongs to manifest.
 
-`/api/manifest` accepts one complete Tab parameter value in order to show the
+`/api/manifest` accepts one JSON `selection` query value in order to show the
 specified repository state and provide keys for later `/api/file-diff` operations.
-Its concrete source setup validates controls and storage placement, constructs
-the source, and separately supplies prepared correspondence facts and labels to
+The discriminated per-Tab model requires exactly the selected Tab's controls.
+Malformed selection fields return 422 before source setup. Concrete preparation
+validates storage placement and revisions, then returns the source, correspondence
+facts, Mark id, and labels without capturing. The handler passes those values to
 `corresponding_room`. No raw revision controls or source roots enter Room APIs.
 It asks the returned Room for `meta(snapshot_id)` and `manifested(snapshot_id)`, builds the
 manifest tree and File totals, copies the aggregate line counts, and returns the
-same Snapshot key. For Pull Request parameters, manifest uses the URL only for
+same Snapshot key. For Pull Request selections, manifest uses the URL only for
 Room correspondence and the two commits only for capture. It does not parse a
 Pull Request URL, contact a forge, fetch refs, derive commits, or apply Branch
 Review selection logic.

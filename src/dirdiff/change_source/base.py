@@ -40,15 +40,6 @@ A name is meaningful only to its concrete Git or preset storage. It is not a
 repository path, a display label, or proof that content exists.
 """
 
-BranchSource = Literal["local", "remote"]
-"""Where a branch-review selection is resolved.
-
-- `local` selects a local branch name.
-- `remote` selects a branch together with its remote name.
-
-Use this discriminator through `BranchSelection`. It does not encode the
-remote or branch name itself.
-"""
 LazyReason = Literal[
     "too_big", "generated", "deleted", "untracked", "pure_renamed"
 ]
@@ -464,7 +455,6 @@ refs. Keep this set aligned with the branches in Git loading and diff commands.
 __all__ = [
     "BUILTIN_SIDES",
     "BranchSelection",
-    "BranchSource",
     "CapturedLink",
     "ChangeSourceProtocol",
     "DefaultBaseSelection",

@@ -17,7 +17,6 @@ the supplied bytes after capture.
 
 from dirdiff.change_source.base import (
     BranchSelection,
-    BranchSource,
     CapturedLink,
     ChangeSourceProtocol,
     DefaultBaseSelection,
@@ -58,7 +57,6 @@ from dirdiff.change_source.pull_request import (
 
 __all__ = [
     "BranchSelection",
-    "BranchSource",
     "CapturedLink",
     "ChangeSourceProtocol",
     "DefaultBaseSelection",

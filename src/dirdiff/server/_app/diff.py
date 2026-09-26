@@ -20,7 +20,7 @@ from typing import (
 )
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Query
+from fastapi import HTTPException, Query
 from fastapi.responses import (
     Response,
 )
@@ -31,8 +31,6 @@ from pydantic import (
 )
 
 from dirdiff.change_source import (
-    BranchSelection,
-    BranchSource,
     CapturedLink,
     LazyReason,
     ManifestPath,
@@ -69,19 +67,16 @@ from dirdiff.review import (
 from dirdiff.room_lord import (
     CapturedFileSide,
     FileMeta,
-    PresetCaptureSelection,
     Room,
     RoomLord,
 )
 from dirdiff.server.base import (
     ApiModel,
-    BranchReviewCaptureInput,
-    CaptureInput,
     ClassRoutes,
     ErrorResponse,
-    PullRequestCaptureInput,
-    RevisionsCaptureInput,
-    capture_snapshot,
+    ManifestSelection,
+    PreparedCapture,
+    PresetManifestSelection,
     preset_catalog_dirs,
 )
 
@@ -90,30 +85,6 @@ __all__ = ["ComposedDiffResponse", "DiffRoutes"]
 LOGGER = logging.getLogger(__name__)
 """Record unexpected failures at this HTTP boundary."""
 
-TabParam = Literal[
-    "head",
-    "refs",
-    "branch-review",
-    "pull-request",
-    "preset",
-]
-"""Select the manifest correspondence and capture flow used by the HUD.
-
-- `head` compares HEAD with the worktree.
-- `refs` compares two explicit sides.
-- `branch-review` resolves symbolic base and review branches.
-- `pull-request` uses prepared immutable commits.
-- `preset` opens one fixture group.
-
-Route validation uses this value with the parameters required by the selected
-Tab. It is not a persisted Room identity by itself.
-"""
-BranchSourceParam = BranchSource
-"""Select local or remote branch parameters at the HTTP boundary.
-
-`selected_branch_selections` combines this discriminator with the matching
-branch and remote parameters. It does not carry either name by itself.
-"""
 ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 """Validate source File relationships before HTTP conversion.
 
@@ -122,12 +93,6 @@ ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 - `rename` and `copy` retain the source and destination paths.
 
 This value describes File identity, not rendered line status.
-"""
-BranchSelections = tuple[BranchSelection | None, BranchSelection | None]
-"""Validated base and review selections in that order.
-
-Both entries are present only for the Branch Review Tab. Other Tabs return two
-`None` values so callers can unpack the result without inventing selections.
 """
 
 
@@ -143,7 +108,7 @@ class PresetGroupResponse(ApiModel):
     id: str
     """Catalog-local directory token identifying this fixture group.
 
-    The Preset Tab sends it as `preset_subset` with its catalog id. Consumers
+    The Preset Tab sends it as `selection.subset` with `selection.catalog`. Consumers
     must not treat the human-readable name as the selection key.
     """
 
@@ -1314,174 +1279,72 @@ class LazyInfoResponse(ApiModel):
     """
 
 
-def selected_branch_selections(
-    tab: TabParam = Query(description="HUD Tab."),
-    base_source: BranchSourceParam | None = Query(
-        default=None,
-        description="Base branch source for a branch-backed Tab.",
-    ),
-    base_remote: str | None = Query(
-        default=None,
-        description="Base remote for remote branch-backed selections.",
-    ),
-    base_branch: str | None = Query(
-        default=None,
-        description="Base branch name for a branch-backed Tab.",
-    ),
-    review_source: BranchSourceParam | None = Query(
-        default=None,
-        description="Review branch source for a branch-backed Tab.",
-    ),
-    review_remote: str | None = Query(
-        default=None,
-        description="Review remote for remote branch-backed selections.",
-    ),
-    review_branch: str | None = Query(
-        default=None,
-        description="Review branch name for a branch-backed Tab.",
-    ),
-) -> BranchSelections:
-    """Return structured branch selections for Branch Review.
+class ManifestQuery(ApiModel):
+    """Validate one complete Tab selection encoded as a JSON query value.
 
-    The UI can keep base/review branch controls populated while the user moves
-    between Tabs. API handlers call this helper so branch parameters do not
-    accidentally influence another Tab's manifest.
+    `/api/manifest` accepts only `selection`. The selected Tab requires its own
+    controls and rejects unrelated controls before source preparation runs.
 
-    # Parameters
-
-    - `tab`: Selected HUD Tab; only Branch Review consumes the other values.
-    - `base_source`: Local or remote namespace for the base branch.
-    - `base_remote`: Required remote name when the base source is remote.
-    - `base_branch`: Required symbolic base branch name.
-    - `review_source`: Local or remote namespace for the review branch.
-    - `review_remote`: Required remote name when the review source is remote.
-    - `review_branch`: Required symbolic review branch name.
-
-    Non-Branch-Review Tabs return two absent selections without validating
-    controls they do not use.
-
-    # Usage
-
-    Install this function as the manifest route dependency. Callers unpack the
-    returned base and review selections in that order.
-
-    # Failures
-
-    - Raises `HTTPException` with status 400 when Branch Review parameters are
-      missing, blank, or internally inconsistent.
     """
-    if tab != "branch-review":
-        return None, None
 
-    return (
-        _branch_selection_from_query(
-            label="base",
-            source=base_source,
-            remote=base_remote,
-            branch=base_branch,
-        ),
-        _branch_selection_from_query(
-            label="review",
-            source=review_source,
-            remote=review_remote,
-            branch=review_branch,
-        ),
-    )
+    selection: Json[ManifestSelection]
+    """JSON object selecting the Tab and all required source inputs."""
 
 
-def _preset_project_parts(
+def captured_manifest_paths(
+    room: Room,
+    snapshot_id: UUID,
     *,
-    project_id: str | None,
-    preset_subset: str | None,
-) -> tuple[str, str]:
-    """Parse the preset catalog id and subset used to prepare a manifest.
+    preset: bool,
+) -> tuple[ManifestPath, ...]:
+    """Convert captured File metadata to ordered manifest presentation records.
 
-    The Preset Tab uses `project_id` as the catalog id. It is the name of a
-    directory under the presets root. `preset_subset` is the selected
-    group within that catalog. Both are required; whether the catalog exists is
-    validated during source setup against the discovered catalogs. This
-    parser does not carry a second copy of the catalog set. Follow-up endpoints find the prepared Room by Snapshot key and
-    do not call this parser. The preset source still validates traversal and
-    unknown-group errors while preparing the manifest.
+    Manifest and lazy-info use the same path conversion, display labels, and
+    ordering. The caller supplies `preset` from metadata it already read; this
+    operation reads only the specified Snapshot's File metadata.
 
     # Parameters
 
-    - `project_id`: Nonblank catalog directory id carried by the common
-      manifest parameter.
-    - `preset_subset`: Nonblank fixture-group id within that catalog.
-
-    # Usage
-
-    Call only for the Preset Tab while translating manifest parameters. Use the
-    returned catalog id to select a catalog and the subset as its capture side.
+    - `room`: Room containing the specified Snapshot.
+    - `snapshot_id`: Exact captured state whose Files are presented.
+    - `preset`: Whether the Snapshot's Tab uses fixture new-path display names.
 
     # Returns
 
-    - First, the unchanged catalog id used to select `PresetCatalog`.
-    - Second, the unchanged fixture-group id used as that catalog's fixture group.
+    Presentation records sorted by display name and then change type. Nullable
+    sides, VCS tracking, and lazy policy retain their captured values.
+    Each returned record has these side fields:
+
+    - `left_path`: Captured old-side relative path, absent for an added File.
+    - `right_path`: Captured new-side relative path, absent for a deleted File.
 
     # Failures
 
-    - Raises `DirdiffError` when either value is absent or blank.
+    - Invalid Snapshot identity raises `DirdiffError` at the Room boundary.
+    - Metadata read and path-label validation failures propagate.
     """
-    if project_id is None or project_id.strip() == "":
-        raise DirdiffError("project_id is required for the Preset Tab.")
-    if preset_subset is None or preset_subset.strip() == "":
-        raise DirdiffError("preset_subset is required for the Preset Tab.")
-    return project_id, preset_subset
-
-
-def _branch_selection_from_query(
-    *,
-    label: str,
-    source: BranchSourceParam | None,
-    remote: str | None,
-    branch: str | None,
-) -> BranchSelection:
-    """Parse one split Branch Review selection from query parameters.
-
-    Used only while building a manifest for a branch-backed Tab. Follow-up file
-    endpoints use the snapshot id returned by that manifest request.
-
-    # Parameters
-
-    - `label`: `base` or `review`, used to identify invalid input precisely.
-    - `source`: Required local or remote branch namespace.
-    - `remote`: Required nonblank remote name only for a remote source.
-    - `branch`: Required nonblank symbolic branch name.
-
-    # Usage
-
-    `selected_branch_selections` calls this once for base and once for review.
-    The label is used only to produce a precise HTTP error.
-
-    # Failures
-
-    - Raises `HTTPException` with status 400 when source, remote, and branch do
-      not form one complete local or remote selection.
-    """
-    if source is None:
-        raise HTTPException(
-            status_code=HTTPStatus.BAD_REQUEST,
-            detail=f"{label}_source is required for the Branch Review Tab.",
+    paths: list[ManifestPath] = []
+    for left, right, metadata in room.manifested(snapshot_id):
+        left_path = left.as_posix() if left is not None else None
+        right_path = right.as_posix() if right is not None else None
+        display_name = (
+            right_path
+            if preset and right_path is not None
+            else display_name_for_repo_paths(left_path, right_path)
         )
-    if branch is None or (branch_name := branch.strip()) == "":
-        raise HTTPException(
-            status_code=HTTPStatus.BAD_REQUEST,
-            detail=f"{label}_branch is required for the Branch Review Tab.",
+        paths.append(
+            ManifestPath(
+                left_path=left_path,
+                right_path=right_path,
+                display_name=display_name,
+                change_type=metadata["change_type"],
+                lazy_reason_override=metadata["lazy_reason_override"],
+                untracked=metadata["untracked"],
+            )
         )
-    if source == "local":
-        return {"source": source, "branch": branch_name}
-    if remote is None or (remote_name := remote.strip()) == "":
-        raise HTTPException(
-            status_code=HTTPStatus.BAD_REQUEST,
-            detail=f"{label}_remote is required for remote Branch Review selections.",
-        )
-    return {
-        "source": source,
-        "remote": remote_name,
-        "branch": branch_name,
-    }
+    return tuple(
+        sorted(paths, key=lambda path: (path.display_name, path.change_type))
+    )
 
 
 class FileDiffQuery(ApiModel):
@@ -1558,126 +1421,6 @@ class DiffRoutes:
                 "default_preset": preset_catalog.default_preset_name(),
                 "groups": preset_catalog.list_preset_groups(),
             }
-        )
-
-    def manifest_capture_selection(
-        self,
-        *,
-        project_id: str,
-        tab: TabParam,
-        branch_selections: BranchSelections,
-        left: str | None,
-        right: str | None,
-        pull_request_url: str | None,
-        left_commit: str | None,
-        right_commit: str | None,
-        preset_subset: str | None,
-        show_untracked: bool,
-    ) -> CaptureInput:
-        """Translate one manifest query into its concrete Tab selection.
-
-        The query parameters carry every cross-Tab value, so this is the
-        single boundary that rejects a missing Tab-required value and asserts
-        that inapplicable values were not supplied. Downstream code receives
-        one discriminated selection and never branches on nullability.
-
-        # Parameters
-
-        - `project_id`: Mark id or preset catalog id, interpreted by the Tab.
-        - `tab`: Tab whose law determines the valid parameter combination.
-        - `branch_selections`: Structured base/review pair from the dependency.
-        - `left`: Left revision handle used by Head or Refs.
-        - `right`: Right revision handle used by Head or Refs.
-        - `pull_request_url`: Canonical Pull Request Room correspondence value.
-        - `left_commit`: Prepared Pull Request merge-base capture commit.
-        - `right_commit`: Prepared Pull Request head capture commit.
-        - `preset_subset`: Fixture-group id for a Preset capture.
-        - `show_untracked`: Whether supported repository Tabs include untracked
-          worktree Files.
-
-        # Usage
-
-        Call once at the manifest boundary after dependency parsing, then pass
-        the returned selection unchanged to `capture_snapshot`.
-
-        # Failures
-
-        - Raises `DirdiffError` when a required Tab value is absent or blank.
-        - Asserts when parameters inapplicable to the selected Tab are present or
-          the dependency supplied an impossible branch-selection pair.
-        """
-        selected_base, selected_review = branch_selections
-        if tab == "preset":
-            assert selected_base is None and selected_review is None
-            assert left is None and right is None
-            assert pull_request_url is None
-            assert left_commit is None and right_commit is None
-            assert not show_untracked, (
-                "the Preset Tab does not support intruding Files"
-            )
-            catalog, subset = _preset_project_parts(
-                project_id=project_id,
-                preset_subset=preset_subset,
-            )
-            return PresetCaptureSelection(catalog=catalog, subset=subset)
-        if tab == "pull-request":
-            assert selected_base is None and selected_review is None
-            assert left is None and right is None
-            assert preset_subset is None
-            assert not show_untracked, (
-                "the Pull Request Tab does not support intruding Files"
-            )
-            if pull_request_url is None:
-                raise DirdiffError(
-                    "pull_request_url is required for the Pull Request Tab."
-                )
-            if left_commit is None:
-                raise DirdiffError(
-                    "left_commit is required for the Pull Request Tab."
-                )
-            if right_commit is None:
-                raise DirdiffError(
-                    "right_commit is required for the Pull Request Tab."
-                )
-            return PullRequestCaptureInput(
-                url=pull_request_url,
-                left_commit=left_commit,
-                right_commit=right_commit,
-            )
-        if tab == "branch-review":
-            assert left is None and right is None
-            assert pull_request_url is None
-            assert left_commit is None and right_commit is None
-            assert preset_subset is None
-            assert not show_untracked, (
-                "the Branch Review Tab does not support intruding Files"
-            )
-            if selected_base is None or selected_review is None:
-                raise DirdiffError("branch selections are required.")
-            return BranchReviewCaptureInput(
-                base=selected_base,
-                review=selected_review,
-            )
-        assert tab == "head" or tab == "refs"
-        assert selected_base is None and selected_review is None
-        assert pull_request_url is None
-        assert left_commit is None and right_commit is None
-        assert preset_subset is None
-        if tab == "head":
-            if left is None or right is None:
-                raise DirdiffError(
-                    "Diff against HEAD requires HEAD and worktree sides."
-                )
-        else:
-            if left is None or left.strip() == "":
-                raise DirdiffError("left is required for the Refs Tab.")
-            if right is None or right.strip() == "":
-                raise DirdiffError("right is required for the Refs Tab.")
-        return RevisionsCaptureInput(
-            tab=tab,
-            left=left,
-            right=right,
-            show_untracked=show_untracked,
         )
 
     def render_loaded_snapshot_file(
@@ -1828,125 +1571,58 @@ class DiffRoutes:
     )
     def serve_manifest(
         self,
-        project_id: str = Query(
-            description="Manifest project id: marked project id for repo-backed Tabs, preset catalog id for Preset.",
-        ),
-        tab: TabParam = Query(description="HUD Tab."),
-        branch_selections: BranchSelections = Depends(
-            selected_branch_selections
-        ),
-        left: str | None = Query(
-            default=None, description="Left ref or diff side."
-        ),
-        right: str | None = Query(
-            default=None, description="Right ref or diff side."
-        ),
-        pull_request_url: str | None = Query(
-            default=None,
-            description="Pull Request URL used only for Room correspondence.",
-        ),
-        left_commit: str | None = Query(
-            default=None,
-            description="Left commit prepared for the Pull Request Tab.",
-        ),
-        right_commit: str | None = Query(
-            default=None,
-            description="Right commit prepared for the Pull Request Tab.",
-        ),
-        preset_subset: str | None = Query(
-            default=None,
-            description="Preset subset/group id for the Preset Tab.",
-        ),
-        show_untracked: bool = Query(
-            default=False,
-            description="Include untracked worktree files when supported by the selected Tab.",
-        ),
+        query: Annotated[ManifestQuery, Query()],
     ) -> RepoManifestResponse:
-        """Show the supplied repository state and provide follow-up keys.
-
-        The handler prepares the concrete source and supplies the complete
-        Tab state to `RoomLord.corresponding_room`. The response contains the
-        manifest tree, aggregate source totals, and the opaque Snapshot key
-        required by follow-up endpoints. It does not prepare Pull Requests;
-        Pull Request parameters already contain the URL and capture commits.
+        """Capture a complete selection and return its manifest and Snapshot key.
 
         # Parameters
 
-        - `project_id`: Active Mark id for repository Tabs or catalog id for
-          Preset.
-        - `tab`: Selected HUD Tab governing the valid parameter combination.
-        - `branch_selections`: Parsed base/review selections for Branch Review.
-        - `left`: Left revision handle for Head or Refs.
-        - `right`: Right revision handle for Head or Refs.
-        - `pull_request_url`: Canonical URL identifying a Pull Request Room.
-        - `left_commit`: Already prepared Pull Request merge-base commit.
-        - `right_commit`: Already prepared Pull Request head commit.
-        - `preset_subset`: Selected fixture group for a Preset catalog.
-        - `show_untracked`: Whether a supported repository Tab includes
-          untracked worktree Files.
+        - `query`: One JSON `selection` value with the selected Tab's required
+          controls. Pull Request revisions must already have been prepared.
+
+        # Usage
+
+        Submit the selected Tab object to `/api/manifest`. Keep its returned
+        `snapshot_id` for lazy-info, File rendering, and review operations; those
+        operations read this Snapshot rather than repeating source preparation.
+
+        Encode the complete object, not its individual fields, in URLSearchParams:
+
+        ```javascript
+        const selection = {
+          tab: "refs", project_id: 42,
+          left: "HEAD", right: "worktree", show_untracked: false,
+        };
+        const query = new URLSearchParams({ selection: JSON.stringify(selection) });
+        const response = await fetch(`/api/manifest?${query}`);
+        ```
+
+        The project id must identify an active Mark. A successful response supplies
+        the `snapshot_id` used by `/api/lazy-info` and `/api/file-diff`.
 
         # Failures
 
-        - Raises `HTTPException` with status 400 for invalid Tab parameters,
-          Mark, source setup, or capture input.
-        - Logs unexpected capture or persistence failures and raises status 500.
+        - FastAPI returns 422 for missing, malformed, or unrelated selection
+          fields before this handler runs.
+        - Source preparation and capture `DirdiffError` failures return 400.
+        - Unexpected preparation or persistence failures are logged and return 500.
         """
         try:
-            room, snapshot_id, preset_name = capture_snapshot(
+            prepared: PreparedCapture = query.selection.prepare(
                 self.db,
-                self.room_lord,
                 self.presets_root,
                 store_path=self.store_path,
-                project_id=project_id,
-                selection=self.manifest_capture_selection(
-                    project_id=project_id,
-                    tab=tab,
-                    branch_selections=branch_selections,
-                    left=left,
-                    right=right,
-                    pull_request_url=pull_request_url,
-                    left_commit=left_commit,
-                    right_commit=right_commit,
-                    preset_subset=preset_subset,
-                    show_untracked=show_untracked,
-                ),
+            )
+            room, snapshot_id = self.room_lord.corresponding_room(
+                mark_id=prepared.mark_id,
+                selection=prepared.correspondence,
+                source=prepared.source,
+                left_label=prepared.left_label,
+                right_label=prepared.right_label,
             )
             snapshot_meta = room.meta(snapshot_id)
-            manifest_paths = tuple(
-                sorted(
-                    (
-                        ManifestPath(
-                            left_path=left_path.as_posix()
-                            if left_path is not None
-                            else None,
-                            right_path=right_path.as_posix()
-                            if right_path is not None
-                            else None,
-                            display_name=(
-                                right_path.as_posix()
-                                if snapshot_meta["tab"] == "preset"
-                                and right_path is not None
-                                else display_name_for_repo_paths(
-                                    left_path.as_posix()
-                                    if left_path is not None
-                                    else None,
-                                    right_path.as_posix()
-                                    if right_path is not None
-                                    else None,
-                                )
-                            ),
-                            change_type=file_meta["change_type"],
-                            lazy_reason_override=file_meta[
-                                "lazy_reason_override"
-                            ],
-                            untracked=file_meta["untracked"],
-                        )
-                        for left_path, right_path, file_meta in room.manifested(
-                            snapshot_id
-                        )
-                    ),
-                    key=lambda path: (path.display_name, path.change_type),
-                )
+            manifest_paths = captured_manifest_paths(
+                room, snapshot_id, preset=snapshot_meta["tab"] == "preset"
             )
             manifest = build_repo_manifest_for_paths(
                 left_label=snapshot_meta["left_label"],
@@ -1955,9 +1631,8 @@ class DiffRoutes:
                 added_lines=snapshot_meta["added_lines"],
                 removed_lines=snapshot_meta["removed_lines"],
             )
-            if tab == "preset":
-                assert preset_name is not None
-                manifest["display_name"] = preset_name
+            if isinstance(query.selection, PresetManifestSelection):
+                manifest["display_name"] = query.selection.subset
             payload = {"snapshot_id": snapshot_id.hex, **manifest}
         except DirdiffError as exc:
             raise HTTPException(
@@ -2008,41 +1683,8 @@ class DiffRoutes:
                 ) from exc
             room = self.room_lord.find_room(snapshot_key)
             snapshot_meta = room.meta(snapshot_key)
-            lazy_paths = tuple(
-                sorted(
-                    (
-                        ManifestPath(
-                            left_path=left_path.as_posix()
-                            if left_path is not None
-                            else None,
-                            right_path=right_path.as_posix()
-                            if right_path is not None
-                            else None,
-                            display_name=(
-                                right_path.as_posix()
-                                if snapshot_meta["tab"] == "preset"
-                                and right_path is not None
-                                else display_name_for_repo_paths(
-                                    left_path.as_posix()
-                                    if left_path is not None
-                                    else None,
-                                    right_path.as_posix()
-                                    if right_path is not None
-                                    else None,
-                                )
-                            ),
-                            change_type=file_meta["change_type"],
-                            lazy_reason_override=file_meta[
-                                "lazy_reason_override"
-                            ],
-                            untracked=file_meta["untracked"],
-                        )
-                        for left_path, right_path, file_meta in room.manifested(
-                            snapshot_key
-                        )
-                    ),
-                    key=lambda path: (path.display_name, path.change_type),
-                )
+            lazy_paths = captured_manifest_paths(
+                room, snapshot_key, preset=snapshot_meta["tab"] == "preset"
             )
             payload = build_lazy_info_for_paths(paths=lazy_paths)
         except DirdiffError as exc:

@@ -526,9 +526,18 @@ A missing bay, non-image bay, or absent image side is refused rather than
 answered with empty bytes. Snapshot ids are never reused, so the response is
 declared immutable and cacheable outright.
 `/api/manifest` receives the
-complete selected Tab parameters, shows that state, and provides Snapshot/File
-keys; it performs no Pull Request preparation. `/api/pull-request/prepare` is the
-sole HTTP boundary for Pull Request preparation.
+complete selected Tab as one JSON `selection` query value, shows that state,
+and provides Snapshot/File keys; it performs no Pull Request preparation.
+`/api/pull-request/prepare` is the sole HTTP boundary for Pull Request preparation.
+
+`server.base.ManifestSelection` validates the per-Tab required fields before
+source setup. Repository Tabs carry a positive Mark `project_id`; Preset carries
+`catalog` and `subset`. Branch Review keeps local/remote selections structured.
+Each validated selection's explicit `prepare()` returns `PreparedCapture`:
+source, correspondence facts, nullable Mark id, and side labels. Manifest and
+agent initial handlers pass these explicitly to `RoomLord.corresponding_room`; preparation does not observe
+Files or publish Snapshots. Manifest and lazy-info share captured File metadata
+conversion and display ordering; lazy-info reads only the addressed Snapshot.
 
 ## `dirdiff.cli`
 

@@ -136,7 +136,7 @@ Main exported type groups:
 
 - repositories, profiles, preferences, refs, branches, and presets;
 - `DiffParams` and its Tab-specific variants, whose `tab` discriminator and
-  complete parameters are sent unchanged to manifest;
+  complete selection is encoded as one JSON `selection` query value for manifest;
 - manifest trees and manifest statistics;
 - lazy-file information;
 - composed file diffs: frames, the bay envelope they hold, and the `text` and

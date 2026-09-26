@@ -505,7 +505,7 @@ export type PreparedPullRequest = z.infer<typeof PreparedPullRequestSchema>;
  * loaded only after the group identity enters `PresetDiffParams`.
  */
 const PresetGroupSchema = z.strictObject({
-  /** Non-empty backend identity sent as `preset_subset` after selection. */
+  /** Non-empty group identity encoded as `selection.subset` for manifest. */
   id: z.string().min(1),
   /** User-visible group caption that never enters manifest parameters. */
   display_name: z.string().min(1),
@@ -526,7 +526,7 @@ export type PresetGroup = z.infer<typeof PresetGroupSchema>;
  * validates each shape but does not cross-check that the identity names a group.
  */
 const PresetCatalogSchema = z.strictObject({
-  /** Catalog identity sent as the preset `project_id`. */
+  /** Catalog identity encoded as `selection.catalog` for manifest. */
   id: z.string().min(1),
   /** User-visible catalog caption shown by the kind selector. */
   name: z.string().min(1),
@@ -565,8 +565,8 @@ export type PresetCatalogs = z.infer<typeof PresetCatalogsSchema>;
 /**
  * Contains fields shared by every repository-backed manifest request.
  *
- * The project is always required. Preset requests use their own complete
- * parameter shape because their project identity is a PresetType.
+ * The Mark identity is required. Preset queries use a catalog identity
+ * instead, encoded in their separate HTTP selection shape.
  */
 type RepoBackedDiffParams = {
   /**
@@ -583,7 +583,8 @@ type RepoBackedDiffParams = {
  * files.
  *
  * Callers construct the complete fixed Tab fields; none are optional or
- * inferred by the transport layer.
+ * inferred by the HUD. Transport omits the fixed left/right controls because
+ * the Head Tab defines them.
  */
 export type HeadDiffParams = RepoBackedDiffParams & {
   /**
@@ -708,12 +709,13 @@ export type PullRequestDiffParams = RepoBackedDiffParams & {
 /**
  * Requests one selected preset fixture.
  *
- * The preset kind is the backend project ID and `preset_subset` is the selected
- * catalog group. Repository selection is deliberately absent.
+ * The HUD keeps its catalog in `project_id` and group in `preset_subset`.
+ * Manifest transport encodes these as `catalog` and `subset`; neither selects
+ * a repository Mark.
  */
 export type PresetDiffParams = {
   /**
-   * Catalog identity used as the preset backend project.
+   * Catalog identity selected in the HUD and encoded as `selection.catalog`.
    *
    * It must match a validated catalog ID and never a numeric repository identity.
    */
@@ -735,7 +737,8 @@ export type PresetDiffParams = {
 /**
  * Represents the complete immutable input to every ChangeSet snapshot query.
  *
- * Each variant contains all backend-required fields. Live control input and
+ * Each variant contains all accepted HUD values needed for manifest capture.
+ * Transport encodes the matching per-Tab HTTP selection. Live control input and
  * partially selected workflows must never be represented as DiffParams.
  */
 export type DiffParams =
@@ -3434,47 +3437,89 @@ function requestPreparePullRequest(url: string): Promise<PreparedPullRequest> {
 }
 
 /**
+ * Complete per-Tab object encoded in the manifest HTTP selection parameter.
+ *
+ * Selected HUD values retain their query-key identity. The wire gives preset
+ * catalog/group and structured branches their own names; Head's fixed sides
+ * are defined by its Tab instead of repeated as transport controls.
+ */
+type ManifestSelection =
+  | Pick<HeadDiffParams, "tab" | "project_id" | "show_untracked">
+  | (RefsDiffParams & {
+      /** The Refs HUD does not include untracked Files. */
+      show_untracked: false;
+    })
+  | (Pick<BranchReviewDiffParams, "tab" | "project_id"> & {
+      /** Complete symbolic base branch selected in the HUD. */
+      base: BranchSelection;
+      /** Complete symbolic review branch selected in the HUD. */
+      review: BranchSelection;
+    })
+  | (Pick<
+      PullRequestDiffParams,
+      "tab" | "project_id" | "left_commit" | "right_commit"
+    > & {
+      /** Canonical review URL from successful forge preparation. */
+      url: string;
+    })
+  | (Pick<PresetDiffParams, "tab"> & {
+      /** Selected preset catalog id. */
+      catalog: PresetType;
+      /** Selected fixture-group id inside that catalog. */
+      subset: string;
+    });
+
+/**
  * Encodes complete DiffParams for the snapshot-producing manifest endpoint.
  *
- * Each Tab variant serializes its own exact fields into the HTTP parameters.
+ * Each Tab variant serializes its own exact fields into one JSON selection value.
  * This function performs encoding only and never changes or defaults selection.
  */
 function manifestSearchParams(params: DiffParams): URLSearchParams {
-  const search = new URLSearchParams({
-    tab: params.tab,
-    project_id: String(params.project_id),
-  });
+  let selection: ManifestSelection;
   switch (params.tab) {
     case "preset":
-      search.set("preset_subset", params.preset_subset);
-      return search;
+      selection = {
+        tab: params.tab,
+        catalog: params.project_id,
+        subset: params.preset_subset,
+      };
+      break;
     case "branch-review":
-      search.set("base_source", params.base_selection.source);
-      search.set("base_branch", params.base_selection.branch);
-      if (params.base_selection.source === "remote") {
-        search.set("base_remote", params.base_selection.remote);
-      }
-      search.set("review_source", params.review_selection.source);
-      search.set("review_branch", params.review_selection.branch);
-      if (params.review_selection.source === "remote") {
-        search.set("review_remote", params.review_selection.remote);
-      }
-      return search;
+      selection = {
+        tab: params.tab,
+        project_id: params.project_id,
+        base: params.base_selection,
+        review: params.review_selection,
+      };
+      break;
     case "pull-request":
-      search.set("pull_request_url", params.pull_request_url);
-      search.set("left_commit", params.left_commit);
-      search.set("right_commit", params.right_commit);
-      return search;
+      selection = {
+        tab: params.tab,
+        project_id: params.project_id,
+        url: params.pull_request_url,
+        left_commit: params.left_commit,
+        right_commit: params.right_commit,
+      };
+      break;
     case "head":
-      search.set("left", params.left);
-      search.set("right", params.right);
-      search.set("show_untracked", "true");
-      return search;
+      selection = {
+        tab: params.tab,
+        project_id: params.project_id,
+        show_untracked: true,
+      };
+      break;
     case "refs":
-      search.set("left", params.left);
-      search.set("right", params.right);
-      return search;
+      selection = {
+        tab: params.tab,
+        project_id: params.project_id,
+        left: params.left,
+        right: params.right,
+        show_untracked: false,
+      };
+      break;
   }
+  return new URLSearchParams({ selection: JSON.stringify(selection) });
 }
 
 /**
