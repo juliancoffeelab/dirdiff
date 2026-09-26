@@ -479,8 +479,9 @@ def validate_source_placement(
 
     # Failures
 
-    A database or Snapshot store inside the reviewed root raises `DirdiffError`.
-    Filesystem resolution failures propagate.
+    - A database or Snapshot store inside the reviewed root raises
+      `DirdiffError`.
+    - Filesystem resolution failures propagate.
     """
     reviewed_root = source_root.expanduser().resolve()
     database = db.engine.url.database
@@ -537,8 +538,9 @@ def capture_snapshot(
 
     # Failures
 
-    Missing Marks/catalogs, invalid controls or revisions, and unsafe storage
-    placement raise `DirdiffError`. Source and capture failures propagate.
+    - Missing Marks/catalogs, invalid controls or revisions, and unsafe
+      storage placement raise `DirdiffError`.
+    - Source and capture failures propagate.
     """
     preset_name: str | None = None
     mark_id: int | None = None

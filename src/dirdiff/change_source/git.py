@@ -9,7 +9,7 @@ Branch Review picker values.
 
 ## Purpose and boundaries
 
-This is the source implementation that runs ordinary Git workspace commands.
+Git is the VCS implemented by this source.
 Its private storage handles Git output, batch object loading, and local Git
 LFS pointers. The source returns materialized bytes; RoomLord decides Snapshot
 identity and publication. This module does not decode formats, render content,
@@ -86,7 +86,7 @@ _LFS_POINTER_RE = re.compile(
 
 Groups hold the version URL, extension lines, object id, and declared size.
 Only canonical v1 without extensions is expanded; other recognized versions
-and transformations fail explicitly. Nonmatching bytes remain ordinary content,
+and transformations fail explicitly. Nonmatching bytes remain raw File content,
 including text that merely starts with an LFS version line. Callers limit
 pointer inspection to files smaller than 1024 bytes and preserve raw links.
 """
@@ -160,10 +160,8 @@ def ref_choices(metadata: RefMetadata) -> RefChoices:
     same value with default-selection derivation so both controls describe one
     caller operation.
 
-    # Failures
-
-    This function performs no I/O and raises no expected domain failure. The
-    typed record must contain every `RefMetadata` field.
+    The typed record must contain every `RefMetadata` field. This function
+    performs no I/O and has no expected domain failures.
     """
     return {
         "builtins": ["HEAD", "index", "worktree"],
@@ -198,10 +196,11 @@ def preferred_review_selection(
     Pass the same metadata used to choose `base_selection`. The server publishes
     the result as the initial review-side control value.
 
-    # Failures
+    # Returns
 
-    Empty branch metadata produces an empty local selection rather than an
-    exception. If every branch matches the base, the result may name that branch.
+    - With no branch metadata, an empty local branch selection.
+    - Otherwise, a populated local branch selection. If every branch matches
+      the base, the result may name that branch.
     """
     branch_names = metadata["local_branches"]
     if branch_names == []:
@@ -276,7 +275,7 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Parameters
 
-        - `cwd`: Directory used for discovery and later renderer commands.
+        - `cwd`: Directory in which implicit Git repository discovery runs.
         - `repo_root`: Explicit repository root that skips Git discovery.
 
         # Usage
@@ -284,11 +283,15 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         Server and test setup normally pass `cwd` and let Git find the worktree.
         Pass `repo_root` only when the caller already selected the repository.
 
+        # Returns
+
+        A storage instance bound to the selected root. Failed implicit
+        discovery returns an instance with `repo_root=None`, not an exception.
+
         # Failures
 
-        A failed implicit discovery returns a storage instance whose `repo_root` is
-        `None`; it is not an exception. Filesystem resolution or process-launch
-        failures propagate from `Path.resolve` or `subprocess.run`.
+        - Filesystem resolution or process-launch failures propagate from
+          `Path.resolve` or `subprocess.run`.
         """
         working_dir = (cwd or Path.cwd()).resolve()
         if repo_root is not None:
@@ -385,8 +388,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Blank input, a custom ref without a repository, or an unknown ref raises
-        `DirdiffError`.
+        - Blank input, a custom ref without a repository, or an unknown ref
+          raises `DirdiffError`.
         """
         side = raw_side.strip()
         if side == "":
@@ -425,9 +428,9 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Blank input, mutable `index` or `worktree`, a missing repository, and
-        unknown or non-commit refs raise `DirdiffError`, except an allowed
-        unresolved HEAD.
+        - Blank input, mutable `index` or `worktree`, a missing repository,
+          and unknown or non-commit refs raise `DirdiffError`, except an
+          allowed unresolved HEAD.
         """
         normalized = side.strip()
         if normalized == "":
@@ -469,9 +472,9 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Without a repository, or when either non-checking Git probe fails, the
-        affected fields are empty rather than exceptional. Process-launch and
-        decoding failures still propagate.
+        - Without a repository, or when either non-checking Git probe fails,
+          the affected fields are empty rather than exceptional.
+        - Process-launch and decoding failures still propagate.
         """
         if self.repo_root is None:
             return {
@@ -576,12 +579,13 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        If metadata cannot identify one safe base, return
-        `{"kind": "error", "error": "heuristic_fail"}`. When a remote lacks a
-        local HEAD symbolic ref, `git remote show` may contact the network;
-        command failure also produces the error result. A caller-supplied
-        metadata record naming remotes on storage without a repository raises
-        `DirdiffError` when that remote lookup is needed.
+        - If metadata cannot identify one safe base, return `{"kind": "error",
+          "error": "heuristic_fail"}`.
+        - When a remote lacks a local HEAD symbolic ref, `git remote show` may
+          contact the network; command failure also produces the error result.
+        - A caller-supplied metadata record naming remotes on storage without
+          a repository raises `DirdiffError` when that remote lookup is
+          needed.
         """
         if metadata["remote_names"] != []:
             default_remote = _default_branch_review_remote_name(metadata)
@@ -653,8 +657,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Missing repositories, unresolved refs, non-commit targets, and branches
-        without a merge base raise `DirdiffError`.
+        - Missing repositories, unresolved refs, non-commit targets, and
+          branches without a merge base raise `DirdiffError`.
         """
         base_name = base_selection["branch"]
         base_branch = (
@@ -720,8 +724,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
     def _parse_name_status_output(self, output: bytes) -> list[ListedPath]:
         """Parse Git's NUL-delimited status records into File path pairs.
 
-        Rename and copy records consume two UTF-8 paths; ordinary records consume
-        one. The returned order matches Git output, and pure renames carry their
+        Rename and copy records consume two UTF-8 paths; other status records
+        consume one. The returned order matches Git output, and pure renames carry their
         source lazy override. A truncated final record stops parsing and returns
         the complete entries read before it; invalid UTF-8 raises
         `UnicodeDecodeError`.
@@ -924,11 +928,20 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         Pass sides normalized by this instance. Snapshot capture walks the
         returned paths in order and may reuse their object ids while loading.
 
+        # Returns
+
+        - `ListedChanges.paths` contains Git changes and any selected untracked
+          Files in presentation order.
+        - `ListedChanges.added_lines` and `removed_lines` contain tracked totals
+          or are both absent when complete counts are unavailable.
+
+        *Implementation detail: Git numstat supplies tracked line totals; a
+        binary record makes both totals unavailable.*
+
         # Failures
 
-        A missing repository, failed Git command, malformed raw or numstat
-        output, or invalid UTF-8 path raises. Aggregate counts cover the tracked
-        diff; one binary record makes both totals unavailable.
+        - A missing repository, failed Git command, malformed raw or numstat
+          output, or invalid UTF-8 path raises.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
@@ -1083,8 +1096,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Missing repository state and the rejected shapes above raise
-        `DirdiffError`.
+        - Missing repository state and the rejected shapes above raise
+          `DirdiffError`.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
@@ -1121,8 +1134,9 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Raises `DirdiffError` when the path does not identify a regular file,
-        executable file, symbolic link, or gitlink on the selected side.
+        - Raises `DirdiffError` when the path does not identify a regular
+          file, executable file, symbolic link, or gitlink on the selected
+          side.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
@@ -1225,8 +1239,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Missing repository state, missing paths, unsupported File kinds,
-        non-blob Git objects, and malformed Git output raise `DirdiffError`.
+        - Missing repository state, missing paths, unsupported File kinds,
+          non-blob Git objects, and malformed Git output raise `DirdiffError`.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
@@ -1355,10 +1369,10 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Missing repository state, missing or plain-directory worktree
-        content, unreadable regular-file bytes or links, an embedded repository
-        without a HEAD commit, and non-blob, non-gitlink or absent Git objects
-        raise `DirdiffError`.
+        - Missing repository state, missing or plain-directory worktree
+          content, unreadable regular-file bytes or links, an embedded
+          repository without a HEAD commit, and non-blob, non-gitlink or
+          absent Git objects raise `DirdiffError`.
         """
         result = self.load_versions(((path, side, None, None),))[0]
         if isinstance(result, DirdiffError):
@@ -1403,9 +1417,10 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Missing individual sides become `DirdiffError` values in input order.
-        Missing repository state, batch-process failure, or malformed batch
-        output raises `DirdiffError` for the complete operation.
+        - Missing individual sides become `DirdiffError` values in input
+          order.
+        - Missing repository state, batch-process failure, or malformed batch
+          output raises `DirdiffError` for the complete operation.
         """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
@@ -1595,7 +1610,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         # Tree/index blob reads do not carry modes. Inspect only complete pointer
         # candidates, grouped by side, so preserving symlinks adds no per-file
-        # Git subprocess and ordinary batches need no additional commands.
+        # Git subprocess. Batches without pointer candidates need no additional
+        # commands.
         candidates: dict[str, list[int]] = {}
         for index, content in enumerate(results):
             if (
@@ -1795,7 +1811,7 @@ class GitRepository:
 
         # Failures
 
-        Filesystem resolution and process-launch failures propagate.
+        - Filesystem resolution and process-launch failures propagate.
         """
         workspace = _GitWorkspace.discover(cwd=cwd, repo_root=repo_root)
         return cls(workspace.repo_root)
@@ -1823,7 +1839,7 @@ class GitRepository:
 
         # Failures
 
-        Blank or unknown refs raise `DirdiffError`.
+        - Blank or unknown refs raise `DirdiffError`.
         """
         return self._workspace.normalize_side(raw_side)
 
@@ -1838,7 +1854,8 @@ class GitRepository:
 
         # Failures
 
-        An unknown, non-commit, or disallowed unborn ref raises `DirdiffError`.
+        - An unknown, non-commit, or disallowed unborn ref raises
+          `DirdiffError`.
         """
         return self._workspace.commit_id(side, allow_unborn=allow_unborn)
 
@@ -1892,8 +1909,8 @@ class GitRepository:
 
         # Failures
 
-        Missing branches, missing history, and absent merge base raise
-        `DirdiffError`.
+        - Missing branches, missing history, and absent merge base raise
+          `DirdiffError`.
         """
         return self._workspace.resolve_branch_diff_sides(
             base_selection=base_selection,
@@ -1972,8 +1989,9 @@ class GitChangeSource(ChangeSourceProtocol):
 
         # Failures
 
-        An unprepared ref spelling or negative bound raises `AssertionError`.
-        Filesystem path-resolution failures propagate.
+        - An unprepared ref spelling or negative bound raises
+          `AssertionError`.
+        - Filesystem path-resolution failures propagate.
         """
         for side in (left, right):
             assert side in {"index", "worktree"} or (
@@ -1995,7 +2013,7 @@ class GitChangeSource(ChangeSourceProtocol):
         # Usage
 
         Call before `load()`. Worktree data and link walks are acquired during
-        observation; ordinary immutable data remains unread until needed by
+        observation; immutable non-link data remains unread until needed by
         `load()`. Callers use the shared
         `dirdiff.change_source.ChangeSourceProtocol.changes` contract without
         scheduling storage reads themselves.
@@ -2009,10 +2027,11 @@ class GitChangeSource(ChangeSourceProtocol):
 
         # Failures
 
-        Git command failures raise `dirdiff.engines.DirdiffError`. Invalid
-        parsed invariants assert; unexpected decoding or parsing failures
-        propagate. Expected individual outer read failures and link target
-        diagnoses remain contained under the shared protocol contract.
+        - Git command failures raise `dirdiff.engines.DirdiffError`.
+        - Invalid parsed invariants raise `AssertionError`.
+        - Unexpected decoding or parsing failures propagate.
+        - Expected individual outer read failures and link target diagnoses
+          remain contained under the shared protocol contract.
         """
         if self._files is None:
             self._files = SourceFiles(
@@ -2061,9 +2080,11 @@ class GitChangeSource(ChangeSourceProtocol):
 
         # Failures
 
-        Calling before successful observation or passing invalid File records
-        asserts. A Git failure that prevents the batch operation raises
-        `dirdiff.engines.DirdiffError`; unexpected storage failures propagate.
+        - Calling before successful observation or passing invalid File
+          records asserts.
+        - A Git failure that prevents the batch operation raises
+          `dirdiff.engines.DirdiffError`.
+        - Unexpected storage failures propagate.
         """
         assert self._files is not None, "changes() must precede load()"
         return self._files.load(files)

@@ -119,7 +119,7 @@ ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 
 - `modify` keeps one File path relationship.
 - `add` and `delete` are one-sided.
-- `rename` and `copy` retain cross-path provenance.
+- `rename` and `copy` retain the source and destination paths.
 
 This value describes File identity, not rendered line status.
 """
@@ -557,36 +557,39 @@ class RepoDiffSummaryResponse(ApiModel):
         return self
 
 
-class RecordedFileKindResponse(ApiModel):
-    """Return source-independent classification for a recorded File change.
+class TrackedFileKindResponse(ApiModel):
+    """Return tracked VCS content and its File change status.
 
-    Manifest and composed File responses share this contract. A source may be a
-    VCS or a fixture catalog; this value does not claim VCS tracking.
+    Manifest and composed File responses share this contract. The discriminator
+    does not identify a particular VCS.
+
+    *Implementation detail: preset fixtures use this variant because VCS
+    tracking does not apply to them.*
     """
 
-    type: Literal["recorded"]
-    """Select the source's recorded change-set variant."""
+    type: Literal["tracked"]
+    """Select the tracked content variant."""
 
     status: Literal["modified", "added", "deleted", "renamed", "copied"]
     """Source-reported File relationship, independent of rendered line changes."""
 
 
 class UntrackedFileKindResponse(ApiModel):
-    """Return classification for content additional to the recorded change set.
+    """Return classification for content not tracked by the VCS.
 
     The source supplied this fact. Paths and lazy policy remain on the enclosing
-    File response, and no recorded change status accompanies this variant.
+    File response, and no tracked change status accompanies this variant.
     """
 
     type: Literal["untracked"]
-    """Select additional content outside the source's recorded change set."""
+    """Select content not tracked by the VCS."""
 
 
-FileKindResponse = RecordedFileKindResponse | UntrackedFileKindResponse
+FileKindResponse = TrackedFileKindResponse | UntrackedFileKindResponse
 """Return source-independent File classification to the HUD.
 
-- `RecordedFileKindResponse` includes the source's File relationship.
-- `UntrackedFileKindResponse` identifies additional content.
+- `TrackedFileKindResponse` includes the tracked File change status.
+- `UntrackedFileKindResponse` identifies content not tracked by the VCS.
 
 Consumers branch on `type` without inferring a VCS implementation. This union
 is not a File identity, loading state, or rendered diff classification.
@@ -1014,7 +1017,7 @@ class ComposedDiffResponse(ApiModel):
     """
 
     file_kind: FileKindResponse
-    """Recorded or additional source content copied from manifest metadata.
+    """VCS tracking copied from manifest metadata.
 
     Composition retains this capture-time classification and does not infer it
     from rendered content or path presence.
@@ -1046,7 +1049,7 @@ class RepoFileEntryResponse(ApiModel):
     """Return one manifest File leaf before it is arranged into the tree.
 
     Manifest conversion places this value on one File tree leaf. The HUD uses
-    its exact path pair and provenance for later File operations.
+    its exact path pair and VCS tracking for later File operations.
 
     At least one side path is present. `lazy` explains deferred loading or is
     `None` for ordinary loading. The entry has no captured path, display name,
@@ -1054,7 +1057,7 @@ class RepoFileEntryResponse(ApiModel):
     """
 
     file_kind: FileKindResponse
-    """Recorded or additional source content and source change classification.
+    """VCS tracking and source change classification.
 
     The HUD passes this capture-time metadata to File loading and must not derive
     it from path nullability or lazy policy.
@@ -1108,7 +1111,7 @@ class RepoManifestFileNodeResponse(ApiModel):
     """
 
     entry: RepoFileEntryResponse
-    """Exact side paths, provenance, and loading policy for the File.
+    """Exact side paths, VCS tracking, and loading policy for the File.
 
     Tree placement supplies hierarchy only; callers retain this complete value
     for later File requests and placeholder construction.
@@ -1173,15 +1176,15 @@ class LazyInfoFileResponse(ApiModel):
     Lazy-info conversion produces one value for each deferred File. The HUD uses
     it to construct a placeholder without copying fields from the manifest.
 
-    The path pair and provenance identify the File; display name, known counts,
-    and reason describe the placeholder. It contains no captured bytes, frames,
-    or bays.
+    The exact path pair identifies the File within its Snapshot. VCS tracking,
+    display name, known counts, and reason describe the placeholder. It contains
+    no captured bytes, frames, or bays.
     """
 
     # This response must contain enough data for the frontend to construct a
     # lazy placeholder FileEntry without copying fields from /api/manifest.
     file_kind: FileKindResponse
-    """Recorded or additional source content and source change classification.
+    """VCS tracking and source change classification.
 
     The deferred placeholder receives the same manifest fact as a later loaded
     File, so loading must not change classification.
@@ -1701,7 +1704,7 @@ class DiffRoutes:
         - `pair`: Exact nullable repository paths identifying the File.
         - `left_file`: Authenticated captured left side, or `None` when absent.
         - `right_file`: Authenticated captured right side under the same rule.
-        - `file_meta`: Persisted provenance, change type, lazy policy, and
+        - `file_meta`: Persisted VCS tracking, change type, lazy policy, and
           capture failure for this pair.
 
         # Usage
@@ -1756,8 +1759,8 @@ class DiffRoutes:
         # from the manifest, which already emits one per File. Until then the
         # HTTP boundary attaches both here: the two envelope fields composition
         # deliberately does not produce.
-        file_kind: Literal["recorded", "untracked"] = (
-            "untracked" if file_meta["untracked"] else "recorded"
+        file_kind: Literal["tracked", "untracked"] = (
+            "untracked" if file_meta["untracked"] else "tracked"
         )
         display_name = (
             pair.right_path

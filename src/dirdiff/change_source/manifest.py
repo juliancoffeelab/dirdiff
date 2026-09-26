@@ -5,7 +5,7 @@
 `build_repo_manifest_for_paths` turns captured `ManifestPath` records into the
 manifest consumed by the HUD. `build_lazy_info_for_paths` selects the deferred
 Files from those same records. The File-kind helpers translate source change
-metadata into the public provenance union.
+metadata into the public tracking classification.
 
 ## Purpose and boundaries
 
@@ -61,7 +61,10 @@ class ManifestPath:
     """Persisted source policy, absent when manifest policy decides laziness."""
 
     untracked: bool
-    """Whether the File is additional to the source's recorded change set."""
+    """Whether the File is untracked by the selected VCS.
+
+    *Implementation detail: preset fixture Files report false because VCS
+    tracking does not apply.*"""
 
     def __post_init__(self) -> None:
         """Require one present path for a displayed File."""
@@ -114,26 +117,26 @@ __all__ = [
 
 
 def file_kind_for_repo_entry(entry: ManifestPath) -> RepoFileKind:
-    """Encode one source File pair in the manifest provenance union.
+    """Encode one source File pair with its tracking classification.
 
-    Untracked entries select the untracked variant. Every recorded entry maps
+    Untracked entries select the untracked variant. Every tracked entry maps
     its change relationship through the complete source status table.
 
     # Usage
 
     Manifest and lazy-info builders call this for each `ManifestPath`. Preserve
-    the untracked discriminator instead of inferring provenance from the change
+    the untracked discriminator instead of inferring VCS tracking from the change
     type or missing side.
 
     # Failures
 
-    A recorded entry with a change type outside the declared `ManifestPath`
-    contract raises `KeyError`.
+    - A tracked entry with a change type outside the declared `ManifestPath`
+      contract raises `KeyError`.
     """
     if entry.untracked:
         return {"type": "untracked"}
     return {
-        "type": "recorded",
+        "type": "tracked",
         "status": FILE_STATUS_BY_CHANGE_TYPE[entry.change_type],
     }
 
@@ -141,32 +144,31 @@ def file_kind_for_repo_entry(entry: ManifestPath) -> RepoFileKind:
 def file_kind_for_change_type(
     change_type: Literal["modify", "add", "delete", "rename", "copy"],
     *,
-    file_kind: Literal["recorded", "untracked"] | None = None,
+    file_kind: Literal["tracked", "untracked"] | None = None,
 ) -> RepoFileKind:
     """Encode captured change metadata in the manifest File-kind contract.
 
     # Parameters
 
     - `change_type`: Captured source relationship between the File sides.
-    - `file_kind`: Provenance override; `untracked` omits source status metadata.
+    - `file_kind`: VCS tracking override; `untracked` omits source status metadata.
 
-    The default and explicit `recorded` cases require a recognized change type.
+    The default and explicit `tracked` cases require a recognized change type.
 
     # Usage
 
     The focused File endpoint calls this when converting captured Room metadata
-    back to the same provenance shape published by the manifest. Pass
-    `untracked` explicitly when the captured File is additional to the recorded
-    change set.
+    back to the same tracking classification published by the manifest. Pass
+    `untracked` explicitly when the captured File is untracked.
 
     # Failures
 
-    A recorded value with an unsupported `change_type` raises `KeyError`.
+    - A tracked value with an unsupported `change_type` raises `KeyError`.
     """
     if file_kind == "untracked":
         return {"type": "untracked"}
     return {
-        "type": "recorded",
+        "type": "tracked",
         "status": FILE_STATUS_BY_CHANGE_TYPE[change_type],
     }
 
@@ -272,9 +274,9 @@ def _insert_tree_entry(
 
     # Failures
 
-    Raises `ValueError` when `parts` is empty. The check happens before either
-    mutable input changes, so the partial tree and its directory index remain
-    unchanged.
+    - Raises `ValueError` when `parts` is empty.
+      The check happens before either mutable input changes, so the partial
+      tree and its directory index remain unchanged.
     """
     if parts == []:
         raise ValueError("Cannot insert an empty manifest tree path.")
@@ -361,10 +363,11 @@ def _build_repo_manifest_tree(
 
     # Failures
 
-    Raises `ValueError` when an entry has neither path, or when its selected
-    path has no repository components and `_insert_tree_entry` cannot create a
-    File leaf. `build_repo_manifest_for_paths` propagates either error to its
-    caller rather than returning a partial tree.
+    - Raises `ValueError` when an entry has neither path, or when its selected
+      path has no repository components and `_insert_tree_entry` cannot create
+      a File leaf.
+      `build_repo_manifest_for_paths` propagates either error to its caller
+      rather than returning a partial tree.
     """
     tree_entries: list[RepoManifestTreeEntry] = []
     directories: dict[str, RepoManifestDirectoryNode] = {}
@@ -424,9 +427,9 @@ def build_repo_manifest_for_paths(
 
     # Failures
 
-    Mismatched line-total presence raises `AssertionError`. A File with neither
-    side path raises `ValueError`; an unsupported tracked change type raises
-    `KeyError`.
+    - Mismatched line-total presence raises `AssertionError`.
+    - A File with neither side path raises `ValueError`.
+    - An unsupported tracked change type raises `KeyError`.
     """
     assert (added_lines is None) == (removed_lines is None), (
         "manifest line counts must have equal presence"
@@ -470,8 +473,8 @@ def build_lazy_info_for_paths(
 
     # Failures
 
-    A lazy recorded entry with a change type outside the `ManifestPath` contract
-    raises `KeyError` while its File kind is built.
+    - A lazy tracked entry with a change type outside the `ManifestPath`
+      contract raises `KeyError` while its File kind is built.
     """
     files: list[LazyInfoFile] = []
 

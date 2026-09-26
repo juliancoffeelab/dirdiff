@@ -325,10 +325,10 @@ class FileMeta(TypedDict):
     """
 
     untracked: bool
-    """Whether this File is additional to the source's recorded change set.
+    """Whether this File is untracked by the selected VCS.
 
-    The source supplies this fact. False includes preset fixtures without
-    claiming that a VCS tracks them.
+    *Implementation detail: presets report false because VCS tracking does not
+    apply to fixture content.*
     """
     change_type: ChangeType
     """
@@ -1344,8 +1344,9 @@ class Room:
 
         # Failures
 
-        Preset continuation raises `DirdiffError`. Malformed persisted
-        correspondence raises `AssertionError`; no missing facts are replaced.
+        - Preset continuation raises `DirdiffError`.
+        - Malformed persisted correspondence raises `AssertionError`; no
+          missing facts are replaced.
         """
         identity = self._identity
         if identity.mark_id is None or identity.tab == "preset":
@@ -1416,6 +1417,17 @@ class RoomLord:
     Snapshot key to recover its Room for follow-up operations. `recapture`
     publishes an externally prepared source in that Room's original identity.
 
+    # Choosing a capture operation
+
+    Use `corresponding_room` when opening a Tab from prepared selections: it
+    selects the Room under that Tab's law, then captures the source. Use
+    `recapture` when continuing a Room already returned by this service. It
+    retains the original correspondence rather than applying a fresh selection.
+
+    For a Head Tab, opening after HEAD advances selects the new baseline
+    through `corresponding_room`. Continuing the previous Room uses `recapture`
+    with a source prepared from its `Room.capture_context` and original baseline.
+
     The returned `Room` is the entrypoint for Snapshot reads and review work.
     `RoomLord` does not retain a selected Room or Snapshot between calls.
     """
@@ -1485,7 +1497,9 @@ class RoomLord:
 
         Pass an already constructed source alongside its independent law facts.
         Storage placement and concrete input validation belong to source setup.
-        Keep both returned values for Snapshot-scoped follow-up operations.
+        Keep both returned values for Snapshot-scoped follow-up operations. Use
+        `recapture` to continue that Room; call this method again when selecting
+        a Tab under freshly prepared correspondence facts.
 
         # Returns
 
@@ -1494,9 +1508,9 @@ class RoomLord:
 
         # Failures
 
-        Invalid law values or Mark presence assert. Source and persistence
-        operation failures propagate; expected side failures remain captured
-        under the source contract.
+        - Invalid law values or Mark presence assert.
+        - Source and persistence operation failures propagate; expected side
+          failures remain captured under the source contract.
         """
         assert mark_id is None or mark_id > 0
         correspondence: JsonValue
@@ -1603,9 +1617,10 @@ class RoomLord:
 
         # Failures
 
-        Preset continuation raises `DirdiffError`. A Room bound to another
-        database or capture-store context asserts. Source and publication
-        failures follow the ordinary capture contract.
+        - Preset continuation raises `DirdiffError`.
+        - A Room bound to another database or capture-store context asserts.
+        - Source and publication failures follow the ordinary capture
+          contract.
         """
         assert room._database is self._database
         assert room._staging_path == self._staging_path
@@ -1720,7 +1735,7 @@ class _SnapshotStore:
         """Capture current source state and return its retained Snapshot key.
 
         Equality combines repository paths, semantic properties, source content
-        identities, untracked provenance, change type, and explicit policy text.
+        identities, VCS tracking, change type, and explicit policy text.
         Source order, human labels, and aggregate line counts do not affect
         identity. Every Thread contained by the Room is placed in the captured
         Snapshot before it becomes visible.

@@ -1155,7 +1155,7 @@ function FullFileHeader(
         <span class="file-card-title-row">
           <h2>{props.file_state.backend_data.display_name}</h2>
           <span class="file-card-status">
-            {props.file_state.backend_data.file_kind.type === "recorded"
+            {props.file_state.backend_data.file_kind.type === "tracked"
               ? props.file_state.backend_data.file_kind.status
               : "untracked"}
           </span>

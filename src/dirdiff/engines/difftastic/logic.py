@@ -147,7 +147,7 @@ class _DifftasticPartitionToken(TypedDict):
     """Whether every character in the exact source slice is whitespace."""
 
     status: _DifftasticPartitionStatus
-    """Upstream novelty or private synthesised provenance for this slice."""
+    """Upstream novelty or a private classification for an omitted source gap."""
 
 
 def difftastic_engine_warning(
@@ -420,7 +420,8 @@ def _line_tokens(
         # Parameters
 
         - `text`: Non-empty source slice represented by the token.
-        - `status`: Difftastic novelty or private gap provenance for the slice.
+        - `status`: Difftastic novelty or private omitted-gap classification for
+          the slice.
         """
         return {"text": text, "status": status, "is_ws": text.isspace()}
 
@@ -526,7 +527,7 @@ def difftastic_rows_from_json(
     def public_tokens(
         tokens: list[_DifftasticPartitionToken],
     ) -> list[InlineToken]:
-        """Convert private partition provenance at the engine-row boundary.
+        """Convert private partition classifications into public token statuses.
 
         Every synthesised gap becomes a public unchanged slice because
         Difftastic reported no classification for it. Reported novelty passes

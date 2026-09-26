@@ -113,40 +113,45 @@ whether the File's data was successfully captured.
 """
 
 
-class RecordedFileKind(TypedDict):
-    """Describe a File within the source's selected recorded change set.
+class TrackedFileKind(TypedDict):
+    """Identify tracked VCS content and its File change status.
 
-    Manifest builders derive this from source classification. This contract
-    works for preset fixtures and VCS sources without claiming VCS tracking.
+    Manifest builders derive this from source tracking and change metadata.
     Side paths, loading policy, and rendered data remain on the enclosing File.
+
+    *Implementation detail: preset fixtures use this variant because VCS
+    tracking does not apply to them.*
     """
 
-    type: Literal["recorded"]
-    """Discriminator for the source's recorded change set, including fixtures."""
+    type: Literal["tracked"]
+    """Select the tracked variant; it does not identify a particular VCS."""
 
     status: FileStatus
-    """Source-reported relationship of the File pair, used for HUD status text."""
+    """Source-reported change status used for HUD presentation."""
 
 
 class UntrackedFileKind(TypedDict):
-    """Describe additional File content outside the selected recorded change set.
+    """Identify File content not tracked by the selected VCS.
 
-    The source's untracked fact selects this variant. This is neither a source
-    implementation name nor a statement about acquisition success.
+    The source's untracked fact selects this variant. Side presence and loading
+    policy belong to the enclosing File, not this tracking classification.
     """
 
     type: Literal["untracked"]
-    """Discriminator for additional content, with no recorded change status."""
+    """Select the untracked variant, which has no tracked change status."""
 
 
-type RepoFileKind = RecordedFileKind | UntrackedFileKind
-"""Source-independent File classification in manifest and composed payloads.
+type RepoFileKind = TrackedFileKind | UntrackedFileKind
+"""VCS tracking classification in manifest and composed payloads.
 
-- `RecordedFileKind` includes the selected source's change relationship.
-- `UntrackedFileKind` identifies content additional to that recorded change set.
+- `TrackedFileKind` identifies tracked content and includes its change status.
+- `UntrackedFileKind` identifies content not tracked by the VCS.
 
-Branch on `type`; do not infer a VCS implementation, File identity, or loading
-state from either variant.
+Branch on `type`; it does not identify a particular VCS, File identity, or
+loading state.
+
+*Implementation detail: presets use the tracked variant because VCS tracking
+is not applicable to fixture content.*
 """
 
 
@@ -228,7 +233,7 @@ class RepoManifestFileEntry(TypedDict):
     """
 
     file_kind: RepoFileKind
-    """Provenance and Git relationship shown for this exact File pair.
+    """VCS tracking and change status shown for this exact File pair.
 
     Consumers branch on its discriminator instead of inferring VCS state from
     missing paths or lazy policy.
@@ -387,7 +392,7 @@ class LazyInfoFile(TypedDict):
     """
 
     file_kind: RepoFileKind
-    """Provenance used to render the unloaded File's status treatment.
+    """VCS tracking used to render the unloaded File's status treatment.
 
     It matches the eager manifest entry for the same side-path pair.
     """
@@ -538,10 +543,13 @@ class ListedPath:
     """
 
     untracked: bool = False
-    """Whether this pair came from Git's untracked worktree listing.
+    """Whether the VCS listing identifies this pair as untracked content.
 
-    Manifest construction uses true values for untracked provenance and default
-    lazy policy. Preset and tracked Git entries leave it false.
+    Manifest construction uses this fact for tracking classification and lazy
+    policy.
+
+    *Implementation detail: presets leave this false because VCS tracking does
+    not apply to fixture content.*
     """
 
     left_object_id: str | None = None
@@ -1045,10 +1053,10 @@ class FileChange:
     """Source classification for manifest status and File counts."""
 
     untracked: bool
-    """Whether this File is additional to the source's recorded change set.
+    """Whether this File is untracked by the selected VCS.
 
-    Git reports untracked worktree Files here. Preset fixtures are the complete
-    selected change set and report false without claiming VCS tracking.
+    *Implementation detail: presets report false because VCS tracking does not
+    apply to fixture content.*
     """
 
     lazy_reason_override: LazyReason | None
@@ -1085,8 +1093,8 @@ class WorkspaceChanges:
     # Invariants
 
     Both aggregate totals are present or absent. Present totals are nonnegative
-    and describe the source's recorded change set, excluding additional
-    untracked Files. They are source facts, not renderer-derived counts.
+    and describe tracked changes, excluding untracked Files. They are source
+    facts, not renderer-derived counts.
     """
 
     files: tuple[FileChange, ...]
@@ -1336,12 +1344,14 @@ class ChangeSourceProtocol(Protocol):
 
         # Failures
 
-        A failure that prevents a complete listing raises instead of returning
-        partial changes; concrete sources document their listing failures.
-        Expected outer read failures encountered while observing individual
-        sides become side identities and later `FileData.content` errors.
-        A readable link whose target cannot be reached remains a successful
-        outer read with a `CapturedLink.diagnosis`. Unexpected failures propagate.
+        - A failure that prevents a complete listing raises instead of
+          returning partial changes; concrete sources document their listing
+          failures.
+        - Expected outer read failures encountered while observing individual
+          sides become side identities and later `FileData.content` errors.
+        - A readable link whose target cannot be reached remains a successful
+          outer read with a `CapturedLink.diagnosis`.
+        - Unexpected failures propagate.
         """
         ...
 
@@ -1383,11 +1393,14 @@ class ChangeSourceProtocol(Protocol):
 
         # Failures
 
-        Calling before successful observation or passing foreign, reconstructed,
-        or unlisted Files raises `AssertionError`. Operation-level storage
-        failures may raise `dirdiff.engines.DirdiffError`; unexpected failures
-        propagate. These exceptions abort the call rather than producing a
-        per-File result sequence.
+        - Calling before successful observation or passing foreign,
+          reconstructed, or unlisted Files raises `AssertionError`.
+        - Operation-level storage failures may raise
+          `dirdiff.engines.DirdiffError`.
+        - Unexpected failures propagate.
+
+        These exceptions abort the call rather than producing a per-File
+        result sequence.
         """
         ...
 
@@ -1422,8 +1435,8 @@ def load_file_sides(
 
     # Failures
 
-    An invalid bound or a wrong storage result count asserts. Unexpected
-    storage failures propagate.
+    - An invalid bound or a wrong storage result count asserts.
+    - Unexpected storage failures propagate.
     """
     assert max_link_target_bytes >= 0
     limit = (
@@ -1679,7 +1692,7 @@ class SourceFiles:
         # Parameters
 
         - `file`: Private observed read facts, including any immutable id.
-        - `data`: Acquired result, or `None` only for ordinary immutable content
+        - `data`: Acquired result, or `None` only for immutable non-link content
           whose identity can be established without reading its data.
         """
         _path, _side, properties, object_id = file

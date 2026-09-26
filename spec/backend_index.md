@@ -90,10 +90,12 @@ final bytes are — text, a notebook, an image — is `dirdiff.formats`' decisio
 and the definition of what this project calls text lives there with the
 classification that asks it.
 
-Manifest File classification is source-independent. The `recorded` variant
-carries a File status from the selected recorded change set, including preset
-fixtures; `untracked` identifies additional content. Neither variant identifies
-a VCS implementation or implies successful capture.
+Manifest File classification describes VCS tracking. The `tracked` variant
+carries a File change status; `untracked` identifies content not tracked by the
+VCS. Neither variant identifies a particular VCS or implies successful capture.
+
+*Implementation detail: preset fixtures use the tracked variant because VCS
+tracking does not apply to them.*
 
 Its public interface is exported from `dirdiff.change_source`.
 
@@ -363,7 +365,7 @@ Persists repository marks, profiles, preferences, repository defaults, Rooms,
 Snapshots, Snapshot metadata, Files, and present left/right File sides in
 SQLite. Snapshot metadata retains human labels and nullable aggregate
 added/removed counts. A File records its absolute capture-directory path,
-tracked provenance, backend change classification, and an optional capture
+VCS tracking, backend change classification, and an optional capture
 error. Separate non-null side rows record repository paths and content digests;
 an optional per-side symbolic-link relation records the exact metadata and
 target-capture paths plus their content digests. Its presence, rather than a

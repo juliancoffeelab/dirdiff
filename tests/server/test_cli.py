@@ -232,7 +232,7 @@ def test_file_diff_response_schema_rejects_unknown_fields() -> None:
                     "left_exists": True,
                     "right_exists": True,
                 },
-                "file_kind": {"type": "recorded", "status": "modified"},
+                "file_kind": {"type": "tracked", "status": "modified"},
                 "left_path": "alpha.txt",
                 "right_path": "alpha.txt",
                 "frames": [],
@@ -258,7 +258,7 @@ def test_composed_diff_response_accepts_real_composition() -> None:
     composed = Composer().compose(b"x = 1\n", b"x = 2\n", context)
     payload = dict(composed)
     payload["display_name"] = "a.py"
-    payload["file_kind"] = {"type": "recorded", "status": "modified"}
+    payload["file_kind"] = {"type": "tracked", "status": "modified"}
 
     response = ComposedDiffResponse.model_validate(payload)
     assert len(response.frames) == 1

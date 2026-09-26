@@ -73,7 +73,7 @@ def test_build_repo_manifest_lists_changed_tracked_files(
             "type": "file",
             "name": "alpha.txt",
             "entry": {
-                "file_kind": {"type": "recorded", "status": "modified"},
+                "file_kind": {"type": "tracked", "status": "modified"},
                 "left_path": "alpha.txt",
                 "right_path": "alpha.txt",
                 "lazy": None,
@@ -214,7 +214,7 @@ def test_build_repo_manifest_returns_explicit_tree_with_root_files_last(
                             "name": "gamma.txt",
                             "entry": {
                                 "file_kind": {
-                                    "type": "recorded",
+                                    "type": "tracked",
                                     "status": "modified",
                                 },
                                 "left_path": "src/nested/gamma.txt",
@@ -228,7 +228,7 @@ def test_build_repo_manifest_returns_explicit_tree_with_root_files_last(
                     "type": "file",
                     "name": "beta.txt",
                     "entry": {
-                        "file_kind": {"type": "recorded", "status": "modified"},
+                        "file_kind": {"type": "tracked", "status": "modified"},
                         "left_path": "src/beta.txt",
                         "right_path": "src/beta.txt",
                         "lazy": None,
@@ -240,7 +240,7 @@ def test_build_repo_manifest_returns_explicit_tree_with_root_files_last(
             "type": "file",
             "name": "alpha.txt",
             "entry": {
-                "file_kind": {"type": "recorded", "status": "modified"},
+                "file_kind": {"type": "tracked", "status": "modified"},
                 "left_path": "alpha.txt",
                 "right_path": "alpha.txt",
                 "lazy": None,
@@ -303,7 +303,7 @@ def test_build_repo_manifest_compacts_single_directory_chains(
                     "type": "file",
                     "name": "App.tsx",
                     "entry": {
-                        "file_kind": {"type": "recorded", "status": "modified"},
+                        "file_kind": {"type": "tracked", "status": "modified"},
                         "left_path": "frontend/src/App.tsx",
                         "right_path": "frontend/src/App.tsx",
                         "lazy": None,
@@ -498,7 +498,7 @@ def test_branch_review_diff_uses_merge_base_with_master(tmp_path: Path) -> None:
             "type": "file",
             "name": "alpha.txt",
             "entry": {
-                "file_kind": {"type": "recorded", "status": "modified"},
+                "file_kind": {"type": "tracked", "status": "modified"},
                 "left_path": "alpha.txt",
                 "right_path": "alpha.txt",
                 "lazy": None,
@@ -693,7 +693,7 @@ def test_build_repo_manifest_summarizes_changed_files(
             "type": "file",
             "name": "alpha.txt",
             "entry": {
-                "file_kind": {"type": "recorded", "status": "modified"},
+                "file_kind": {"type": "tracked", "status": "modified"},
                 "left_path": "alpha.txt",
                 "right_path": "alpha.txt",
                 "lazy": None,
@@ -703,7 +703,7 @@ def test_build_repo_manifest_summarizes_changed_files(
             "type": "file",
             "name": "beta.txt",
             "entry": {
-                "file_kind": {"type": "recorded", "status": "modified"},
+                "file_kind": {"type": "tracked", "status": "modified"},
                 "left_path": "beta.txt",
                 "right_path": "beta.txt",
                 "lazy": None,
@@ -764,7 +764,7 @@ def test_build_repo_manifest_marks_lockfiles_lazy(tmp_path: Path) -> None:
                 "lazy": "generated",
                 "left_path": "Cargo.lock",
                 "right_path": "Cargo.lock",
-                "file_kind": {"type": "recorded", "status": "modified"},
+                "file_kind": {"type": "tracked", "status": "modified"},
             },
         }
     ]
@@ -828,7 +828,7 @@ def test_build_repo_manifest_marks_large_changed_files_lazy(
                 "lazy": "too_big",
                 "left_path": "large.txt",
                 "right_path": "large.txt",
-                "file_kind": {"type": "recorded", "status": "modified"},
+                "file_kind": {"type": "tracked", "status": "modified"},
             },
         }
     ]
@@ -889,7 +889,7 @@ def test_build_repo_manifest_marks_deleted_files_lazy(tmp_path: Path) -> None:
                 "lazy": "deleted",
                 "left_path": "alpha.txt",
                 "right_path": None,
-                "file_kind": {"type": "recorded", "status": "deleted"},
+                "file_kind": {"type": "tracked", "status": "deleted"},
             },
         }
     ]
@@ -953,7 +953,7 @@ def test_build_repo_manifest_marks_pure_renames_lazy(tmp_path: Path) -> None:
                 "lazy": "pure_renamed",
                 "left_path": "alpha.txt",
                 "right_path": "beta.txt",
-                "file_kind": {"type": "recorded", "status": "renamed"},
+                "file_kind": {"type": "tracked", "status": "renamed"},
             },
         }
     ]

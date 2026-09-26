@@ -441,7 +441,7 @@ export function FileTree(props: FileTreeProps): JSX.Element {
     // This IIFE exists so TypeScript infers the exhaustive switch's result union.
     const fileStatus = (() => {
       switch (fileKind.type) {
-        case "recorded":
+        case "tracked":
           return fileKind.status;
         case "untracked":
           return "untracked";

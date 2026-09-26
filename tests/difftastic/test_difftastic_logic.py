@@ -1478,9 +1478,10 @@ def test_difftastic_omitted_gaps_become_unchanged_at_public_boundary() -> None:
     """Expose omitted Difftastic gaps without inventing a change status.
 
     Difftastic reports sparse syntax spans and omits the separating whitespace.
-    The private lossless partition must retain that omission as provenance until
-    the public boundary, then expose the gap as unchanged without leaking an
-    internal status. That mixed public partition keeps the row equal.
+    The private lossless partition retains an omitted gap as a private
+    classification until the public boundary, then exposes it as unchanged
+    without leaking an internal status. That mixed public partition keeps the
+    row equal.
     """
     text = "export async\n"
     diff_json: DifftasticJson = {

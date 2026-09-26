@@ -794,43 +794,46 @@ const ManifestSummarySchema = z
 export type ManifestSummary = z.infer<typeof ManifestSummarySchema>;
 
 /**
- * Validates an ordinary file pair and its source-reported change classification.
+ * Validates a tracked file pair and its VCS change status.
  *
  * The literal discriminant keeps these statuses unavailable to untracked files.
  */
-const RecordedFileKindSchema = z.strictObject({
-  /** Discriminant selecting ordinary content recorded by the change source. */
-  type: z.literal("recorded"),
-  /** Source-reported relationship; side presence remains in the File pair. */
+const TrackedFileKindSchema = z.strictObject({
+  /** Discriminant selecting the tracked-file variant. */
+  type: z.literal("tracked"),
+  /** VCS change status; side presence remains in the containing File pair. */
   status: z.enum(["modified", "added", "deleted", "renamed", "copied"]),
 });
 
 /**
- * Validates additional source content without inventing an ordinary status.
+ * Validates a file outside the VCS's tracked set.
  *
  * Strict validation rejects status-like fields that blur the two variants.
  */
 const UntrackedFileKindSchema = z.strictObject({
-  /** Discriminant for content the source includes outside its recorded set. */
+  /** Discriminant selecting content not tracked by the VCS. */
   type: z.literal("untracked"),
 });
 
 /**
- * Validates source file classification by its recorded/untracked discriminant.
+ * Validates file classification by its tracked/untracked discriminant.
  *
  * Manifest, lazy-info, and file responses share this union so a File's kind has
  * one meaning throughout progressive loading.
  */
 const FileKindSchema = z.discriminatedUnion("type", [
-  RecordedFileKindSchema,
+  TrackedFileKindSchema,
   UntrackedFileKindSchema,
 ]);
 
 /**
- * Identifies how the change source classifies one captured file pair.
+ * Identifies VCS tracking and change status for one captured file pair.
  *
- * Recorded content carries its source-reported status; additional untracked
- * content carries none. This classification does not identify a VCS or engine.
+ * Tracked files carry a VCS change status; untracked files carry none. These
+ * values describe file changes, not rendered line changes or loading state.
+ *
+ * *Implementation detail: preset fixtures use the tracked variant to carry
+ * their change status, although VCS tracking does not apply to fixtures.*
  */
 export type FileKind = z.infer<typeof FileKindSchema>;
 
@@ -913,7 +916,7 @@ function validateFilePaths(
  */
 const ManifestEntrySchema = z
   .strictObject({
-    /** Source classification shared with later File responses. */
+    /** Tracking and change status shared with later File responses. */
     file_kind: FileKindSchema,
     /** Non-empty old-side path, or null when the File exists only on the right. */
     left_path: FilePathSchema.nullable(),
@@ -1073,7 +1076,7 @@ export type Manifest = z.infer<typeof ManifestSchema>;
  */
 const LazyInfoFileSchema = z
   .strictObject({
-    /** Source classification repeated independently of the manifest. */
+    /** Tracking and change status repeated independently of the manifest. */
     file_kind: FileKindSchema,
     /** Non-empty old-side path, or null when absent from capture. */
     left_path: FilePathSchema.nullable(),
@@ -1585,7 +1588,7 @@ const ComposedDiffSchema = z
     right_label: z.string(),
     /** File-wide text-line totals and captured-side existence. */
     summary: TextFileSummarySchema,
-    /** Source classification repeated with the rendered response. */
+    /** Tracking and change status repeated with the rendered response. */
     file_kind: FileKindSchema,
     /** Non-empty old-side path, or null when absent from capture. */
     left_path: FilePathSchema.nullable(),

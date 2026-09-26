@@ -901,7 +901,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
                 "lazy": "generated",
                 "left_path": "Cargo.lock",
                 "right_path": "Cargo.lock",
-                "file_kind": {"type": "recorded", "status": "modified"},
+                "file_kind": {"type": "tracked", "status": "modified"},
             },
         }
     ]
@@ -921,7 +921,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
         "changed_lines": None,
         "added_lines": None,
         "removed_lines": None,
-        "file_kind": {"type": "recorded", "status": "modified"},
+        "file_kind": {"type": "tracked", "status": "modified"},
     }
 
     response = client.get(
@@ -937,7 +937,7 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
 
     assert response.status_code == 200
     assert payload["display_name"] == "Cargo.lock"
-    assert payload["file_kind"] == {"type": "recorded", "status": "modified"}
+    assert payload["file_kind"] == {"type": "tracked", "status": "modified"}
     bay = payload["frames"][0]["bays"][0]
     assert bay["kind_data"]["kind"] == "text"
     assert bay["bay_key"] == "flatfile"
@@ -1284,7 +1284,7 @@ def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
                 "lazy": "deleted",
                 "left_path": "alpha.txt",
                 "right_path": None,
-                "file_kind": {"type": "recorded", "status": "deleted"},
+                "file_kind": {"type": "tracked", "status": "deleted"},
             },
         }
     ]

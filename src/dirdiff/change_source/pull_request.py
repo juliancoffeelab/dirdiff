@@ -301,7 +301,8 @@ def prepare_pull_request(
     # Parameters
 
     - `url`: GitHub Pull Request or GitLab Merge Request URL to prepare.
-    - `repo_marks`: Current registered repositories eligible for remote matching.
+    - `repo_marks`: Current registered repositories eligible for remote matching;
+      the iterable is consumed once.
 
     # Usage
 
@@ -311,12 +312,13 @@ def prepare_pull_request(
 
     # Failures
 
-    The iterable is consumed once. Unsupported URLs, forge or transport errors,
-    missing expected response fields, absent matching remotes, failed fetches,
-    and commit resolution failures raise `DirdiffError` with the concrete
-    reason. Malformed JSON and response fields of the wrong container type
-    propagate their parsing or type exception. Malformed source names and SHAs
-    fail assertions at the forge response boundary before Git is invoked.
+    - Unsupported URLs, forge or transport errors, missing expected response
+      fields, absent matching remotes, failed fetches, and commit resolution
+      failures raise `DirdiffError` with the concrete reason.
+    - Malformed JSON and response fields of the wrong container type propagate
+      their parsing or type exception.
+    - Malformed source names and SHAs fail assertions at the forge response
+      boundary before Git is invoked.
     """
     value = url.strip()
     if GITHUB_PULL_REQUEST_RE.match(value) is not None:
@@ -467,10 +469,12 @@ def _load_github_pull_request(url: str) -> _GitHubPullRequest:
 
     # Failures
 
-    HTTP and URL errors, missing expected keys, and empty required strings
-    become `DirdiffError`. Malformed JSON and response values of an unexpected
-    container type propagate their parsing or type exception. Invalid SHA
-    syntax or source branch values fail assertions before Git sees them.
+    - HTTP and URL errors, missing expected keys, and empty required strings
+      become `DirdiffError`.
+    - Malformed JSON and response values of an unexpected container type
+      propagate their parsing or type exception.
+    - Invalid SHA syntax or source branch values fail assertions before Git
+      sees them.
     """
     parsed = parse_github_pull_request_url(url)
     owner, repo, number = parsed
@@ -565,10 +569,12 @@ def _load_gitlab_merge_request(url: str) -> _GitLabMergeRequest:
 
     # Failures
 
-    HTTP and URL errors, a missing target branch, and an empty target branch
-    become `DirdiffError`. Malformed JSON and response values of an unexpected
-    container type propagate their parsing or type exception. Malformed SHAs
-    and source branch values fail assertions before Git sees them.
+    - HTTP and URL errors, a missing target branch, and an empty target branch
+      become `DirdiffError`.
+    - Malformed JSON and response values of an unexpected container type
+      propagate their parsing or type exception.
+    - Malformed SHAs and source branch values fail assertions before Git sees
+      them.
     """
     parsed = parse_gitlab_merge_request_url(url)
     scheme, host, project_path, iid = parsed

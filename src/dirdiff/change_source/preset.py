@@ -138,9 +138,9 @@ def preset_catalogs(presets_root: Path) -> tuple[PresetCatalogDir, ...]:
 
     # Failures
 
-    A missing presets root returns an empty tuple. Missing, malformed, or
-    wrongly shaped catalog metadata raises `DirdiffError`, `TOMLDecodeError`, or
-    a filesystem decoding error; invalid catalogs are not skipped.
+    - Missing, malformed, or wrongly shaped catalog metadata raises
+      `DirdiffError`, `TOMLDecodeError`, or a filesystem decoding error;
+      invalid catalogs are not skipped.
     """
     if not presets_root.is_dir():
         return ()
@@ -202,11 +202,11 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
         One listing globs every fixture directory exactly once; validity means
         at most one old.* and at most one new.* file, with at least one of them
-        present. A fixture holding only one side is a File the Tab adds
-        or deletes, which is an ordinary shape a preset must be able to
-        express. Callers reuse the returned pairs instead of re-globbing per
-        fixture, which measured 84 directory traversals for a single preset
-        list_changes.
+        present. A fixture holding only one side is a File the Tab adds or
+        deletes.
+
+        *Implementation detail: callers reuse this listing to avoid repeating
+        directory traversal for each fixture side.*
 
         # Returns
 
@@ -260,10 +260,15 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
         The preset catalog endpoint publishes these records. Callers must send
         the returned `id`, not `display_name`, when selecting a group.
 
+        # Returns
+
+        Groups containing usable fixtures, in catalog order. A missing catalog
+        returns an empty list. Invalid or empty fixture directories do not
+        become groups.
+
         # Failures
 
-        A missing catalog returns an empty list. Filesystem iteration failures
-        propagate; invalid or empty fixture directories do not become groups.
+        - Filesystem iteration failures propagate.
         """
         return [
             {
@@ -284,8 +289,8 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        An empty or unavailable catalog raises `DirdiffError` rather than
-        returning a group that cannot produce a diff.
+        - An empty or unavailable catalog raises `DirdiffError` rather than
+          returning a group that cannot produce a diff.
         """
         names = self._list_preset_names()
         if names == []:
@@ -383,8 +388,8 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Absence returns `None`. Invalid paths, unreadable metadata, malformed
-        TOML, extra keys, and unsupported reasons raise rather than being ignored.
+        - Invalid paths, unreadable metadata, malformed TOML, extra keys, and
+          unsupported reasons raise rather than being ignored.
         """
         normalized_path = self.normalize_repo_path(repository_path)
         preset_dir = self.presets_root / PurePosixPath(normalized_path).parent
@@ -410,10 +415,15 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
         Normalize the selected group and literal `new` before calling
         `list_changes` on this same instance.
 
+        # Returns
+
+        - The built-in `new` side passes through unchanged.
+        - A group name identifies a validated fixture group.
+
         # Failures
 
-        Unknown, path-shaped, or empty groups with no default raise
-        `DirdiffError`. The built-in `new` side passes through unchanged.
+        - Unknown, path-shaped, or empty groups with no default raise
+          `DirdiffError`.
         """
         side = raw_side.strip()
         if side == "new":
@@ -446,12 +456,21 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
         Pass a normalized group as `left` and `new` as `right`. Snapshot capture
         loads the present path of every returned fixture pair.
 
+        # Returns
+
+        - `ListedChanges.paths` contains the usable fixture pairs in directory
+          order. Ambiguous or empty fixture directories are omitted.
+        - `ListedChanges.added_lines` and `removed_lines` are absent.
+
+        *Implementation detail: presets do not calculate aggregate line totals.*
+
         # Failures
 
-        Invalid groups, fixture shapes, or metadata raise `DirdiffError` or a
-        parsing/filesystem exception. A right side other than `new` raises
-        `DirdiffError`; `show_untracked=True` violates an assertion. Aggregate
-        line totals are always absent.
+        - Unknown groups or groups without usable fixtures raise `DirdiffError`.
+        - Invalid fixture policy metadata raises a parsing or filesystem
+          exception, or `DirdiffError` for invalid keys or reasons.
+        - A right side other than `new` raises `DirdiffError`.
+        - `show_untracked=True` violates an assertion.
         """
         # Shape validation only: the fixture listing below is the single
         # directory scan, and it doubles as the emptiness check the full
@@ -530,14 +549,14 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
         # Usage
 
         Pass catalog paths returned by `list_changes` or formed while following a
-        fixture link before direct loading.
+        fixture link before direct loading. This shape check does not prove
+        the final filename exists; `load_version` checks it against the
+        fixture pair.
 
         # Failures
 
-        Blank, absolute, parent-prefixed, directory-shaped, wrongly deep, and
-        unknown fixture-directory paths raise `DirdiffError`. This shape check
-        does not prove the final filename exists; `load_version` checks it
-        against the fixture pair.
+        - Blank, absolute, parent-prefixed, directory-shaped, wrongly deep,
+          and unknown fixture-directory paths raise `DirdiffError`.
         """
         if raw_path.strip() == "":
             raise DirdiffError("Preset path is required.")
@@ -574,8 +593,9 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Raises `DirdiffError` when the path is missing, directory-shaped, or not
-        a regular file or symbolic link inside the selected fixture directory.
+        - Raises `DirdiffError` when the path is missing, directory-shaped, or
+          not a regular file or symbolic link inside the selected fixture
+          directory.
         """
         normalized = self.normalize_repo_path(path)
         file_path = self.presets_root / normalized
@@ -611,8 +631,8 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Missing paths, unsupported File kinds, and filesystem inspection
-        failures raise `DirdiffError`.
+        - Missing paths, unsupported File kinds, and filesystem inspection
+          failures raise `DirdiffError`.
         """
         normalized = self.normalize_repo_path(path)
         file_path = self.presets_root / normalized
@@ -652,8 +672,8 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Invalid or missing fixture paths and unreadable bytes raise
-        `DirdiffError`; malformed fixture shape is also rejected.
+        - Invalid or missing fixture paths and unreadable bytes raise
+          `DirdiffError`; malformed fixture shape is also rejected.
         """
         normalized_path = self.normalize_repo_path(path)
         # Resolve the manifest path to its on-disk fixture: a direct file when
@@ -710,8 +730,9 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
         # Failures
 
-        Each `DirdiffError` occupies the result position of its own input.
-        Unexpected parsing and filesystem exceptions abort the complete batch.
+        - Each `DirdiffError` occupies the result position of its own input.
+        - Unexpected parsing and filesystem exceptions abort the complete
+          batch.
         """
         results: list[bytes | DirdiffError] = []
         for path, side, _properties, _object_id in sides:
@@ -818,8 +839,8 @@ class PresetChangeSource(ChangeSourceProtocol):
 
         # Failures
 
-        A negative bound raises `AssertionError`. Filesystem path-resolution
-        failures propagate; group availability is checked by `changes()`.
+        - A negative bound raises `AssertionError`.
+        - Filesystem path-resolution failures propagate.
         """
         assert max_link_target_bytes >= 0
         self._workspace = _PresetWorkspace(catalog_root)
@@ -841,17 +862,20 @@ class PresetChangeSource(ChangeSourceProtocol):
         # Returns
 
         A `dirdiff.change_source.WorkspaceChanges` in fixture presentation order.
-        Both aggregate totals are absent. Fixtures have `untracked=False`
-        because they form the complete selected change set, without asserting
-        VCS tracking. Repeated successful calls return the same observation.
+        Both aggregate totals are absent. Repeated successful calls return the
+        same observation.
+
+        *Implementation detail: fixtures have `untracked=False` because VCS
+        tracking does not apply to them.*
 
         # Failures
 
-        A missing group or one without usable fixtures raises
-        `dirdiff.engines.DirdiffError`. Invalid policy TOML fails before any
-        partial observation returns. Expected outer read failures belong to
-        their individual sides; readable links with unreachable targets retain
-        a target diagnosis. Unexpected failures propagate.
+        - A missing group or one without usable fixtures raises
+          `dirdiff.engines.DirdiffError`.
+        - Invalid policy TOML fails before any partial observation returns.
+        - Expected outer read failures belong to their individual sides;
+          readable links with unreachable targets retain a target diagnosis.
+        - Unexpected failures propagate.
         """
         if self._files is None:
             self._files = SourceFiles(
@@ -896,8 +920,8 @@ class PresetChangeSource(ChangeSourceProtocol):
 
         # Failures
 
-        Calling before successful observation or passing foreign, reconstructed,
-        or unlisted File records raises `AssertionError`.
+        - Calling before successful observation or passing foreign,
+          reconstructed, or unlisted File records raises `AssertionError`.
         """
         assert self._files is not None, "changes() must precede load()"
         return self._files.load(files)

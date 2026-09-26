@@ -13,7 +13,7 @@ not know Room identity, Room lifetime, or storage layout.
 
 ## Public interface
 
-`RoomLord` has two distinct lookup operations:
+`RoomLord` has three operations for selecting, capturing, and locating Rooms:
 
 ```python
 corresponding_room(
@@ -32,6 +32,13 @@ manifest and agent review opening. It applies the Tab's law of correspondence
 only to find or create the Room. It separately uses the supplied capture inputs
 to capture or reuse the current state, then returns the Room and Snapshot key
 separately. Snapshot identity never participates in correspondence.
+
+`recapture` is used to continue an already selected Room. It captures or reuses
+the supplied source state under that Room's original correspondence; it does not
+apply a new selection law. Prepare that source from `Room.capture_context()`
+outside RoomLord. For example, if HEAD advances, continuing an existing Head
+Room retains its original baseline, while opening a new Head Tab through
+`corresponding_room` supplies the new baseline and selects a different Room.
 
 `find_room` is used by follow-up endpoints. A Snapshot key is globally unique,
 so it finds the containing Room directly without executing a correspondence law
@@ -89,13 +96,17 @@ For a File with a persisted capture error, `get` returns that exact reason
 in `FileMeta.capture_error`; rendering boundaries reject or classify it before
 decoding the generated diagnostic contents.
 
-`FileMeta.untracked` reports content additional to the selected recorded change
-set, matching source and manifest metadata. The database stores the inverse in
-its `tracked` column; capture and Room reads invert explicitly at that boundary.
-Recorded fixture content makes no VCS-tracking claim. File metadata also contains
-source classification, an explicit lazy override, and required-with-null `capture_error`. A non-null
-capture error is the exact persisted reason the File contents are unavailable.
-It contains no renderer output or per-File line counts.
+`FileMeta.untracked` reports whether a File is untracked by the selected VCS,
+matching source and manifest metadata. The database stores the inverse in its
+`tracked` column; capture and Room reads invert explicitly at that boundary.
+
+*Implementation detail: preset fixtures report `untracked=False` because VCS
+tracking does not apply to them.*
+
+File metadata also contains source classification, an explicit lazy override,
+and required-with-null `capture_error`. A non-null capture error is the exact
+persisted reason the File contents are unavailable. It contains no renderer
+output or per-File line counts.
 
 Snapshot-scoped `threads` results bind every `Thread` to the supplied
 `snapshot_id` and require its placement there. Room-scoped results include every
@@ -183,7 +194,7 @@ Snapshot equality includes:
 - left and right repository-path presence;
 - semantic entry kind and executable permission for each present side;
 - each side's opaque source content identity, covering its data and link facts;
-- untracked provenance and source change classification;
+- VCS tracking and source change classification;
 - explicit lazy override;
 - complete source policy text supplying that override.
 

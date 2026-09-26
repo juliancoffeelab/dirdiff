@@ -286,7 +286,7 @@ marked `@private` as users of a class are not supposed to construct it directly.
 class FileMeta(TypedDict):
     """Stable backend facts accompanying one captured filepath pair.
 
-    The metadata preserves tracked provenance, Git/preset change
+    The metadata preserves VCS tracking, Git/preset change
     classification, an explicit backend lazy override, and the exact capture
     failure when publication could not retain the File contents. It contains
     no renderer output or per-File line counts.

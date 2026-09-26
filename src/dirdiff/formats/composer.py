@@ -66,8 +66,8 @@ FileFormat = Literal["notebook", "image", "blob", "text"]
 - `text` produces one decoded flatfile bay.
 - `blob` is the terminal for content dirdiff cannot read as text.
 
-Composer derives this value from paths and bytes. It is not a bay kind, File
-provenance, or caller-selectable rendering option.
+Composer derives this value from paths and bytes. It is not a bay kind, VCS
+tracking, or caller-selectable rendering option.
 """
 
 
