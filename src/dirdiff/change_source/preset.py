@@ -281,8 +281,8 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
         # Usage
 
-        The catalog endpoint uses this as its initial group id, and blank side
-        normalization delegates here.
+        The catalog endpoint uses this as its initial group id, and blank group
+        selection delegates here.
 
         # Failures
 
@@ -293,39 +293,6 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
         if names == []:
             raise DirdiffError(f"No presets found in {self.presets_root}.")
         return names[0]
-
-    def _preset_group_shape(self, preset_name: str) -> str:
-        """Validate a group name's shape and existence without listing it.
-
-        The blank name selects the default group. Fixture availability is a
-        separate concern: callers that go on to list the group check the
-        listing they already need instead of paying a second directory scan.
-        """
-        normalized = preset_name.strip()
-        if normalized == "":
-            normalized = self.default_preset_name()
-        candidate = PurePosixPath(normalized)
-        if candidate.is_absolute():
-            raise DirdiffError("Preset name must be preset-relative.")
-        if normalized.startswith("../") or normalized == "..":
-            raise DirdiffError("Preset name must stay inside the presets root.")
-        if len(candidate.parts) != 1:
-            raise DirdiffError("Preset name must be a top-level group.")
-        preset_dir = self.presets_root / normalized
-        if not preset_dir.is_dir():
-            raise DirdiffError(f"Unknown preset: {normalized}")
-        return normalized
-
-    def _preset_group_name(self, preset_name: str) -> str:
-        """Return a safe top-level group id that contains usable fixtures.
-
-        Blank input selects the default. Invalid path shapes, missing groups, and
-        groups without fixture pairs raise `DirdiffError`.
-        """
-        normalized = self._preset_group_shape(preset_name)
-        if self._fixture_pairs_for_group(normalized) == []:
-            raise DirdiffError(f"Preset group has no fixtures: {normalized}")
-        return normalized
 
     def _preset_pair(self, preset_dir: Path) -> tuple[Path | None, Path | None]:
         """Return the old/new fixture files for one preset directory.
@@ -404,35 +371,9 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
             raise DirdiffError(f"Unsupported preset lazy_reason: {reason!r}")
         return reason, content
 
-    def normalize_side(self, raw_side: str) -> SideName:
-        """Normalize the built-in right side or one selectable left-side group.
-
-        # Usage
-
-        Normalize the selected group and literal `new` before calling
-        `list_changes` on this same instance.
-
-        # Returns
-
-        - The built-in `new` side passes through unchanged.
-        - A group name identifies a validated fixture group.
-
-        # Failures
-
-        - Unknown, path-shaped, or empty groups with no default raise
-          `DirdiffError`.
-        """
-        side = raw_side.strip()
-        if side == "new":
-            return side
-        return self._preset_group_name(side)
-
     def list_changes(
         self,
-        *,
-        left: SideName,
-        right: SideName,
-        show_untracked: bool = False,
+        group: str,
     ) -> ListedChanges:
         """Return each fixture pair and explicitly absent aggregate totals.
 
@@ -444,14 +385,12 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
 
         # Parameters
 
-        - `left`: Normalized preset group whose `old.*` sides are compared.
-        - `right`: Must be the normalized built-in preset side `new`.
-        - `show_untracked`: Must be false because presets have no VCS status.
+        - `group`: Selected fixture group containing the old and new sides.
 
         # Usage
 
-        Pass a normalized group as `left` and `new` as `right`. `SourceFiles`
-        acquires the present sides to establish this source observation.
+        Pass the selected group. `SourceFiles` acquires its present sides to
+        establish this source observation.
 
         # Returns
 
@@ -466,27 +405,30 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
         - Unknown groups or groups without usable fixtures raise `DirdiffError`.
         - Invalid fixture policy metadata raises a parsing or filesystem
           exception, or `DirdiffError` for invalid keys or reasons.
-        - A right side other than `new` raises `DirdiffError`.
-        - `show_untracked=True` violates an assertion.
         """
         # Shape validation only: the fixture listing below is the single
         # directory scan, and it doubles as the emptiness check the full
         # group validation would otherwise repeat.
-        normalized_left = (
-            left if left == "new" else self._preset_group_shape(left)
-        )
-        if right != "new":
-            raise DirdiffError(
-                "Preset diffs compare a preset's old.* and new.* files."
-            )
-        pairs = self._fixture_pairs_for_group(normalized_left)
+        normalized_group = group.strip()
+        if normalized_group == "":
+            normalized_group = self.default_preset_name()
+        candidate = PurePosixPath(normalized_group)
+        if candidate.is_absolute():
+            raise DirdiffError("Preset name must be preset-relative.")
+        if normalized_group.startswith("../") or normalized_group == "..":
+            raise DirdiffError("Preset name must stay inside the presets root.")
+        if len(candidate.parts) != 1:
+            raise DirdiffError("Preset name must be a top-level group.")
+        if not (self.presets_root / normalized_group).is_dir():
+            raise DirdiffError(f"Unknown preset: {normalized_group}")
+        pairs = self._fixture_pairs_for_group(normalized_group)
         if pairs == []:
             raise DirdiffError(
-                f"Preset group has no fixtures: {normalized_left}"
+                f"Preset group has no fixtures: {normalized_group}"
             )
         entries: list[ListedPath] = []
         for preset_dir, old_path, new_path in pairs:
-            prefix = f"{normalized_left}/{preset_dir.name}"
+            prefix = f"{normalized_group}/{preset_dir.name}"
             left_side = (
                 None if old_path is None else f"{prefix}/{old_path.name}"
             )
@@ -524,19 +466,18 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
                         None
                         if old_path is None
                         else self.file_properties(
-                            f"{prefix}/{old_path.name}", left
+                            f"{prefix}/{old_path.name}", "old"
                         )
                     ),
                     right_properties=(
                         None
                         if new_path is None
                         else self.file_properties(
-                            f"{prefix}/{new_path.name}", right
+                            f"{prefix}/{new_path.name}", "new"
                         )
                     ),
                 )
             )
-        assert not show_untracked, "preset diffs do not support untracked Files"
         return ListedChanges(tuple(entries), None, None)
 
     @override
@@ -906,7 +847,7 @@ class PresetChangeSource(ChangeSourceProtocol):
         if self._files is None:
             self._files = SourceFiles(
                 self._workspace,
-                self._workspace.list_changes(left=self._group, right="new"),
+                self._workspace.list_changes(self._group),
                 left=self._group,
                 right="new",
                 identity_namespace=b"preset-materialized-bytes-v1-links-v1",

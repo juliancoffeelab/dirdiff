@@ -1954,49 +1954,6 @@ class _SnapshotStore:
                 return f"{_CAPTURE_ERROR_PREAMBLE}\n\n{failure}\n".encode()
             return loaded.content
 
-        captured: list[
-            tuple[
-                str | None,
-                bytes | None,
-                str | None,
-                bytes | None,
-                bool,
-                ChangeType,
-                LazyReason | None,
-                str | None,
-                str | None,
-                CapturedLink | None,
-                CapturedLink | None,
-            ]
-        ] = []
-        for loaded in acquired:
-            file = loaded.change
-            errors: list[str] = []
-            left, right = loaded.left, loaded.right
-            captured.append(
-                (
-                    file.left.key.path if file.left is not None else None,
-                    substituted_side(
-                        left, file.left.key.path, "left", left_label, errors
-                    )
-                    if left is not None and file.left is not None
-                    else None,
-                    file.right.key.path if file.right is not None else None,
-                    substituted_side(
-                        right, file.right.key.path, "right", right_label, errors
-                    )
-                    if right is not None and file.right is not None
-                    else None,
-                    not file.untracked,
-                    file.change_type,
-                    file.lazy_reason_override,
-                    file.lazy_reason_content,
-                    "\n".join(errors) if errors else None,
-                    left.link if left is not None else None,
-                    right.link if right is not None else None,
-                )
-            )
-
         snapshot_id = uuid4()
         staging_path = Path(
             tempfile.mkdtemp(
@@ -2008,19 +1965,32 @@ class _SnapshotStore:
         files: list[SnapshotFileRecord] = []
         lazy_reasons: dict[str, tuple[str, Optional[str]]] = {}
         try:
-            for (
-                left_path,
-                left_content,
-                right_path,
-                right_content,
-                tracked,
-                change_type,
-                lazy_reason,
-                metadata_content,
-                error,
-                left_link,
-                right_link,
-            ) in captured:
+            for loaded in acquired:
+                file = loaded.change
+                errors: list[str] = []
+                left, right = loaded.left, loaded.right
+                left_path = (
+                    file.left.key.path if file.left is not None else None
+                )
+                right_path = (
+                    file.right.key.path if file.right is not None else None
+                )
+                left_content = (
+                    substituted_side(
+                        left, left_path, "left", left_label, errors
+                    )
+                    if left is not None and left_path is not None
+                    else None
+                )
+                right_content = (
+                    substituted_side(
+                        right, right_path, "right", right_label, errors
+                    )
+                    if right is not None and right_path is not None
+                    else None
+                )
+                left_link = left.link if left is not None else None
+                right_link = right.link if right is not None else None
                 file_id = uuid4().hex
                 file_path = staging_path / file_id
                 file_path.mkdir()
@@ -2095,17 +2065,20 @@ class _SnapshotStore:
                         id=file_id,
                         snapshot_id=snapshot_id.hex,
                         path=str(final_path / file_id),
-                        tracked=tracked,
-                        change_type=change_type,
-                        error=error,
+                        tracked=not file.untracked,
+                        change_type=file.change_type,
+                        error="\n".join(errors) if errors else None,
                         left=left_record,
                         right=right_record,
                         left_symlink=left_symlink_record,
                         right_symlink=right_symlink_record,
                     )
                 )
-                if lazy_reason is not None:
-                    lazy_reasons[file_id] = lazy_reason, metadata_content
+                if file.lazy_reason_override is not None:
+                    lazy_reasons[file_id] = (
+                        file.lazy_reason_override,
+                        file.lazy_reason_content,
+                    )
 
             # TODO: Unify this lock protocol with `room_write_lock` in
             # `dirdiff.review.base` so Snapshot publication and all review

@@ -723,81 +723,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
             )
         return base_branch, merge_base.stdout.strip(), branch, branch_commit
 
-    def _parse_name_status_output(self, output: bytes) -> list[ListedPath]:
-        """Parse Git's NUL-delimited status records into File path pairs.
-
-        Rename and copy records consume two UTF-8 paths; other status records
-        consume one. The returned order matches Git output, and pure renames carry their
-        source lazy override. A truncated final record stops parsing and returns
-        the complete entries read before it; invalid UTF-8 raises
-        `UnicodeDecodeError`.
-        """
-        tokens = output.split(b"\0")
-        if tokens != [] and tokens[-1] == b"":
-            tokens = tokens[:-1]
-
-        entries: list[ListedPath] = []
-        index = 0
-        while index < len(tokens):
-            status_token = tokens[index].decode("utf-8")
-            index += 1
-            if status_token == "":
-                continue
-
-            change_kind = status_token[0]
-            if change_kind in {"R", "C"}:
-                if index + 1 >= len(tokens):
-                    break
-                left_path = tokens[index].decode("utf-8")
-                right_path = tokens[index + 1].decode("utf-8")
-                index += 2
-                entries.append(
-                    ListedPath(
-                        left_path=left_path,
-                        right_path=right_path,
-                        display_name=display_name_for_repo_paths(
-                            left_path, right_path
-                        ),
-                        change_type="rename" if change_kind == "R" else "copy",
-                        lazy_reason_override=(
-                            "pure_renamed"
-                            if change_kind == "R" and status_token[1:] == "100"
-                            else None
-                        ),
-                    )
-                )
-                continue
-
-            if index >= len(tokens):
-                break
-            path = tokens[index].decode("utf-8")
-            index += 1
-
-            current_left_path: str | None = path if change_kind != "A" else None
-            current_right_path: str | None = (
-                path if change_kind != "D" else None
-            )
-            change_type: Literal["modify", "add", "delete"]
-            if change_kind == "A":
-                change_type = "add"
-            elif change_kind == "D":
-                change_type = "delete"
-            else:
-                change_type = "modify"
-            entries.append(
-                ListedPath(
-                    left_path=current_left_path,
-                    right_path=current_right_path,
-                    display_name=display_name_for_repo_paths(
-                        current_left_path, current_right_path
-                    ),
-                    change_type=change_type,
-                    lazy_reason_override=None,
-                )
-            )
-
-        return entries
-
     def _parse_numstat_output(
         self,
         output: bytes,
@@ -980,9 +905,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
             diff_args.extend((left, right))
         combined_output = self._run_git(diff_args).stdout
 
-        # Git emits every raw record before the numstat section. Rebuild the
-        # existing name-status grammar so the established path parser remains
-        # the single authority for rename/copy and one-sided File identity.
+        # Git emits every raw record before the numstat section. Each record
+        # supplies both paths and storage facts for one complete ListedPath.
         def object_id_or_none(raw: bytes) -> str | None:
             """Decode a raw Git object id when that File side has an object.
 
@@ -1000,8 +924,7 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
         tokens = combined_output.split(b"\0")
         raw_index = 0
-        name_status_tokens: list[bytes] = []
-        record_side_facts: list[tuple[str, str, str | None, str | None]] = []
+        entries: list[ListedPath] = []
         while raw_index < len(tokens) and tokens[raw_index].startswith(b":"):
             raw_fields = tokens[raw_index][1:].split(b" ")
             raw_index += 1
@@ -1012,44 +935,65 @@ class _GitWorkspace(WorkspaceStorageProtocol):
             raw_paths = tokens[raw_index : raw_index + path_count]
             if len(raw_paths) != path_count or b"" in raw_paths:
                 raise DirdiffError("Git returned a truncated raw diff record.")
-            record_side_facts.append(
-                (
-                    raw_fields[0].decode("ascii"),
-                    raw_fields[1].decode("ascii"),
-                    object_id_or_none(raw_fields[2]),
-                    object_id_or_none(raw_fields[3]),
+            status_token = status.decode("utf-8")
+            change_kind = status_token[0]
+            path = raw_paths[0].decode("utf-8")
+            left_path = path if change_kind != "A" else None
+            right_path = (
+                raw_paths[1].decode("utf-8")
+                if change_kind in {"R", "C"}
+                else path
+                if change_kind != "D"
+                else None
+            )
+            change_type: Literal["modify", "add", "delete", "rename", "copy"]
+            if change_kind == "R":
+                change_type = "rename"
+            elif change_kind == "C":
+                change_type = "copy"
+            elif change_kind == "A":
+                change_type = "add"
+            elif change_kind == "D":
+                change_type = "delete"
+            else:
+                change_type = "modify"
+            entries.append(
+                ListedPath(
+                    left_path=left_path,
+                    right_path=right_path,
+                    display_name=display_name_for_repo_paths(
+                        left_path, right_path
+                    ),
+                    change_type=change_type,
+                    lazy_reason_override=(
+                        "pure_renamed"
+                        if change_kind == "R" and status_token[1:] == "100"
+                        else None
+                    ),
+                    left_properties=(
+                        _properties_for_mode(raw_fields[0].decode("ascii"))
+                        if left_path is not None
+                        else None
+                    ),
+                    right_properties=(
+                        _properties_for_mode(raw_fields[1].decode("ascii"))
+                        if right_path is not None
+                        else None
+                    ),
+                    left_object_id=(
+                        object_id_or_none(raw_fields[2])
+                        if left_path is not None
+                        else None
+                    ),
+                    right_object_id=(
+                        object_id_or_none(raw_fields[3])
+                        if right_path is not None
+                        else None
+                    ),
                 )
             )
-            name_status_tokens.append(status)
-            name_status_tokens.extend(raw_paths)
             raw_index += path_count
 
-        entries = self._parse_name_status_output(
-            b"\0".join([*name_status_tokens, b""])
-        )
-        # The parser emits exactly one entry per rebuilt record in order, so
-        # the collected side modes and object ids pair positionally; the strict
-        # zip fails loudly if that one-to-one contract ever breaks.
-        entries = [
-            replace(
-                entry,
-                left_properties=_properties_for_mode(side_facts[0])
-                if entry.left_path is not None
-                else None,
-                right_properties=_properties_for_mode(side_facts[1])
-                if entry.right_path is not None
-                else None,
-                left_object_id=side_facts[2]
-                if entry.left_path is not None
-                else None,
-                right_object_id=side_facts[3]
-                if entry.right_path is not None
-                else None,
-            )
-            for entry, side_facts in zip(
-                entries, record_side_facts, strict=True
-            )
-        ]
         numstat_output = b"\0".join(tokens[raw_index:])
         line_counts_by_path, added_lines, removed_lines = (
             self._parse_numstat_output(numstat_output)
