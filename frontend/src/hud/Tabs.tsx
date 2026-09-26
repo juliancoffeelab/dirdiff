@@ -952,8 +952,6 @@ function HeadTab(
             ? {
                 project_id: projectId,
                 tab: "head",
-                left: "HEAD",
-                right: "worktree",
                 show_untracked: true,
               }
             : null,
@@ -965,8 +963,6 @@ function HeadTab(
               setSelected({
                 project_id: projectId,
                 tab: "head",
-                left: "HEAD",
-                right: "worktree",
                 show_untracked: true,
               });
             }
@@ -983,8 +979,6 @@ function HeadTab(
                 setSelected({
                   project_id: projectId,
                   tab: "head",
-                  left: "HEAD",
-                  right: "worktree",
                   show_untracked: true,
                 });
                 props.onSelected();
@@ -1281,6 +1275,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
       return {
         project_id: props.projectId,
         tab: "refs",
+        show_untracked: false,
         left: "HEAD~1",
         right: "HEAD",
       };
@@ -1292,6 +1287,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
       return {
         project_id: props.projectId,
         tab: "refs",
+        show_untracked: false,
         left: "HEAD~1",
         right: "HEAD",
       };
@@ -1316,6 +1312,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
       return {
         project_id: props.projectId,
         tab: "refs",
+        show_untracked: false,
         left: "HEAD~1",
         right: "HEAD",
       };
@@ -1323,6 +1320,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
     return {
       project_id: props.projectId,
       tab: "refs",
+      show_untracked: false,
       left,
       right,
     };
@@ -1368,6 +1366,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
     const next: RefsDiffParams = {
       project_id: props.projectId,
       tab: "refs",
+      show_untracked: false,
       left: currentLeft,
       right: currentRight,
     };
@@ -1833,7 +1832,7 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     () => {
       const current = selected();
       if (current !== null) {
-        props.onSelected(current.base_selection, current.review_selection);
+        props.onSelected(current.base, current.review);
       }
     },
   );
@@ -1855,8 +1854,8 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     setSelected({
       project_id: props.projectId,
       tab: "branch-review",
-      base_selection: baseSelection,
-      review_selection: reviewSelection,
+      base: baseSelection,
+      review: reviewSelection,
     });
     props.onSelected(baseSelection, reviewSelection);
   }
@@ -2249,8 +2248,16 @@ function PullRequestTab(
   let pullRequestInput!: HTMLInputElement;
   const initialUrl = props.active ? (search.get("pull_request_url") ?? "") : "";
   const [url, setUrl] = createSignal(initialUrl);
-  let initialSelection: (PullRequestDiffParams & PreparedPullRequest) | null =
-    null;
+  // Retain capture values only in exact HTTP params. Branch names accompany
+  // them for display and URL restoration, and never enter the manifest query.
+  let initialSelection: {
+    /** Complete capture inputs sent unchanged to manifest. */
+    params: PullRequestDiffParams;
+    /** Prepared target branch retained only for display and browser URLs. */
+    base_branch: string;
+    /** Prepared source branch retained only for display and browser URLs. */
+    head_branch: string;
+  } | null = null;
   if (props.active) {
     try {
       const leftCommit = search.get("left_commit");
@@ -2272,16 +2279,24 @@ function PullRequestTab(
           props.repoId !== null,
           "A selected Pull Request requires repo_id.",
         );
+        const prepared = PreparedPullRequestSchema.parse({
+          project_id: props.repoId,
+          pull_request_url: initialUrl,
+          left_commit: leftCommit,
+          right_commit: rightCommit,
+          base_branch: search.get("pr_base_branch"),
+          head_branch: search.get("pr_head_branch"),
+        });
         initialSelection = {
-          tab: "pull-request",
-          ...PreparedPullRequestSchema.parse({
-            project_id: props.repoId,
-            pull_request_url: initialUrl,
-            left_commit: leftCommit,
-            right_commit: rightCommit,
-            base_branch: search.get("pr_base_branch"),
-            head_branch: search.get("pr_head_branch"),
-          }),
+          params: {
+            tab: "pull-request",
+            project_id: prepared.project_id,
+            url: prepared.pull_request_url,
+            left_commit: prepared.left_commit,
+            right_commit: prepared.right_commit,
+          },
+          base_branch: prepared.base_branch,
+          head_branch: prepared.head_branch,
         };
       }
     } catch (error) {
@@ -2293,9 +2308,7 @@ function PullRequestTab(
       });
     }
   }
-  const [selected] = createSignal<
-    (PullRequestDiffParams & PreparedPullRequest) | null
-  >(initialSelection);
+  const [selected] = createSignal<typeof initialSelection>(initialSelection);
   const prepare = createMutation(() => ({
     ...api.pullRequest.prepare(),
     /**
@@ -2314,7 +2327,14 @@ function PullRequestTab(
     () => {
       const current = selected();
       if (current !== null) {
-        props.onSelected(current);
+        props.onSelected({
+          project_id: current.params.project_id,
+          pull_request_url: current.params.url,
+          left_commit: current.params.left_commit,
+          right_commit: current.params.right_commit,
+          base_branch: current.base_branch,
+          head_branch: current.head_branch,
+        });
       }
     },
   );
@@ -2370,16 +2390,16 @@ function PullRequestTab(
               <div class="summary-group">
                 <dt>Head</dt>
                 <dd>
-                  <code title={selection.right_commit}>
-                    {selection.right_commit.slice(0, 10)}
+                  <code title={selection.params.right_commit}>
+                    {selection.params.right_commit.slice(0, 10)}
                   </code>
                 </dd>
               </div>
               <div class="summary-group">
                 <dt>Merge base</dt>
                 <dd>
-                  <code title={selection.left_commit}>
-                    {selection.left_commit.slice(0, 10)}
+                  <code title={selection.params.left_commit}>
+                    {selection.params.left_commit.slice(0, 10)}
                   </code>
                 </dd>
               </div>
@@ -2401,7 +2421,7 @@ function PullRequestTab(
         <button class="load-button" type="submit" disabled={prepare.isPending}>
           {prepare.isPending
             ? "Loading..."
-            : selected()?.pull_request_url === url().trim()
+            : selected()?.params.url === url().trim()
               ? "Refresh PR"
               : "Load"}
         </button>
@@ -2421,7 +2441,7 @@ function PullRequestTab(
           <ChangeSet
             active={props.active}
             engine={props.engine}
-            params={selection}
+            params={selection.params}
             view={props.view}
             fileTreeOpen={props.fileTreeOpen}
             debugHudOpen={props.debugHudOpen}
@@ -2539,7 +2559,7 @@ function PresetTab(
     () => {
       const current = selected();
       if (current !== null && !("kind" in current)) {
-        props.onSelected(current.project_id, current.preset_subset);
+        props.onSelected(current.catalog, current.subset);
       } else {
         const preset = effectivePreset();
         if (activeCatalog() === null || preset === null) {
@@ -2602,9 +2622,9 @@ function PresetTab(
     );
     setHighlightedPreset(preset);
     setSelected({
-      project_id: catalog.id,
+      catalog: catalog.id,
       tab: "preset",
-      preset_subset: preset,
+      subset: preset,
     });
     props.onSelected(catalog.id, preset);
   }

@@ -176,7 +176,7 @@ export function isHeavyEngine(engine: EngineConfig): boolean {
 /**
  * Identifies one backend preset catalog and its corresponding preset project.
  *
- * The value is both the Preset Tab kind and the `project_id` used by preset
+ * The value is both the Preset Tab kind and the `catalog` used by preset
  * DiffParams. It must not identify a repository-backed project.
  *
  * The set of catalogs is a backend directory listing, so this is not an
@@ -573,7 +573,7 @@ type RepoBackedDiffParams = {
    * Exact positive repository identity used by every repository-backed Tab.
    *
    * Callers obtain it from validated repository data or restored canonical URL
-   * state. Preset projects use their separate string identity type.
+   * state. Preset catalogs use their separate string identity type.
    */
   project_id: ProjectId;
 };
@@ -582,9 +582,8 @@ type RepoBackedDiffParams = {
  * Requests the current HEAD against the complete worktree, including untracked
  * files.
  *
- * Callers construct the complete fixed Tab fields; none are optional or
- * inferred by the HUD. Transport omits the fixed left/right controls because
- * the Head Tab defines them.
+ * The Head Tab defines its fixed HEAD/worktree sides. Callers supply the
+ * repository identity and required untracked inclusion directly.
  */
 export type HeadDiffParams = RepoBackedDiffParams & {
   /**
@@ -594,22 +593,9 @@ export type HeadDiffParams = RepoBackedDiffParams & {
    */
   tab: "head";
   /**
-   * Fixed captured left side for Head review.
-   *
-   * The HUD does not expose a control that may replace this value.
-   */
-  left: "HEAD";
-  /**
-   * Fixed live right side for Head review.
-   *
-   * It includes indexed and unstaged worktree content according to backend rules.
-   */
-  right: "worktree";
-  /**
    * Required inclusion of untracked files in Head review.
    *
-   * This literal distinguishes the workflow from the Refs Tab, where the
-   * option does not exist.
+   * Head includes untracked Files; the Refs HUD selection excludes them.
    */
   show_untracked: true;
 };
@@ -641,6 +627,8 @@ export type RefsDiffParams = RepoBackedDiffParams & {
    * the old-side choice.
    */
   right: string;
+  /** Explicit exclusion of untracked Files in the Refs HUD workflow. */
+  show_untracked: false;
 };
 
 /**
@@ -662,14 +650,14 @@ export type BranchReviewDiffParams = RepoBackedDiffParams & {
    * The value is accepted control state, not a live default that may later
    * replace user input.
    */
-  base_selection: BranchSelection;
+  base: BranchSelection;
   /**
    * Complete local or remote branch selected as the review side.
    *
    * Its source arm remains explicit so the backend applies branch-review rules
    * without parsing display text.
    */
-  review_selection: BranchSelection;
+  review: BranchSelection;
 };
 
 /**
@@ -690,7 +678,7 @@ export type PullRequestDiffParams = RepoBackedDiffParams & {
    *
    * Callers preserve the prepared value rather than normalizing it again.
    */
-  pull_request_url: string;
+  url: string;
   /**
    * Prepared base commit passed to snapshot capture.
    *
@@ -709,17 +697,16 @@ export type PullRequestDiffParams = RepoBackedDiffParams & {
 /**
  * Requests one selected preset fixture.
  *
- * The HUD keeps its catalog in `project_id` and group in `preset_subset`.
- * Manifest transport encodes these as `catalog` and `subset`; neither selects
- * a repository Mark.
+ * The selected catalog and group travel unchanged to manifest. Neither
+ * selects a repository Mark.
  */
 export type PresetDiffParams = {
   /**
-   * Catalog identity selected in the HUD and encoded as `selection.catalog`.
+   * Catalog identity selected in the HUD and sent as `selection.catalog`.
    *
    * It must match a validated catalog ID and never a numeric repository identity.
    */
-  project_id: PresetType;
+  catalog: PresetType;
   /**
    * Discriminant selecting preset capture.
    *
@@ -731,14 +718,14 @@ export type PresetDiffParams = {
    *
    * The backend uses it to locate fixture sides; the display name is not sent.
    */
-  preset_subset: string;
+  subset: string;
 };
 
 /**
  * Represents the complete immutable input to every ChangeSet snapshot query.
  *
- * Each variant contains all accepted HUD values needed for manifest capture.
- * Transport encodes the matching per-Tab HTTP selection. Live control input and
+ * Each variant is the exact manifest HTTP selection and query-key value.
+ * Transport serializes it unchanged as JSON. Live control input and
  * partially selected workflows must never be represented as DiffParams.
  */
 export type DiffParams =
@@ -3437,92 +3424,6 @@ function requestPreparePullRequest(url: string): Promise<PreparedPullRequest> {
 }
 
 /**
- * Complete per-Tab object encoded in the manifest HTTP selection parameter.
- *
- * Selected HUD values retain their query-key identity. The wire gives preset
- * catalog/group and structured branches their own names; Head's fixed sides
- * are defined by its Tab instead of repeated as transport controls.
- */
-type ManifestSelection =
-  | Pick<HeadDiffParams, "tab" | "project_id" | "show_untracked">
-  | (RefsDiffParams & {
-      /** The Refs HUD does not include untracked Files. */
-      show_untracked: false;
-    })
-  | (Pick<BranchReviewDiffParams, "tab" | "project_id"> & {
-      /** Complete symbolic base branch selected in the HUD. */
-      base: BranchSelection;
-      /** Complete symbolic review branch selected in the HUD. */
-      review: BranchSelection;
-    })
-  | (Pick<
-      PullRequestDiffParams,
-      "tab" | "project_id" | "left_commit" | "right_commit"
-    > & {
-      /** Canonical review URL from successful forge preparation. */
-      url: string;
-    })
-  | (Pick<PresetDiffParams, "tab"> & {
-      /** Selected preset catalog id. */
-      catalog: PresetType;
-      /** Selected fixture-group id inside that catalog. */
-      subset: string;
-    });
-
-/**
- * Encodes complete DiffParams for the snapshot-producing manifest endpoint.
- *
- * Each Tab variant serializes its own exact fields into one JSON selection value.
- * This function performs encoding only and never changes or defaults selection.
- */
-function manifestSearchParams(params: DiffParams): URLSearchParams {
-  let selection: ManifestSelection;
-  switch (params.tab) {
-    case "preset":
-      selection = {
-        tab: params.tab,
-        catalog: params.project_id,
-        subset: params.preset_subset,
-      };
-      break;
-    case "branch-review":
-      selection = {
-        tab: params.tab,
-        project_id: params.project_id,
-        base: params.base_selection,
-        review: params.review_selection,
-      };
-      break;
-    case "pull-request":
-      selection = {
-        tab: params.tab,
-        project_id: params.project_id,
-        url: params.pull_request_url,
-        left_commit: params.left_commit,
-        right_commit: params.right_commit,
-      };
-      break;
-    case "head":
-      selection = {
-        tab: params.tab,
-        project_id: params.project_id,
-        show_untracked: true,
-      };
-      break;
-    case "refs":
-      selection = {
-        tab: params.tab,
-        project_id: params.project_id,
-        left: params.left,
-        right: params.right,
-        show_untracked: false,
-      };
-      break;
-  }
-  return new URLSearchParams({ selection: JSON.stringify(selection) });
-}
-
-/**
  * Encodes the opaque `snapshot_id` shared by lazy and file endpoints.
  *
  * The File endpoint appends its paths and complete engine configuration.
@@ -3544,7 +3445,7 @@ function requestManifest(
   params: DiffParams,
   abortSignal: AbortSignal,
 ): Promise<Manifest> {
-  const search = manifestSearchParams(params);
+  const search = new URLSearchParams({ selection: JSON.stringify(params) });
   return requestJson(
     {
       input: `/api/manifest?${search.toString()}`,

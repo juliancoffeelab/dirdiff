@@ -136,7 +136,7 @@ Main exported type groups:
 
 - repositories, profiles, preferences, refs, branches, and presets;
 - `DiffParams` and its Tab-specific variants, whose `tab` discriminator and
-  complete selection is encoded as one JSON `selection` query value for manifest;
+  complete value is sent unchanged as one JSON `selection` query value for manifest;
 - manifest trees and manifest statistics;
 - lazy-file information;
 - composed file diffs: frames, the bay envelope they hold, and the `text` and
@@ -543,13 +543,13 @@ so no repo-backed value exists without a repository, including on Tab
 reactivation.
 
 Each Tab retains one complete selected `DiffParams` value and passes that same
-value to `ChangeSet`. `ChangeSet` does not switch over the Tab to reconstruct it.
+value to `ChangeSet` and manifest. Neither reconstructs a second selection shape.
 The Pull Request value contains its URL and the two commits returned by
 preparation; it contains no Branch Review selections. Engine is independent of
 the selected value and is supplied separately for file rendering.
 
 Pull Request preparation also supplies the observed base/source branch names.
-The Tab retains these with the exact capture sides in its prepared selection.
+The Tab retains these alongside the exact `DiffParams` in its prepared selection.
 Browser URLs require `pr_base_branch` and `pr_head_branch` alongside the existing
 prepared commit parameters; restoration validates the whole preparation tuple.
 Reactivation preserves that tuple without

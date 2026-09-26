@@ -1293,23 +1293,23 @@ function changeSetTitle(params: DiffParams, manifest: Manifest): string {
       return `${manifest.left_label} vs ${manifest.right_label}`;
     case "branch-review": {
       const base =
-        params.base_selection.source === "remote"
-          ? `${params.base_selection.remote}/${params.base_selection.branch}`
-          : params.base_selection.branch;
+        params.base.source === "remote"
+          ? `${params.base.remote}/${params.base.branch}`
+          : params.base.branch;
       const review =
-        params.review_selection.source === "remote"
-          ? `${params.review_selection.remote}/${params.review_selection.branch}`
-          : params.review_selection.branch;
+        params.review.source === "remote"
+          ? `${params.review.remote}/${params.review.branch}`
+          : params.review.branch;
       return `${review} vs ${base}`;
     }
     case "pull-request":
       return `${manifest.right_label} vs ${manifest.left_label}`;
     case "preset": {
       const kind =
-        params.project_id === "gumtree"
+        params.catalog === "gumtree"
           ? "GumTree"
-          : `${params.project_id.charAt(0).toUpperCase()}${params.project_id.slice(1)}`;
-      return `${kind} preset ${params.preset_subset}`;
+          : `${params.catalog.charAt(0).toUpperCase()}${params.catalog.slice(1)}`;
+      return `${kind} preset ${params.subset}`;
     }
   }
 }

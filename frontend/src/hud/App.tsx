@@ -686,7 +686,7 @@ function Workspace(props: WorkspaceProps): JSX.Element {
   /**
    * Records one complete Preset kind/subset while retaining global `repo_id`.
    *
-   * Browser `preset_type` maps to API `project_id` only inside PresetDiffParams;
+   * Browser `preset_type` maps to `catalog` in PresetDiffParams;
    * the two URL vocabularies remain deliberately distinct.
    *
    * @param presetType Validated catalog identity selected as preset kind.
