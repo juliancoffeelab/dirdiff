@@ -5,6 +5,7 @@ tests. This module verifies fixture shape: exactly one old File, exactly one
 new File, a coherent format transition, a standard helper Makefile, and cheap
 parser validity where a parser is available. It does not assert rendered diff
 output; that belongs to the golden and logic test modules.
+README files are rejected throughout the preset tree, including catalog roots.
 """
 
 import re
@@ -74,6 +75,30 @@ def _preset_dirs() -> list[Path]:
         if path.is_dir()
         and list(path.glob("old.*")) != []
         and list(path.glob("new.*")) != []
+    )
+
+
+def test_presets_have_no_readme_files() -> None:
+    """Reject README.md at every preset depth, regardless of filename casing.
+
+    Presets must explain themselves through their source pairs and runnable
+    Makefiles. Separate guides add reading overhead and duplicate information
+    that can drift from those inputs and commands. This includes the preset
+    root, catalogs, groups, cases, and companion-file directories.
+    """
+    readmes = sorted(
+        path.relative_to(PRESETS_ROOT).as_posix()
+        for path in PRESETS_ROOT.rglob("*")
+        if path.name.casefold() == "readme.md"
+    )
+    assert readmes == [], (
+        "README.md is forbidden anywhere under tests/presets/. Presets must "
+        "be understandable from their source pairs and runnable Makefiles; "
+        "separate guides add reading overhead and duplicate information that "
+        "can become stale. Agents: do not circumvent this rule in any way, "
+        "including renaming or relocating the guide, disguising it as fixture "
+        "content, using symlinks, adding exceptions, or weakening this check. "
+        f"Remove these files: {readmes}"
     )
 
 

@@ -109,6 +109,13 @@ We don't have tests for the frontend yet.
 
 # Appendix A: how to create a preset
 
+Presets must be understandable from their source pairs and runnable Makefiles.
+`README.md` is forbidden anywhere under `tests/presets/`, regardless of filename
+casing. Separate guides add reading overhead and duplicate information that can
+drift from the actual inputs and commands. Agents must not circumvent this rule
+in any way: do not rename or relocate the guide, disguise it as fixture content,
+use symlinks, add exceptions, or weaken the hygiene check. Remove the guide.
+
 Create the preset under:
 
 ```text
