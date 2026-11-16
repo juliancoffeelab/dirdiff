@@ -636,6 +636,12 @@ snapshot.
 - creates the snapshot’s `LinePins` interface;
 - supplies header status and statistics from the lane's progress.
 
+Consecutive cards sit in naturally sized layout groups of at most 64 files.
+The groups contain browser layout and paint work, and skip offscreen descendants
+only after measuring natural height. Content, image-load, caption-shape, and width
+changes invalidate that height. Cards keep their mounted DOM and manifest order;
+group observers and pending measurement frames end with the snapshot.
+
 ### `hud/changeSet/Shell.tsx`
 
 Exports:
@@ -678,11 +684,19 @@ fileExpanded
 ```
 
 `FileTree` renders the sidebar over the lane's canonical file states through
-the documented narrow props contract: the immutable manifest tree, the states
-accessor, expansion values, and callbacks that may change only tree
+the documented narrow props contract: the immutable manifest tree, the per-file
+state reader, expansion values, and callbacks that may change only tree
 visibility or file expansion. `calculateDirectoryExpansion` derives directory
-reachability and `fileExpanded` resolves one file's expansion policy; both
+reachability through stable per-directory reactive readers and `fileExpanded`
+resolves one file's expansion policy; both
 are shared with `ChangeSetSnapshot`, which owns the expansion state itself.
+FileTree rows track their own canonical File state. Directory statistics retain
+only scalar totals, unknown counts, and each File's previous scalar contribution;
+a transition updates its containing directories rather than rescanning Files.
+The open tree's DOM observer scans render modes once and then updates only the
+changed cards' readers. All reductions and DOM mirrors expire with their
+creating components.
+
 The tree may scroll only its own groups container and never calls selection,
 loads files, or moves the main page directly. Name activation sends File
 Navigation, which selects and centers the destination's exact first target.
@@ -725,8 +739,9 @@ File lane while the ReviewProvider, manifest, and Snapshot remain mounted. An
 equal configuration does not replace the lane when unrelated preferences change.
 Each History Thread's explicit go-to action finds the exact manifest File pair and invokes
 exact-line navigation for an already loaded FullFile; it does not select a hunk
-or load a File. The File lane publishes only indexes whose FullFile is mounted,
-so History keeps go-to disabled for Lazy and Husk entries. Drafts expose one
+or load a File. The File lane publishes its canonical per-file state reader for its mounted
+lifetime, so History tracks the addressed File and keeps go-to disabled for Lazy
+and Husk entries. Drafts expose one
 `Continue editing` action for new Threads. Reply and edit drafts render directly
 in their complete canonical Thread and Comment.
 
@@ -763,7 +778,7 @@ It also receives:
 - view mode;
 - fold policy;
 - line-pin interface;
-- hunk-display data;
+- one shared global hunk caption and its file-local numeric position reader;
 - explicit load, retry, and expansion callbacks.
 
 Private state components:

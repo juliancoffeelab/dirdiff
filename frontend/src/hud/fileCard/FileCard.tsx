@@ -108,31 +108,20 @@ export type HunkPosition = {
  * Defines the exact derived hunk data required by every FileCard header.
  *
  * Null access results exist only before the ChangeSet performs its initial DOM
- * calculation. The global value also reports whether more hunk targets can
- * become available. FileCard formats the values but never changes or navigates
- * from them.
+ * calculation. ChangeSet formats the shared global caption once; FileCard
+ * formats its local position and never changes or navigates from either value.
  */
 type HunkCounterProps = {
   /**
-   * Reads the current ChangeSet-wide hunk display after DOM calculation.
+   * Reads the current shared ChangeSet-wide caption after DOM calculation.
    *
    * FileCard invokes the accessor reactively while rendering its header. Null
-   * means the initial calculation has not supplied a display. The result also
-   * says whether later file loading can add targets. The accessor must not
+   * means the initial calculation has not supplied a display. The caption
+   * includes the selected position, total, and unresolved-target `+` marker.
+   * Its producer formats once for all headers. The accessor must not
    * navigate, mutate selection, or retain per-call resources.
    */
-  globalSelectedHunk: Accessor<{
-    /**
-     * Combines selected stable position with the current participating count.
-     * Skipped selection may therefore place `current` beyond `total`.
-     */
-    position: HunkPosition;
-    /**
-     * Reports whether unresolved manifest files may add hunk targets later.
-     * Headers append `+` to distinguish this open-ended total.
-     */
-    hasMore: boolean;
-  } | null>;
+  globalHunkCaption: Accessor<string | null>;
 
   /**
    * Reads the current file-local hunk display after DOM calculation.
@@ -303,7 +292,7 @@ export function FileCard(props: FileCardProps): JSX.Element {
           <HuskFile
             file_state={file_state}
             explicitlyCollapsed={props.explicitlyCollapsed}
-            globalSelectedHunk={props.globalSelectedHunk}
+            globalHunkCaption={props.globalHunkCaption}
             fileSelectedHunk={props.fileSelectedHunk}
           />
         )}
@@ -330,7 +319,7 @@ export function FileCard(props: FileCardProps): JSX.Element {
             aggressiveFolds={props.aggressiveFolds}
             linePins={props.linePins}
             hunkCount={hunkCount}
-            globalSelectedHunk={props.globalSelectedHunk}
+            globalHunkCaption={props.globalHunkCaption}
             fileSelectedHunk={props.fileSelectedHunk}
             card={() => card}
             onExpandedChange={props.onExpandedChange}
@@ -345,7 +334,7 @@ export function FileCard(props: FileCardProps): JSX.Element {
           <LazyFileView
             file_state={file_state}
             expanded={props.expanded}
-            globalSelectedHunk={props.globalSelectedHunk}
+            globalHunkCaption={props.globalHunkCaption}
             fileSelectedHunk={props.fileSelectedHunk}
             onLoad={props.onLoad}
             onRetry={props.onRetry}
@@ -480,7 +469,7 @@ function HuskFile(
     <HuskFileHeader
       file_state={props.file_state}
       explicitlyCollapsed={props.explicitlyCollapsed}
-      globalSelectedHunk={props.globalSelectedHunk}
+      globalHunkCaption={props.globalHunkCaption}
       fileSelectedHunk={props.fileSelectedHunk}
     />
   );
@@ -542,7 +531,7 @@ function HuskFileHeader(
             {props.file_state.activity === "fetching" ? "loading" : "queued"}
           </span>
           <HunkCounterBadges
-            globalSelectedHunk={props.globalSelectedHunk}
+            globalHunkCaption={props.globalHunkCaption}
             fileSelectedHunk={props.fileSelectedHunk}
           />
         </span>
@@ -561,24 +550,15 @@ function HuskFileHeader(
 /**
  * Reserves the established global and file-local counter positions in a header.
  *
- * ChangeSet owns their exact numeric data. This component formats that data for
- * the established header labels and never reads DOM or navigation state.
+ * ChangeSet supplies one shared global caption and each exact local position.
+ * This component formats only the local label and never reads DOM or navigation
+ * state. The global caption occupies one text node, without per-field fragments.
  */
 function HunkCounterBadges(props: HunkCounterProps): JSX.Element {
   return (
     <>
-      <span
-        class="file-card-hunks"
-        hidden={props.globalSelectedHunk() === null}
-      >
-        <Show when={props.globalSelectedHunk()}>
-          {(global) => (
-            <>
-              {global().position.current ?? "—"}/{global().position.total}
-              {global().hasMore ? "+" : ""} hunks
-            </>
-          )}
-        </Show>
+      <span class="file-card-hunks" hidden={props.globalHunkCaption() === null}>
+        {props.globalHunkCaption()}
       </span>
       <span
         class="file-card-file-hunks"
@@ -741,7 +721,7 @@ function FullFile(
           props.expanded && !props.admitted && props.hunkCount() > 0
         }
         hunkCount={props.hunkCount}
-        globalSelectedHunk={props.globalSelectedHunk}
+        globalHunkCaption={props.globalHunkCaption}
         fileSelectedHunk={props.fileSelectedHunk}
         onExpandedChange={props.onExpandedChange}
       />
@@ -1160,7 +1140,7 @@ function FullFileHeader(
               : "untracked"}
           </span>
           <HunkCounterBadges
-            globalSelectedHunk={props.globalSelectedHunk}
+            globalHunkCaption={props.globalHunkCaption}
             fileSelectedHunk={props.fileSelectedHunk}
           />
         </span>
@@ -1218,7 +1198,7 @@ function LazyFileView(
     <>
       <LazyFileHeader
         file_state={props.file_state}
-        globalSelectedHunk={props.globalSelectedHunk}
+        globalHunkCaption={props.globalHunkCaption}
         fileSelectedHunk={props.fileSelectedHunk}
       />
       <Show when={!props.expanded}>
@@ -1322,7 +1302,7 @@ function LazyFileHeader(
               : props.file_state.file.info.lazy}
           </span>
           <HunkCounterBadges
-            globalSelectedHunk={props.globalSelectedHunk}
+            globalHunkCaption={props.globalHunkCaption}
             fileSelectedHunk={props.fileSelectedHunk}
           />
         </span>
