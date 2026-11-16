@@ -53,6 +53,7 @@ import {
   fileDisplayName,
   manifestEntryKey,
   manifestFilesInOrder,
+  type FileLane,
   type FileLaneActivity,
   type FileLaneLineTarget,
   type FileState,
@@ -512,14 +513,11 @@ type ReviewSnapshotBoundaryProps = Omit<ChangeSetSnapshotProps, "engine"> & {
  */
 type ChangeSetFileLaneProps = ChangeSetSnapshotProps & {
   /**
-   * Publishes the complete set of manifest indexes currently backed by FullFiles.
-   *
-   * The snapshot invokes it after lane state changes and once with an empty set
-   * on cleanup. Review retains the replacement set for go-to enablement only.
-   * Neither side mutates a published set, and the callback must not load,
-   * expand, or navigate a File.
+   * Publishes this mounted lane's canonical per-file reader once, then null on
+   * disposal. Review tracks only the File it needs for go-to enablement; it must
+   * not load, expand, navigate, or retain a disposed lane's reader.
    */
-  onFileNavigabilityChange(indexes: ReadonlySet<number>): void;
+  onFileNavigabilityChange(reader: FileLane["fileState"] | null): void;
   /**
    * Receives the concrete inline History slot after that element mounts.
    *
@@ -603,9 +601,9 @@ function ReviewSnapshotBoundary(
     );
     reviewFileIndexes.set(key, fileIndex);
   });
-  const [navigableFileIndexes, setNavigableFileIndexes] = createSignal<
-    ReadonlySet<number>
-  >(new Set());
+  const [reviewFileState, setReviewFileState] = createSignal<
+    FileLane["fileState"] | null
+  >(null);
   // Inline History is rendered by the surrounding review boundary into this
   // exact third ChangeSet grid child; Split History keeps its fixed host.
   const [inlineHistoryTarget, setInlineHistoryTarget] =
@@ -628,16 +626,16 @@ function ReviewSnapshotBoundary(
   /**
    * Report whether the current engine-bound lane exposes the Thread's FullFile.
    *
-   * Review calls this to enable its go-to action. It reads the replacement set
-   * published by the lane and never loads, expands, or navigates the File.
+   * Review tracks that File's canonical state through the mounted lane reader.
+   * It never loads, expands, or navigates the File.
    */
   function canViewReviewThread(point: ThreadCodePoint): boolean {
-    return navigableFileIndexes().has(reviewFileIndex(point.file));
+    return reviewFileState()?.(reviewFileIndex(point.file)).state === "full";
   }
 
   /** Report whether History can navigate to the start of one manifest File. */
   function canViewReviewFile(file: ReviewFilePair): boolean {
-    return navigableFileIndexes().has(reviewFileIndex(file));
+    return reviewFileState()?.(reviewFileIndex(file)).state === "full";
   }
 
   /**
@@ -660,7 +658,7 @@ function ReviewSnapshotBoundary(
     point: ThreadCodePoint,
   ): Promise<ReviewCodeAnchor | null> {
     const fileIndex = reviewFileIndex(point.file);
-    if (!navigableFileIndexes().has(fileIndex)) {
+    if (reviewFileState()?.(fileIndex).state !== "full") {
       throw new Error("Review navigation requires a loaded File.");
     }
     const bay = point.bay;
@@ -738,7 +736,7 @@ function ReviewSnapshotBoundary(
    */
   async function viewReviewFileStart(file: ReviewFilePair): Promise<void> {
     const fileIndex = reviewFileIndex(file);
-    if (!navigableFileIndexes().has(fileIndex)) {
+    if (reviewFileState()?.(fileIndex).state !== "full") {
       throw new Error("Review navigation requires a loaded File.");
     }
     await navigation.navigate({ kind: "file-start", fileIndex });
@@ -747,7 +745,7 @@ function ReviewSnapshotBoundary(
   /** Navigate to a proven unchanged origin line without requiring a marker. */
   async function viewReviewOrigin(point: ThreadCodePoint): Promise<void> {
     const fileIndex = reviewFileIndex(point.file);
-    if (!navigableFileIndexes().has(fileIndex)) {
+    if (reviewFileState()?.(fileIndex).state !== "full") {
       throw new Error("Review navigation requires a loaded File.");
     }
     const result = await navigation.navigate({
@@ -797,7 +795,9 @@ function ReviewSnapshotBoundary(
             setState={props.setState}
             onFileTreeOpenChange={props.onFileTreeOpenChange}
             onFileSequenceChange={props.onFileSequenceChange}
-            onFileNavigabilityChange={setNavigableFileIndexes}
+            onFileNavigabilityChange={(reader) =>
+              setReviewFileState(() => reader)
+            }
             onInlineHistoryTargetChange={setInlineHistoryTarget}
           />
         )}
@@ -932,57 +932,203 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
         .aggressive_folds,
   );
 
-  // ReviewProvider must react when lane queries replace Husk or Lazy states
-  // with FullFiles, but the lane deliberately knows nothing about review. This
-  // effect derives a fresh immutable set from `lane.fileStates()` after each
-  // canonical state transition and hands it across that boundary. It lives for
-  // this engine-keyed snapshot; cleanup publishes the empty set so the longer
-  // lived review boundary cannot keep enabling destinations from a disposed lane.
-  createEffect(() => {
-    const navigable = new Set<number>();
-    for (const [fileIndex, state] of lane.fileStates().entries()) {
-      if (state.state === "full") {
-        navigable.add(fileIndex);
-      }
-    }
-    props.onFileNavigabilityChange(navigable);
-  });
-  onCleanup(() => props.onFileNavigabilityChange(new Set()));
+  // The immutable manifest is partitioned only for browser layout. Every card
+  // mounts immediately in manifest order; groups have natural content height
+  // and introduce no loading, navigation, or rendering lifecycle.
+  const fileGroups = Array.from(
+    { length: Math.ceil(orderedFiles.length / 64) },
+    (_, index) =>
+      orderedFiles
+        .slice(index * 64, (index + 1) * 64)
+        .map((file, offset) => ({ file, fileIndex: index * 64 + offset })),
+  );
 
-  /**
-   * Resolves one manifest file to its current canonical presentation state.
-   *
-   * Directory reachability consumes the same strict manifest/state ordering as
-   * FileTree. Missing or duplicate identities violate the immutable snapshot
-   * contract and throw instead of inventing a directory-expansion default.
-   */
+  // The review boundary outlives engine-keyed lanes. Publish the reader once so
+  // each go-to control tracks its own File; cleanup removes the disposed reader.
+  props.onFileNavigabilityChange(lane.fileState);
+  onCleanup(() => props.onFileNavigabilityChange(null));
+
+  /** Read the canonical lane state for one exact immutable manifest leaf. */
   function stateForManifestFile(file: ManifestFile): FileState {
-    const fileIndex = expect(
-      fileIndexByKey.get(manifestEntryKey(file.entry)),
-      `ChangeSet cannot index ${fileDisplayName(file.entry)} for directory reachability.`,
-    );
-    return expect(
-      lane.fileStates()[fileIndex],
-      `ChangeSet is missing state for ${fileDisplayName(file.entry)}.`,
+    return lane.fileState(
+      expect(
+        fileIndexByKey.get(manifestEntryKey(file.entry)),
+        `ChangeSet cannot index ${fileDisplayName(file.entry)} for directory reachability.`,
+      ),
     );
   }
 
-  const directoryExpansion = createMemo(() =>
-    calculateDirectoryExpansion(
-      props.manifest.tree,
-      stateForManifestFile,
-      props.state.fileExpansion,
-    ),
+  // FileTree highlighting depends on selection alone, not global hunk totals.
+  const selectedFileIndex = createMemo(
+    () => props.hunkDisplay()?.selectedFileIndex ?? null,
+  );
+  // All headers display the same global caption. Formatting once and supplying
+  // one string avoids a separate Show/memo/fragment graph in every FileCard
+  // waking when DOM-derived counts change. Equal captions notify no headers.
+  const globalHunkCaption = createMemo(() => {
+    const display = props.hunkDisplay();
+    if (display === null) {
+      return null;
+    }
+    const global = display.globalSelectedHunk;
+    return `${global.position.current ?? "—"}/${global.position.total}${global.hasMore ? "+" : ""} hunks`;
+  });
+  // The map stays identical across global-count changes. Track its identity
+  // here so local badges subscribe to their own position reader, rather than
+  // waking every header whenever the surrounding global display is published.
+  const fileHunkPositions = createMemo(
+    () => props.hunkDisplay()?.fileSelectedHunks ?? null,
+  );
+  // Numeric counter glyphs have equal widths. Only a caption-shape change
+  // can change wrapping in distant headers and invalidate their group's height.
+  const globalCaptionShape = createMemo(() => {
+    const caption = globalHunkCaption();
+    return caption === null
+      ? "hidden"
+      : `${caption.length}:${caption.includes("—")}:${caption.includes("+")}`;
+  });
+
+  /**
+   * Keeps a bounded manifest group mounted, using measured natural height to
+   * skip offscreen descendants. Content/width changes clear that measurement
+   * before layout; this mounted group's lifetime owns all observer/frame work.
+   */
+  function FileLayoutGroup(groupProps: {
+    /** Mounted manifest-order cards; this boundary never changes their state. */
+    children: JSX.Element;
+  }): JSX.Element {
+    let group!: HTMLDivElement;
+    let invalidateGroup: (() => void) | null = null;
+    // Caption shape alone can affect every header's wrapping. All other content
+    // changes are observed within this group; Solid disposes this subscription.
+    createEffect(() => {
+      globalCaptionShape();
+      invalidateGroup?.();
+    });
+    onMount(() => {
+      let frame: number | null = null;
+      let width: number | null = null;
+      /** Restore natural layout next frame, then await browser measurement. */
+      function invalidate(): void {
+        resize.disconnect();
+        if (frame !== null) {
+          cancelAnimationFrame(frame);
+        }
+        // Mutation and resize delivery must not themselves change containment:
+        // doing so can resize an already-delivered ancestor in the same loop.
+        frame = requestAnimationFrame(() => {
+          frame = null;
+          group.classList.remove("file-group-measured");
+          resize.observe(group);
+        });
+      }
+      // Browser-delivered sizes avoid forced layout. CSS writes happen next
+      // frame, outside resize delivery; later content changes cancel that write.
+      const resize = new ResizeObserver((entries) => {
+        const entry = expect(entries[0], "File group requires its size entry.");
+        assert(entry.target === group, "File group measured another target.");
+        if (
+          width !== null &&
+          width !== entry.contentRect.width &&
+          group.classList.contains("file-group-measured")
+        ) {
+          width = entry.contentRect.width;
+          invalidate();
+          return;
+        }
+        width = entry.contentRect.width;
+        const height = entry.contentRect.height;
+        assert(
+          Number.isFinite(height) && height > 0,
+          "Mounted file groups require a finite positive natural height.",
+        );
+        const intrinsic = `${height}px`;
+        if (
+          group.classList.contains("file-group-measured") &&
+          group.style.containIntrinsicHeight === intrinsic
+        ) {
+          return;
+        }
+        resize.disconnect();
+        if (frame !== null) {
+          cancelAnimationFrame(frame);
+        }
+        frame = requestAnimationFrame(() => {
+          frame = null;
+          group.style.containIntrinsicHeight = intrinsic;
+          group.classList.add("file-group-measured");
+          resize.observe(group);
+        });
+      });
+      // Admission, folding, expansion, images, and review UI can change group
+      // height. Watch actual descendant DOM changes, excluding the shared global
+      // caption's equal-width text updates and this boundary's own CSS writes.
+      const mutations = new MutationObserver((records) => {
+        if (
+          records.some(
+            (record) =>
+              record.target !== group &&
+              !(
+                record.type === "characterData" &&
+                record.target.parentElement?.classList.contains(
+                  "file-card-hunks",
+                ) === true
+              ),
+          )
+        ) {
+          invalidate();
+        }
+      });
+      mutations.observe(group, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+      });
+      // Image decoding changes intrinsic size without a DOM mutation. Capture
+      // descendant load events so even a skipped group's height is remeasured.
+      group.addEventListener("load", invalidate, true);
+      invalidateGroup = invalidate;
+      resize.observe(group);
+      onCleanup(() => {
+        invalidateGroup = null;
+        group.removeEventListener("load", invalidate, true);
+        resize.disconnect();
+        mutations.disconnect();
+        if (frame !== null) {
+          cancelAnimationFrame(frame);
+        }
+      });
+    });
+    return (
+      <div ref={group} class="file-layout-group">
+        {groupProps.children}
+      </div>
+    );
+  }
+
+  const directoryExpansion = calculateDirectoryExpansion(
+    props.manifest.tree,
+    stateForManifestFile,
+    props.state.fileExpansion,
   );
 
-  const failedFiles = createMemo(
-    () =>
-      lane
-        .fileStates()
-        .filter(
-          (state) => state.state === "lazy" && state.file.kind === "error",
-        ).length,
-  );
+  const [failedFiles, setFailedFiles] = createSignal(0);
+  // Each effect contributes only its error transition to the presentation count.
+  // No payload is copied; these computations die with the mounted snapshot.
+  orderedFiles.forEach((_, fileIndex) => {
+    let failed = false;
+    // Track this File's error branch only; update the scalar count on a change.
+    // The effect and previous boolean are discarded with the mounted snapshot.
+    createEffect(() => {
+      const state = lane.fileState(fileIndex);
+      const next = state.state === "lazy" && state.file.kind === "error";
+      if (next !== failed) {
+        setFailedFiles((count) => count + (next ? 1 : -1));
+        failed = next;
+      }
+    });
+  });
   const sequenceState = createMemo<FileSequenceState>(() => {
     const active = lane.activity();
     if (active !== null) {
@@ -1033,12 +1179,10 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
           <FileTree
             changeSetRoot={() => changeSetRoot}
             tree={props.manifest.tree}
-            states={lane.fileStates}
+            stateForFile={lane.fileState}
             open={props.fileTreeOpen}
             view={props.view}
-            selectedFileIndex={() =>
-              props.hunkDisplay()?.selectedFileIndex ?? null
-            }
+            selectedFileIndex={selectedFileIndex}
             directoryExpansion={directoryExpansion}
             fileExpansion={() => props.state.fileExpansion}
             onOpenChange={props.onFileTreeOpenChange}
@@ -1077,58 +1221,62 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
             }
           >
             <div class="directory-groups">
-              <For each={orderedFiles}>
-                {(file, fileIndex) => {
-                  return (
-                    <FileCard
-                      reviewFile={{
-                        left_path: file.entry.left_path,
-                        right_path: file.entry.right_path,
-                      }}
-                      file_state={lane.fileState(fileIndex())}
-                      expanded={fileExpanded(
-                        file,
-                        lane.fileState(fileIndex()),
-                        props.state.fileExpansion,
-                      )}
-                      explicitlyCollapsed={
-                        props.state.fileExpansion[
-                          manifestEntryKey(file.entry)
-                        ] === false
-                      }
-                      admitted={lane.admitted(fileIndex())}
-                      view={props.view}
-                      aggressiveFolds={aggressiveFolds()}
-                      linePins={pins}
-                      globalSelectedHunk={() =>
-                        props.hunkDisplay()?.globalSelectedHunk ?? null
-                      }
-                      fileSelectedHunk={() => {
-                        const display = props.hunkDisplay();
-                        if (display === null) {
-                          return null;
-                        }
-                        return expect(
-                          display.fileSelectedHunks.get(fileIndex()),
-                          `Missing hunk position for file ${fileIndex()}.`,
+              <For each={fileGroups}>
+                {(group) => (
+                  <FileLayoutGroup>
+                    <For each={group}>
+                      {({ file, fileIndex }) => {
+                        return (
+                          <FileCard
+                            reviewFile={{
+                              left_path: file.entry.left_path,
+                              right_path: file.entry.right_path,
+                            }}
+                            file_state={lane.fileState(fileIndex)}
+                            expanded={fileExpanded(
+                              file,
+                              lane.fileState(fileIndex),
+                              props.state.fileExpansion,
+                            )}
+                            explicitlyCollapsed={
+                              props.state.fileExpansion[
+                                manifestEntryKey(file.entry)
+                              ] === false
+                            }
+                            admitted={lane.admitted(fileIndex)}
+                            view={props.view}
+                            aggressiveFolds={aggressiveFolds()}
+                            linePins={pins}
+                            globalHunkCaption={globalHunkCaption}
+                            fileSelectedHunk={() => {
+                              const positions = fileHunkPositions();
+                              if (positions === null) {
+                                return null;
+                              }
+                              return expect(
+                                positions.get(fileIndex),
+                                `Missing hunk position for file ${fileIndex}.`,
+                              )();
+                            }}
+                            onExpandedChange={(expanded) =>
+                              props.setState(
+                                "fileExpansion",
+                                manifestEntryKey(file.entry),
+                                expanded,
+                              )
+                            }
+                            onLoad={() => {
+                              lane.enqueue(fileIndex, "bounded");
+                            }}
+                            onRetry={() => {
+                              lane.enqueue(fileIndex, "unbounded");
+                            }}
+                          />
                         );
                       }}
-                      onExpandedChange={(expanded) =>
-                        props.setState(
-                          "fileExpansion",
-                          manifestEntryKey(file.entry),
-                          expanded,
-                        )
-                      }
-                      onLoad={() => {
-                        lane.enqueue(fileIndex(), "bounded");
-                      }}
-                      onRetry={() => {
-                        lane.enqueue(fileIndex(), "unbounded");
-                      }}
-                    />
-                  );
-                }}
+                    </For>
+                  </FileLayoutGroup>
+                )}
               </For>
             </div>
           </Show>

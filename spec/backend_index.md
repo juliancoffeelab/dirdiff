@@ -594,6 +594,10 @@ source, correspondence facts, nullable Mark id, and side labels. Manifest and
 agent initial handlers pass these explicitly to `RoomLord.corresponding_room`; preparation does not observe
 Files or publish Snapshots. Manifest and lazy-info share captured File metadata
 conversion and display ordering; lazy-info reads only the addressed Snapshot.
+Successful manifest responses expose preparation, capture, and manifest wall
+times through `Server-Timing`; File-diff responses expose captured loading and
+composition times. These local handler measurements exclude later HTTP
+serialization, transport, and worker scheduling, and retain no telemetry.
 
 ## `dirdiff.cli`
 

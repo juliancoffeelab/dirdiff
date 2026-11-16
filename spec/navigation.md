@@ -200,9 +200,25 @@ The signal contains:
 
 - the selected manifest file index;
 - the global selected position and `hasMore`;
-- the selected position within each file.
+- stable per-file reactive readers of local selected positions.
 
-Positions are numeric data. Consumers format them independently.
+The observer indexes all cards once on mount or snapshot replacement, then
+rereads only cards named by attribute mutations, coalesced into one calculation
+per browser frame. The calculation reads current DOM and publishes local and
+global positions together before paint; disposal cancels its pending frame.
+Its disposable scalar counts
+include participating targets, all stable coordinates, and cards that may gain
+hunks. A Fenwick prefix-count array makes count updates and selected global
+position lookup logarithmic in file count. Local readers notify only their own
+headers; the global mirror is published only when its displayed facts change.
+These caches never supply Navigation with targets or selection authority.
+
+Positions are numeric data. The mounted snapshot formats one shared global
+caption for FileCard headers; each header inserts it as one text node and
+formats its own local position. Other consumers format numeric positions
+independently.
+The snapshot's stable map reader prevents publishing a new global display from
+waking local badges whose own positions did not change.
 `DebugHud`, `FileCard` headers, and FileTree highlighting read this signal;
 navigation and selection never do.
 

@@ -13,6 +13,7 @@ import {
   For,
   Show,
   createEffect,
+  createComputed,
   createMemo,
   createSignal,
   onCleanup,
@@ -61,56 +62,72 @@ type TreeLineStats = {
  * LazyFiles remain reachable for their visible plank unless explicitly collapsed.
  * Every directory receives one result, including an empty directory.
  *
+ * Call once inside the mounted snapshot's reactive lifetime. The immutable map
+ * contains per-directory memos; each leaf tracks its own canonical state and
+ * explicit expansion, and boolean changes update only its directory ancestors.
+ *
  * @param nodes Immutable manifest siblings traversed in backend order.
- * @param stateForFile Called once for every visited manifest leaf with that
- * exact `ManifestFile`. It returns the leaf's current canonical lane state;
- * the calculation reads expansion defaults from the result after the callback
- * completes. The callback must not mutate the manifest or expansion map.
+ * @param stateForFile Reads the canonical state of the exact manifest leaf.
+ * Called reactively when explicit expansion does not determine reachability.
+ * It must not mutate the manifest or expansion map.
  * @param fileExpansion Explicit ChangeSet values keyed by manifest File pair.
  *
  * # Returns
  *
  * - Each key is one manifest directory path, including nested and empty
  *   directories. File paths do not appear as keys.
- * - Each value reports whether that directory's subtree contains a reachable
- *   File after applying explicit File expansion and lane defaults. FileTree
- *   uses the value directly as the directory's expansion state.
+ * - Each value is a reactive reader reporting whether that subtree contains a
+ *   reachable File after applying explicit expansion and lane defaults. It is
+ *   valid only for the creating snapshot's reactive lifetime.
  */
 export function calculateDirectoryExpansion(
   nodes: readonly ManifestNode[],
   stateForFile: (file: ManifestFile) => FileState,
   fileExpansion: Readonly<Record<string, boolean | undefined>>,
-): ReadonlyMap<string, boolean> {
-  const result = new Map<string, boolean>();
+): ReadonlyMap<string, Accessor<boolean>> {
+  const result = new Map<string, Accessor<boolean>>();
 
   /**
-   * Visits one ordered sibling collection and reports subtree reachability.
+   * Build reachability readers for immutable siblings in this snapshot.
    *
-   * The traversal evaluates every child even after finding a reachable file so
-   * nested directory entries are always complete in the returned map.
+   * # Returns
+   *
+   * - The reader reports whether at least one child is reachable.
+   * - Child File and directory readers track their own inputs and expire with
+   *   the creating snapshot; callers never replace or mutate their values.
    */
-  function visit(children: readonly ManifestNode[]): boolean {
-    let hasReachableFile = false;
-    for (const child of children) {
-      let childIsReachable: boolean;
-      if (child.type === "file") {
+  function visit(children: readonly ManifestNode[]): Accessor<boolean> {
+    const reachable = children.map((child) => {
+      if (child.type === "directory") {
+        const subtree = visit(child.entries);
+        result.set(child.path, subtree);
+        return subtree;
+      }
+      return createMemo(() => {
         const explicit = fileExpansion[manifestEntryKey(child.entry)];
         if (explicit !== undefined) {
-          childIsReachable = explicit;
-        } else {
-          const state = stateForFile(child);
-          childIsReachable =
-            state.state === "husk" ||
-            state.state === "lazy" ||
-            state.backend_data.default_expanded;
+          return explicit;
         }
-      } else {
-        childIsReachable = visit(child.entries);
-        result.set(child.path, childIsReachable);
-      }
-      hasReachableFile = childIsReachable || hasReachableFile;
-    }
-    return hasReachableFile;
+        const state = stateForFile(child);
+        return state.state !== "full" || state.backend_data.default_expanded;
+      });
+    });
+    const [count, setCount] = createSignal(0);
+    // Track boolean contributions rather than rescanning directory siblings.
+    // These computations share the snapshot lifetime with their leaf memos.
+    reachable.forEach((child) => {
+      let previous = false;
+      // Each child contributes one boolean to this directory's reachable count.
+      // Computation and previous contribution expire with the mounted snapshot.
+      createComputed(() => {
+        const next = child();
+        if (next !== previous) {
+          setCount((value) => value + (next ? 1 : -1));
+          previous = next;
+        }
+      });
+    });
+    return createMemo(() => count() > 0);
   }
 
   visit(nodes);
@@ -120,11 +137,14 @@ export function calculateDirectoryExpansion(
 /**
  * Describes FileCard-local render modes calculated solely for FileTree markers.
  *
- * Keys are immutable manifest file indices and values mirror the current
- * `data-file-render` attributes. The map is disposable presentation data: it
+ * Keys are immutable manifest file indices and readers mirror the current
+ * `data-file-render` attributes, or null while a card has no render mode. The map is disposable presentation data: it
  * must not control virtualization, navigation, selection, or ChangeSet state.
  */
-type FileTreeRenderModes = ReadonlyMap<number, "rich" | "virtual">;
+type FileTreeRenderModes = ReadonlyMap<
+  number,
+  Accessor<"rich" | "virtual" | null>
+>;
 
 /**
  * Defines all reactive presentation and expansion inputs for the private FileTree.
@@ -144,12 +164,8 @@ type FileTreeProps = {
   changeSetRoot: Accessor<HTMLElement>;
   /** Immutable manifest hierarchy rendered without sorting or filtering. */
   tree: readonly ManifestNode[];
-  /**
-   * Returns current canonical lane states in the same manifest order as `tree`.
-   * Rows call it reactively after query transitions. Callers must not mutate the
-   * returned array or retain it as separate FileTree state.
-   */
-  states: Accessor<readonly FileState[]>;
+  /** Read only the canonical state at this required immutable manifest index. */
+  stateForFile(fileIndex: number): FileState;
   /** Current workspace sidebar visibility; false unmounts FileTreeContent. */
   open: boolean;
   /** Layout mode controlling whether the closed sidebar shell remains present. */
@@ -161,11 +177,11 @@ type FileTreeProps = {
    */
   selectedFileIndex: Accessor<number | null>;
   /**
-   * Returns descendant reachability for every manifest directory.
-   * FileTree calls it during rendering and highlighted-row reachability checks;
-   * the map is recalculated by ChangeSet from shared canonical file state.
+   * Stable per-directory reachability readers derived by ChangeSet from shared
+   * canonical states and explicit expansion. Rows track only their own reader;
+   * highlighted-row checks track only the selected File's ancestor readers.
    */
-  directoryExpansion: Accessor<ReadonlyMap<string, boolean>>;
+  directoryExpansion: ReadonlyMap<string, Accessor<boolean>>;
   /**
    * Returns ChangeSet's explicit per-file expansion map without copying it.
    * File rows consult it after FullFile transitions and callbacks; absence at a
@@ -257,10 +273,14 @@ export function FileTree(props: FileTreeProps): JSX.Element {
   const stateForFile = (file: ManifestFile): FileState => {
     const index = indexForFile(file);
     return expect(
-      props.states()[index],
+      props.stateForFile(index),
       `FileTree is missing state for ${fileDisplayName(file.entry)}.`,
     );
   };
+
+  const statistics = sumTreeStatistics(
+    files.map((file) => () => stateForFile(file)),
+  );
 
   const ancestorPathsByFileIndex = new Map<number, readonly string[]>();
 
@@ -312,23 +332,23 @@ export function FileTree(props: FileTreeProps): JSX.Element {
     /**
      * Reads the one shared directory-expansion value used by tree and FileCards.
      *
-     * An absent entry means initially expanded. The accessor never writes a
+     * Every manifest directory requires a reader. Calling it never writes a
      * default into ChangeSet state or retains a second directory authority.
      */
     const expanded = () => {
-      const current = props.directoryExpansion().get(rowProps.directory.path);
+      const current = props.directoryExpansion.get(rowProps.directory.path);
       return expect(
         current,
         `FileTree is missing reachability for ${rowProps.directory.path}.`,
-      );
+      )();
     };
     const directoryFiles = manifestFilesInOrder(rowProps.directory.entries);
     const firstFile = expect(
       directoryFiles[0],
       `FileTree directory ${rowProps.directory.path} contains no files.`,
     );
-    const statistics = createMemo(() =>
-      sumTreeStatistics(directoryFiles.map(stateForFile)),
+    const statistics = sumTreeStatistics(
+      directoryFiles.map((file) => () => stateForFile(file)),
     );
     return (
       <section class="file-tree-group">
@@ -400,8 +420,8 @@ export function FileTree(props: FileTreeProps): JSX.Element {
     depth: number;
     /**
      * Reads current FileCard DOM modes when calculating this row's V marker.
-     * Attribute observation replaces the map after renderer transitions; the
-     * row must not write it or use it to navigate or expand the FileCard.
+     * Attribute observation updates only this card's reader; the row must not
+     * write it or use it to navigate or expand the FileCard.
      */
     renderModes: Accessor<FileTreeRenderModes>;
   }): JSX.Element {
@@ -433,7 +453,11 @@ export function FileTree(props: FileTreeProps): JSX.Element {
      * not be used to choose or change the owning FileCard's render mode.
      */
     const virtualized = () =>
-      expanded() && rowProps.renderModes().get(fileIndex) === "virtual";
+      expanded() &&
+      expect(
+        rowProps.renderModes().get(fileIndex),
+        "Missing FileTree render-mode reader.",
+      )() === "virtual";
     const highlighted = createMemo(
       () => props.selectedFileIndex() === fileIndex,
     );
@@ -599,18 +623,24 @@ export function FileTree(props: FileTreeProps): JSX.Element {
    */
   function FileTreeContent(): JSX.Element {
     let groups!: HTMLDivElement;
-    const [renderModes, setRenderModes] = createSignal<FileTreeRenderModes>(
-      new Map(),
+    // Per-file DOM mirrors live only for this open tree. Updating one mode must
+    // not notify rows whose stable cards did not change.
+    const modeSignals = files.map(() =>
+      createSignal<"rich" | "virtual" | null>(null),
     );
+    const modes: FileTreeRenderModes = new Map(
+      modeSignals.map(([read], index) => [index, read]),
+    );
+    /** Return this open tree's stable map of per-card DOM mode readers. */
+    const renderModes = () => modes;
     const highlightedFileIndex = createMemo(() => props.selectedFileIndex());
 
     /**
      * Reports whether the highlighted row currently has every ancestor mounted.
      *
-     * This memo deliberately reduces the complete directory-expansion map to
-     * one boolean for the highlighted file. Unrelated Husk-to-Full state changes
-     * may replace that map, but an unchanged boolean must not make the private
-     * scrolling effect overwrite the user's manual FileTree scroll position.
+     * Track only the highlighted File's directory ancestors. An unchanged
+     * boolean must not make the private scrolling effect overwrite the user's
+     * manual FileTree scroll position.
      */
     const highlightedRowReachable = createMemo(() => {
       const fileIndex = highlightedFileIndex();
@@ -625,13 +655,13 @@ export function FileTree(props: FileTreeProps): JSX.Element {
         ancestorPathsByFileIndex.get(fileIndex),
         "FileTree is missing the selected manifest file.",
       );
-      const expansion = props.directoryExpansion();
+      const expansion = props.directoryExpansion;
       for (const path of ancestorPaths) {
         const expanded = expect(
           expansion.get(path),
           `FileTree is missing reachability for ${path}.`,
         );
-        if (!expanded) {
+        if (!expanded()) {
           return false;
         }
       }
@@ -641,7 +671,7 @@ export function FileTree(props: FileTreeProps): JSX.Element {
     // Render mode is exposed by stable FileCard DOM rather than Solid state, so
     // the open FileTree needs one MutationObserver to mirror only
     // `data-file-render` for its V markers. It scans once after mount, then
-    // replaces the disposable map after matching attribute changes. The
+    // updates only the changed cards' disposable readers. The
     // observer lives only while FileTreeContent is mounted and cleanup always
     // disconnects it; a malformed DOM value also disconnects before Toasting.
     onMount(() => {
@@ -655,42 +685,48 @@ export function FileTree(props: FileTreeProps): JSX.Element {
        * states. Present attributes and indices must be exact; malformed or
        * duplicate values are DOM-contract violations and throw immediately.
        */
-      function readRenderModes(): FileTreeRenderModes {
-        const modes = new Map<number, "rich" | "virtual">();
-        for (const card of root.querySelectorAll<HTMLElement>(
-          "[data-file-card][data-file-index]",
-        )) {
+      function readRenderModes(cards: Iterable<HTMLElement>): void {
+        const seen = new Set<number>();
+        for (const card of cards) {
           const mode = card.dataset.fileRender;
-          if (mode === undefined) {
-            continue;
-          }
           assert(
-            mode === "rich" || mode === "virtual",
+            mode === undefined || mode === "rich" || mode === "virtual",
             `FileCard exposed invalid render mode ${mode}.`,
           );
           const indexText = card.dataset.fileIndex;
           assert(
-            indexText !== undefined && /^\d+$/.test(indexText),
+            indexText !== undefined && /^(?:0|[1-9]\d*)$/.test(indexText),
             "FileCard exposed an invalid manifest index.",
           );
           const fileIndex = Number(indexText);
-          assert(
-            fileIndex < files.length,
+          const slot = expect(
+            modeSignals[fileIndex],
             "FileCard render mode is outside the manifest.",
           );
           assert(
-            !modes.has(fileIndex),
+            !seen.has(fileIndex),
             "FileTree found duplicate stable FileCards.",
           );
-          modes.set(fileIndex, mode);
+          seen.add(fileIndex);
+          slot[1](mode === undefined ? null : mode);
         }
-        return modes;
       }
 
-      setRenderModes(readRenderModes());
-      const observer = new MutationObserver(() => {
+      readRenderModes(
+        root.querySelectorAll<HTMLElement>("[data-file-card][data-file-index]"),
+      );
+      const observer = new MutationObserver((records) => {
         try {
-          setRenderModes(readRenderModes());
+          const changed = new Set<HTMLElement>();
+          for (const record of records) {
+            assert(
+              record.target instanceof HTMLElement &&
+                record.target.hasAttribute("data-file-card"),
+              "Render-mode mutation requires a stable FileCard.",
+            );
+            changed.add(record.target);
+          }
+          readRenderModes(changed);
         } catch (error) {
           observer.disconnect();
           toast.showError(
@@ -784,7 +820,7 @@ export function FileTree(props: FileTreeProps): JSX.Element {
           </span>
           <span class="file-tree-label">Files</span>
           <Show when={props.open}>
-            <TreeStatistics stats={sumTreeStatistics(props.states())} />
+            <TreeStatistics stats={statistics()} />
           </Show>
           <kbd>t</kbd>
         </button>
@@ -852,38 +888,72 @@ function treeStatistics(state: FileState): TreeLineStats {
  * Adds progressive FileTree statistics without converting unknowns to numbers.
  *
  * Each metric is null when any participating file lacks it; otherwise exact
- * values are summed. The aggregate is presentation-only and never cached.
+ * values are summed. Call once in the consuming component's reactive lifetime;
+ * each File updates only its scalar contribution, including failures and retries.
+ *
+ * # Returns
+ *
+ * - The reactive reader supplies exact totals for metrics known by every File.
+ * - Unknown metrics remain null; the reader and its scalar reductions expire
+ *   with the creating component and never retain backend payloads.
  */
-function sumTreeStatistics(states: readonly FileState[]): TreeLineStats {
-  const stats = states.map(treeStatistics);
-  /**
-   * Sums one statistic only when every contributing file knows its value.
-   *
-   * Null propagates as unknown instead of becoming zero, preserving progressive
-   * FileTree semantics for queued and failed files.
-   *
-   * # Returns
-   *
-   * - The sum when every participating File supplies this statistic.
-   * - `null`: At least one File lacks the statistic. The directory row must
-   *   display the aggregate as unknown rather than as a partial total.
-   */
-  const sum = (values: (number | null)[]): number | null => {
-    let total = 0;
-    for (const value of values) {
-      if (value === null) {
-        return null;
+function sumTreeStatistics(
+  states: readonly Accessor<FileState>[],
+): Accessor<TreeLineStats> {
+  const keys = ["added", "modified", "removed", "moved"] as const;
+  // Disposable scalar reductions, never copies of backend payloads. Each leaf
+  // effect replaces its contribution, including failures and explicit retries.
+  const totals = { added: 0, modified: 0, removed: 0, moved: 0 };
+  const unknown = {
+    added: states.length,
+    modified: states.length,
+    removed: states.length,
+    moved: states.length,
+  };
+  const [statistics, setStatistics] = createSignal<TreeLineStats>(
+    {
+      added: states.length ? null : 0,
+      modified: states.length ? null : 0,
+      removed: states.length ? null : 0,
+      moved: states.length ? null : 0,
+    },
+    { equals: (left, right) => keys.every((key) => left[key] === right[key]) },
+  );
+  states.forEach((state) => {
+    let previous: TreeLineStats = {
+      added: null,
+      modified: null,
+      removed: null,
+      moved: null,
+    };
+    // Track this File alone and replace its four scalar contributions.
+    // The effect, previous values, and reductions expire with this component.
+    createEffect(() => {
+      const next = treeStatistics(state());
+      for (const key of keys) {
+        const oldValue = previous[key];
+        const newValue = next[key];
+        if (oldValue === null) {
+          unknown[key] -= 1;
+        } else {
+          totals[key] -= oldValue;
+        }
+        if (newValue === null) {
+          unknown[key] += 1;
+        } else {
+          totals[key] += newValue;
+        }
       }
-      total += value;
-    }
-    return total;
-  };
-  return {
-    added: sum(stats.map((value) => value.added)),
-    modified: sum(stats.map((value) => value.modified)),
-    removed: sum(stats.map((value) => value.removed)),
-    moved: sum(stats.map((value) => value.moved)),
-  };
+      previous = next;
+      setStatistics({
+        added: unknown.added ? null : totals.added,
+        modified: unknown.modified ? null : totals.modified,
+        removed: unknown.removed ? null : totals.removed,
+        moved: unknown.moved ? null : totals.moved,
+      });
+    });
+  });
+  return statistics;
 }
 
 /**

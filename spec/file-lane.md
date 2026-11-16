@@ -73,8 +73,14 @@ garbage-collected immediately (`gcTime` 0), so the payload slot is the sole
 surviving reference and a `success` view must never fetch again; while a fetch
 or prefetch is in flight, the canonical cache entry still deduplicates joiners.
 
-The snapshot derives backend states from the view signals instead of copying
-backend data into a second reactive store:
+The snapshot derives one reactive backend-state reader per manifest index from
+the view signals instead of copying backend data into a second reactive store.
+Consumers read `fileState(index)` directly; there is no reactive whole-manifest
+state array. Review receives the mounted lane's reader once and tracks only the
+File addressed by each go-to control; disposal removes that reader. Failure
+counts reduce each File's error transitions into one scalar total.
+
+The resulting states are:
 
 | View and manifest state | File state |
 | --- | --- |
@@ -124,7 +130,9 @@ For each automatic file, the lane:
    settled to `success`;
 2. leaves an ordinary failure on that file's view and proceeds to the next
    file;
-3. yields to the browser after a successful fetch;
+3. yields to the browser when consecutive synchronous admissions exhaust an
+   eight-millisecond budget; an HTTP wait already releases the main thread
+   and resets that budget;
 4. admits that file for expensive rendering;
 5. proceeds to the next manifest position.
 
@@ -133,8 +141,12 @@ fetches may overlap within the fixed bound. A
 successful query can already produce a `FullFile` header and statistics while
 its body remains unmounted. For an expanded nonzero-hunk file, the temporary
 navigation target is still a Husk; zero-hunk and collapsed files already expose
-their permanent targets. Admission is the deliberate browser backpressure
-boundary for the expensive body.
+their permanent targets. Admission's bounded synchronous-work budget is the
+browser backpressure boundary for the expensive body. PerformanceObserver can read
+`dirdiff:file-yield` and `dirdiff:file-admission` measures for scheduler wait and
+synchronous admission respectively. Entries are cleared immediately after
+publication; they never accumulate across Files or snapshots. Admission timing
+does not include later browser layout or paint.
 
 Manifest entries marked lazy are skipped by ordinary automatic loading. Their
 `LazyFile` plank is the explicit way to enter them into the lane.
@@ -266,8 +278,8 @@ For each manifest index, `ChangeSet` supplies `FileCard` with:
 - One canonical File query represents one manifest entry in one Snapshot under
   one complete engine configuration.
 - Lazy planks, Retry, and line pins all use the same lane.
-- Admission is separate from fetch success and yields before mounting the
-  expensive `FileBody`.
+- Admission is separate from fetch success and yields between expensive bodies
+  when consecutive synchronous work exhausts the lane's eight-millisecond budget.
 - One file failure does not stop later files.
 - An unknown `snapshot_id` receives no special recovery path.
 - Disposed snapshots perform no later loading, presentation, or navigation

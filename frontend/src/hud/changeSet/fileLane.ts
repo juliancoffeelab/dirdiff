@@ -324,15 +324,9 @@ export type FileLane = {
    */
   fileState(fileIndex: number): FileState;
   /**
-   * Returns all current canonical states in immutable manifest order.
-   * Consumers may derive presentation but must not mutate or cache the array as
-   * another backend authority.
-   */
-  fileStates: Accessor<readonly FileState[]>;
-  /**
    * Reports whether the successful payload at `fileIndex` may mount FileBody.
-   * False may coexist with a Full state during the deliberate yield before
-   * ordered admission; unknown indexes simply have no admission entry.
+   * False may coexist with a prefetched Full state before ordered admission,
+   * including a budgeted yield; unknown indexes have no admission entry.
    */
   admitted(fileIndex: number): boolean;
   /**
@@ -404,8 +398,8 @@ export function createFileLane(args: FileLaneArgs): FileLane {
       { phase: "idle" },
       {
         // Signals lack the store's write deduplication, and every redundant
-        // notification costs a full-manifest fileStates pass, so writes that
-        // do not change the observable view must not notify (the lane joins
+        // notification wakes this File's presentation, so writes that do not
+        // change the observable view must not notify (the lane joins
         // in-flight prefetches and replays recorded failures, both of which
         // re-write the value already present).
         equals: (a, b) =>
@@ -579,12 +573,9 @@ export function createFileLane(args: FileLaneArgs): FileLane {
       };
     }),
   );
-  const fileStates = createMemo(() =>
-    fileStateAccessors.map((fileState) => fileState()),
-  );
 
-  // Synthetic backpressure set to break the rendering loop and let the main
-  // thread breathe.
+  // Admission remains distinct from fetch success: prefetched headers may
+  // settle before their bodies reach the ordered, budgeted rendering lane.
   const [admittedFiles, setAdmittedFiles] = createStore<Record<number, true>>(
     {},
   );
@@ -615,6 +606,11 @@ export function createFileLane(args: FileLaneArgs): FileLane {
   let automaticCursor = 0;
   let activeIndex: number | null = null;
   let activeKey: QueryKey | null = null;
+  // Only synchronous admission work consumes this lane-local budget. Awaiting
+  // an unsettled File HTTP response already releases the main thread; cached
+  // prefetch results can instead chain admissions, so yield after 8ms of those.
+  // The scalar dies with the snapshot and never changes manifest order.
+  let admissionWorkMs = 0;
   // Query keys of launched automatic prefetches, kept until the lane
   // processes their index so stopping can cancel in-flight ones.
   const prefetchedKeys = new Map<number, QueryKey>();
@@ -884,6 +880,7 @@ export function createFileLane(args: FileLaneArgs): FileLane {
             // network, not the cache.
             setFileView(fileIndex, { phase: "fetching" });
             const data = await queryClient.fetchQuery(options);
+            admissionWorkMs = 0;
             if (stopped) {
               return;
             }
@@ -895,16 +892,31 @@ export function createFileLane(args: FileLaneArgs): FileLane {
             // applies its expansion policy now, before admission.
             args.onExplicitLoad(fileIndex);
           }
-          // Yield one continuation through Solid's cooperative scheduler so
-          // the main thread can process browser work before admission. The
-          // scheduled callback has no side effects and needs no cancellation.
-          await new Promise<void>((resolve) => {
-            requestCallback(resolve);
-          });
+          // Keep cached admissions cooperative without forcing another browser
+          // turn after every HTTP wait. The callback changes no state, and the
+          // stopped check below prevents an expired lane from admitting a body.
+          const yieldStarted = performance.now();
+          if (admissionWorkMs >= 8) {
+            await new Promise<void>((resolve) => {
+              requestCallback(resolve);
+            });
+            admissionWorkMs = 0;
+          }
           if (stopped) {
             return;
           }
+          // Observers can measure backpressure separately from synchronous body
+          // mounting. Clear entries immediately: telemetry must not accumulate
+          // across Files or survive this lane as another retained data store.
+          performance.measure("dirdiff:file-yield", { start: yieldStarted });
+          performance.clearMeasures("dirdiff:file-yield");
+          const admissionStarted = performance.now();
           setAdmittedFiles(fileIndex, true);
+          admissionWorkMs += performance.now() - admissionStarted;
+          performance.measure("dirdiff:file-admission", {
+            start: admissionStarted,
+          });
+          performance.clearMeasures("dirdiff:file-admission");
           if (currentLineTarget !== null && lineTarget === currentLineTarget) {
             // Admission synchronously mounts FullFile. Wait through the next
             // paint so Navigation receives complete measurable TextDiffGrid rows.
@@ -1020,7 +1032,6 @@ export function createFileLane(args: FileLaneArgs): FileLane {
         `File lane is missing the state for index ${fileIndex}.`,
       )();
     },
-    fileStates,
     admitted(fileIndex: number): boolean {
       return admittedFiles[fileIndex] === true;
     },

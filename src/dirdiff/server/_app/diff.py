@@ -12,6 +12,7 @@ serve external agents, manage Profiles, or construct the FastAPI application.
 import logging
 from http import HTTPStatus
 from pathlib import Path
+from time import perf_counter
 from typing import (
     Annotated,
     Literal,
@@ -1560,6 +1561,7 @@ class DiffRoutes:
     def serve_manifest(
         self,
         query: Annotated[ManifestQuery, Query()],
+        response: Response,
     ) -> RepoManifestResponse:
         """Capture a complete selection and return its manifest and Snapshot key.
 
@@ -1567,6 +1569,8 @@ class DiffRoutes:
 
         - `query`: One JSON `selection` value with the selected Tab's required
           controls. Pull Request revisions must already have been prepared.
+        - `response`: FastAPI response carrying Server-Timing for preparation,
+          capture, and manifest construction. Durations exclude HTTP transport.
 
         # Usage
 
@@ -1595,12 +1599,14 @@ class DiffRoutes:
         - Source preparation and capture `DirdiffError` failures return 400.
         - Unexpected preparation or persistence failures are logged and return 500.
         """
+        started = perf_counter()
         try:
             prepared: PreparedCapture = query.selection.prepare(
                 self.db,
                 self.presets_root,
                 store_path=self.store_path,
             )
+            prepared_at = perf_counter()
             room, snapshot_id = self.room_lord.corresponding_room(
                 mark_id=prepared.mark_id,
                 selection=prepared.correspondence,
@@ -1608,6 +1614,7 @@ class DiffRoutes:
                 left_label=prepared.left_label,
                 right_label=prepared.right_label,
             )
+            captured_at = perf_counter()
             snapshot_meta = room.meta(snapshot_id)
             manifest_paths = captured_manifest_paths(
                 room, snapshot_id, preset=snapshot_meta["tab"] == "preset"
@@ -1634,7 +1641,16 @@ class DiffRoutes:
                 detail="Internal server error.",
             ) from exc
 
-        return RepoManifestResponse.model_validate(payload)
+        result = RepoManifestResponse.model_validate(payload)
+        finished = perf_counter()
+        # Per-operation wall times include synchronous dependencies and exclude
+        # later response serialization. No timing state survives this HTTP entity.
+        response.headers["Server-Timing"] = (
+            f"prepare;dur={(prepared_at - started) * 1000:.3f}, "
+            f"capture;dur={(captured_at - prepared_at) * 1000:.3f}, "
+            f"manifest;dur={(finished - captured_at) * 1000:.3f}"
+        )
+        return result
 
     @routes.get(
         "/api/lazy-info",
@@ -1700,6 +1716,7 @@ class DiffRoutes:
     def serve_file_diff(
         self,
         params: Annotated[FileDiffQuery, Query()],
+        response: Response,
     ) -> ComposedDiffResponse:
         """Render one exact filepath pair from a manifest Snapshot.
 
@@ -1711,6 +1728,8 @@ class DiffRoutes:
         # Parameters
 
         - `params`: Captured File identity and validated complete engine choice.
+        - `response`: FastAPI response carrying Server-Timing for captured File
+          loading and composition, excluding HTTP transport and serialization.
 
         # Failures
 
@@ -1719,6 +1738,7 @@ class DiffRoutes:
         - Logs unexpected I/O, persistence, or response failures and raises
           status 500.
         """
+        started = perf_counter()
         try:
             try:
                 snapshot_key = UUID(hex=params.snapshot_id)
@@ -1738,6 +1758,7 @@ class DiffRoutes:
             left_file, right_file, file_meta = room.get(
                 snapshot_key, left, right
             )
+            loaded_at = perf_counter()
             payload = self.render_loaded_snapshot_file(
                 room=room,
                 snapshot_id=snapshot_key,
@@ -1759,6 +1780,13 @@ class DiffRoutes:
                 detail="Internal server error.",
             ) from exc
 
+        finished = perf_counter()
+        # Keep capture lookup and engine/composition costs separate without
+        # retaining per-File telemetry in the application.
+        response.headers["Server-Timing"] = (
+            f"load;dur={(loaded_at - started) * 1000:.3f}, "
+            f"compose;dur={(finished - loaded_at) * 1000:.3f}"
+        )
         return payload
 
     @routes.get(

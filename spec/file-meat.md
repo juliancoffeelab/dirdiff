@@ -11,6 +11,18 @@ inside that stable boundary. Loading and canonical backend state come from the
 file lane described in [`file-lane.md`](file-lane.md); the card does not observe
 queries or perform HTTP operations.
 
+The file list partitions consecutive manifest entries into layout groups of up
+to 64 cards. All cards mount immediately, in manifest order. The groups have
+natural content heights and CSS layout/paint containment, so admitting a body
+does not make the browser process one flat layout containing the entire patch.
+Groups introduce no loading, selection, or bay representation state. Their
+natural content-box height is measured before offscreen rendering is skipped.
+Descendant DOM changes, image decoding, and width changes restore natural layout before a new
+measurement. Global counter digits have equal widths; only caption shape changes
+invalidate every group. Each group disposes its observers and pending frame when
+its snapshot unmounts. File headers
+remain sticky within their own cards, and all hunk targets remain in the DOM.
+
 The three states have different jobs:
 
 | State | Meaning | Body |

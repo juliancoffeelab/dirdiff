@@ -13,6 +13,8 @@ import {
   Show,
   createMemo,
   createSignal,
+  batch,
+  type Setter,
   onCleanup,
   onMount,
   type Accessor,
@@ -45,8 +47,8 @@ export type HunkDisplay = {
     /** True while Husk, Lazy, or collapsed Files can change that total. */
     hasMore: boolean;
   };
-  /** Per-file selected positions keyed by manifest file index. */
-  fileSelectedHunks: ReadonlyMap<number, HunkPosition>;
+  /** Stable per-file readers of local numeric positions, keyed by manifest index. */
+  fileSelectedHunks: ReadonlyMap<number, Accessor<HunkPosition>>;
 };
 
 /**
@@ -633,8 +635,8 @@ function DebugMetric(props: {
 /**
  * Defines the one-way DOM mirror callback supplied by ChangeSetShell.
  *
- * `root` is the mounted ChangeSet root. `onDisplayChange` receives every
- * complete immutable replacement value. The observer must never write DOM or
+ * `root` is the mounted ChangeSet root. `onDisplayChange` receives global display
+ * values and stable local readers whenever global facts or the snapshot change. The observer must never write DOM or
  * expose data to Navigation.
  */
 type HunkDisplayObserverProps = {
@@ -646,11 +648,12 @@ type HunkDisplayObserverProps = {
    */
   root: Accessor<HTMLElement>;
   /**
-   * Accepts one complete immutable display replacement after a DOM calculation.
+   * Accepts global display values and stable local readers after a DOM calculation.
    *
    * The observer invokes it after the initial mounted calculation and after
-   * watched structural or selected-index mutations. `display` contains no live
-   * DOM and the caller stores it only for declarative presentation. The callback
+   * watched mutations that change global display facts. Local readers publish
+   * independently when only a File's local count changes. `display` contains no
+   * live DOM and the caller stores it only for declarative presentation. The callback
    * is not invoked after cleanup or after terminal renderer damage disconnects
    * observation; its completion precedes the next queued calculation.
    */
@@ -715,242 +718,235 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
     }
 
     /**
-     * Per-card facts recorded by the last complete calculation.
-     *
-     * `offset` is the card's stable-position prefix and `participating` its
-     * displayed total; both are invariant under selection-only mutations, so
-     * the selective path below can reuse them. Any structural mutation runs
-     * the full walk again, which replaces this map wholesale.
+     * Disposable scalar facts read from one stable FileCard's current DOM.
+     * Positions are reactive presentation only; Navigation never reads them.
      */
     type CardStats = {
-      /** Immutable manifest index read from this exact FileCard. */
+      /** Required immutable manifest coordinate. */
       fileIndex: number;
-      /** Count of non-skip targets in the last complete DOM calculation. */
+      /** Count of all coordinate-bearing targets, including skipped targets. */
+      stable: number;
+      /** Count of targets currently participating in navigation. */
       participating: number;
-      /** Number of all stable coordinates in preceding FileCards. */
-      offset: number;
+      /** Whether loading or expansion can change this card's target count. */
+      more: boolean;
+      /** Read this card's current local display without subscribing other cards. */
+      position: Accessor<HunkPosition>;
+      /** Replace local numeric presentation after a DOM calculation. */
+      setPosition: Setter<HunkPosition>;
     };
-    let cardStats: Map<HTMLElement, CardStats> | null = null;
+    let cardStats = new Map<HTMLElement, CardStats>();
+    let fileSelectedHunks = new Map<number, Accessor<HunkPosition>>();
+    // A Fenwick tree stores only DOM-derived target counts. Prefix updates and
+    // reads take O(log files), avoiding a scan of preceding cards on each load.
+    // All caches are rebuilt when a replacement snapshot supplies new cards.
+    let prefixes = new Float64Array(1);
+    let participatingTotal = 0;
+    let moreCards = 0;
+    let selectedCard: HTMLElement | null = null;
+    const selectedCards = new Set<HTMLElement>();
     let lastDisplay: HunkDisplay | null = null;
+    let alive = true;
+    let observer: MutationObserver | null = null;
+    // Several ordered admissions can share one browser frame. Read their DOM
+    // together before paint instead of rewriting every global badge per file.
+    // Disposal cancels the pending frame before its snapshot can be read.
+    let displayFrame: number | null = null;
+    const changedCards = new Set<HTMLElement>();
+    onCleanup(() => {
+      alive = false;
+      observer?.disconnect();
+      if (displayFrame !== null) {
+        cancelAnimationFrame(displayFrame);
+        displayFrame = null;
+      }
+      changedCards.clear();
+    });
 
     /**
-     * Calculates the complete exact display mirror from current FileCard DOM.
-     *
-     * The calculation walks concrete targets in DOM order and reads semantic
-     * hunk sets only for `hasMore`. It does not audit redundant renderer counts,
-     * classes, or target invariants; Navigation validates the target involved in
-     * each action. Stable positions include skipped identities, while displayed
-     * totals count participating targets only.
+     * Read changed cards and publish exact DOM-derived positions and totals.
+     * Initial mount and snapshot replacement index the complete card set once;
+     * later mutations reread only their cards, including selection changes.
      */
-    function calculateDisplay(): HunkDisplay {
-      const cards = Array.from(
-        root.querySelectorAll<HTMLElement>("[data-file-card]"),
-      );
-      const selectedCards = cards.filter(
-        (card) => card.dataset.selectedHunkIndex !== undefined,
-      );
-      if (cards.length === 0) {
-        assert(
-          selectedCards.length === 0,
-          "Empty ChangeSet contains a selected FileCard.",
-        );
+    function calculateDisplay(changed: ReadonlySet<HTMLElement>): HunkDisplay {
+      const reset =
+        lastDisplay === null ||
+        [...changed].some((card) => !cardStats.has(card));
+      let cards: Iterable<HTMLElement> = changed;
+      if (reset) {
+        const mounted = root.querySelectorAll<HTMLElement>("[data-file-card]");
         cardStats = new Map();
-        return {
-          selectedFileIndex: null,
-          globalSelectedHunk: {
-            position: { current: null, total: 0 },
-            hasMore: false,
-          },
-          fileSelectedHunks: new Map(),
-        };
+        fileSelectedHunks = new Map();
+        prefixes = new Float64Array(mounted.length + 1);
+        participatingTotal = 0;
+        moreCards = 0;
+        selectedCard = null;
+        selectedCards.clear();
+        mounted.forEach((card, fileIndex) => {
+          assert(
+            card.dataset.fileIndex === String(fileIndex),
+            "FileCard DOM must retain manifest order.",
+          );
+          const [position, setPosition] = createSignal<HunkPosition>(
+            { current: null, total: 0 },
+            {
+              equals: (a, b) => a.current === b.current && a.total === b.total,
+            },
+          );
+          cardStats.set(card, {
+            fileIndex,
+            stable: 0,
+            participating: 0,
+            more: false,
+            position,
+            setPosition,
+          });
+          fileSelectedHunks.set(fileIndex, position);
+        });
+        cards = mounted;
+      }
+      const previousSelected = selectedCard;
+      for (const card of cards) {
+        const stats = expect(
+          cardStats.get(card),
+          "Hunk display requires an indexed FileCard.",
+        );
+        const hunkSet = parseHunkSet(card);
+        const targets =
+          card.querySelectorAll<HTMLElement>("[data-hunk-target]");
+        let participating = 0;
+        for (const target of targets) {
+          const index = target.dataset.hunkIndex;
+          assert(
+            target.dataset.fileIndex === String(stats.fileIndex) &&
+              index !== undefined &&
+              /^(?:0|[1-9]\d*)$/.test(index),
+            "FileCard contains a hunk with invalid coordinates.",
+          );
+          if (!target.classList.contains("skip")) {
+            participating += 1;
+          }
+        }
+        const delta = targets.length - stats.stable;
+        for (
+          let index = stats.fileIndex + 1;
+          index < prefixes.length;
+          index += index & -index
+        ) {
+          prefixes[index] += delta;
+        }
+        participatingTotal += participating - stats.participating;
+        const more =
+          hunkSet.kind === "husk" || hunkSet.kind === "lazy" || hunkSet.skipped;
+        moreCards += Number(more) - Number(stats.more);
+        stats.stable = targets.length;
+        stats.participating = participating;
+        stats.more = more;
+        stats.setPosition({ current: null, total: participating });
+        if (card.dataset.selectedHunkIndex !== undefined) {
+          selectedCards.add(card);
+        } else {
+          selectedCards.delete(card);
+        }
       }
       assert(
-        selectedCards.length === 1,
+        selectedCards.size === (cardStats.size === 0 ? 0 : 1),
         "A non-empty ChangeSet requires exactly one selected FileCard.",
       );
-
-      let stablePositionOffset = 0;
-      let participatingTotal = 0;
+      selectedCard = selectedCards.values().next().value ?? null;
+      if (
+        previousSelected !== null &&
+        previousSelected !== selectedCard &&
+        cardStats.has(previousSelected)
+      ) {
+        const previous = expect(
+          cardStats.get(previousSelected),
+          "Missing previous selected FileCard.",
+        );
+        previous.setPosition({ current: null, total: previous.participating });
+      }
       let selectedCurrent: number | null = null;
       let selectedFileIndex: number | null = null;
-      let hasMore = false;
-      const fileSelectedHunks = new Map<number, HunkPosition>();
-      const stats = new Map<HTMLElement, CardStats>();
-
-      cards.forEach((card) => {
-        const fileIndexText = card.dataset.fileIndex;
-        assert(
-          fileIndexText !== undefined && /^(?:0|[1-9]\d*)$/.test(fileIndexText),
-          "FileCard has an invalid manifest file index.",
+      if (cardStats.size > 0) {
+        const card = expect(
+          selectedCard,
+          "A non-empty ChangeSet requires a selected FileCard.",
         );
-        const fileIndex = Number(fileIndexText);
-        const hunkSet = parseHunkSet(card);
+        assert(
+          card.dataset.selectedHunkIndex !== undefined,
+          "Selected FileCard lost its selected identity.",
+        );
+        const stats = expect(
+          cardStats.get(card),
+          "Selected FileCard is outside the mounted snapshot.",
+        );
         const targets = Array.from(
           card.querySelectorAll<HTMLElement>("[data-hunk-target]"),
         );
-        for (const target of targets) {
-          const hunkIndex = target.dataset.hunkIndex;
-          assert(
-            target.dataset.fileIndex === fileIndexText &&
-              hunkIndex !== undefined &&
-              /^(?:0|[1-9]\d*)$/.test(hunkIndex),
-            `FileCard ${fileIndexText} contains a hunk with invalid coordinates.`,
-          );
+        const selected = storedHunkTarget(card, targets);
+        const localCurrent = targets.indexOf(selected) + 1;
+        selectedCurrent = localCurrent;
+        for (let index = stats.fileIndex; index > 0; index -= index & -index) {
+          selectedCurrent += prefixes[index];
         }
-        const participatingTargets = targets.filter(
-          (target) => !target.classList.contains("skip"),
-        );
-        hasMore ||=
-          hunkSet.kind === "husk" || hunkSet.kind === "lazy" || hunkSet.skipped;
-        let localCurrent: number | null = null;
-        if (card === selectedCards[0]) {
-          selectedFileIndex = fileIndex;
-          const selectedTarget = storedHunkTarget(card, targets);
-          localCurrent = targets.indexOf(selectedTarget) + 1;
-          selectedCurrent = stablePositionOffset + localCurrent;
-        }
-        const localTotal = participatingTargets.length;
-        fileSelectedHunks.set(fileIndex, {
+        selectedFileIndex = stats.fileIndex;
+        stats.setPosition({
           current: localCurrent,
-          total: localTotal,
+          total: stats.participating,
         });
-        stats.set(card, {
-          fileIndex,
-          participating: localTotal,
-          offset: stablePositionOffset,
-        });
-        stablePositionOffset += targets.length;
-        participatingTotal += localTotal;
-      });
-
-      assert(
-        selectedFileIndex !== null && selectedCurrent !== null,
-        "Selected hunk has no calculable DOM position.",
-      );
-      cardStats = stats;
+      }
       return {
         selectedFileIndex,
         globalSelectedHunk: {
           position: { current: selectedCurrent, total: participatingTotal },
-          hasMore,
+          hasMore: moreCards > 0,
         },
         fileSelectedHunks,
       };
     }
 
-    /**
-     * Recomputes the display for a selection-only mutation batch.
-     *
-     * Scroll-follow changes selection on every eligible scroll, so this path
-     * must not walk every mounted target. It reuses the per-card facts of the
-     * last complete calculation and walks only the newly selected FileCard.
-     * `null` reports a failed precondition (no prior complete calculation, or
-     * an unknown selected card); the caller then runs the full walk, which
-     * performs structural validation.
-     *
-     * # Returns
-     *
-     * - A complete display update derived from cached per-card totals and the
-     *   newly selected FileCard.
-     * - `null`: No complete cache exists or the selected card is absent from
-     *   that cache. The observer must run the full structural calculation
-     *   instead.
-     */
-    function calculateSelectionDisplay(): HunkDisplay | null {
-      if (cardStats === null || lastDisplay === null) {
-        return null;
-      }
-      const selectedCards = root.querySelectorAll<HTMLElement>(
-        "[data-file-card][data-selected-hunk-index]",
-      );
-      assert(
-        selectedCards.length === 1,
-        "A non-empty ChangeSet requires exactly one selected FileCard.",
-      );
-      const card = selectedCards[0];
-      if (card === undefined) {
-        return null;
-      }
-      const stats = cardStats.get(card);
-      if (stats === undefined) {
-        return null;
-      }
-      const targets = Array.from(
-        card.querySelectorAll<HTMLElement>("[data-hunk-target]"),
-      );
-      const selectedTarget = storedHunkTarget(card, targets);
-      const localCurrent = targets.indexOf(selectedTarget) + 1;
-      const fileSelectedHunks = new Map(lastDisplay.fileSelectedHunks);
-      const previousIndex = lastDisplay.selectedFileIndex;
-      if (previousIndex !== null && previousIndex !== stats.fileIndex) {
-        const previous = fileSelectedHunks.get(previousIndex);
-        if (previous !== undefined) {
-          fileSelectedHunks.set(previousIndex, {
-            current: null,
-            total: previous.total,
-          });
-        }
-      }
-      fileSelectedHunks.set(stats.fileIndex, {
-        current: localCurrent,
-        total: stats.participating,
-      });
-      return {
-        selectedFileIndex: stats.fileIndex,
-        globalSelectedHunk: {
-          position: {
-            current: stats.offset + localCurrent,
-            total: lastDisplay.globalSelectedHunk.position.total,
-          },
-          hasMore: lastDisplay.globalSelectedHunk.hasMore,
-        },
-        fileSelectedHunks,
-      };
-    }
-
-    let alive = true;
-    let observer: MutationObserver | null = null;
-    let queuedKind: "selective" | "full" | null = null;
-    onCleanup(() => {
-      alive = false;
-      observer?.disconnect();
-    });
-
-    /**
-     * Coalesces one display calculation after renderer mount work.
-     *
-     * TextDiffGrid places its imperative row targets during mount after FileCard has
-     * updated `data-hunk-set`. The extra microtask observes the completed renderer
-     * operation instead of interpreting that internal transition as invalid DOM.
-     * A queued full calculation subsumes a selective one, never the reverse.
-     */
-    function queueDisplayCalculation(kind: "selective" | "full"): void {
-      if (queuedKind !== null) {
-        if (kind === "full") {
-          queuedKind = "full";
-        }
+    /** Coalesce renderer mutations until their complete target DOM is mounted. */
+    function queueDisplayCalculation(): void {
+      if (displayFrame !== null) {
         return;
       }
-      queuedKind = kind;
-      queueMicrotask(() => {
-        const runKind = queuedKind;
-        queuedKind = null;
+      displayFrame = requestAnimationFrame(() => {
+        displayFrame = null;
         if (!alive) {
           return;
         }
-        if (root.querySelector("[data-file-render-error]") !== null) {
-          // The renderer already exposed terminal local damage and its Toast.
-          // Preserve the last successful display without repair or duplication.
+        if (
+          (lastDisplay === null &&
+            root.querySelector("[data-file-render-error]") !== null) ||
+          [...changedCards].some((card) =>
+            card.hasAttribute("data-file-render-error"),
+          )
+        ) {
           observer?.disconnect();
           return;
         }
         try {
-          const display =
-            runKind === "selective"
-              ? (calculateSelectionDisplay() ?? calculateDisplay())
-              : calculateDisplay();
-          lastDisplay = display;
-          props.onDisplayChange(display);
+          // Local position signals and the global mirror describe the same DOM
+          // batch; publish together so headers cannot see intermediate counts.
+          batch(() => {
+            const display = calculateDisplay(changedCards);
+            changedCards.clear();
+            const previous = lastDisplay;
+            lastDisplay = display;
+            if (
+              previous === null ||
+              previous.fileSelectedHunks !== display.fileSelectedHunks ||
+              previous.selectedFileIndex !== display.selectedFileIndex ||
+              previous.globalSelectedHunk.position.current !==
+                display.globalSelectedHunk.position.current ||
+              previous.globalSelectedHunk.position.total !==
+                display.globalSelectedHunk.position.total ||
+              previous.globalSelectedHunk.hasMore !==
+                display.globalSelectedHunk.hasMore
+            ) {
+              props.onDisplayChange(display);
+            }
+          });
         } catch (error) {
           observer?.disconnect();
           toast.showError(
@@ -967,21 +963,23 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
     // its own mount. This MutationObserver must therefore attach in a microtask
     // and calculate only after the FileCards and their imperative rows finish
     // mounting. It watches the three attributes that can change display facts,
-    // coalesces each mutation batch through `queueDisplayCalculation`, and lives
+    // coalesces changed cards once per paint frame, and lives
     // only for this observer component. Cleanup flips `alive` and disconnects;
-    // a queued microtask checks `alive` before reading or publishing detached DOM.
+    // a queued calculation checks `alive` before reading or publishing detached DOM.
     queueMicrotask(() => {
       if (!alive || !root.isConnected) {
         return;
       }
       observer = new MutationObserver((records) => {
-        queueDisplayCalculation(
-          records.every(
-            (record) => record.attributeName === "data-selected-hunk-index",
-          )
-            ? "selective"
-            : "full",
-        );
+        for (const record of records) {
+          assert(
+            record.target instanceof HTMLElement &&
+              record.target.hasAttribute("data-file-card"),
+            "Hunk display mutation requires a stable FileCard.",
+          );
+          changedCards.add(record.target);
+        }
+        queueDisplayCalculation();
       });
       // data-selected-hunk-kind and data-selected-hunk-bay are deliberately
       // not watched: selectHunk() writes the index attribute on every
@@ -996,7 +994,7 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
           "data-file-render-error",
         ],
       });
-      queueDisplayCalculation("full");
+      queueDisplayCalculation();
     });
   });
   return null;

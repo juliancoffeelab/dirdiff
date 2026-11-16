@@ -1492,10 +1492,11 @@ h1 {
 .file-list {
   position: relative;
   z-index: 1;
-  display: grid;
+  /* The sole child arranges the file groups. Avoid another intrinsic grid
+     sizing pass over the complete patch when that child's height changes. */
+  display: block;
   grid-column: 2;
   min-width: 0;
-  gap: 14px;
 }
 
 .review-history-host {
@@ -2809,8 +2810,24 @@ h1 {
 }
 
 .directory-groups {
-  display: grid;
+  /* Files have independent natural heights. Flex avoids recomputing grid tracks
+     across the complete manifest whenever the lane admits another body. */
+  display: flex;
+  flex-direction: column;
   gap: 14px;
+}
+
+.file-layout-group {
+  /* Natural heights preserve document flow. Containment limits repeated layout
+     and paint work to a bounded run of files rather than the whole manifest. */
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  contain: layout paint style;
+}
+
+.file-layout-group.file-group-measured {
+  content-visibility: auto;
 }
 
 .directory-group {
@@ -3027,6 +3044,7 @@ h1 {
 
 .file-card-hunks,
 .file-card-file-hunks {
+  font-variant-numeric: tabular-nums;
   border: 1px solid #ded8cc;
   background: #f4f1ea;
   color: #4b4841;
