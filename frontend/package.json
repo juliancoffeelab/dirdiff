@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prototype:semantic": "open 'http://127.0.0.1:5173/?prototype=semantic&variant=A&fixture=extraction'",
     "build": "bun run typecheck && vite build",
     "test": "VITE_DIRDIFF_BACKEND_ORIGIN=http://127.0.0.1:5052 vitest run --environment jsdom",
     "typecheck": "bun run typecheck:src && bun run typecheck:tools",
@@ -13,7 +14,8 @@
     "lint:human": "eslint --config eslint.human.config.ts \"src/**/*.{ts,tsx}\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "prototype:file-structure": "open 'http://127.0.0.1:5173/?tab=head&repo_id=2&engine=git&view=split&prototype=file-structure'"
   },
   "dependencies": {
     "@tanstack/solid-query": "^5.101.0",

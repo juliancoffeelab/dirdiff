@@ -275,6 +275,15 @@ function resetSearch(
   search.set("tab", tab);
   search.set("engine", engine);
   search.set("view", view);
+  // Retain only the dev file-body experiment across canonical workspace resets.
+  // Ordinary application URLs continue to discard unknown selection fields.
+  if (
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get("prototype") ===
+      "file-structure"
+  ) {
+    search.set("prototype", "file-structure");
+  }
   return search;
 }
 

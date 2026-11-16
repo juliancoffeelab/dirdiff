@@ -7,7 +7,7 @@
  * updates reload the complete URL-backed application; CSS retains Vite's normal
  * stylesheet replacement.
  */
-import { ErrorBoundary, type JSX } from "solid-js";
+import { ErrorBoundary, lazy, Suspense, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { QueryProvider } from "./api/queryClient";
 import { ApplicationErrorPanel, ToastProvider, useToasts } from "./comp/Toasts";
@@ -15,6 +15,15 @@ import { App } from "./hud/App";
 import { ReviewDraftRoot } from "./hud/review/drafts";
 import { expect } from "./utils";
 import "./styles.css";
+
+/** Loads the fixture-only experiment in development; production excludes this import. */
+const SemanticPrototype = import.meta.env.DEV
+  ? lazy(() =>
+      import("./hud/SemanticPrototype").then((module) => ({
+        default: module.SemanticPrototype,
+      })),
+    )
+  : null;
 
 /**
  * Connects Toast reporting to query failures and the root error boundary.
@@ -53,11 +62,18 @@ function main(): void {
   );
 
   render(
-    () => (
-      <ToastProvider>
-        <Root />
-      </ToastProvider>
-    ),
+    () =>
+      SemanticPrototype !== null &&
+      new URLSearchParams(window.location.search).get("prototype") ===
+        "semantic" ? (
+        <Suspense fallback={<p>Loading structure prototypes…</p>}>
+          <SemanticPrototype />
+        </Suspense>
+      ) : (
+        <ToastProvider>
+          <Root />
+        </ToastProvider>
+      ),
     root,
   );
 }

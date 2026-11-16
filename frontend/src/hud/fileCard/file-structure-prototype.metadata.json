@@ -1,0 +1,12 @@
+{
+  "paths": [
+    "frontend/src/hud/App.tsx",
+    "frontend/src/hud/SemanticPrototype.tsx",
+    "frontend/src/hud/changeSet/ChangeSet.tsx",
+    "frontend/src/hud/fileCard/FileCard.tsx",
+    "frontend/src/main.tsx"
+  ],
+  "projectId": 2,
+  "capturedAt": "2026-09-27T12:59:38.579473+00:00",
+  "head": "088316d74f9d220b0f7e0c76b4959848da0350be"
+}

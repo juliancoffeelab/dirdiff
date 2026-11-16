@@ -14,8 +14,11 @@ import {
   ErrorBoundary,
   For,
   Show,
+  Suspense,
+  lazy,
   createEffect,
   createMemo,
+  createSignal,
   onCleanup,
   onMount,
   type Accessor,
@@ -53,6 +56,38 @@ import {
 import type { PseudoHunkIdentity, SkippedHunkIdentity } from "../navigation";
 import { useReview } from "../review/Review";
 import { assert, expect } from "../../utils";
+import type structureCaptureType from "./file-structure-prototype.fixtures.json";
+import structureMetadata from "./file-structure-prototype.metadata.json";
+import "./file-structure-prototype.css";
+
+/**
+ * Loads genuine graph evidence only when an explicitly selected prototype body mounts.
+ *
+ * The normal HUD imports only tiny capture metadata. The frozen multi-megabyte
+ * sem artifact is a separate development chunk, shared by the prototype cards.
+ */
+const CapturedFileStructure = import.meta.env.DEV
+  ? lazy(async () => {
+      const capture = await import("./file-structure-prototype.fixtures.json");
+      return {
+        default: (
+          props: Omit<Parameters<typeof FileStructurePrototype>[0], "capture">,
+        ) => <FileStructurePrototype {...props} capture={capture.default} />,
+      };
+    })
+  : null;
+
+/**
+ * Names changed source files covered by the development-only frozen sem capture.
+ *
+ * ChangeSet uses this metadata only to offer an explicit jump into captured source.
+ * Complete graph, source, and raw sem evidence remain private to FileCard.
+ * Production has no prototype metadata; this constant is not backend File data.
+ */
+export const fileStructurePrototypePaths: readonly string[] | null = import.meta
+  .env.DEV
+  ? structureMetadata.paths
+  : null;
 
 /**
  * Describes the line-preparation operation attached by FullFile.
@@ -830,6 +865,19 @@ function FullFileRenderer(
   } & HunkCounterProps,
 ): JSX.Element {
   const backend_data = props.file_state.backend_data;
+  // This throwaway mode replaces exact changed-code bodies in the captured repository.
+  // The canonical backend result continues to supply headers and hunk stops.
+  const prototypeSearch = new URLSearchParams(window.location.search);
+  const structureFixture =
+    import.meta.env.DEV &&
+    prototypeSearch.get("prototype") === "file-structure" &&
+    prototypeSearch.get("tab") === "head" &&
+    prototypeSearch.get("repo_id") === String(structureMetadata.projectId)
+      ? structureMetadata.paths.find(
+          (path) => path === backend_data.display_name,
+        )
+      : undefined;
+  const [prototypeSource, setPrototypeSource] = createSignal(false);
   // Hunk coordinates are bay-local and arrive on the wire, so the check is
   // the wire contract itself: a bay whose rows carry the stops must number
   // them zero through n-1 in row order. A mismatch means the backend numbered
@@ -885,6 +933,12 @@ function FullFileRenderer(
       return { state: "stopped" };
     }
     assert(props.admitted, "Line preparation requires an admitted FullFile.");
+    // Pins and review jumps prepare actual engine source, never fixture rows.
+    // The explicit switch restores the ordinary bay interface before lookup.
+    if (structureFixture !== undefined && !prototypeSource()) {
+      setPrototypeSource(true);
+      await Promise.resolve();
+    }
     if (!props.expanded) {
       props.onExpandedChange(true);
       // Expansion is a signal write, so the File body does not exist until
@@ -1009,22 +1063,88 @@ function FullFileRenderer(
       </Show>
       <Show when={props.expanded && props.admitted}>
         <div class="file-card-body" data-file-body>
-          {/* The frame renderer walks the backend's frames and bays and draws
+          <Show when={structureFixture !== undefined}>
+            <div class="fsp-toolbar">
+              <span>
+                Frozen sem capture · genuine before/after graph relationships
+              </span>
+              <div>
+                <button
+                  type="button"
+                  aria-pressed={!prototypeSource()}
+                  onClick={() => setPrototypeSource(false)}
+                >
+                  Structure
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={prototypeSource()}
+                  onClick={() => setPrototypeSource(true)}
+                >
+                  Source diff
+                </button>
+              </div>
+            </div>
+          </Show>
+          <Show
+            when={structureFixture !== undefined && !prototypeSource()}
+            fallback={
+              <>
+                {/* The frame renderer walks the backend's frames and bays and draws
               each bay by its kind; a plain text file is one heading-less frame
               holding one text bay. Rows retain the exact backend labels and
               hints. This boundary does not subscribe to progress, headers,
               other files, or navigation state. */}
-          <FrameView
-            reviewFile={props.reviewFile}
-            fileIndex={props.file_state.fileIndex}
-            backend_data={props.file_state.backend_data}
-            view={props.view}
-            aggressiveFolds={props.aggressiveFolds}
-            linePins={props.linePins}
-            card={props.card}
-            bayExpansion={props.bayExpansion}
-            bayRenderModes={props.bayRenderModes}
-          />
+                <FrameView
+                  reviewFile={props.reviewFile}
+                  fileIndex={props.file_state.fileIndex}
+                  backend_data={props.file_state.backend_data}
+                  view={props.view}
+                  aggressiveFolds={props.aggressiveFolds}
+                  linePins={props.linePins}
+                  card={props.card}
+                  bayExpansion={props.bayExpansion}
+                  bayRenderModes={props.bayRenderModes}
+                />
+              </>
+            }
+          >
+            <Suspense
+              fallback={
+                <div class="fsp-loading">
+                  <p>Loading frozen sem graph…</p>
+                  <For each={hunkStops}>
+                    {(stop) => (
+                      <span
+                        data-hunk-target
+                        data-hunk-kind="real"
+                        data-file-index={props.file_state.fileIndex}
+                        data-hunk-bay={stop.bay}
+                        data-hunk-index={stop.hunkIndex}
+                      >
+                        Source change {stop.hunkIndex + 1}
+                      </span>
+                    )}
+                  </For>
+                </div>
+              }
+            >
+              <Show when={CapturedFileStructure} keyed>
+                {(Prototype) => (
+                  <Prototype
+                    fixturePath={expect(
+                      structureFixture,
+                      "The structural body requires a matching fixture.",
+                    )}
+                    backendData={backend_data}
+                    fileIndex={props.file_state.fileIndex}
+                    hunkStops={hunkStops}
+                    onSource={() => setPrototypeSource(true)}
+                  />
+                )}
+              </Show>
+            </Suspense>
+          </Show>
         </div>
       </Show>
     </>
@@ -1522,5 +1642,639 @@ function VisibilityIndicator(props: {
     >
       {props.virtualized ? "V" : ""}
     </span>
+  );
+}
+
+/**
+ * Renders one captured changed-code declaration tree inside its real FileCard.
+ *
+ * Source and declaration facts come from frozen current-worktree files and sem output.
+ * Present declarations retain new-source order within their parent. Removed
+ * siblings retain their old position before the next surviving sibling, or
+ * after their preceding sibling when no successor survives. Status never sorts
+ * declarations; the captured sem parent chains supply every known relationship path.
+ * Every arrow retains its raw sem refType and before/after evidence, including false matches.
+ * Local disclosures live only for this body mount. Backend hunk coordinates
+ * remain authoritative; fixture source has no review, pin, or engine identity.
+ */
+function FileStructurePrototype(props: {
+  /** Exact changed-code FileCard identity covered by the frozen capture. */
+  fixturePath: string;
+  /** Genuine sem output and exact captured source, loaded only in this prototype. */
+  capture: typeof structureCaptureType;
+  /** Actual composed diff used exclusively to locate original engine hunk source. */
+  backendData: FileDiff;
+  /** Stable manifest coordinate passed unchanged to hunk targets. */
+  fileIndex: number;
+  /** Complete original hunk coordinates, in canonical backend order. */
+  hunkStops: {
+    /** Original composed bay identity, never a fixture node identity. */
+    bay: string;
+    /** Original bay-local engine hunk coordinate. */
+    hunkIndex: number;
+  }[];
+  /** Explicitly restores the real source renderer for unrepresented changes. */
+  onSource: () => void;
+}): JSX.Element {
+  const structureCapture = props.capture;
+  const fixture = expect(
+    structureCapture.files.find((file) => file.path === props.fixturePath),
+    "A sem body requires its exact captured file.",
+  );
+  const [selected, setSelected] = createSignal<string | null>(null);
+  const [sourceNodes, setSourceNodes] = createSignal<Set<string>>(new Set());
+  const [allCalls, setAllCalls] = createSignal<Set<string>>(new Set());
+  const [allIncoming, setAllIncoming] = createSignal<Set<string>>(new Set());
+  const nodes = fixture.nodes;
+  const capturedNodes = structureCapture.files.flatMap<
+    (typeof structureCapture.files)[number]["nodes"][number]
+  >((file) => file.nodes);
+  const capturedIds = new Set<string>(capturedNodes.map((node) => node.id));
+  const capturedParentIds = new Set<string | null>(
+    capturedNodes.map((node) => node.parentId),
+  );
+  // An explicit relation activation reveals captured source locally. Foreign
+  // unchanged files remain read-only metadata; there is no pretend destination.
+  const [reference, setReference] = createSignal<{
+    /** Declaration row that hosts this explicit source peek. */
+    row: string;
+    /** Actual sem entity identity whose captured source is displayed. */
+    target: string;
+  } | null>(null);
+  const referenceNode = createMemo(() => {
+    const active = reference();
+    return active === null
+      ? null
+      : expect(
+          capturedNodes.find((node) => node.id === active.target),
+          "A source peek requires a declaration in a captured changed file.",
+        );
+  });
+
+  /**
+   * Labels a known declaration by its actual source-side file and full ancestry.
+   *
+   * Removed edges use the old snapshot. Other edges use the new snapshot.
+   * Ancestry comes from sem parentId chains, never from splitting an entity id.
+   *
+   * @param node Known fixture declaration with ancestry on the displayed source side.
+   * @param status Exact added, removed, or unchanged relationship state selecting that side.
+   */
+  function declarationPath(
+    node: (typeof structureCapture.entities)[number],
+    status: string,
+  ): string {
+    assert(
+      status === "added" || status === "removed" || status === "unchanged",
+      "A call path requires a known relationship status.",
+    );
+    const ancestry = expect(
+      status === "removed" ? node.oldAncestry : node.newAncestry,
+      "A known relationship declaration requires ancestry on its displayed side.",
+    );
+    return (
+      [
+        status === "removed"
+          ? expect(
+              node.oldPath,
+              "A before-side reference requires its captured file path.",
+            )
+          : node.path,
+        ...ancestry,
+      ].join(" → ") +
+      (node.kind === "function" || node.kind === "method" ? "()" : "")
+    );
+  }
+  /**
+   * Describes the call change independently of whether its caller was created.
+   *
+   * @param caller Actual declaration making the call in the fixture.
+   * @param status Exact added, removed, or unchanged relationship state.
+   * @param refType Native sem relationship kind, displayed without translation.
+   */
+  function callChange(
+    caller: (typeof structureCapture.entities)[number],
+    status: string,
+    refType: string,
+  ): string {
+    if (status === "added") {
+      return refType === "calls"
+        ? caller.status === "added"
+          ? "New caller calls"
+          : "Started calling"
+        : caller.status === "added"
+          ? `New declaration · ${refType}`
+          : `Added ${refType}`;
+    }
+    if (status === "removed") {
+      return refType === "calls"
+        ? caller.status === "removed"
+          ? "Removed caller called"
+          : "Stopped calling"
+        : caller.status === "removed"
+          ? `Removed declaration · ${refType}`
+          : `Removed ${refType}`;
+    }
+    assert(
+      status === "unchanged",
+      "A call description requires a known relationship status.",
+    );
+    return refType === "calls" ? "Existing call" : `Existing ${refType}`;
+  }
+
+  // Each original stop is labelled using its actual row's source coordinate.
+  // Keep this strip in backend order: tree order cannot renumber engine hunks.
+  const stops = props.hunkStops.map((stop) => {
+    const bay = expect(
+      props.backendData.frames
+        .flatMap((frame) => frame.bays)
+        .find((candidate) => candidate.bay_key === stop.bay),
+      "Prototype hunk bay is missing.",
+    );
+    const row =
+      "rows" in bay.kind_data
+        ? bay.kind_data.rows.find(
+            (candidate) => candidate.hunk_index === stop.hunkIndex,
+          )
+        : undefined;
+    const node =
+      row === undefined
+        ? undefined
+        : nodes.find(
+            (candidate) =>
+              (row.right_no !== null &&
+                candidate.newRange !== null &&
+                row.right_no >= candidate.newRange[0]! &&
+                row.right_no <= candidate.newRange[1]!) ||
+              (row.left_no !== null &&
+                candidate.oldRange !== null &&
+                row.left_no >= candidate.oldRange[0]! &&
+                row.left_no <= candidate.oldRange[1]!),
+          );
+    return { ...stop, node };
+  });
+
+  return (
+    <div class="fsp-body">
+      <div class="fsp-provenance">
+        {structureCapture.provenance.semVersion} · captured{" "}
+        {structureCapture.provenance.capturedAt} · HEAD{" "}
+        {structureCapture.provenance.head.slice(0, 8)} · scope{" "}
+        {structureCapture.provenance.extensions.join(", ")}. This is a frozen
+        tool capture; reported targets may be incorrect.
+      </div>
+      <div class="fsp-legend">
+        <span class="fsp-state added">+ added</span>
+        <span class="fsp-state removed">− removed</span>
+        <span class="fsp-state modified">~ modified declaration</span>
+        <span class="fsp-state unchanged">unchanged</span>
+        <span>Arrows: relationship changes. Labels: declaration changes.</span>
+      </div>
+      <Show when={stops.length > 0}>
+        <div class="fsp-hunks">
+          <span>Source changes</span>
+          <For each={stops}>
+            {(stop) => (
+              <button
+                type="button"
+                data-hunk-target
+                data-hunk-kind="real"
+                data-file-index={props.fileIndex}
+                data-hunk-bay={stop.bay}
+                data-hunk-index={stop.hunkIndex}
+                onClick={() => {
+                  if (stop.node === undefined) {
+                    props.onSource();
+                    return;
+                  }
+                  setSelected(stop.node.id);
+                  setSourceNodes(
+                    (current) => new Set([...current, stop.node!.id]),
+                  );
+                }}
+              >
+                {stop.node === undefined
+                  ? "Module source / imports"
+                  : stop.node.name}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+      <div class="fsp-column-labels">
+        <span>Incoming · sem reports</span>
+        <span>Declarations</span>
+        <span>Outgoing · sem reports calls / typeref</span>
+      </div>
+      <For each={nodes}>
+        {(node) => {
+          // Include every present call-change category in the compact sample.
+          // Remaining edges use one explicit disclosure, with no inferred data.
+          const initialCalls = ["unchanged", "added", "removed"].flatMap(
+            (status) => {
+              const edge = node.outgoing.find(
+                (candidate) => candidate.status === status,
+              );
+              return edge === undefined ? [] : [edge];
+            },
+          );
+          for (const edge of node.outgoing) {
+            if (initialCalls.length >= 5) {
+              break;
+            }
+            if (!initialCalls.includes(edge)) {
+              initialCalls.push(edge);
+            }
+          }
+          /** Reads the explicitly disclosed outgoing edges for this node. */
+          const visibleCalls = () =>
+            allCalls().has(node.id) ? node.outgoing : initialCalls;
+          const incoming = node.incoming.map((edge) => ({
+            ...edge,
+            caller: expect(
+              structureCapture.entities.find(
+                (candidate) => candidate.id === edge.nodeId,
+              ),
+              "An incoming sem edge requires its raw caller entity.",
+            ),
+          }));
+          // Incoming density uses its own disclosure and keeps every delta category visible.
+          const initialIncoming = ["unchanged", "added", "removed"].flatMap(
+            (status) => {
+              const edge = incoming.find(
+                (candidate) => candidate.status === status,
+              );
+              return edge === undefined ? [] : [edge];
+            },
+          );
+          for (const edge of incoming) {
+            if (initialIncoming.length >= 5) {
+              break;
+            }
+            if (!initialIncoming.includes(edge)) {
+              initialIncoming.push(edge);
+            }
+          }
+          /** Reads this node's explicitly disclosed incoming relationships. */
+          const visibleIncoming = () =>
+            allIncoming().has(node.id) ? incoming : initialIncoming;
+          const hasChildren = capturedParentIds.has(node.id);
+          return (
+            <section
+              class="fsp-node"
+              style={{ "--fsp-source-indent": `${(node.depth + 1) * 22}px` }}
+              data-node-id={node.id}
+              classList={{
+                "fsp-selected": selected() === node.id,
+                "fsp-child": node.depth > 0,
+                "fsp-last-child": node.depth > 0 && node.lastSibling,
+              }}
+            >
+              <div
+                class="fsp-node-row"
+                style={{ "--fsp-indent": `${node.depth * 22}px` }}
+              >
+                <span class="fsp-tree-guides" aria-hidden="true">
+                  <For each={node.guides}>
+                    {(guide) => (
+                      <span
+                        classList={{ "fsp-guide-half": guide.half }}
+                        style={{ left: `${guide.level * 22 - 15}px` }}
+                      />
+                    )}
+                  </For>
+                  <Show when={hasChildren}>
+                    <span
+                      class="fsp-guide-start"
+                      style={{ left: `${(node.depth + 1) * 22 - 15}px` }}
+                    />
+                  </Show>
+                  <Show when={node.depth > 0}>
+                    <i style={{ left: `${node.depth * 22 - 15}px` }} />
+                  </Show>
+                </span>
+                <div
+                  class="fsp-relations fsp-incoming"
+                  classList={{
+                    "fsp-all-added":
+                      visibleIncoming().length > 0 &&
+                      visibleIncoming().every(
+                        (edge) => edge.status === "added",
+                      ),
+                    "fsp-all-removed":
+                      visibleIncoming().length > 0 &&
+                      visibleIncoming().every(
+                        (edge) => edge.status === "removed",
+                      ),
+                  }}
+                >
+                  <For each={visibleIncoming()}>
+                    {(edge) => (
+                      <button
+                        type="button"
+                        class={`fsp-edge ${edge.status}`}
+                        data-ref-type={edge.refType}
+                        data-raw-before-indices={edge.rawBeforeIndices.join(
+                          ",",
+                        )}
+                        data-raw-after-indices={edge.rawAfterIndices.join(",")}
+                        data-edge-direction="incoming"
+                        data-edge-status={edge.status}
+                        data-reference-status={edge.caller.status}
+                        data-caller-status={edge.caller.status}
+                        title={`${callChange(edge.caller, edge.status, edge.refType)}: ${declarationPath(edge.caller, edge.status)}`}
+                        disabled={!capturedIds.has(edge.caller.id)}
+                        onClick={() => {
+                          if (edge.caller.path === fixture.path) {
+                            setSelected(edge.caller.id);
+                          }
+                          setReference({
+                            row: node.id,
+                            target: edge.caller.id,
+                          });
+                        }}
+                      >
+                        <span class="fsp-edge-label">
+                          <span class={`fsp-reference ${edge.caller.status}`}>
+                            {declarationPath(edge.caller, edge.status)}
+                          </span>
+                          <span class="fsp-call-change">
+                            {callChange(edge.caller, edge.status, edge.refType)}
+                          </span>
+                          <Show when={!capturedIds.has(edge.caller.id)}>
+                            <small>Outside current diff · read-only</small>
+                          </Show>
+                          <Show when={edge.issue !== null}>
+                            <small class="fsp-tool-issue">
+                              Known sem resolution issue: {edge.issue}
+                            </small>
+                          </Show>
+                        </span>
+                        <span class="fsp-arrow" aria-hidden="true" />
+                      </button>
+                    )}
+                  </For>
+                </div>
+                <button
+                  type="button"
+                  title={`sem entity kind ${node.kind}. ${node.hierarchyNote === null ? "Hierarchy follows the tool's parentId." : node.hierarchyNote}`}
+                  class={`fsp-declaration ${node.status}`}
+                  style={{ "margin-left": `${node.depth * 22}px` }}
+                  aria-expanded={sourceNodes().has(node.id)}
+                  onClick={() => {
+                    setSelected(node.id);
+                    setSourceNodes((current) => {
+                      const next = new Set(current);
+                      if (next.has(node.id)) {
+                        next.delete(node.id);
+                      } else {
+                        next.add(node.id);
+                      }
+                      return next;
+                    });
+                  }}
+                >
+                  <span class="fsp-disclosure">
+                    {sourceNodes().has(node.id) ? "▾" : "▸"}
+                  </span>
+                  <span class="fsp-kind">
+                    {node.kind === "orphan" ? "source" : node.kind}
+                  </span>
+                  <strong>
+                    {node.kind === "orphan"
+                      ? `module-level change · ${node.oldRange !== null ? `old ${node.oldRange[0]}–${node.oldRange[1]}` : `new ${expect(node.newRange, "A sem source change requires its reported range.")[0]}–${expect(node.newRange, "A sem source change requires its reported range.")[1]}`}`
+                      : node.name}
+                    {node.kind === "function" || node.kind === "method"
+                      ? "()"
+                      : ""}
+                  </strong>
+                  <span class="fsp-state">
+                    {node.status === "added"
+                      ? "+ added"
+                      : node.status === "removed"
+                        ? "− removed"
+                        : node.status === "modified"
+                          ? "~ modified"
+                          : node.status === "unclassified"
+                            ? "sem change unclassified"
+                            : ""}
+                  </span>
+                </button>
+                <div
+                  class="fsp-relations fsp-outgoing"
+                  classList={{
+                    "fsp-all-added":
+                      visibleCalls().length > 0 &&
+                      visibleCalls().every((edge) => edge.status === "added"),
+                    "fsp-all-removed":
+                      visibleCalls().length > 0 &&
+                      visibleCalls().every((edge) => edge.status === "removed"),
+                  }}
+                >
+                  <For each={visibleCalls()}>
+                    {(edge) => {
+                      const target = expect(
+                        structureCapture.entities.find(
+                          (candidate) => candidate.id === edge.nodeId,
+                        ),
+                        "A sem edge requires its raw target entity.",
+                      );
+                      return (
+                        <button
+                          type="button"
+                          class={`fsp-edge ${edge.status}`}
+                          data-ref-type={edge.refType}
+                          data-raw-before-indices={edge.rawBeforeIndices.join(
+                            ",",
+                          )}
+                          data-raw-after-indices={edge.rawAfterIndices.join(
+                            ",",
+                          )}
+                          data-edge-direction="outgoing"
+                          data-edge-status={edge.status}
+                          data-reference-status={target.status}
+                          data-caller-status={node.status}
+                          disabled={!capturedIds.has(target.id)}
+                          title={`${callChange(node, edge.status, edge.refType)}. ${capturedIds.has(target.id) ? "Open actual captured reference source." : "Outside current diff; read-only sem metadata."}`}
+                          onClick={() => {
+                            const actual = expect(
+                              target,
+                              "A sem relationship requires its actual endpoint.",
+                            );
+                            if (actual.path === fixture.path) {
+                              setSelected(actual.id);
+                            }
+                            setReference({ row: node.id, target: actual.id });
+                          }}
+                        >
+                          <span class="fsp-arrow" aria-hidden="true" />
+                          <span class="fsp-edge-label">
+                            <span class={`fsp-reference ${target.status}`}>
+                              {declarationPath(target, edge.status)}
+                            </span>
+                            <span class="fsp-call-change">
+                              {callChange(node, edge.status, edge.refType)}
+                            </span>
+                            <Show when={!capturedIds.has(target.id)}>
+                              <small>Outside current diff · read-only</small>
+                            </Show>
+                            <Show when={edge.issue !== null}>
+                              <small class="fsp-tool-issue">
+                                Known sem resolution issue: {edge.issue}
+                              </small>
+                            </Show>
+                          </span>
+                        </button>
+                      );
+                    }}
+                  </For>
+                </div>
+              </div>
+              <div class="fsp-node-details">
+                <span class="fsp-tree-guides" aria-hidden="true">
+                  <For
+                    each={node.guides.filter((guide) => guide.half === false)}
+                  >
+                    {(guide) => (
+                      <span style={{ left: `${guide.level * 22 - 15}px` }} />
+                    )}
+                  </For>
+                  <Show when={hasChildren}>
+                    <span style={{ left: `${(node.depth + 1) * 22 - 15}px` }} />
+                  </Show>
+                </span>
+                <Show when={incoming.length > initialIncoming.length}>
+                  <button
+                    type="button"
+                    class="fsp-more fsp-more-incoming"
+                    onClick={() =>
+                      setAllIncoming((current) => {
+                        const next = new Set(current);
+                        if (next.has(node.id)) {
+                          next.delete(node.id);
+                        } else {
+                          next.add(node.id);
+                        }
+                        return next;
+                      })
+                    }
+                  >
+                    {allIncoming().has(node.id)
+                      ? "Fewer incoming relationships"
+                      : `Show all ${incoming.length} incoming relationships`}
+                  </button>
+                </Show>
+                <Show when={node.outgoing.length > initialCalls.length}>
+                  <button
+                    type="button"
+                    class="fsp-more"
+                    onClick={() =>
+                      setAllCalls((current) => {
+                        const next = new Set(current);
+                        if (next.has(node.id)) {
+                          next.delete(node.id);
+                        } else {
+                          next.add(node.id);
+                        }
+                        return next;
+                      })
+                    }
+                  >
+                    {allCalls().has(node.id)
+                      ? "Fewer relationships"
+                      : `Show all ${node.outgoing.length} relationships`}
+                  </button>
+                </Show>
+                <Show
+                  when={reference()?.row === node.id && referenceNode()}
+                  keyed
+                >
+                  {(target) => (
+                    <div class="fsp-source fsp-reference-source">
+                      <div class="fsp-source-heading">
+                        <span>
+                          Captured reference · {target.path} · {target.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setReference(null)}
+                        >
+                          Close
+                        </button>
+                      </div>
+                      <div class="fsp-source-heading fsp-reference-columns">
+                        <span>Before</span>
+                        <span>After</span>
+                      </div>
+                      <For each={target.rows}>
+                        {(row) => (
+                          <div class={`fsp-source-row ${row.status}`}>
+                            <span class="fsp-source-side">
+                              <span>{row.old?.line}</span>
+                              <code>{row.old?.text}</code>
+                            </span>
+                            <span class="fsp-source-side">
+                              <span>{row.new?.line}</span>
+                              <code>{row.new?.text}</code>
+                            </span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  )}
+                </Show>
+                <Show when={sourceNodes().has(node.id)}>
+                  <div class="fsp-source">
+                    <div class="fsp-source-heading">
+                      <span>Before</span>
+                      <span>After</span>
+                    </div>
+                    <For each={node.rows}>
+                      {(row) => (
+                        <div class={`fsp-source-row ${row.status}`}>
+                          <span class="fsp-source-side">
+                            <span>{row.old?.line}</span>
+                            <code>{row.old?.text}</code>
+                          </span>
+                          <span class="fsp-source-side">
+                            <span>{row.new?.line}</span>
+                            <code>{row.new?.text}</code>
+                          </span>
+                        </div>
+                      )}
+                    </For>
+                    <button
+                      type="button"
+                      class="fsp-full-source"
+                      onClick={props.onSource}
+                    >
+                      Open actual source diff for line pins and comments
+                    </button>
+                  </div>
+                </Show>
+              </div>
+            </section>
+          );
+        }}
+      </For>
+      <details class="fsp-state-details">
+        <summary>Capture evidence and local state</summary>
+        <pre>
+          {JSON.stringify(
+            {
+              selected: selected(),
+              inlineSource: [...sourceNodes()],
+              expandedCalls: [...allCalls()],
+              expandedIncoming: [...allIncoming()],
+              reference: reference(),
+              provenance: structureCapture.provenance,
+              fixture,
+            },
+            null,
+            2,
+          )}
+        </pre>
+      </details>
+    </div>
   );
 }

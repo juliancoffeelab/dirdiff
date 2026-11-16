@@ -47,7 +47,7 @@ import {
 import { assert, expect } from "../../utils";
 import type { DiffViewMode } from "../App";
 import type { AppHeaderOutlets } from "../AppHeader";
-import { FileCard } from "../fileCard/FileCard";
+import { FileCard, fileStructurePrototypePaths } from "../fileCard/FileCard";
 import {
   createFileLane,
   fileDisplayName,
@@ -817,6 +817,7 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
   const queryClient = useQueryClient();
   const toast = useToasts();
   const pins = linePins();
+  const navigation = useNavigation();
   let changeSetRoot!: HTMLDivElement;
   const orderedFiles = manifestFilesInOrder(props.manifest.tree);
   const fileIndexByKey = new Map<string, number>();
@@ -834,6 +835,24 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
   // deliberately name their fixture by its new-side path, falling to the
   // old side for a fixture that only deletes. The lane asserts file
   // responses against these names.
+  const prototypeFileIndex =
+    import.meta.env.DEV &&
+    props.params.tab === "head" &&
+    props.params.project_id === 2 &&
+    new URLSearchParams(window.location.search).get("prototype") ===
+      "file-structure"
+      ? orderedFiles.findIndex((file) =>
+          expect(
+            fileStructurePrototypePaths,
+            "The sem prototype requires captured file paths.",
+          ).includes(
+            expect(
+              file.entry.right_path ?? file.entry.left_path,
+              "A captured file needs its exact source identity.",
+            ),
+          ),
+        )
+      : -1;
   const canonicalNames = orderedFiles.map((file) =>
     props.params.tab !== "preset"
       ? fileDisplayName(file.entry)
@@ -1017,6 +1036,22 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
       </Portal>
       <p class="status change-set-title">
         {changeSetTitle(props.params, props.manifest)}
+        <Show when={prototypeFileIndex >= 0}>
+          <button
+            type="button"
+            class="fsp-entry"
+            disabled={!lane.admitted(prototypeFileIndex)}
+            onClick={() => {
+              void navigation
+                .navigate({ kind: "file", fileIndex: prototypeFileIndex })
+                .catch((error: unknown) =>
+                  toast.showError("Could not open captured structure", error),
+                );
+            }}
+          >
+            Open first captured source file
+          </button>
+        </Show>
       </p>
       <div
         ref={changeSetRoot}
@@ -1288,7 +1323,12 @@ function ManifestStatistics(props: {
 function changeSetTitle(params: DiffParams, manifest: Manifest): string {
   switch (params.tab) {
     case "head":
-      return "Working tree vs HEAD";
+      return import.meta.env.DEV &&
+        params.project_id === 2 &&
+        new URLSearchParams(window.location.search).get("prototype") ===
+          "file-structure"
+        ? "Working tree vs HEAD · frozen sem structure capture for changed source files"
+        : "Working tree vs HEAD";
     case "refs":
       return `${manifest.left_label} vs ${manifest.right_label}`;
     case "branch-review": {

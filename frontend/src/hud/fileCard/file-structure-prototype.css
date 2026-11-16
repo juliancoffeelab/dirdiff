@@ -1,0 +1,529 @@
+/* Throwaway captured-sem file meat. The real HUD and FileCard header keep their styles. */
+.fsp-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 16px;
+  border-bottom: 1px solid #ded8cc;
+  font-size: 12px;
+  color: #706b60;
+}
+.fsp-toolbar > div {
+  display: flex;
+  gap: 4px;
+}
+.fsp-toolbar button,
+.fsp-hunks button,
+.fsp-more,
+.fsp-full-source {
+  border: 1px solid #ded8cc;
+  border-radius: 3px;
+  padding: 4px 8px;
+  background: #fbfaf7;
+  color: #49453c;
+  font-size: 12px;
+}
+.fsp-toolbar button[aria-pressed="true"] {
+  background: #eee9df;
+  color: #24231f;
+}
+.fsp-body {
+  padding: 12px 16px 20px;
+}
+.fsp-legend {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  font-size: 11px;
+  color: #706b60;
+  margin-bottom: 12px;
+}
+.fsp-state {
+  font-size: 11px;
+  white-space: nowrap;
+  color: #706b60;
+}
+.fsp-state.added,
+.fsp-edge.added,
+.fsp-declaration.added .fsp-state {
+  color: #146b3b;
+}
+.fsp-state.removed,
+.fsp-edge.removed,
+.fsp-declaration.removed .fsp-state {
+  color: #971d28;
+}
+.fsp-state.modified,
+.fsp-declaration.modified .fsp-state {
+  color: #7b4a0c;
+}
+.fsp-hunks {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 11px;
+  color: #706b60;
+}
+.fsp-column-labels,
+.fsp-node-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 24%) minmax(300px, 42%) minmax(
+      210px,
+      34%
+    );
+}
+.fsp-column-labels {
+  padding-bottom: 8px;
+  font-size: 11px;
+  color: #706b60;
+  border-bottom: 1px solid #ded8cc;
+}
+.fsp-column-labels > span:nth-child(2) {
+  padding-left: 12px;
+}
+.fsp-node {
+  border-bottom: 1px solid #eae5dc;
+}
+.fsp-node-row {
+  align-items: center;
+  padding: 12px 0;
+  min-height: 59px;
+}
+.fsp-selected {
+  background: #f1eee6;
+}
+.fsp-declaration {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 37px;
+  border: 1px solid #c8c1b3;
+  border-left: 3px solid #b7b0a3;
+  border-radius: 2px;
+  padding: 8px 10px;
+  background: #fbfaf7;
+  text-align: left;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.fsp-declaration strong {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.fsp-declaration .fsp-state {
+  margin-left: auto;
+  padding-left: 5px;
+  font-family: inherit;
+}
+.fsp-kind,
+.fsp-disclosure {
+  color: #706b60;
+}
+.fsp-declaration.added {
+  background: #edf7ef;
+  border-left-color: #23834d;
+}
+.fsp-declaration.removed {
+  background: #fbefef;
+  border-left-color: #b13b43;
+}
+.fsp-declaration.modified {
+  background: #fff8e3;
+  border-left-color: #b88721;
+}
+.fsp-relations {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.fsp-incoming {
+  padding-right: 0;
+}
+.fsp-outgoing {
+  padding-left: 0;
+}
+.fsp-edge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #706b60;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  text-align: left;
+}
+.fsp-edge:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.fsp-edge > span:not(.fsp-arrow) {
+  padding: 3px 5px;
+  overflow-wrap: anywhere;
+}
+.fsp-incoming .fsp-arrow {
+  flex: 1;
+  text-align: right;
+}
+.fsp-arrow {
+  min-width: 25px;
+  font-size: 21px;
+  line-height: 20px;
+}
+.fsp-more {
+  margin: 2px 0 0 30px;
+  width: fit-content;
+  border: 0;
+  background: transparent;
+  text-decoration: underline;
+}
+.fsp-source {
+  margin: 0 0 12px calc(24% + var(--fsp-source-indent));
+  border: 1px solid #ded8cc;
+  background: #fffefa;
+  overflow-x: auto;
+}
+.fsp-source-heading,
+.fsp-source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.fsp-source-heading {
+  background: #eee9df;
+  color: #706b60;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+.fsp-source-side {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  min-width: 0;
+  border-right: 1px solid #eae5dc;
+  font-size: 11px;
+  line-height: 20px;
+}
+.fsp-source-side > span {
+  text-align: right;
+  padding-right: 8px;
+  color: #928a7c;
+  user-select: none;
+}
+.fsp-source-side code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  padding-right: 8px;
+}
+.fsp-source-row.added > .fsp-source-side:last-child,
+.fsp-source-row.modified > .fsp-source-side:last-child {
+  background: #e5f4e9;
+}
+.fsp-source-row.removed > .fsp-source-side:first-child,
+.fsp-source-row.modified > .fsp-source-side:first-child {
+  background: #f9e7e7;
+}
+.fsp-full-source {
+  margin: 8px;
+}
+
+/* The shared branch belongs to the declaration row; colored twigs are edges. */
+.fsp-toolbar {
+  padding-right: 92px;
+}
+.fsp-relations {
+  position: relative;
+}
+.fsp-arrow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 20px;
+  font-size: 0;
+}
+.fsp-arrow::before {
+  content: "";
+  width: 100%;
+  border-top: 1px solid currentColor;
+}
+.fsp-arrow::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  border-left: 5px solid currentColor;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+}
+.fsp-edge.removed .fsp-arrow::before {
+  border-top-style: dashed;
+}
+.fsp-outgoing .fsp-arrow {
+  width: 25px;
+  flex: 0 0 25px;
+}
+.fsp-incoming .fsp-arrow {
+  min-width: 15px;
+}
+.fsp-child .fsp-node-row {
+  padding: 4px 0;
+  min-height: 44px;
+}
+.fsp-child .fsp-declaration {
+  position: relative;
+  min-height: 31px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.fsp-child .fsp-declaration::before {
+  content: "";
+  position: absolute;
+  left: -15px;
+  top: -15px;
+  bottom: -15px;
+  border-left: 1px solid #c8c1b3;
+}
+.fsp-child .fsp-declaration::after {
+  content: "";
+  position: absolute;
+  left: -15px;
+  top: 50%;
+  width: 14px;
+  border-top: 1px solid #c8c1b3;
+}
+
+.fsp-state-details {
+  margin-top: 12px;
+  color: #706b60;
+  font-size: 11px;
+}
+.fsp-state-details summary {
+  cursor: pointer;
+}
+.fsp-state-details pre {
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #ded8cc;
+  color: #49453c;
+  background: #fbfaf7;
+}
+
+/* The final child reaches its own midpoint, not the next top-level declaration. */
+.fsp-last-child .fsp-declaration::before {
+  bottom: 50%;
+}
+.fsp-edge > span:not(.fsp-arrow) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.fsp-incoming .fsp-edge > span:not(.fsp-arrow) {
+  max-width: calc(100% - 21px);
+}
+
+/* Each row draws its own half-segments. First/last stop at arrow centers,
+   regardless of reference wrapping; disclosure buttons are outside this list. */
+.fsp-relations {
+  color: #706b60;
+}
+.fsp-relations.fsp-all-added {
+  color: #146b3b;
+}
+.fsp-relations.fsp-all-removed {
+  color: #971d28;
+}
+.fsp-outgoing:has(.fsp-edge)::before,
+.fsp-incoming:has(.fsp-edge)::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  border-top: 1px solid currentColor;
+}
+.fsp-outgoing:has(.fsp-edge)::before {
+  left: 0;
+}
+.fsp-incoming:has(.fsp-edge)::before {
+  right: 0;
+}
+.fsp-edge {
+  position: relative;
+}
+.fsp-edge::before {
+  content: "";
+  position: absolute;
+  top: -2.5px;
+  bottom: -2.5px;
+  border-left: 1px solid currentColor;
+}
+.fsp-outgoing .fsp-edge::before {
+  left: 16px;
+}
+.fsp-incoming .fsp-edge::before {
+  right: 16px;
+}
+.fsp-edge:first-child::before {
+  top: 50%;
+}
+.fsp-edge:last-child::before {
+  bottom: 50%;
+}
+.fsp-outgoing .fsp-arrow {
+  width: 42px;
+  flex: 0 0 42px;
+}
+.fsp-outgoing .fsp-arrow::before {
+  margin-left: 16px;
+  width: 26px;
+}
+.fsp-incoming .fsp-arrow {
+  min-width: 42px;
+}
+.fsp-incoming .fsp-arrow::before {
+  width: calc(100% - 16px);
+}
+.fsp-incoming .fsp-arrow::after {
+  right: 16px;
+}
+.fsp-edge-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fsp-edge > span.fsp-edge-label {
+  padding: 0;
+}
+.fsp-reference {
+  padding: 3px 5px;
+  color: #49453c;
+}
+.fsp-reference.added {
+  background: #e5f4e9;
+  color: #146b3b;
+}
+.fsp-reference.removed {
+  background: #f9e7e7;
+  color: #971d28;
+}
+.fsp-reference.modified {
+  background: #fff2c9;
+  color: #7b4a0c;
+}
+.fsp-call-change {
+  padding-left: 5px;
+  font-size: 10px;
+}
+.fsp-incoming .fsp-edge > span.fsp-edge-label {
+  max-width: calc(100% - 48px);
+}
+.fsp-more {
+  margin: 0 0 10px calc(66% + 46px);
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Incoming callers merge before one final arrow into the declaration border. */
+.fsp-incoming .fsp-arrow::after {
+  display: none;
+}
+.fsp-incoming:has(.fsp-edge)::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left: 5px solid currentColor;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+}
+
+/* Sem parent chains supply each level's continuation, including nested functions. */
+.fsp-node-row {
+  position: relative;
+}
+.fsp-child .fsp-declaration::before,
+.fsp-child .fsp-declaration::after {
+  content: none;
+}
+.fsp-tree-guides {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 24%;
+  width: 42%;
+  pointer-events: none;
+}
+.fsp-tree-guides > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid #c8c1b3;
+}
+.fsp-tree-guides > span.fsp-guide-half {
+  bottom: 50%;
+}
+.fsp-tree-guides > i {
+  position: absolute;
+  top: 50%;
+  width: 15px;
+  border-top: 1px solid #c8c1b3;
+}
+.fsp-incoming {
+  width: calc(100% + var(--fsp-indent));
+}
+.fsp-provenance {
+  margin-bottom: 12px;
+  font-size: 11px;
+  color: #706b60;
+}
+.fsp-tool-issue {
+  padding: 4px 5px;
+  color: #971d28;
+  background: #f9e7e7;
+}
+.fsp-edge-label small {
+  font-size: 10px;
+  color: #706b60;
+}
+.fsp-edge-label small.fsp-tool-issue {
+  color: #971d28;
+}
+.fsp-reference-source .fsp-source-heading {
+  grid-template-columns: 1fr auto;
+}
+.fsp-entry {
+  margin-left: 12px;
+  padding: 4px 8px;
+  border: 1px solid #ded8cc;
+  background: #fbfaf7;
+  color: #49453c;
+  font-size: 12px;
+}
+.fsp-loading {
+  padding: 12px 16px;
+  color: #706b60;
+}
+.fsp-loading [data-hunk-target] {
+  display: block;
+}
+
+.fsp-reference-source .fsp-reference-columns {
+  grid-template-columns: 1fr 1fr;
+}
+
+.fsp-more.fsp-more-incoming {
+  margin-left: 16px;
+}
+
+/* Row spines meet declaration midpoints; detail spines continue through any
+   explicitly expanded source and disclosure content until the next tree row. */
+.fsp-node-details {
+  display: flow-root;
+  position: relative;
+}
+.fsp-tree-guides > span.fsp-guide-start {
+  top: 50%;
+}

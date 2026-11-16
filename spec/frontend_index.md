@@ -98,6 +98,55 @@ The Vite server turns JavaScript module changes into a full page reload before
 module replacement begins. CSS updates use Vite's normal stylesheet
 replacement.
 
+In development, `?prototype=semantic&variant=A..E&fixture=...` instead mounts
+the throwaway `hud/SemanticPrototype.tsx` without application providers. Its
+five structure-review layouts share static `semantic-prototype.fixtures.json`
+data and isolated `semantic-prototype.css` styles; they make no backend calls.
+Variant and fixture choices live in the URL, while review marks and other
+interaction state last only for the mounted variant. This experiment does not
+change the production File, frame, bay, or engine contracts. The local
+`bun run --cwd frontend prototype:semantic` command opens it in the existing
+Vite session.
+
+In development, `?prototype=file-structure&tab=head&repo_id=2` keeps the complete
+mounted HUD and current-worktree manifest. Matching changed source FileCards
+render the frozen sem 0.25.0 capture; other files keep their real source diff.
+`bun run --cwd frontend prototype:file-structure` opens this existing repository
+Tab. A caption identifies the capture and offers ordinary file navigation to its
+first source file. No query cache, manifest tree, backend data, or file index is
+replaced or filtered.
+
+`FileCard.tsx` exposes only the tiny captured file-path metadata to ChangeSet.
+The full `fileCard/file-structure-prototype.fixtures.json` artifact loads through
+a development-only lazy component when a prototype body mounts. It retains raw
+before/after graph edges, exact indices for every displayed relationship,
+sem diff classifications, source-side entity metadata, and capture provenance.
+Capture commands, source hashes, scope, and known tool issues are available in
+the body. Numbered excerpts slice the exact frozen source files at sem ranges;
+raw sem content remains unmodified evidence, not numbered source.
+
+Declaration hierarchy uses sem parentId chains. Present sibling declarations
+retain source order; removed siblings retain their old relative positions.
+Calls and typeref remain distinct native sem relationship labels. Arrow deltas
+come only from the exact union of the before/after graph tuples. Declaration
+colors come from sem diff; an unclassified one-side graph entity stays visibly
+unclassified. Reported false targets remain shown with explicit known-issue
+annotations. No AST or lexical call inference supplies arrows.
+
+Declarations open captured before/after source inline. References in captured
+changed files open an explicit source peek; references outside the current diff
+remain read-only tool metadata. The backend-ordered source-change strip retains
+all original engine hunk coordinates. Source diff and line preparation restore
+the ordinary FrameView. While the capture chunk loads, exact engine hunk
+coordinates remain available. Production and ordinary URLs use ordinary bodies.
+
+The `current-diff` scenario adds a frozen sem 0.25.0 capture in
+`semantic-prototype.sem.json`: all reported changes, after-snapshot edges
+touching them, and source context for neighbors and enclosing declarations.
+It retains the tool's edge labels and false matches. The UI exposes capture
+provenance and a connected-entity filter; it does not run sem or refresh the
+capture. Display rows are aligned separately from sem's entity classification.
+
 `vite.config.ts` requires the backend proxy origin only for the development
 server. The editable HUD also uses that value when copying an onboarding link,
 so the link addresses the backend rather than the Vite proxy. Production builds

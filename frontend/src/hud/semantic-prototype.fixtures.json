@@ -1,0 +1,3132 @@
+[
+  {
+    "id": "extraction",
+    "title": "Extract token validation",
+    "description": "A function moves across files and changes; its callers, imports, and startup code change too.",
+    "branch": "extract-token-validation",
+    "base": "main",
+    "entities": [
+      {
+        "id": "authenticate",
+        "name": "authenticate",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/auth.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Pass the clock into validation and check expiry before loading a user.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 42,
+              "text": "def authenticate(request: Request) -> User:",
+              "changed": false
+            },
+            "new": {
+              "line": 18,
+              "text": "def authenticate(request: Request) -> User:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 43,
+              "text": "    token = request.headers.get(\"Authorization\")",
+              "changed": false
+            },
+            "new": {
+              "line": 19,
+              "text": "    token = request.headers.get(\"Authorization\")",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 44,
+              "text": "    claims = validate_token(token)",
+              "changed": true
+            },
+            "new": {
+              "line": 20,
+              "text": "    claims = validate_token(token, clock=clock)",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 21,
+              "text": "    reject_expired(claims, now=clock.now())",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 45,
+              "text": "    user = users.get(claims.user_id)",
+              "changed": false
+            },
+            "new": {
+              "line": 22,
+              "text": "    user = users.get(claims.user_id)",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 46,
+              "text": "    if user is None:",
+              "changed": false
+            },
+            "new": {
+              "line": 23,
+              "text": "    if user is None:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 47,
+              "text": "        raise Unauthorized(\"Unknown user\")",
+              "changed": false
+            },
+            "new": {
+              "line": 24,
+              "text": "        raise Unauthorized(\"Unknown user\")",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 48,
+              "text": "    return user",
+              "changed": false
+            },
+            "new": {
+              "line": 25,
+              "text": "    return user",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "validate",
+        "name": "validate_token",
+        "oldName": null,
+        "kind": "function",
+        "status": "moved",
+        "path": "src/security/tokens.py",
+        "oldPath": "src/auth.py",
+        "parentId": null,
+        "summary": "Move token validation out of auth; use constant-time signature matching.",
+        "match": "Fixture pairing: same declaration name, similar body, different file. The body is also edited.",
+        "rows": [
+          {
+            "old": {
+              "line": 108,
+              "text": "def validate_token(token: str) -> TokenClaims:",
+              "changed": true
+            },
+            "new": {
+              "line": 12,
+              "text": "def validate_token(token: str, *, clock: Clock) -> TokenClaims:",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 109,
+              "text": "    header, payload, signature = token.split(\".\")",
+              "changed": false
+            },
+            "new": {
+              "line": 13,
+              "text": "    header, payload, signature = token.split(\".\")",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 110,
+              "text": "    expected = sign(header, payload)",
+              "changed": false
+            },
+            "new": {
+              "line": 14,
+              "text": "    expected = sign(header, payload)",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 111,
+              "text": "    if signature != expected:",
+              "changed": true
+            },
+            "new": {
+              "line": 15,
+              "text": "    if not compare_digest(signature, expected):",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 112,
+              "text": "        raise InvalidToken(\"Invalid signature\")",
+              "changed": false
+            },
+            "new": {
+              "line": 16,
+              "text": "        raise InvalidToken(\"Invalid signature\")",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 113,
+              "text": "    return TokenClaims.from_payload(payload)",
+              "changed": true
+            },
+            "new": {
+              "line": 17,
+              "text": "    return TokenClaims.from_payload(payload, issued_at=clock.now())",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "claims",
+        "name": "TokenClaims",
+        "oldName": null,
+        "kind": "class",
+        "status": "moved",
+        "path": "src/security/tokens.py",
+        "oldPath": "src/auth.py",
+        "parentId": null,
+        "summary": "Move the claims type beside token validation.",
+        "match": "Fixture pairing: identical declaration text across files.",
+        "rows": [
+          {
+            "old": {
+              "line": 14,
+              "text": "@dataclass(frozen=True)",
+              "changed": false
+            },
+            "new": {
+              "line": 3,
+              "text": "@dataclass(frozen=True)",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 15,
+              "text": "class TokenClaims:",
+              "changed": false
+            },
+            "new": {
+              "line": 4,
+              "text": "class TokenClaims:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 16,
+              "text": "    user_id: str",
+              "changed": false
+            },
+            "new": {
+              "line": 5,
+              "text": "    user_id: str",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 17,
+              "text": "    expires_at: datetime",
+              "changed": false
+            },
+            "new": {
+              "line": 6,
+              "text": "    expires_at: datetime",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 18,
+              "text": "    issued_at: datetime",
+              "changed": false
+            },
+            "new": {
+              "line": 7,
+              "text": "    issued_at: datetime",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "expiry",
+        "name": "reject_expired",
+        "oldName": null,
+        "kind": "function",
+        "status": "added",
+        "path": "src/security/tokens.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Reject tokens that have reached their expiry time.",
+        "match": null,
+        "rows": [
+          {
+            "old": null,
+            "new": {
+              "line": 22,
+              "text": "def reject_expired(claims: TokenClaims, *, now: datetime) -> None:",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 23,
+              "text": "    if claims.expires_at <= now:",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 24,
+              "text": "        raise ExpiredToken(\"Session expired\")",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "imports",
+        "name": "imports",
+        "oldName": null,
+        "kind": "imports",
+        "status": "modified",
+        "path": "src/auth.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Use the extracted token module and application clock.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 1,
+              "text": "from datetime import datetime",
+              "changed": true
+            },
+            "new": null
+          },
+          {
+            "old": {
+              "line": 2,
+              "text": "from .crypto import sign",
+              "changed": true
+            },
+            "new": null
+          },
+          {
+            "old": {
+              "line": 3,
+              "text": "from .models import User, Request",
+              "changed": false
+            },
+            "new": {
+              "line": 1,
+              "text": "from .models import User, Request",
+              "changed": false
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 2,
+              "text": "from .security.tokens import validate_token, reject_expired",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 3,
+              "text": "from .time import clock",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "legacy",
+        "name": "authenticate_legacy",
+        "oldName": null,
+        "kind": "function",
+        "status": "removed",
+        "path": "src/auth.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Remove the legacy cookie entry point.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 78,
+              "text": "def authenticate_legacy(cookie: str) -> User:",
+              "changed": true
+            },
+            "new": null
+          },
+          {
+            "old": {
+              "line": 79,
+              "text": "    session_id = decode_cookie(cookie)",
+              "changed": true
+            },
+            "new": null
+          },
+          {
+            "old": {
+              "line": 80,
+              "text": "    return sessions.user_for(session_id)",
+              "changed": true
+            },
+            "new": null
+          }
+        ]
+      },
+      {
+        "id": "test",
+        "name": "test_expired_token",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "tests/test_auth.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Assert the specific expiry failure using a controlled clock.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 61,
+              "text": "def test_expired_token():",
+              "changed": false
+            },
+            "new": {
+              "line": 64,
+              "text": "def test_expired_token():",
+              "changed": false
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 65,
+              "text": "    clock.set(\"2025-01-02\")",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 62,
+              "text": "    token = token_for(user=\"ada\", expires=\"2025-01-01\")",
+              "changed": false
+            },
+            "new": {
+              "line": 66,
+              "text": "    token = token_for(user=\"ada\", expires=\"2025-01-01\")",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 63,
+              "text": "    with raises(InvalidToken):",
+              "changed": true
+            },
+            "new": {
+              "line": 67,
+              "text": "    with raises(ExpiredToken):",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 64,
+              "text": "        authenticate(request_with(token))",
+              "changed": false
+            },
+            "new": {
+              "line": 68,
+              "text": "        authenticate(request_with(token))",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "register",
+        "name": "application startup",
+        "oldName": null,
+        "kind": "module code",
+        "status": "modified",
+        "path": "src/app.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Route login through the current authentication path.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 124,
+              "text": "app.add_middleware(SessionMiddleware)",
+              "changed": false
+            },
+            "new": {
+              "line": 124,
+              "text": "app.add_middleware(SessionMiddleware)",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 125,
+              "text": "app.route(\"/login\", authenticate_legacy)",
+              "changed": true
+            },
+            "new": {
+              "line": 125,
+              "text": "app.route(\"/login\", authenticate)",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "exports",
+        "name": "public exports",
+        "oldName": null,
+        "kind": "module code",
+        "status": "added",
+        "path": "src/security/__init__.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Expose the token module through the package interface.",
+        "match": null,
+        "rows": [
+          {
+            "old": null,
+            "new": {
+              "line": 1,
+              "text": "from .tokens import TokenClaims, reject_expired, validate_token",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 2,
+              "text": "",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 3,
+              "text": "__all__ = [\"TokenClaims\", \"reject_expired\", \"validate_token\"]",
+              "changed": true
+            }
+          }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "to": "validate",
+        "label": "calls",
+        "from": "authenticate"
+      },
+      {
+        "to": "expiry",
+        "label": "calls",
+        "from": "authenticate"
+      },
+      {
+        "to": "claims",
+        "label": "returns",
+        "from": "validate"
+      },
+      {
+        "to": "claims",
+        "label": "accepts",
+        "from": "expiry"
+      },
+      {
+        "to": "authenticate",
+        "label": "tests",
+        "from": "test"
+      },
+      {
+        "to": "authenticate",
+        "label": "registers",
+        "from": "register"
+      }
+    ],
+    "groups": [
+      {
+        "id": "0",
+        "title": "Token module",
+        "description": "A moved function, its data type, and a new guard.",
+        "entityIds": ["validate", "claims", "expiry", "exports"]
+      },
+      {
+        "id": "1",
+        "title": "Call sites",
+        "description": "Update authentication and application startup.",
+        "entityIds": ["authenticate", "imports", "register"]
+      },
+      {
+        "id": "2",
+        "title": "Retire and verify",
+        "description": "Remove the old entry point and update the expiry check.",
+        "entityIds": ["legacy", "test"]
+      }
+    ]
+  },
+  {
+    "id": "nested",
+    "title": "Reorder a class",
+    "description": "Methods move within one class; a rename, real edits, and module code coexist.",
+    "branch": "transport-lifecycle",
+    "base": "main",
+    "entities": [
+      {
+        "id": "transport",
+        "name": "Transport",
+        "oldName": null,
+        "kind": "class",
+        "status": "modified",
+        "path": "src/net/transport.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Change connection defaults. Methods are listed separately.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 12,
+              "text": "class Transport:",
+              "changed": false
+            },
+            "new": {
+              "line": 12,
+              "text": "class Transport:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 13,
+              "text": "    timeout = 10",
+              "changed": true
+            },
+            "new": {
+              "line": 13,
+              "text": "    timeout = 15",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 14,
+              "text": "    retries = 2",
+              "changed": true
+            },
+            "new": {
+              "line": 14,
+              "text": "    retries = 3",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "connect",
+        "name": "Transport.connect",
+        "oldName": null,
+        "kind": "method",
+        "status": "moved",
+        "path": "src/net/transport.py",
+        "oldPath": null,
+        "parentId": "transport",
+        "summary": "Move connection setup above send; source is unchanged.",
+        "match": "Fixture pairing: identical method body, same enclosing class, different line range.",
+        "rows": [
+          {
+            "old": {
+              "line": 142,
+              "text": "    def connect(self, address: str) -> Connection:",
+              "changed": false
+            },
+            "new": {
+              "line": 24,
+              "text": "    def connect(self, address: str) -> Connection:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 143,
+              "text": "        socket = self.pool.acquire(address)",
+              "changed": false
+            },
+            "new": {
+              "line": 25,
+              "text": "        socket = self.pool.acquire(address)",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 144,
+              "text": "        socket.settimeout(self.timeout)",
+              "changed": false
+            },
+            "new": {
+              "line": 26,
+              "text": "        socket.settimeout(self.timeout)",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 145,
+              "text": "        return Connection(socket)",
+              "changed": false
+            },
+            "new": {
+              "line": 27,
+              "text": "        return Connection(socket)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "send",
+        "name": "Transport.send",
+        "oldName": null,
+        "kind": "method",
+        "status": "modified",
+        "path": "src/net/transport.py",
+        "oldPath": null,
+        "parentId": "transport",
+        "summary": "Reconnect after a timed-out write.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 28,
+              "text": "    def send(self, message: bytes) -> None:",
+              "changed": false
+            },
+            "new": {
+              "line": 31,
+              "text": "    def send(self, message: bytes) -> None:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 29,
+              "text": "        for attempt in range(self.retries):",
+              "changed": false
+            },
+            "new": {
+              "line": 32,
+              "text": "        for attempt in range(self.retries):",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 30,
+              "text": "            try:",
+              "changed": false
+            },
+            "new": {
+              "line": 33,
+              "text": "            try:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 31,
+              "text": "                self.connection.write(message)",
+              "changed": false
+            },
+            "new": {
+              "line": 34,
+              "text": "                self.connection.write(message)",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 32,
+              "text": "                return",
+              "changed": false
+            },
+            "new": {
+              "line": 35,
+              "text": "                return",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 33,
+              "text": "            except TimeoutError:",
+              "changed": false
+            },
+            "new": {
+              "line": 36,
+              "text": "            except TimeoutError:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 34,
+              "text": "                continue",
+              "changed": true
+            },
+            "new": {
+              "line": 37,
+              "text": "                self.connection = self.connect(self.address)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 35,
+              "text": "        raise DeliveryFailed()",
+              "changed": false
+            },
+            "new": {
+              "line": 38,
+              "text": "        raise DeliveryFailed()",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "close",
+        "name": "Transport.close",
+        "oldName": "Transport.disconnect",
+        "kind": "method",
+        "status": "renamed",
+        "path": "src/net/transport.py",
+        "oldPath": null,
+        "parentId": "transport",
+        "summary": "Rename disconnect to close.",
+        "match": "Fixture pairing: same body and enclosing class; declaration name changed.",
+        "rows": [
+          {
+            "old": {
+              "line": 98,
+              "text": "    def disconnect(self) -> None:",
+              "changed": true
+            },
+            "new": {
+              "line": 46,
+              "text": "    def close(self) -> None:",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 99,
+              "text": "        self.connection.close()",
+              "changed": false
+            },
+            "new": {
+              "line": 47,
+              "text": "        self.connection.close()",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 100,
+              "text": "        self.pool.release(self.address)",
+              "changed": false
+            },
+            "new": {
+              "line": 48,
+              "text": "        self.pool.release(self.address)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "context",
+        "name": "Transport.__exit__",
+        "oldName": null,
+        "kind": "method",
+        "status": "modified",
+        "path": "src/net/transport.py",
+        "oldPath": null,
+        "parentId": "transport",
+        "summary": "Use the renamed close method.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 105,
+              "text": "    def __exit__(self, exc_type, exc_value, traceback):",
+              "changed": false
+            },
+            "new": {
+              "line": 52,
+              "text": "    def __exit__(self, exc_type, exc_value, traceback):",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 106,
+              "text": "        self.disconnect()",
+              "changed": true
+            },
+            "new": {
+              "line": 53,
+              "text": "        self.close()",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "backoff",
+        "name": "retry_delay",
+        "oldName": null,
+        "kind": "function",
+        "status": "added",
+        "path": "src/net/retry.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Add a bounded exponential retry delay.",
+        "match": null,
+        "rows": [
+          {
+            "old": null,
+            "new": {
+              "line": 4,
+              "text": "def retry_delay(attempt: int) -> float:",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 5,
+              "text": "    return min(0.25 * (2 ** attempt), 8.0)",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "callsite",
+        "name": "deliver",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/jobs.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Use the transport context manager.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 63,
+              "text": "def deliver(job: Job) -> None:",
+              "changed": false
+            },
+            "new": {
+              "line": 63,
+              "text": "def deliver(job: Job) -> None:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 64,
+              "text": "    transport = Transport(job.address)",
+              "changed": true
+            },
+            "new": {
+              "line": 64,
+              "text": "    with Transport(job.address) as transport:",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 65,
+              "text": "    transport.send(job.payload)",
+              "changed": true
+            },
+            "new": {
+              "line": 65,
+              "text": "        transport.send(job.payload)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 66,
+              "text": "    transport.disconnect()",
+              "changed": true
+            },
+            "new": null
+          }
+        ]
+      },
+      {
+        "id": "registry",
+        "name": "transport registry",
+        "oldName": null,
+        "kind": "module code",
+        "status": "modified",
+        "path": "src/net/transport.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Register the secure transport outside any declaration.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 163,
+              "text": "TRANSPORTS = {",
+              "changed": false
+            },
+            "new": {
+              "line": 72,
+              "text": "TRANSPORTS = {",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 164,
+              "text": "    \"tcp\": Transport,",
+              "changed": false
+            },
+            "new": {
+              "line": 73,
+              "text": "    \"tcp\": Transport,",
+              "changed": false
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 74,
+              "text": "    \"tls\": SecureTransport,",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 165,
+              "text": "}",
+              "changed": false
+            },
+            "new": {
+              "line": 75,
+              "text": "}",
+              "changed": false
+            }
+          }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "to": "connect",
+        "label": "calls",
+        "from": "send"
+      },
+      {
+        "to": "close",
+        "label": "calls",
+        "from": "context"
+      },
+      {
+        "to": "send",
+        "label": "calls",
+        "from": "callsite"
+      },
+      {
+        "to": "context",
+        "label": "uses",
+        "from": "callsite"
+      }
+    ],
+    "groups": [
+      {
+        "id": "0",
+        "title": "Transport lifecycle",
+        "description": "Read setup, send, and shutdown together.",
+        "entityIds": ["transport", "connect", "send", "close", "context"]
+      },
+      {
+        "id": "1",
+        "title": "Outside the class",
+        "description": "Callers and code that is not a declaration.",
+        "entityIds": ["backoff", "callsite", "registry"]
+      }
+    ]
+  },
+  {
+    "id": "signature",
+    "title": "Change an API contract",
+    "description": "One signature change touches several callers, a new return type, and a long symbol name.",
+    "branch": "cursor-pagination",
+    "base": "main",
+    "entities": [
+      {
+        "id": "options",
+        "name": "SearchOptions",
+        "oldName": null,
+        "kind": "interface",
+        "status": "modified",
+        "path": "src/search/types.ts",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Require a limit and an explicit cursor.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 4,
+              "text": "export interface SearchOptions {",
+              "changed": false
+            },
+            "new": {
+              "line": 4,
+              "text": "export interface SearchOptions {",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 5,
+              "text": "  query: string;",
+              "changed": false
+            },
+            "new": {
+              "line": 5,
+              "text": "  query: string;",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 6,
+              "text": "  limit?: number;",
+              "changed": true
+            },
+            "new": {
+              "line": 6,
+              "text": "  limit: number;",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 7,
+              "text": "  cursor: string | null;",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 7,
+              "text": "}",
+              "changed": false
+            },
+            "new": {
+              "line": 8,
+              "text": "}",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "search",
+        "name": "search",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/search/client.ts",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Accept structured options and return a page with a continuation cursor.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 18,
+              "text": "export async function search(query: string, limit = 20): Promise<Result[]> {",
+              "changed": true
+            },
+            "new": {
+              "line": 20,
+              "text": "export async function search(options: SearchOptions): Promise<SearchPage> {",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 19,
+              "text": "  const response = await fetch(`/api/search?q=${query}&limit=${limit}`);",
+              "changed": true
+            },
+            "new": {
+              "line": 21,
+              "text": "  const params = new URLSearchParams({ q: options.query, limit: String(options.limit) });",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 22,
+              "text": "  if (options.cursor !== null) params.set(\"cursor\", options.cursor);",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 23,
+              "text": "  const response = await fetch(`/api/search?${params}`);",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 20,
+              "text": "  return response.json();",
+              "changed": false
+            },
+            "new": {
+              "line": 24,
+              "text": "  return response.json();",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 21,
+              "text": "}",
+              "changed": false
+            },
+            "new": {
+              "line": 25,
+              "text": "}",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "page",
+        "name": "SearchPage",
+        "oldName": null,
+        "kind": "interface",
+        "status": "added",
+        "path": "src/search/types.ts",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Describe results and the next page together.",
+        "match": null,
+        "rows": [
+          {
+            "old": null,
+            "new": {
+              "line": 12,
+              "text": "export interface SearchPage {",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 13,
+              "text": "  results: Result[];",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 14,
+              "text": "  nextCursor: string | null;",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 15,
+              "text": "}",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "caller0",
+        "name": "loadSearchResults",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/ui/SearchPage.tsx",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Pass explicit options and read results from the returned page.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 32,
+              "text": "async function loadSearchResults(query: string) {",
+              "changed": false
+            },
+            "new": {
+              "line": 32,
+              "text": "async function loadSearchResults(query: string) {",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 33,
+              "text": "  const results = await search(query, 20);",
+              "changed": true
+            },
+            "new": {
+              "line": 33,
+              "text": "  const page = await search({ query, limit: 20, cursor: null });",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 34,
+              "text": "  return results.map(toItem);",
+              "changed": true
+            },
+            "new": {
+              "line": 34,
+              "text": "  return page.results.map(toItem);",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 35,
+              "text": "}",
+              "changed": false
+            },
+            "new": {
+              "line": 35,
+              "text": "}",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "caller1",
+        "name": "loadSuggestions",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/ui/CommandPalette.tsx",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Pass explicit options and read results from the returned page.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 52,
+              "text": "async function loadSuggestions(query: string) {",
+              "changed": false
+            },
+            "new": {
+              "line": 52,
+              "text": "async function loadSuggestions(query: string) {",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 53,
+              "text": "  const results = await search(query, 20);",
+              "changed": true
+            },
+            "new": {
+              "line": 53,
+              "text": "  const page = await search({ query, limit: 20, cursor: null });",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 54,
+              "text": "  return results.map(toItem);",
+              "changed": true
+            },
+            "new": {
+              "line": 54,
+              "text": "  return page.results.map(toItem);",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 55,
+              "text": "}",
+              "changed": false
+            },
+            "new": {
+              "line": 55,
+              "text": "}",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "caller2",
+        "name": "exportSearchResults",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/export/search.ts",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Pass explicit options and read results from the returned page.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 72,
+              "text": "async function exportSearchResults(query: string) {",
+              "changed": false
+            },
+            "new": {
+              "line": 72,
+              "text": "async function exportSearchResults(query: string) {",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 73,
+              "text": "  const results = await search(query, 20);",
+              "changed": true
+            },
+            "new": {
+              "line": 73,
+              "text": "  const page = await search({ query, limit: 20, cursor: null });",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 74,
+              "text": "  return results.map(toItem);",
+              "changed": true
+            },
+            "new": {
+              "line": 74,
+              "text": "  return page.results.map(toItem);",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 75,
+              "text": "}",
+              "changed": false
+            },
+            "new": {
+              "line": 75,
+              "text": "}",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "caller3",
+        "name": "refreshSavedSearch",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/jobs/savedSearch.ts",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Pass explicit options and read results from the returned page.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 92,
+              "text": "async function refreshSavedSearch(query: string) {",
+              "changed": false
+            },
+            "new": {
+              "line": 92,
+              "text": "async function refreshSavedSearch(query: string) {",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 93,
+              "text": "  const results = await search(query, 20);",
+              "changed": true
+            },
+            "new": {
+              "line": 93,
+              "text": "  const page = await search({ query, limit: 20, cursor: null });",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 94,
+              "text": "  return results.map(toItem);",
+              "changed": true
+            },
+            "new": {
+              "line": 94,
+              "text": "  return page.results.map(toItem);",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 95,
+              "text": "}",
+              "changed": false
+            },
+            "new": {
+              "line": 95,
+              "text": "}",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "caller4",
+        "name": "findRelatedDocumentsForActiveWorkspace",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/workspaces/recommendations/relatedDocuments.ts",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Pass explicit options and read results from the returned page.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 112,
+              "text": "async function findRelatedDocumentsForActiveWorkspace(query: string) {",
+              "changed": false
+            },
+            "new": {
+              "line": 112,
+              "text": "async function findRelatedDocumentsForActiveWorkspace(query: string) {",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 113,
+              "text": "  const results = await search(query, 20);",
+              "changed": true
+            },
+            "new": {
+              "line": 113,
+              "text": "  const page = await search({ query, limit: 20, cursor: null });",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 114,
+              "text": "  return results.map(toItem);",
+              "changed": true
+            },
+            "new": {
+              "line": 114,
+              "text": "  return page.results.map(toItem);",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 115,
+              "text": "}",
+              "changed": false
+            },
+            "new": {
+              "line": 115,
+              "text": "}",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "client-imports",
+        "name": "imports",
+        "oldName": null,
+        "kind": "imports",
+        "status": "modified",
+        "path": "src/search/client.ts",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Import the public options and page types.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 1,
+              "text": "import type { Result } from \"./types\";",
+              "changed": true
+            },
+            "new": {
+              "line": 1,
+              "text": "import type { SearchOptions, SearchPage } from \"./types\";",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "search-test",
+        "name": "paginates search results",
+        "oldName": null,
+        "kind": "test",
+        "status": "added",
+        "path": "tests/search.test.ts",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Exercise two successive pages.",
+        "match": null,
+        "rows": [
+          {
+            "old": null,
+            "new": {
+              "line": 88,
+              "text": "it(\"paginates search results\", async () => {",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 89,
+              "text": "  const first = await search({ query: \"notes\", limit: 2, cursor: null });",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 90,
+              "text": "  const second = await search({ query: \"notes\", limit: 2, cursor: first.nextCursor });",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 91,
+              "text": "  expect(second.results).not.toEqual(first.results);",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 92,
+              "text": "});",
+              "changed": true
+            }
+          }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "to": "options",
+        "label": "accepts",
+        "from": "search"
+      },
+      {
+        "to": "page",
+        "label": "returns",
+        "from": "search"
+      },
+      {
+        "to": "search",
+        "label": "calls",
+        "from": "caller0"
+      },
+      {
+        "to": "search",
+        "label": "calls",
+        "from": "caller1"
+      },
+      {
+        "to": "search",
+        "label": "calls",
+        "from": "caller2"
+      },
+      {
+        "to": "search",
+        "label": "calls",
+        "from": "caller3"
+      },
+      {
+        "to": "search",
+        "label": "calls",
+        "from": "caller4"
+      },
+      {
+        "to": "search",
+        "label": "tests",
+        "from": "search-test"
+      }
+    ],
+    "groups": [
+      {
+        "id": "0",
+        "title": "Public contract",
+        "description": "Read the new input and output with the implementation.",
+        "entityIds": ["options", "page", "search", "client-imports"]
+      },
+      {
+        "id": "1",
+        "title": "Callers",
+        "description": "The same contract change reaches five callers.",
+        "entityIds": ["caller0", "caller1", "caller2", "caller3", "caller4"]
+      },
+      {
+        "id": "2",
+        "title": "Verification",
+        "description": "A pagination example using the new API.",
+        "entityIds": ["search-test"]
+      }
+    ]
+  },
+  {
+    "id": "mixed",
+    "title": "The awkward leftovers",
+    "description": "Imports, top-level side effects, documentation, config, and unsupported syntax must remain reviewable.",
+    "branch": "graceful-shutdown",
+    "base": "main",
+    "entities": [
+      {
+        "id": "settings",
+        "name": "Settings",
+        "oldName": null,
+        "kind": "class",
+        "status": "modified",
+        "path": "src/settings.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Increase worker count and allow a bounded shutdown.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 7,
+              "text": "class Settings:",
+              "changed": false
+            },
+            "new": {
+              "line": 7,
+              "text": "class Settings:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 8,
+              "text": "    debug = False",
+              "changed": false
+            },
+            "new": {
+              "line": 8,
+              "text": "    debug = False",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 9,
+              "text": "    workers = 2",
+              "changed": true
+            },
+            "new": {
+              "line": 9,
+              "text": "    workers = 4",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 10,
+              "text": "    shutdown_timeout = 30",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "setup",
+        "name": "module initialization",
+        "oldName": null,
+        "kind": "module code",
+        "status": "modified",
+        "path": "src/main.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Install the termination handler at startup.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 20,
+              "text": "logging.basicConfig(level=logging.INFO)",
+              "changed": false
+            },
+            "new": {
+              "line": 21,
+              "text": "logging.basicConfig(level=logging.INFO)",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 21,
+              "text": "app = Application(settings)",
+              "changed": false
+            },
+            "new": {
+              "line": 22,
+              "text": "app = Application(settings)",
+              "changed": false
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 23,
+              "text": "signal.signal(signal.SIGTERM, app.shutdown)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 22,
+              "text": "app.start()",
+              "changed": false
+            },
+            "new": {
+              "line": 24,
+              "text": "app.start()",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "shutdown",
+        "name": "Application.shutdown",
+        "oldName": null,
+        "kind": "method",
+        "status": "added",
+        "path": "src/application.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Stop accepting work, drain workers, and close the server.",
+        "match": null,
+        "rows": [
+          {
+            "old": null,
+            "new": {
+              "line": 88,
+              "text": "    def shutdown(self, signum: int, frame: FrameType | None) -> None:",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 89,
+              "text": "        self.accepting = False",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 90,
+              "text": "        self.workers.drain(timeout=self.settings.shutdown_timeout)",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 91,
+              "text": "        self.server.close()",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "config",
+        "name": "deployment values",
+        "oldName": null,
+        "kind": "unparsed text",
+        "status": "modified",
+        "path": "deploy/production.yaml",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Fixture has no declaration mapping for YAML; all changed text remains visible.",
+        "match": "No structural pairing supplied for this file. Shown as an explicit text change.",
+        "rows": [
+          {
+            "old": {
+              "line": 1,
+              "text": "replicas: 2",
+              "changed": true
+            },
+            "new": {
+              "line": 1,
+              "text": "replicas: 3",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 2,
+              "text": "terminationGracePeriodSeconds: 10",
+              "changed": true
+            },
+            "new": {
+              "line": 2,
+              "text": "terminationGracePeriodSeconds: 40",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 3,
+              "text": "resources:",
+              "changed": false
+            },
+            "new": {
+              "line": 3,
+              "text": "resources:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 4,
+              "text": "  memory: 512Mi",
+              "changed": true
+            },
+            "new": {
+              "line": 4,
+              "text": "  memory: 768Mi",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "sql",
+        "name": "index migration",
+        "oldName": null,
+        "kind": "unparsed text",
+        "status": "added",
+        "path": "migrations/018_jobs.sql",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "A SQL migration outside the supported declaration model.",
+        "match": "No structural pairing supplied. This file is represented as text.",
+        "rows": [
+          {
+            "old": null,
+            "new": {
+              "line": 1,
+              "text": "CREATE INDEX jobs_pending_created",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 2,
+              "text": "ON jobs (created_at)",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 3,
+              "text": "WHERE state = 'pending';",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "doc",
+        "name": "shutdown documentation",
+        "oldName": null,
+        "kind": "unparsed text",
+        "status": "modified",
+        "path": "docs/operations.md",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Explain graceful shutdown and its time limits.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 16,
+              "text": "## Stopping the service",
+              "changed": false
+            },
+            "new": {
+              "line": 16,
+              "text": "## Stopping the service",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 17,
+              "text": "Send SIGTERM to stop the process.",
+              "changed": true
+            },
+            "new": {
+              "line": 17,
+              "text": "Send SIGTERM to stop accepting new jobs.",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 18,
+              "text": "Active jobs may be interrupted.",
+              "changed": true
+            },
+            "new": {
+              "line": 18,
+              "text": "Workers have 30 seconds to finish active jobs.",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 19,
+              "text": "The deployment allows 40 seconds before SIGKILL.",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "imports-mixed",
+        "name": "imports",
+        "oldName": null,
+        "kind": "imports",
+        "status": "modified",
+        "path": "src/main.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Import signal for termination handling.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 1,
+              "text": "import logging",
+              "changed": false
+            },
+            "new": {
+              "line": 1,
+              "text": "import logging",
+              "changed": false
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 2,
+              "text": "import signal",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 2,
+              "text": "from .application import Application",
+              "changed": false
+            },
+            "new": {
+              "line": 3,
+              "text": "from .application import Application",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "oldflag",
+        "name": "USE_LEGACY_SHUTDOWN",
+        "oldName": null,
+        "kind": "module code",
+        "status": "removed",
+        "path": "src/settings.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Remove the old module-level flag.",
+        "match": null,
+        "rows": [
+          {
+            "old": {
+              "line": 22,
+              "text": "USE_LEGACY_SHUTDOWN = True",
+              "changed": true
+            },
+            "new": null
+          }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "to": "shutdown",
+        "label": "registers",
+        "from": "setup"
+      },
+      {
+        "to": "settings",
+        "label": "reads",
+        "from": "shutdown"
+      }
+    ],
+    "groups": [
+      {
+        "id": "0",
+        "title": "Shutdown path",
+        "description": "Application code and module initialization.",
+        "entityIds": [
+          "settings",
+          "setup",
+          "shutdown",
+          "imports-mixed",
+          "oldflag"
+        ]
+      },
+      {
+        "id": "1",
+        "title": "Deployment and operations",
+        "description": "Text changes without declaration matches.",
+        "entityIds": ["config", "sql", "doc"]
+      }
+    ]
+  },
+  {
+    "id": "wide",
+    "title": "Many changes, uncertain matches",
+    "description": "Repeated short names, long paths, disconnected changes, and an intentionally unresolved rename.",
+    "branch": "explicit-pagination",
+    "base": "main",
+    "entities": [
+      {
+        "id": "handler0",
+        "name": "users.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "moved",
+        "path": "src/api/users/handlers.py",
+        "oldPath": "src/api/users.py",
+        "parentId": null,
+        "summary": "Use explicit pagination for users.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 40,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 24,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 41,
+              "text": "    items = users.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 25,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 26,
+              "text": "    items = users.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 42,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 27,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "handler1",
+        "name": "teams.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/api/teams/handlers.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Use explicit pagination for teams.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 51,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 31,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 52,
+              "text": "    items = teams.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 32,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 33,
+              "text": "    items = teams.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 53,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 34,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "handler2",
+        "name": "projects.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/api/projects/handlers.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Use explicit pagination for projects.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 62,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 38,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 63,
+              "text": "    items = projects.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 39,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 40,
+              "text": "    items = projects.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 64,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 41,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "handler3",
+        "name": "documents.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "moved",
+        "path": "src/api/documents/handlers.py",
+        "oldPath": "src/api/documents.py",
+        "parentId": null,
+        "summary": "Use explicit pagination for documents.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 73,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 45,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 74,
+              "text": "    items = documents.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 46,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 47,
+              "text": "    items = documents.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 75,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 48,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "handler4",
+        "name": "sessions.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/api/sessions/handlers.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Use explicit pagination for sessions.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 84,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 52,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 85,
+              "text": "    items = sessions.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 53,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 54,
+              "text": "    items = sessions.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 86,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 55,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "handler5",
+        "name": "invitations.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/api/invitations/handlers.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Use explicit pagination for invitations.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 95,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 59,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 96,
+              "text": "    items = invitations.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 60,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 61,
+              "text": "    items = invitations.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 97,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 62,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "handler6",
+        "name": "tokens.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "moved",
+        "path": "src/api/tokens/handlers.py",
+        "oldPath": "src/api/tokens.py",
+        "parentId": null,
+        "summary": "Use explicit pagination for tokens.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 106,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 66,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 107,
+              "text": "    items = tokens.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 67,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 68,
+              "text": "    items = tokens.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 108,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 69,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "handler7",
+        "name": "webhooks.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/api/webhooks/handlers.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Use explicit pagination for webhooks.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 117,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 73,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 118,
+              "text": "    items = webhooks.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 74,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 75,
+              "text": "    items = webhooks.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 119,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 76,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "handler8",
+        "name": "jobs.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/api/jobs/handlers.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Use explicit pagination for jobs.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 128,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 80,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 129,
+              "text": "    items = jobs.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 81,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 82,
+              "text": "    items = jobs.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 130,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 83,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "handler9",
+        "name": "exports.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "moved",
+        "path": "src/api/exports/handlers.py",
+        "oldPath": "src/api/exports.py",
+        "parentId": null,
+        "summary": "Use explicit pagination for exports.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 139,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 87,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 140,
+              "text": "    items = exports.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 88,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 89,
+              "text": "    items = exports.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 141,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 90,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "handler10",
+        "name": "events.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/api/events/handlers.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Use explicit pagination for events.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 150,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 94,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 151,
+              "text": "    items = events.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 95,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 96,
+              "text": "    items = events.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 152,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 97,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "handler11",
+        "name": "audit.list_items",
+        "oldName": null,
+        "kind": "function",
+        "status": "modified",
+        "path": "src/api/audit/handlers.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Use explicit pagination for audit.",
+        "match": "Fixture pairing: qualified module identity distinguishes repeated list_items names.",
+        "rows": [
+          {
+            "old": {
+              "line": 161,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            },
+            "new": {
+              "line": 101,
+              "text": "def list_items(context: Context) -> Response:",
+              "changed": false
+            }
+          },
+          {
+            "old": {
+              "line": 162,
+              "text": "    items = audit.all(context.workspace_id)",
+              "changed": true
+            },
+            "new": {
+              "line": 102,
+              "text": "    limit = context.query.required_int(\"limit\")",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 103,
+              "text": "    items = audit.page(context.workspace_id, limit=limit)",
+              "changed": true
+            }
+          },
+          {
+            "old": {
+              "line": 163,
+              "text": "    return Response(items)",
+              "changed": false
+            },
+            "new": {
+              "line": 104,
+              "text": "    return Response(items)",
+              "changed": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "amb-old",
+        "name": "parse_options",
+        "oldName": null,
+        "kind": "function",
+        "status": "removed",
+        "path": "src/api/options.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Unpaired old declaration. Two new declarations have similar bodies.",
+        "match": "Ambiguous pairing intentionally left unresolved in this fixture; no rename is claimed.",
+        "rows": [
+          {
+            "old": {
+              "line": 12,
+              "text": "def parse_options(query: Query) -> Options:",
+              "changed": true
+            },
+            "new": null
+          },
+          {
+            "old": {
+              "line": 13,
+              "text": "    return Options(limit=query.integer(\"limit\"))",
+              "changed": true
+            },
+            "new": null
+          }
+        ]
+      },
+      {
+        "id": "amb-new1",
+        "name": "parse_list_options",
+        "oldName": null,
+        "kind": "function",
+        "status": "added",
+        "path": "src/api/options.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "New list-specific options parser.",
+        "match": "Unpaired addition; similar to the removed parse_options declaration.",
+        "rows": [
+          {
+            "old": null,
+            "new": {
+              "line": 12,
+              "text": "def parse_list_options(query: Query) -> ListOptions:",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 13,
+              "text": "    return ListOptions(limit=query.required_int(\"limit\"))",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "amb-new2",
+        "name": "parse_export_options",
+        "oldName": null,
+        "kind": "function",
+        "status": "added",
+        "path": "src/api/options.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "New export-specific options parser.",
+        "match": "Unpaired addition; similar to the removed parse_options declaration.",
+        "rows": [
+          {
+            "old": null,
+            "new": {
+              "line": 18,
+              "text": "def parse_export_options(query: Query) -> ExportOptions:",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 19,
+              "text": "    return ExportOptions(limit=query.required_int(\"limit\"))",
+              "changed": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "query",
+        "name": "Query.required_int",
+        "oldName": null,
+        "kind": "method",
+        "status": "added",
+        "path": "src/http/query.py",
+        "oldPath": null,
+        "parentId": null,
+        "summary": "Read a required integer query parameter.",
+        "match": null,
+        "rows": [
+          {
+            "old": null,
+            "new": {
+              "line": 66,
+              "text": "    def required_int(self, key: str) -> int:",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 67,
+              "text": "        value = self.values[key]",
+              "changed": true
+            }
+          },
+          {
+            "old": null,
+            "new": {
+              "line": 68,
+              "text": "        return int(value)",
+              "changed": true
+            }
+          }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler0"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler1"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler2"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler3"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler4"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler5"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler6"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler7"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler8"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler9"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler10"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "handler11"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "amb-new1"
+      },
+      {
+        "to": "query",
+        "label": "calls",
+        "from": "amb-new2"
+      }
+    ],
+    "groups": [
+      {
+        "id": "0",
+        "title": "Query contract",
+        "description": "Read the new required integer operation.",
+        "entityIds": ["query"]
+      },
+      {
+        "id": "1",
+        "title": "Endpoint migration",
+        "description": "Twelve handlers apply the same API change.",
+        "entityIds": [
+          "handler0",
+          "handler1",
+          "handler2",
+          "handler3",
+          "handler4",
+          "handler5",
+          "handler6",
+          "handler7",
+          "handler8",
+          "handler9",
+          "handler10",
+          "handler11"
+        ]
+      },
+      {
+        "id": "2",
+        "title": "Uncertain correspondence",
+        "description": "Old and new declarations remain separate.",
+        "entityIds": ["amb-old", "amb-new1", "amb-new2"]
+      }
+    ]
+  }
+]
