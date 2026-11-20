@@ -1,4 +1,4 @@
-# Persistent review Threads
+# Comment Threads
 
 A Snapshot fixes captured code; `through_activity_id` fixes the discussion
 outcome a read sees. Placement derivation and its ordering with publication

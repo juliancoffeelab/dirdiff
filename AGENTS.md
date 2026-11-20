@@ -66,8 +66,8 @@ live in skills under `.agents/skills/`.
     capture, equality and publication.
   - [`formats.md`](spec/formats.md): composition of Files into frames and bays,
     engines and enrichment, review targets and media.
-  - [`reviews.md`](spec/reviews.md): Thread placement, excerpts, paging and
-    the review HUD.
+  - [`comments.md`](spec/comments.md): comment Thread placement, excerpts,
+    paging and the review HUD.
   - [`tabs.md`](spec/tabs.md): Tab selections and preferences.
   - [`file-lane.md`](spec/file-lane.md): loading of one mounted snapshot.
   - [`file-meat.md`](spec/file-meat.md): FileCard, bays, TextDiffGrid,
