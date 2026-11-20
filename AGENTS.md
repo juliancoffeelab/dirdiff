@@ -70,16 +70,13 @@ to edit top-level README.md, ever.
   If the code and documentation disagree, investigate the disagreement instead
   of silently forcing either side to match.
 
-### Document the actual design
+### Comment what the code cannot say
 
-- Code must expose its contract, ownership, lifecycle, and intent as docstrings
-  and comments. Do not leave them only in the author’s head.
-- Docstrings describe real interfaces and enduring behavior. They do not excuse
-  confusing implementation, narrate migration history, or claim incomplete work
-  is acceptable.
-- Non-obvious mutable state, effects, observers, listeners, and cancellation
-  require local comments explaining their purpose, inputs, lifetime, and
-  disposal.
+- A comment or docstring states a fact the code cannot: why, an invariant, a
+  lifetime, an ordering constraint, or a quirk of an external tool. Everything
+  else is said by names, types and the code itself, and gets no comment.
+- CLI help text and HTTP endpoint descriptions are user-facing output, written
+  for the person reading `--help` or the API schema.
 
 ## Authority and contradictions
 
@@ -137,29 +134,6 @@ to edit top-level README.md, ever.
   the sole exception.
 - Do not use ORM, but dont throw raw SQL around, use Python DSL operations.
 - Database design must satisfy Second Normal Form or better.
-
-## Documentation and code structure
-
-- Every added module except an empty private `_x/__init__.py` requires a
-  thorough module-level docstring or equivalent
-  comment explaining:
-  - its public interface;
-  - why the module exists;
-  - what data or resources its structures own;
-  - what guarantees it provides;
-  - what it must not own or do.
-- If that module contract is difficult to state, state it to the user, it
-  probably belongs in an existing module.
-- Every declared function requires a real docstring explaining its purpose and
-  caller contract. Public functions document required inputs, observable
-  results, and caller obligations rather than internal steps.
-- Every declared type alias, interface, class, and enum requires a docstring
-  explaining its contract, fields or variants, valid inputs, guarantees, and
-  what it must not represent.
-- A title or restatement of the name is not a docstring. It's a violation
-  of this document, and a potential hint that an item shouldn't exist.
-- Use plain inline comments for local mechanics, sequencing, and surprising
-  implementation facts. Keep those comments beside the relevant statements.
 
 ## Terminology
 

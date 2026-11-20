@@ -31,16 +31,13 @@ flake-cst:
 flake-hlp:
 	uv --no-cache run flake8 --jobs 1 --select HLP --ignore HLP001 src tests lints
 
-flake-ddd:
-	uv --no-cache run flake8 --jobs 1 --select DDD src tests lints
-
 flake-tjc:
 	uv --no-cache run flake8 --jobs 1 --select TJC tests
 
 flake-nmp:
 	uv --no-cache run flake8 --jobs 1 --select NMP tests
 
-pyflake: flake-sbt flake-cst flake-hlp flake-ddd flake-tjc flake-nmp
+pyflake: flake-sbt flake-cst flake-hlp flake-tjc flake-nmp
 
 flake-human:
 	uv --no-cache run flake8 --jobs 1 --select SBT002 src tests
