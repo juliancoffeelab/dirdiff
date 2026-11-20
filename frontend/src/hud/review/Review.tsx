@@ -177,13 +177,15 @@ export type ActiveCommentInput = {
    */
   input: NewThreadDraft | null;
   /**
-   * Exact diff row or Thread card element receiving the input Portal. It is placement
-   * state only and does not become an authority for the draft body.
+   * Exact diff row, Thread card element, or History whole-review slot receiving the
+   * input Portal. It is placement state only and does not become an authority for
+   * the draft body.
    */
   mount: HTMLElement;
   /**
-   * Source line for code input, or null for an editor opened inside a Thread.
-   * Only code anchors participate in renderer-driven close and same-marker toggling.
+   * Source line for code input, or null for an editor opened inside a Thread or
+   * for the whole review in History. Only code anchors participate in
+   * renderer-driven close and same-marker toggling.
    */
   sourceAnchor: ReviewCodeAnchor | null;
 };
@@ -632,8 +634,10 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   const draftMarkers = createMemo<readonly ReviewDraftMarker[]>(
     () =>
       drafts().flatMap((draft) => {
+        // A whole-review draft has no line, so it contributes no marker.
         if (
           draft.kind !== "new-thread" ||
+          draft.target.kind !== "text" ||
           draft.snapshot_id !== props.snapshotId
         ) {
           return [];
@@ -1146,8 +1150,10 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
    *
    * @param draft Exact new-Thread input to render.
    * @param persisted Whether the draft already belongs to the shared document.
-   * @param mount Connected diff row or Thread card receiving the Portal.
-   * @param sourceAnchor Originating code marker, or null for a Thread-contained input.
+   * @param mount Connected diff row, Thread card, or History whole-review slot
+   *   receiving the Portal.
+   * @param sourceAnchor Originating code marker, or null for a Thread-contained or
+   *   whole-review input.
    *
    * # Failures
    *
@@ -1274,27 +1280,29 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   }
 
   /**
-   * Opens and focuses transient new-Thread input at one exact code target.
+   * Opens and focuses transient new-Thread input for one exact target.
    *
    * Review data and draft storage must both be available. An unavailable
    * authority produces its specific Toast and leaves the current presentation
    * unchanged. Otherwise this function creates a fresh identity for the
    * selected Profile and current Snapshot and makes the empty transient input
-   * active at the target row; persistence begins only after meaningful input.
+   * active at `mount`; persistence begins only after meaningful input.
    *
    * @param profile Selected author already accepted for this write action.
-   * @param target Validated File, bay, side, and range for the future Thread.
-   * @param anchor Connected rendered line required for the input Portal.
+   * @param target Validated text range, or the whole review, for the future Thread.
+   * @param mount Exact diff row for a text target, or the History input slot
+   *   for a whole-review target.
+   * @param sourceAnchor Rendered line of a text target, or null for the whole review.
    *
    * # Failures
    *
-   * A missing anchor, a code cell outside an exact split-side or inline diff
-   * row, or the textarea invariant enforced by `openCommentInput` throws.
+   * The textarea invariant enforced by `openCommentInput` throws.
    */
   function openNewDraft(
     profile: StoredProfile,
     target: ReviewTarget,
-    anchor: ReviewCodeAnchor | null,
+    mount: HTMLElement,
+    sourceAnchor: ReviewCodeAnchor | null,
   ): void {
     if (!reviewAvailable()) {
       const reviewFailure = review.error;
@@ -1319,15 +1327,33 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       profile_id: profile.id,
       body: "",
     };
-    assert(anchor !== null, "New-Thread input requires its rendered line.");
-    const mount = anchor.codeCell.parentElement;
-    assert(
-      mount !== null &&
-        (mount.classList.contains("diff-side") ||
-          mount.classList.contains("inline-diff-row")),
-      "New-Thread input requires its exact rendered diff row.",
-    );
-    openCommentInput(draft, false, mount, anchor);
+    openCommentInput(draft, false, mount, sourceAnchor);
+  }
+
+  /**
+   * Toggle the whole-review new-Thread input in its History slot.
+   *
+   * An in-flight active submission blocks the action. When the whole-review
+   * input is already active at `mount`, this applies ordinary close semantics.
+   * Otherwise the selected Profile is required, as for every browser write, and
+   * a fresh transient input replaces any active Comment input.
+   *
+   * @param mount Connected History slot that receives the input Portal.
+   */
+  function toggleReviewThreadInput(mount: HTMLElement): void {
+    const active = activeCommentInput();
+    if (active !== null && submittingDraftIds().has(active.draftId)) {
+      return;
+    }
+    if (active?.mount === mount) {
+      closeActiveCommentInput();
+      return;
+    }
+    const profile = profileForWrite();
+    if (profile === null) {
+      return;
+    }
+    openNewDraft(profile, { kind: "review" }, mount, null);
   }
 
   /**
@@ -1631,6 +1657,13 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       if (profile === null) {
         return;
       }
+      const mount = anchor.codeCell.parentElement;
+      assert(
+        mount !== null &&
+          (mount.classList.contains("diff-side") ||
+            mount.classList.contains("inline-diff-row")),
+        "New-Thread input requires its exact rendered diff row.",
+      );
       openNewDraft(
         profile,
         {
@@ -1640,6 +1673,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
           side,
           range: { start_line: line, end_line: line },
         },
+        mount,
         anchor,
       );
     },
@@ -1785,6 +1819,17 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
           canViewFile={props.canViewFile}
           viewOriginThreadInCode={viewOriginThreadInCode}
           continueDraftInCode={continueDraftInCode}
+          toggleReviewThreadInput={toggleReviewThreadInput}
+          closeReviewThreadInput={(mount) => {
+            // Ordinary close keeps meaningful text as a draft and drops an
+            // empty input; an in-flight submission keeps it until it settles.
+            if (activeCommentInput()?.mount === mount) {
+              closeActiveCommentInput();
+            }
+          }}
+          continueReviewDraft={(draft, mount) =>
+            openCommentInput(draft, true, mount, null)
+          }
           closeCommentInputInThread={closeCommentInputInThread}
           discardNewThreadDraft={removeDraft}
           clearDrafts={clearStoredDrafts}

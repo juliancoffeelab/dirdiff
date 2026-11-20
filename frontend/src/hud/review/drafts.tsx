@@ -49,7 +49,7 @@ const NewThreadDraftSchema = z.strictObject({
   draft_id: ReviewIdSchema,
   /** Exact Snapshot in which the eventual Thread must be created. */
   snapshot_id: ReviewIdSchema,
-  /** Complete code coordinate retained for eventual Thread creation. */
+  /** Complete code coordinate, or the whole review, retained for eventual Thread creation. */
   target: ReviewTargetSchema,
   /** Profile selected when this unfinished input was created. */
   profile_id: z.number().int().positive(),
@@ -134,8 +134,8 @@ export type ReviewDraft = z.infer<typeof ReviewDraftSchema>;
 /**
  * Retains unfinished input for a Thread that does not exist yet.
  *
- * This narrower arm is used by marker and History code that requires a code
- * target before any backend Thread identity exists.
+ * This narrower arm is used by marker and History code that requires a code or
+ * whole-review target before any backend Thread identity exists.
  */
 export type NewThreadDraft = z.infer<typeof NewThreadDraftSchema>;
 

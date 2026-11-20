@@ -1625,7 +1625,7 @@ h1 {
 
 .review-history-panel > header {
   display: grid;
-  grid-template-columns: 18px auto minmax(0, 1fr) 26px 26px;
+  grid-template-columns: 18px auto minmax(0, 1fr) 26px 26px 26px;
   align-items: center;
   gap: 6px;
   min-height: 40px;
@@ -1659,7 +1659,8 @@ h1 {
   place-items: center;
 }
 
-.review-history-panel > header > .review-history-refresh {
+.review-history-panel > header > .review-history-refresh,
+.review-history-panel > header > .review-history-new-thread {
   border: 0;
   background: transparent;
   font-size: inherit;
@@ -1674,6 +1675,11 @@ h1 {
   overflow: auto;
   padding: 8px 7px 12px;
   overscroll-behavior: contain;
+}
+
+/* The whole-review Comment input spans the panel width above the Drafts. */
+.review-history-input-slot .review-comment-input-line {
+  margin: 0 0 8px;
 }
 
 .review-history-more {
@@ -1833,6 +1839,17 @@ h1 {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* An agent author carries its model and harness inside the name cell, so the
+   cell may grow; the location column still shrinks before it does. */
+.review-thread-heading strong:has(.review-author-agent) {
+  max-width: 26ch;
+}
+
+.review-author-agent {
+  color: #6a665d;
+  font-weight: 400;
 }
 
 .review-thread-toggle {

@@ -1113,7 +1113,8 @@ Snapshot identity, selected Profile, view and visibility, mount targets,
 split placement — plus the anchored-UI behaviors only the review provider
 can perform: viewing a currently placed Thread, navigating an origin-bound
 Thread to its unchanged line or changed File start, continuing a draft at its
-rendered line,
+rendered line, opening or continuing a whole-review Comment input in History's
+own input slot and closing it when a view switch discards that slot,
 closing a Comment input mounted in a History card, discarding a new-Thread
 draft, and clearing the draft document. It owns per-Thread expansion, the
 keep-mounted reading position, and idle warming.

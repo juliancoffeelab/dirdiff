@@ -22,7 +22,7 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { createInfiniteQuery } from "@tanstack/solid-query";
-import { Eye, RefreshCw } from "lucide-solid";
+import { Eye, MessageSquarePlus, RefreshCw } from "lucide-solid";
 import {
   api,
   reviewThreadList,
@@ -140,6 +140,32 @@ type ReviewHistoryProps = {
    */
   continueDraftInCode(draft: NewThreadDraft, point: ThreadCodePoint): void;
   /**
+   * Called from the header's whole-review control with History's connected input
+   * slot. The provider opens a fresh whole-review Comment input there, or closes
+   * the one already open there; with no selected Profile it only presents the
+   * Profile requirement. The active input returns through the provider's Portal.
+   */
+  toggleReviewThreadInput(mount: HTMLElement): void;
+  /**
+   * Called once when the keyed History Portal disposes its whole-review input
+   * slot, which an inline/split view switch does, with that discarded slot. The
+   * provider closes the whole-review input mounted there with ordinary close
+   * semantics, so unfinished text stays a saved draft and the provider holds no
+   * input for a slot that is gone; input mounted elsewhere is unchanged.
+   *
+   * @param mount The History input slot being discarded.
+   */
+  closeReviewThreadInput(mount: HTMLElement): void;
+  /**
+   * Called when the user continues a whole-review draft bound to this Snapshot and
+   * selected Profile. The provider reopens that persisted draft's Comment input in
+   * History's connected input slot; the draft document supplies later edits.
+   *
+   * @param draft Persisted whole-review new-Thread work from the Drafts section.
+   * @param mount Connected History slot that receives the input Portal.
+   */
+  continueReviewDraft(draft: NewThreadDraft, mount: HTMLElement): void;
+  /**
    * Called before closing a History card, with that Thread's identity. The
    * provider may close a Comment editor mounted inside it and returns false when
    * an in-flight submission forbids closing; History aborts the toggle on false
@@ -200,6 +226,10 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
   // display: none, whose box reads scrollTop 0, so the scroll listener in
   // the panel ref records the last real position for restoration on open.
   let historyScrollTop = 0;
+  // The slot inside the current keyed Portal where the provider mounts the
+  // whole-review Comment input. Its ref reassigns it whenever an inline/split
+  // switch remounts the Portal; it is read only by the actions that open input.
+  let reviewInputSlot: HTMLElement | null = null;
   const [expandedThreads, setExpandedThreads] = createSignal<
     ReadonlyMap<ReviewId, boolean>
   >(new Map());
@@ -239,7 +269,11 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
     const thread = () => historyProps.thread;
     const point = threadPlacementCodePoint(historyProps.thread);
     const locationSource = historyProps.thread.location_source;
-    const originFile = historyProps.thread.origin_target.file;
+    // A review-scoped Thread has no File, so it has no File-start landing.
+    const originFile =
+      historyProps.thread.origin_target.kind === "review"
+        ? null
+        : historyProps.thread.origin_target.file;
     const originUnavailableNote =
       locationSource.kind !== "origin-snapshot"
         ? null
@@ -250,6 +284,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
             : null;
     const useFileStart =
       locationSource.kind === "origin-snapshot" &&
+      originFile !== null &&
       (locationSource.file_state === "changed" || point === null);
     const navigationAdvisory =
       locationSource.kind === "origin-snapshot" &&
@@ -298,7 +333,14 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
             next.set(thread().thread_id, true);
             setExpandedThreads(next);
             if (locationSource.kind === "origin-snapshot") {
-              props.viewOriginThreadInCode(originFile, point, useFileStart);
+              props.viewOriginThreadInCode(
+                expect(
+                  originFile,
+                  "Origin navigation requires an origin File.",
+                ),
+                point,
+                useFileStart,
+              );
             } else {
               props.viewThreadInCode(thread());
             }
@@ -399,6 +441,23 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                 <span>
                   {orderedThreads().length} / {totalThreads()} Threads
                 </span>
+                <button
+                  type="button"
+                  class="field-icon-button review-history-new-thread"
+                  aria-label="Comment on the whole review"
+                  title="Comment on the whole review"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.toggleReviewThreadInput(
+                      expect(
+                        reviewInputSlot,
+                        "History requires its whole-review input slot.",
+                      ),
+                    );
+                  }}
+                >
+                  <MessageSquarePlus class="field-icon" aria-hidden="true" />
+                </button>
                 <button
                   type="button"
                   class="field-icon-button metadata-refresh-button review-history-refresh"
@@ -584,6 +643,16 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                   });
                 }}
               >
+                <div
+                  class="review-history-input-slot"
+                  ref={(slot) => {
+                    reviewInputSlot = slot;
+                    // A view switch replaces this keyed Portal and its slot;
+                    // close the input the provider mounted here before the
+                    // new slot exists, as renderers do for replaced rows.
+                    onCleanup(() => props.closeReviewThreadInput(slot));
+                  }}
+                />
                 <Show
                   when={draftContext
                     .drafts()
@@ -601,24 +670,23 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                           draft.kind === "new-thread",
                           "History Drafts contains only new Threads.",
                         );
-                        // An unposted draft has no placement, so the code it
-                        // continues at is its own selected target.
-                        const point: ThreadCodePoint = {
-                          file: draft.target.file,
-                          bay: draft.target.bay,
-                          side: draft.target.side,
-                          line: draft.target.range.start_line,
-                        };
+                        // A whole-review draft has no code; it continues in
+                        // History's own input slot.
+                        const target =
+                          draft.target.kind === "text" ? draft.target : null;
                         /** Requires this panel's current Profile and Snapshot bindings. */
                         const continuable = () =>
                           draft.profile_id === discussion.profileId() &&
                           draft.snapshot_id === props.snapshotId;
-                        const path = expect(
-                          draft.target.side === "left"
-                            ? draft.target.file.left_path
-                            : draft.target.file.right_path,
-                          "A new Thread draft requires its selected-side File path.",
-                        );
+                        const path =
+                          target === null
+                            ? "Whole review"
+                            : expect(
+                                target.side === "left"
+                                  ? target.file.left_path
+                                  : target.file.right_path,
+                                "A new Thread draft requires its selected-side File path.",
+                              );
                         return (
                           <article class="review-draft">
                             <div class="review-draft-heading">
@@ -627,14 +695,18 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                             </div>
                             <p class="review-draft-location">
                               <strong>{path}</strong>
-                              <span>
-                                {draft.target.side === "left" ? "old" : "new"} ·
-                                L{draft.target.range.start_line}
-                                {draft.target.range.start_line ===
-                                draft.target.range.end_line
-                                  ? ""
-                                  : `–${draft.target.range.end_line}`}
-                              </span>
+                              <Show when={target} keyed>
+                                {(text) => (
+                                  <span>
+                                    {text.side === "left" ? "old" : "new"} · L
+                                    {text.range.start_line}
+                                    {text.range.start_line ===
+                                    text.range.end_line
+                                      ? ""
+                                      : `–${text.range.end_line}`}
+                                  </span>
+                                )}
+                              </Show>
                             </p>
                             <Show when={!continuable()}>
                               <p class="review-draft-unavailable">
@@ -655,9 +727,26 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                                     .submittingDraftIds()
                                     .has(draft.draft_id)
                                 }
-                                onClick={() =>
-                                  props.continueDraftInCode(draft, point)
-                                }
+                                onClick={() => {
+                                  if (target === null) {
+                                    props.continueReviewDraft(
+                                      draft,
+                                      expect(
+                                        reviewInputSlot,
+                                        "History requires its whole-review input slot.",
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                  // An unposted draft has no placement, so the
+                                  // code it continues at is its own target.
+                                  props.continueDraftInCode(draft, {
+                                    file: target.file,
+                                    bay: target.bay,
+                                    side: target.side,
+                                    line: target.range.start_line,
+                                  });
+                                }}
                               >
                                 Continue editing
                               </button>

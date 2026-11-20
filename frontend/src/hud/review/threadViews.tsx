@@ -20,6 +20,7 @@ import { Portal } from "solid-js/web";
 import { LocateFixed, Pencil, Trash2, TriangleAlert } from "lucide-solid";
 import {
   threadOutdated,
+  type ReviewAuthor,
   type ReviewComment,
   type ReviewId,
   type ReviewThread,
@@ -572,7 +573,11 @@ export function ThreadCard(props: {
         kind: "inline";
       }
     | {
-        /** Marks a History card that may offer navigation back to reviewed code. */
+        /**
+         * Marks a History card that may offer navigation back to reviewed code.
+         * A whole-review Thread renders no go-to control, so its remaining fields
+         * are unused.
+         */
         kind: "history";
         /** Whether the located Thread's File is currently loaded for navigation. */
         viewable: boolean;
@@ -711,11 +716,20 @@ export function ThreadCard(props: {
   onDeleteComment(comment: ReviewComment): void;
 }): JSX.Element {
   const origin = props.thread.origin_target;
-  const excerptPath = expect(
-    origin.side === "left" ? origin.file.left_path : origin.file.right_path,
-    "A review origin requires its selected-side File path.",
-  );
-  const excerptFileName = excerptPath.slice(excerptPath.lastIndexOf("/") + 1);
+  // A review-scoped origin has no File; its heading shows a fixed label.
+  const excerptPath =
+    origin.kind === "review"
+      ? null
+      : expect(
+          origin.side === "left"
+            ? origin.file.left_path
+            : origin.file.right_path,
+          "A review origin requires its selected-side File path.",
+        );
+  const excerptFileName =
+    excerptPath === null
+      ? "Whole review"
+      : excerptPath.slice(excerptPath.lastIndexOf("/") + 1);
   // The excerpt travels inside a text origin, so the three sites that render
   // it need this arm; a retained File-level origin carries none.
   const textOrigin = origin.kind === "text" ? origin : null;
@@ -747,6 +761,7 @@ export function ThreadCard(props: {
     switch (props.thread.placement.kind) {
       case "region-kept":
       case "whole-file":
+      case "review-scope":
         return null;
       case "file-absent":
         return "The reviewed file is not present in this Snapshot.";
@@ -803,7 +818,7 @@ export function ThreadCard(props: {
    * Renders the shared Thread identity displayed by both header variants.
    *
    * The fragment shows the originating author's immutable display name and the
-   * origin File's basename. Text origins also show their selected start line.
+   * origin File's basename, or "Whole review" for a review-scoped Thread. Text origins also show their selected start line.
    * Placement damage adds the warning returned by `placementNote`, while kept and
    * whole-File origins add no warning. The heading starts no action and stores no
    * presentation state, so button and non-button headers use the same identity.
@@ -817,10 +832,8 @@ export function ThreadCard(props: {
     return (
       <>
         <span class="review-thread-state-dot" aria-hidden="true" />
-        <strong title={firstComment().author.display_name}>
-          {firstComment().author.display_name}
-        </strong>
-        <span class="review-thread-location" title={excerptPath}>
+        <AuthorName author={firstComment().author} />
+        <span class="review-thread-location" title={excerptPath ?? undefined}>
           {excerptFileName}
           <Show when={textOrigin} keyed>
             {(text) => <> · L{text.excerpt.selected_start_line}</>}
@@ -902,9 +915,12 @@ export function ThreadCard(props: {
             </Show>
           </button>
         </Show>
+        {/* A whole-review Thread names no code, so it has no go-to at all. */}
         <Show
           when={
-            props.navigation.kind === "history" ? props.navigation : undefined
+            props.navigation.kind === "history" && origin.kind !== "review"
+              ? props.navigation
+              : undefined
           }
           keyed
         >
@@ -1142,6 +1158,54 @@ export function ThreadCard(props: {
 }
 
 /**
+ * Renders one Comment author's name for Thread headings and Comment rows.
+ *
+ * A human renders only the display name, with that name as its tooltip. An agent
+ * adds a quiet label after the name: its model and harness joined by " · ", only
+ * the one it reported, or "agent" when it reported neither. The tooltip carries
+ * the complete name and label because the surrounding header truncates them.
+ * The element starts no action and holds no state.
+ */
+function AuthorName(props: {
+  /** Validated Comment attribution; humans never carry a model or harness. */
+  author: ReviewAuthor;
+}): JSX.Element {
+  /**
+   * Derives the quiet label shown after the name from the current `author`
+   * prop, so the tooltip and the visible label always agree.
+   *
+   * # Returns
+   *
+   * - An agent's model and harness joined by " · ", the one it reported, or
+   *   "agent" when it reported neither.
+   * - `null`: The author is human and renders only the name.
+   */
+  const agentLabel = (): string | null => {
+    if (!props.author.is_agent) {
+      return null;
+    }
+    const facts = [props.author.model, props.author.harness].filter(
+      (fact) => fact !== null,
+    );
+    return facts.length === 0 ? "agent" : facts.join(" · ");
+  };
+  return (
+    <strong
+      title={
+        agentLabel() === null
+          ? props.author.display_name
+          : `${props.author.display_name} · ${agentLabel()}`
+      }
+    >
+      {props.author.display_name}
+      <Show when={agentLabel()}>
+        {(label) => <span class="review-author-agent"> · {label()}</span>}
+      </Show>
+    </strong>
+  );
+}
+
+/**
  * Presents one canonical Comment body or tombstone within its Thread card.
  *
  * The parent decides authorship eligibility, supplies the persisted edit draft,
@@ -1232,9 +1296,7 @@ function ReviewCommentView(props: {
       </span>
       <div class="review-comment-bubble">
         <div class="review-comment-heading">
-          <strong title={props.comment.author.display_name}>
-            {props.comment.author.display_name}
-          </strong>
+          <AuthorName author={props.comment.author} />
           <Show when={props.editable || props.deletable}>
             <div class="review-comment-actions">
               <Show when={props.editable}>

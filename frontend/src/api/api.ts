@@ -1821,37 +1821,63 @@ const TextReviewTargetSchema = z
 /**
  * Public runtime validator for review targets accepted by browser write commands.
  *
- * It currently exposes the text-target contract directly; adding another target
- * kind requires an explicit public union rather than permissive parsing.
+ * `text` selects one rendered range of a captured File; `review` addresses the
+ * review as a whole and carries no File, bay, side, or range.
  */
-export const ReviewTargetSchema = TextReviewTargetSchema;
+export const ReviewTargetSchema = z.discriminatedUnion("kind", [
+  TextReviewTargetSchema,
+  z.strictObject({
+    /** Discriminant for a Thread about the whole review, with no code location. */
+    kind: z.literal("review"),
+  }),
+]);
 
 /**
- * Identifies one exact rendered text range accepted for Thread creation.
+ * Identifies the immutable origin requested for a new Thread.
  *
- * Callers construct this complete coordinate from a mounted line host and must
- * not assemble a partial or side-absent target.
+ * A text target is the complete coordinate of a mounted line host and must not
+ * be partial or side-absent; a review target names no code at all.
  */
 export type ReviewTarget = z.infer<typeof ReviewTargetSchema>;
 
 /**
  * Validates immutable display attribution returned with one review Comment.
  *
- * The record binds a positive Profile identity to the name captured for display;
- * it does not contain preferences or authentication state.
+ * The record binds a positive Profile identity to the name captured for display
+ * and states whether that Profile is an agent; it does not contain preferences
+ * or authentication state. A human never carries a model or harness.
  */
-const ReviewAuthorSchema = z.strictObject({
-  /** Positive Profile identity used for authorship checks. */
-  profile_id: z.number().int().positive(),
-  /** Non-empty author name captured for immutable Comment presentation. */
-  display_name: z.string().min(1),
-});
+const ReviewAuthorSchema = z
+  .strictObject({
+    /** Positive Profile identity used for authorship checks. */
+    profile_id: z.number().int().positive(),
+    /** Non-empty author name captured for immutable Comment presentation. */
+    display_name: z.string().min(1),
+    /** Whether the Profile was registered through the agent API. */
+    is_agent: z.boolean(),
+    /** Model the agent reported, or null for humans and older agents. */
+    model: z.string().nullable(),
+    /** Harness the agent reported, or null for humans and older agents. */
+    harness: z.string().nullable(),
+  })
+  .superRefine((author, context) => {
+    if (
+      !author.is_agent &&
+      (author.model !== null || author.harness !== null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "A human review author has no model or harness.",
+      });
+    }
+  });
 
 /**
  * Describes immutable Profile attribution returned with a review Comment.
  *
  * The positive identity supports authorship checks while the captured display
- * name is presentation. It does not represent current login or preferences.
+ * name and agent facts are presentation. It does not represent current login
+ * or preferences.
  */
 export type ReviewAuthor = z.infer<typeof ReviewAuthorSchema>;
 
@@ -1941,6 +1967,10 @@ const ThreadPlacementSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     /** File-level historical Thread remains valid without a text range. */
     kind: z.literal("whole-file"),
+  }),
+  z.strictObject({
+    /** Thread is about the review as a whole and has no File or code landing. */
+    kind: z.literal("review-scope"),
   }),
 ]);
 
@@ -2037,7 +2067,16 @@ const FileStartReviewOriginSchema = z.strictObject({
   side: z.enum(["left", "right"]),
 });
 /**
- * Validates either immutable Thread-origin form by its target kind.
+ * Validates the origin of a Thread about the review as a whole.
+ *
+ * It has no File, side, bay, range, or excerpt.
+ */
+const ReviewScopeOriginSchema = z.strictObject({
+  /** Discriminant for a Thread addressed to the whole review. */
+  kind: z.literal("review"),
+});
+/**
+ * Validates any immutable Thread-origin form by its target kind.
  *
  * Consumers narrow this history separately from returned placement and never
  * merge the two into one mutable coordinate.
@@ -2045,6 +2084,7 @@ const FileStartReviewOriginSchema = z.strictObject({
 const ReviewOriginSchema = z.discriminatedUnion("kind", [
   TextReviewOriginSchema,
   FileStartReviewOriginSchema,
+  ReviewScopeOriginSchema,
 ]);
 
 /**
@@ -2052,7 +2092,7 @@ const ReviewOriginSchema = z.discriminatedUnion("kind", [
  *
  * This immutable history remains separate from returned placement. Text origins
  * retain their selected excerpt; File-level historical origins have no text
- * coordinate.
+ * coordinate; review-scoped origins have no File at all.
  */
 export type ReviewOrigin = z.infer<typeof ReviewOriginSchema>;
 
@@ -2133,7 +2173,9 @@ export function threadOutdated(thread: ReviewThread): boolean {
     return thread.location_source.file_state !== "unchanged";
   }
   const kind = thread.placement.kind;
-  return kind !== "region-kept" && kind !== "whole-file";
+  return (
+    kind !== "region-kept" && kind !== "whole-file" && kind !== "review-scope"
+  );
 }
 
 /**
@@ -2185,14 +2227,14 @@ export type ThreadCodePoint = {
  * # Returns
  *
  * - `ThreadCodePoint`: Complete coordinate in `thread.snapshot_id`.
- * - `null`: The File-level origin names no bay. Callers must keep that Thread
- *   in History and omit code navigation.
+ * - `null`: The File-level or review-scoped origin names no bay. Callers must
+ *   keep that Thread in History and omit code navigation.
  */
 export function threadPlacementCodePoint(
   thread: ReviewThread,
 ): ThreadCodePoint | null {
   const origin = thread.origin_target;
-  if (origin.kind === "file-start") {
+  if (origin.kind === "file-start" || origin.kind === "review") {
     return null;
   }
   const placement = thread.placement;
@@ -2492,7 +2534,7 @@ const ReviewBodySchema = z
 const CreateReviewThreadRequestSchema = z.strictObject({
   /** Existing Profile attributed as author of the first Comment. */
   profile_id: z.number().int().positive(),
-  /** Complete valid code coordinate for the new Thread. */
+  /** Complete valid code coordinate, or the whole review, for the new Thread. */
   target: ReviewTargetSchema,
   /** Nonblank first Comment text preserved verbatim after validation. */
   body: ReviewBodySchema,
