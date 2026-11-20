@@ -38,7 +38,10 @@ from dirdiff.db.room import (
     RangePlacement,
     ReviewActionInput,
     ReviewActionPayload,
-    ReviewActionRecord,
+    ReviewMarkActionRecord,
+    ReviewProfileRecord,
+    ReviewScopePlacement,
+    ReviewThreadHistory,
     ReviewThreadRecord,
     ReviewThreadsRecord,
     RoomIdentity,
@@ -54,10 +57,7 @@ from dirdiff.db.room import (
     ThreadDeletedAction,
     ThreadStateAction,
 )
-from dirdiff.db.user_profile import (
-    UserProfileRecord,
-    UserProfileStore,
-)
+from dirdiff.db.user_profile import UserProfileStore
 
 __all__ = [
     "AuthoredComment",
@@ -75,7 +75,10 @@ __all__ = [
     "RepoMarkStore",
     "ReviewActionInput",
     "ReviewActionPayload",
-    "ReviewActionRecord",
+    "ReviewMarkActionRecord",
+    "ReviewProfileRecord",
+    "ReviewScopePlacement",
+    "ReviewThreadHistory",
     "ReviewThreadRecord",
     "ReviewThreadsRecord",
     "RoomIdentity",
@@ -91,7 +94,6 @@ __all__ = [
     "TableBase",
     "ThreadDeletedAction",
     "ThreadStateAction",
-    "UserProfileRecord",
     "UserProfileStore",
     "open_ephemeral_engine",
     "open_sqlite_engine",

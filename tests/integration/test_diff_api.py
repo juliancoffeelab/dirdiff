@@ -430,25 +430,42 @@ def test_browser_can_edit_a_comment_twice_then_delete_it(
     (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
     client, _project_id = create_repo_client(tmp_path)
 
-    joined = client.post(
-        "/api/agent/join_review",
+    profile = client.post(
+        "/api/agent/profile",
         json={
             "agent_uuid": "1" * 32,
             "name": "comment author",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "model": "test-model",
+            "harness": "pytest",
         },
     ).json()
-    captured = sorted(Path(joined["snapshot_path"]).glob("*/right"))
-    assert len(captured) == 1
+    captured = client.post(
+        "/api/agent/capture",
+        json={
+            "tab": {
+                "kind": "head",
+                "repo_path": str(tmp_path),
+                "baseline": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=tmp_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+            }
+        },
+    ).json()
     created = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "create-finding",
-                    "file": str(captured[0]),
+                    "kind": "create-thread",
+                    "snapshot_id": captured["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "alpha.txt",
+                    "side": "right",
                     "bay": {
                         "bay_key": "flatfile",
                         "start_line": 2,
@@ -463,7 +480,7 @@ def test_browser_can_edit_a_comment_twice_then_delete_it(
     threads = client.get(
         "/api/review/threads",
         params={
-            "snapshot_id": joined["snapshot_id"],
+            "snapshot_id": captured["snapshot_id"],
             "page": 1,
             "limit": 20,
         },
@@ -475,9 +492,9 @@ def test_browser_can_edit_a_comment_twice_then_delete_it(
         edited = client.post(
             "/api/review/edit_comment",
             json={
-                "snapshot_id": joined["snapshot_id"],
+                "snapshot_id": captured["snapshot_id"],
                 "comment_id": comment_id,
-                "profile_id": joined["profile_id"],
+                "profile_id": profile["profile_id"],
                 "body": body,
             },
         )
@@ -490,9 +507,9 @@ def test_browser_can_edit_a_comment_twice_then_delete_it(
     deleted = client.post(
         "/api/review/delete_comment",
         json={
-            "snapshot_id": joined["snapshot_id"],
+            "snapshot_id": captured["snapshot_id"],
             "comment_id": comment_id,
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
         },
     )
     assert deleted.status_code == 200
@@ -1313,80 +1330,100 @@ def test_agent_batch_applies_set_reads_across_threads(tmp_path: Path) -> None:
     """
     create_committed_repo(tmp_path, branch="main")
     (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
-    client, _project_id = create_repo_client(tmp_path)
+    client, project_id = create_repo_client(tmp_path)
 
-    joined = client.post(
-        "/api/agent/join_review",
+    profile = client.post(
+        "/api/agent/profile",
         json={
             "agent_uuid": "a" * 32,
             "name": "batch reviewer",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "model": "test-model",
+            "harness": "pytest",
         },
     ).json()
-    sides = sorted(Path(joined["snapshot_path"]).glob("*/right"))
-    assert sides != []
+    captured = client.post(
+        "/api/agent/capture",
+        json={
+            "tab": {
+                "kind": "head",
+                "repo_path": str(tmp_path),
+                "baseline": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=tmp_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+            }
+        },
+    ).json()
+    assert captured["project_id"] == project_id
+    assert [
+        (file["right_path"], file["capture_error"])
+        for file in captured["files"]
+    ] == [("alpha.txt", None)]
 
     created = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "create-finding",
-                    "file": str(sides[0]),
+                    "kind": "create-thread",
+                    "snapshot_id": captured["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "alpha.txt",
+                    "side": "right",
                     "bay": {
                         "bay_key": "flatfile",
-                        "start_line": 1,
-                        "end_line": 1,
+                        "start_line": line,
+                        "end_line": line,
                     },
-                    "body": "first finding",
-                },
-                {
-                    "kind": "create-finding",
-                    "file": str(sides[0]),
-                    "bay": {
-                        "bay_key": "flatfile",
-                        "start_line": 2,
-                        "end_line": 2,
-                    },
-                    "body": "second finding",
-                },
+                    "body": f"finding {line}",
+                }
+                for line in (1, 2)
             ],
         },
     )
     assert created.status_code == 200
     thread_ids = [result["thread_id"] for result in created.json()["results"]]
     assert len(set(thread_ids)) == 2
+    assert [
+        (result["kind"], result["status"], result["waiting_on"])
+        for result in created.json()["results"]
+    ] == [("create-thread", "open", "author")] * 2
 
     # One follow-up batch addresses both existing Threads. The bulk history
     # read must fold each Thread independently and in authored order: the
-    # reviewer-return is only legal because the same batch's author-response
-    # moved that Thread's attention to the reviewer first.
+    # reviewer comment on the second Thread is only meaningful because the
+    # author comment before it moved that Thread's wait to the reviewer.
     replied = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "author-response",
+                    "kind": "comment",
                     "thread_id": thread_ids[0],
+                    "role": "author",
                     "body": "first response",
                 },
                 {
-                    "kind": "author-response",
+                    "kind": "comment",
                     "thread_id": thread_ids[1],
+                    "role": "author",
                     "body": "second response",
                 },
                 {
-                    "kind": "reviewer-return",
+                    "kind": "comment",
                     "thread_id": thread_ids[1],
+                    "role": "reviewer",
                     "body": "returned",
                 },
                 {
-                    "kind": "inert-comment",
+                    "kind": "comment",
                     "thread_id": thread_ids[0],
+                    "role": "author",
                     "body": "extra context",
                 },
             ],
@@ -1394,37 +1431,45 @@ def test_agent_batch_applies_set_reads_across_threads(tmp_path: Path) -> None:
     )
     assert replied.status_code == 200
     outcomes = [
-        (result["kind"], result["status"], result["attention"])
+        (result["kind"], result["status"], result["waiting_on"])
         for result in replied.json()["results"]
     ]
     assert outcomes == [
-        ("author-response", "open", "reviewer"),
-        ("author-response", "open", "reviewer"),
-        ("reviewer-return", "open", "author"),
-        ("inert-comment", "open", "reviewer"),
+        ("comment", "open", "reviewer"),
+        ("comment", "open", "reviewer"),
+        ("comment", "open", "author"),
+        ("comment", "open", "reviewer"),
     ]
 
-    # Changing the worktree and joining again publishes a new Snapshot whose
+    # Changing the worktree and capturing again publishes a new Snapshot whose
     # capture must relocate both range Threads into the fresh capture (the
     # derivation reads the new Snapshot's own bytes at their final address).
     (tmp_path / "alpha.txt").write_text(
         "one\nchanged\nagain\n", encoding="utf-8"
     )
-    rejoined = client.post(
-        "/api/agent/join_review",
+    recaptured = client.post(
+        "/api/agent/capture",
         json={
-            "agent_uuid": "c" * 32,
-            "name": "recapture reviewer",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "tab": {
+                "kind": "head",
+                "repo_path": str(tmp_path),
+                "baseline": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=tmp_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+            }
         },
     )
-    assert rejoined.status_code == 200
-    recaptured = rejoined.json()
-    assert recaptured["snapshot_id"] != joined["snapshot_id"]
+    assert recaptured.status_code == 200
+    assert recaptured.json()["snapshot_id"] != captured["snapshot_id"]
     threads = client.get(
         "/api/agent/threads",
         params={
-            "snapshot_id": recaptured["snapshot_id"],
+            "snapshot_id": recaptured.json()["snapshot_id"],
+            "status": "open",
             "page": 1,
             "limit": 20,
         },
@@ -1434,43 +1479,61 @@ def test_agent_batch_applies_set_reads_across_threads(tmp_path: Path) -> None:
     )
 
 
-def test_agent_join_normalizes_canonical_hyphenated_uuid(
+def test_agent_profile_is_idempotent_and_normalizes_hyphenated_uuid(
     tmp_path: Path,
 ) -> None:
     """Canonical UUID input shares one registration identity with compact hex.
 
-    The first join exercises the HTTP validation boundary with the conventional
-    hyphenated spelling. A second join uses the same UUID in stored compact form
-    and must reach duplicate detection rather than create another Profile.
+    Registering the hyphenated spelling and then the stored compact form must
+    return one Profile whose name, model, and harness follow the latest call,
+    while a name already used by another Profile is rejected as plain text.
 
     # Parameters
 
-    - `tmp_path`: Isolated marked repository and database root for both joins.
+    - `tmp_path`: Isolated marked repository and database root.
     """
     create_committed_repo(tmp_path, branch="main")
-    (tmp_path / "alpha.txt").write_text("changed\n", encoding="utf-8")
     client, _project_id = create_repo_client(tmp_path)
 
-    joined = client.post(
-        "/api/agent/join_review",
+    first = client.post(
+        "/api/agent/profile",
         json={
             "agent_uuid": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
             "name": "hyphenated reviewer",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "model": "model-one",
+            "harness": "harness-one",
         },
     )
-    assert joined.status_code == 200
+    assert first.status_code == 200
 
-    duplicate = client.post(
-        "/api/agent/join_review",
+    again = client.post(
+        "/api/agent/profile",
         json={
             "agent_uuid": "aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa",
-            "name": "compact duplicate reviewer",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "name": "renamed reviewer",
+            "model": "model-two",
+            "harness": "harness-two",
         },
     )
-    assert duplicate.status_code == 400
-    assert duplicate.text == "Agent UUID already exists."
+    assert again.status_code == 200
+    assert again.json() == {
+        "profile_id": first.json()["profile_id"],
+        "name": "renamed reviewer",
+        "model": "model-two",
+        "harness": "harness-two",
+    }
+
+    other = client.post(
+        "/api/agent/profile",
+        json={
+            "agent_uuid": "b" * 32,
+            "name": "renamed reviewer",
+            "model": "model-two",
+            "harness": "harness-two",
+        },
+    )
+    assert other.status_code == 400
+    assert other.text == "Username already exists."
 
 
 def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
@@ -1482,26 +1545,43 @@ def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
     (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
     client, _project_id = create_repo_client(tmp_path)
 
-    joined = client.post(
-        "/api/agent/join_review",
+    profile = client.post(
+        "/api/agent/profile",
         json={
             "agent_uuid": "b" * 32,
             "name": "atomic reviewer",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "model": "test-model",
+            "harness": "pytest",
         },
     ).json()
-    sides = sorted(Path(joined["snapshot_path"]).glob("*/right"))
-    assert sides != []
+    captured = client.post(
+        "/api/agent/capture",
+        json={
+            "tab": {
+                "kind": "head",
+                "repo_path": str(tmp_path),
+                "baseline": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=tmp_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+            }
+        },
+    ).json()
 
     rejected = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "create-finding",
-                    "file": str(sides[0]),
+                    "kind": "create-thread",
+                    "snapshot_id": captured["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "alpha.txt",
+                    "side": "right",
                     "bay": {
                         "bay_key": "flatfile",
                         "start_line": 1,
@@ -1510,8 +1590,9 @@ def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
                     "body": "valid finding",
                 },
                 {
-                    "kind": "author-response",
+                    "kind": "comment",
                     "thread_id": "f" * 32,
+                    "role": "author",
                     "body": "reply to a Thread that does not exist",
                 },
             ],
@@ -1521,80 +1602,107 @@ def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
 
     threads = client.get(
         "/api/agent/threads",
-        params={"snapshot_id": joined["snapshot_id"], "page": 1, "limit": 20},
+        params={
+            "snapshot_id": captured["snapshot_id"],
+            "status": "all",
+            "page": 1,
+            "limit": 20,
+        },
     ).json()
     assert threads["items"] == []
 
 
-def test_agent_batch_reports_first_invalid_action_in_batch_order(
+def test_agent_batch_with_absent_paths_is_rejected(
     tmp_path: Path,
 ) -> None:
-    """Mixed-problem batches report the earliest action's exact failure.
+    """A batch naming absent repository paths is rejected with a path error.
 
-    Ordered validation must not mask it with a later error or a generic batch response.
+    The contract leaves unspecified which invalid item's error is reported;
+    the assertions below record the route's current choice, not a promise.
     """
     create_committed_repo(tmp_path, branch="main")
     (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
     client, _project_id = create_repo_client(tmp_path)
 
-    joined = client.post(
-        "/api/agent/join_review",
+    profile = client.post(
+        "/api/agent/profile",
         json={
             "agent_uuid": "c" * 32,
             "name": "ordering reviewer",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "model": "test-model",
+            "harness": "pytest",
         },
     ).json()
-    sides = sorted(Path(joined["snapshot_path"]).glob("*/right"))
-    assert sides != []
+    captured = client.post(
+        "/api/agent/capture",
+        json={
+            "tab": {
+                "kind": "head",
+                "repo_path": str(tmp_path),
+                "baseline": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=tmp_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+            }
+        },
+    ).json()
 
-    # An absent (but well-formed) captured path precedes a malformed relative
-    # path: the earlier action's failure must win regardless of validation
-    # phases inside the route.
-    absent = str(Path(sides[0]).parent.parent / ("d" * 32) / "right")
+    # Two absent (but well-formed) repository paths: the route currently
+    # reports the first one it meets while preparing the batch.
     rejected = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "create-finding",
-                    "file": absent,
+                    "kind": "create-thread",
+                    "snapshot_id": captured["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "missing-first.txt",
+                    "side": "right",
                     "bay": {
                         "bay_key": "flatfile",
                         "start_line": 1,
                         "end_line": 1,
                     },
-                    "body": "targets a missing capture",
+                    "body": "targets a missing File",
                 },
                 {
-                    "kind": "create-finding",
-                    "file": "relative/left",
+                    "kind": "create-thread",
+                    "snapshot_id": captured["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "missing-second.txt",
+                    "side": "right",
                     "bay": {
                         "bay_key": "flatfile",
                         "start_line": 1,
                         "end_line": 1,
                     },
-                    "body": "malformed path",
+                    "body": "targets another missing File",
                 },
             ],
         },
     )
     assert rejected.status_code == 400
-    assert "File is absent from the Snapshot." in rejected.text
+    assert "missing-first.txt" in rejected.text
+    assert "missing-second.txt" not in rejected.text
 
-    # A creation that is doubly invalid (absent target pair and blank body)
-    # reports the absent target, matching the pre-focused-read precedence.
+    # A creation that is doubly invalid (absent target and blank body)
+    # reports the absent target.
     doubly_invalid = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "create-finding",
-                    "file": absent,
+                    "kind": "create-thread",
+                    "snapshot_id": captured["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "missing-first.txt",
+                    "side": "right",
                     "bay": {
                         "bay_key": "flatfile",
                         "start_line": 1,
@@ -1606,7 +1714,7 @@ def test_agent_batch_reports_first_invalid_action_in_batch_order(
         },
     )
     assert doubly_invalid.status_code == 400
-    assert "File is absent from the Snapshot." in doubly_invalid.text
+    assert "missing-first.txt" in doubly_invalid.text
 
 
 def test_agent_addresses_a_notebook_cell_bay_in_both_directions(
@@ -1643,24 +1751,38 @@ def test_agent_addresses_a_notebook_cell_bay_in_both_directions(
     )
     client, _project_id = create_repo_client(tmp_path)
 
-    joined = client.post(
-        "/api/agent/join_review",
+    profile = client.post(
+        "/api/agent/profile",
         json={
             "agent_uuid": "d" * 32,
             "name": "notebook reviewer",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "model": "test-model",
+            "harness": "pytest",
+        },
+    ).json()
+    captured = client.post(
+        "/api/agent/capture",
+        json={
+            "tab": {
+                "kind": "head",
+                "repo_path": str(tmp_path),
+                "baseline": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=tmp_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+            }
         },
     ).json()
 
-    # The agent finds the notebook the way it finds any captured side: by
-    # inspecting the bytes, since File-id directories carry no repository path.
-    captured = [
-        side
-        for side in sorted(Path(joined["snapshot_path"]).glob("*/right"))
-        if "stable-cell" in side.read_text(encoding="utf-8")
+    # The manifest names the notebook by repository path and locates its
+    # captured bytes, so the agent reads the notebook like any other side.
+    [notebook_file] = [
+        file for file in captured["files"] if file["right_path"] == "demo.ipynb"
     ]
-    assert len(captured) == 1
-    notebook_side = captured[0]
+    notebook_side = Path(notebook_file["right_file"])
 
     # Line two of the cell's joined source is `b = 22`. Line two of the
     # captured `.ipynb` is JSON structure, which is what the old flatfile
@@ -1671,12 +1793,14 @@ def test_agent_addresses_a_notebook_cell_bay_in_both_directions(
     created = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "create-finding",
-                    "file": str(notebook_side),
+                    "kind": "create-thread",
+                    "snapshot_id": captured["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "demo.ipynb",
+                    "side": "right",
                     "bay": {
                         "bay_key": "stable-cell",
                         "start_line": 2,
@@ -1690,18 +1814,16 @@ def test_agent_addresses_a_notebook_cell_bay_in_both_directions(
     assert created.status_code == 200
     thread_id = created.json()["results"][0]["thread_id"]
 
-    read = client.get(
-        f"/api/agent/thread/{thread_id}",
-        params={"snapshot_id": joined["snapshot_id"], "page": 1, "limit": 20},
-    )
+    read = client.get(f"/api/agent/thread/{thread_id}")
     assert read.status_code == 200
     body = read.json()
-    assert body["bay"] == {
+    assert body["location"] == {
+        "path": "demo.ipynb",
+        "side": "right",
         "bay_key": "stable-cell",
         "start_line": 2,
         "end_line": 2,
     }
-    assert body["file"] == str(notebook_side)
     # The excerpt is cut from the cell's own text, so it holds the cell source
     # rather than a window of the surrounding `.ipynb` JSON.
     excerpt = body["original_excerpt"]
@@ -1711,24 +1833,32 @@ def test_agent_addresses_a_notebook_cell_bay_in_both_directions(
     assert excerpt["selected_end_line"] == 2
 
     summary = client.get(
-        "/api/agent/thread_summary",
-        params={"snapshot_id": joined["snapshot_id"], "page": 1, "limit": 20},
+        "/api/agent/threads",
+        params={
+            "snapshot_id": captured["snapshot_id"],
+            "status": "open",
+            "page": 1,
+            "limit": 20,
+        },
     ).json()
-    assert [item["bay"] for item in summary["items"]] == [
-        {"bay_key": "stable-cell", "start_line": 2, "end_line": 2}
-    ]
+    assert [
+        (item["location"]["bay_key"], item["location"]["start_line"])
+        for item in summary["items"]
+    ] == [("stable-cell", 2)]
 
     # A notebook composes no `flatfile` bay, so the key the agent boundary
     # used to hardcode is now rejected rather than silently mis-addressed.
     rejected = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "create-finding",
-                    "file": str(notebook_side),
+                    "kind": "create-thread",
+                    "snapshot_id": captured["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "demo.ipynb",
+                    "side": "right",
                     "bay": {
                         "bay_key": "flatfile",
                         "start_line": 2,
@@ -1747,12 +1877,14 @@ def test_agent_addresses_a_notebook_cell_bay_in_both_directions(
     overrun = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "create-finding",
-                    "file": str(notebook_side),
+                    "kind": "create-thread",
+                    "snapshot_id": captured["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "demo.ipynb",
+                    "side": "right",
                     "bay": {
                         "bay_key": "stable-cell",
                         "start_line": 4,
@@ -1815,29 +1947,42 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
     )
     client, _project_id = create_repo_client(tmp_path)
 
-    joined = client.post(
-        "/api/agent/join_review",
+    profile = client.post(
+        "/api/agent/profile",
         json={
             "agent_uuid": "e" * 32,
             "name": "landing reviewer",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "model": "test-model",
+            "harness": "pytest",
         },
     ).json()
-    captured = [
-        side
-        for side in sorted(Path(joined["snapshot_path"]).glob("*/right"))
-        if "cell-b" in side.read_text(encoding="utf-8")
-    ]
-    assert len(captured) == 1
+    joined = client.post(
+        "/api/agent/capture",
+        json={
+            "tab": {
+                "kind": "head",
+                "repo_path": str(tmp_path),
+                "baseline": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=tmp_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+            }
+        },
+    ).json()
     created = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "create-finding",
-                    "file": str(captured[0]),
+                    "kind": "create-thread",
+                    "snapshot_id": joined["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "demo.ipynb",
+                    "side": "right",
                     "bay": {
                         "bay_key": "cell-b",
                         "start_line": 2,
@@ -1867,7 +2012,7 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
     ]
 
     # Six worktree losses, each captured as its own Snapshot. Every entry is
-    # (agent uuid, notebook bytes or None to delete the file, the expected
+    # (label, notebook bytes or None to delete the file, the expected
     # (browser placement, agent bay, agent outdated reason) of the derived
     # landing). The two boundaries are stated separately because the agent
     # shape keeps five reason names for eight placement kinds.
@@ -1875,23 +2020,23 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
         tuple[
             str,
             bytes | None,
-            tuple[dict[str, JsonValue], dict[str, str] | None, str],
+            tuple[dict[str, JsonValue], str, str],
         ]
     ] = [
         # The origin's own bay is gone; the File's first right-carrying bay
         # is the unchanged first cell, chosen and stored at derivation.
         (
-            "f" * 32,
+            "lost origin bay",
             json.dumps({**notebook, "cells": [cell_a]}, indent=1).encode(),
             (
                 {"kind": "bay-lost", "bay": {"bay_key": "cell-a"}},
-                {"bay_key": "cell-a"},
+                "cell-a",
                 "bay_not_found",
             ),
         ),
         # The bay survives while nothing inside it matches the origin region.
         (
-            "1" * 32,
+            "lost region",
             json.dumps(
                 {
                     **notebook,
@@ -1910,7 +2055,7 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
             ).encode(),
             (
                 {"kind": "region-lost"},
-                {"bay_key": "cell-b"},
+                "cell-b",
                 "region_not_found",
             ),
         ),
@@ -1918,14 +2063,14 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
         # text in the notebook boundary, so the cell origin lands on that
         # first right-carrying bay.
         (
-            "2" * 32,
+            "corrupt json",
             b"{ this is not a notebook\n",
             (
                 {
                     "kind": "bay-lost",
                     "bay": {"bay_key": "notebook:raw"},
                 },
-                {"bay_key": "notebook:raw"},
+                "notebook:raw",
                 "bay_not_found",
             ),
         ),
@@ -1935,36 +2080,48 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
         # above does — the File stopped being a notebook, and the Thread
         # lands on whatever terminal it became.
         (
-            "3" * 32,
+            "non utf-8",
             b"\x80\xfe\xffnot text",
             (
                 {"kind": "bay-lost", "bay": {"bay_key": "blob"}},
-                {"bay_key": "blob"},
+                "blob",
                 "bay_not_found",
             ),
         ),
         # A notebook whose cells were all removed has only left-carrying
         # cell bays, so the right-side origin falls to File start.
         (
-            "4" * 32,
+            "no cells",
             json.dumps({**notebook, "cells": []}, indent=1).encode(),
-            ({"kind": "side-lost"}, None, "bay_not_found"),
+            ({"kind": "side-lost"}, "cell-b", "bay_not_found"),
         ),
         # The exact File pair is gone: a deletion pairs (left, None), which
         # is not the origin's (left, right) pair.
-        ("5" * 32, None, ({"kind": "file-absent"}, None, "file_missing")),
+        (
+            "removed file",
+            None,
+            ({"kind": "file-absent"}, "cell-b", "file_missing"),
+        ),
     ]
-    for agent_uuid, notebook_bytes, expected in losses:
+    for label, notebook_bytes, expected in losses:
         if notebook_bytes is None:
             (tmp_path / "demo.ipynb").unlink()
         else:
             (tmp_path / "demo.ipynb").write_bytes(notebook_bytes)
         rejoined = client.post(
-            "/api/agent/join_review",
+            "/api/agent/capture",
             json={
-                "agent_uuid": agent_uuid,
-                "name": f"landing reviewer {agent_uuid[:2]}",
-                "tab": {"kind": "head", "repo_path": str(tmp_path)},
+                "tab": {
+                    "kind": "head",
+                    "repo_path": str(tmp_path),
+                    "baseline": subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        cwd=tmp_path,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip(),
+                }
             },
         )
         assert rejoined.status_code == 200
@@ -1976,28 +2133,33 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
         )
         assert read.status_code == 200
         threads = read.json()["threads"]
-        expected_placement, expected_bay, expected_reason = expected
+        expected_placement, expected_bay_key, expected_reason = expected
         assert [thread["placement"] for thread in threads] == [
             expected_placement
-        ], f"unexpected landing for uuid {agent_uuid}"
+        ], f"unexpected landing for capture {label}"
         # The text origin keeps its excerpt through every loss.
         assert ["excerpt" in thread["origin_target"] for thread in threads] == [
             True
         ]
 
         # The agent boundary reports the same stored landing under its own
-        # five-name vocabulary: a bay-level landing is a bare bay key, a
-        # File-level one is no bay at all.
+        # five-name vocabulary: a replacement bay is named by its key, and a
+        # landing with no code keeps the origin bay it was created on.
         agent_read = client.get(
-            f"/api/agent/thread/{thread_id}",
-            params={"snapshot_id": snapshot_id, "page": 1, "limit": 20},
+            "/api/agent/threads",
+            params={
+                "snapshot_id": snapshot_id,
+                "status": "open",
+                "page": 1,
+                "limit": 20,
+            },
         )
         assert agent_read.status_code == 200
-        agent_body = agent_read.json()
-        assert agent_body["outdated_reason"] == expected_reason
-        assert agent_body["bay"] == expected_bay
-        if expected_bay is not None:
-            assert agent_body["file"] is not None
+        [agent_item] = agent_read.json()["items"]
+        assert agent_item["thread_id"] == thread_id
+        assert agent_item["outdated_reason"] == expected_reason
+        assert agent_item["location"]["path"] == "demo.ipynb"
+        assert agent_item["location"]["bay_key"] == expected_bay_key
 
 
 def test_unreadable_file_lands_its_thread_without_hiding_the_others(
@@ -2030,30 +2192,43 @@ def test_unreadable_file_lands_its_thread_without_hiding_the_others(
     (tmp_path / "shy.py").write_text("def shy():\n    return 2\n")
     client, _project_id = create_repo_client(tmp_path)
 
-    joined = client.post(
-        "/api/agent/join_review",
+    profile = client.post(
+        "/api/agent/profile",
         json={
             "agent_uuid": "a" * 32,
             "name": "capture reviewer",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "model": "test-model",
+            "harness": "pytest",
         },
     ).json()
-    captured = sorted(Path(joined["snapshot_path"]).glob("*/right"))
+    joined = client.post(
+        "/api/agent/capture",
+        json={
+            "tab": {
+                "kind": "head",
+                "repo_path": str(tmp_path),
+                "baseline": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=tmp_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+            }
+        },
+    ).json()
     for name in ("shy.py", "loud.py"):
-        captured_side = next(
-            side
-            for side in captured
-            if side.read_text(encoding="utf-8").startswith(f"def {name[:-3]}")
-        )
         created = client.post(
             "/api/agent/actions",
             json={
-                "snapshot_id": joined["snapshot_id"],
-                "profile_id": joined["profile_id"],
+                "profile_id": profile["profile_id"],
                 "actions": [
                     {
-                        "kind": "create-finding",
-                        "file": str(captured_side),
+                        "kind": "create-thread",
+                        "snapshot_id": joined["snapshot_id"],
+                        "role": "reviewer",
+                        "path": name,
+                        "side": "right",
                         "bay": {
                             "bay_key": "flatfile",
                             "start_line": 2,
@@ -2069,17 +2244,32 @@ def test_unreadable_file_lands_its_thread_without_hiding_the_others(
     # The next capture lists shy.py and then cannot read it.
     (tmp_path / "shy.py").chmod(0o000)
     rejoined = client.post(
-        "/api/agent/join_review",
+        "/api/agent/capture",
         json={
-            "agent_uuid": "b" * 32,
-            "name": "capture reviewer two",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "tab": {
+                "kind": "head",
+                "repo_path": str(tmp_path),
+                "baseline": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=tmp_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+            }
         },
     )
     assert rejoined.status_code == 200
     snapshot_id = rejoined.json()["snapshot_id"]
     assert snapshot_id != joined["snapshot_id"]
     (tmp_path / "shy.py").chmod(0o644)
+    # The manifest keeps the unreadable File and reports why it has no bytes.
+    [shy_file] = [
+        file
+        for file in rejoined.json()["files"]
+        if file["right_path"] == "shy.py"
+    ]
+    assert shy_file["capture_error"] is not None
 
     read = client.get(
         "/api/review/threads",
@@ -2436,19 +2626,13 @@ def test_lfs_capture_contains_errors_and_recovers(
         failed_path.write_bytes(payloads[failed_side] + b"extra")
     client, _project_id = create_repo_client(tmp_path)
     with client:
-        joined = client.post(
-            "/api/agent/join_review",
-            json={
-                "agent_uuid": "f" * 32,
-                "name": "LFS capture reviewer",
-                "tab": {
-                    "kind": "refs",
-                    "repo_path": str(tmp_path),
-                    "left": "HEAD~1",
-                    "right": "HEAD",
-                },
-            },
-        )
+        refs_tab = {
+            "kind": "refs",
+            "repo_path": str(tmp_path),
+            "left": "HEAD~1",
+            "right": "HEAD",
+        }
+        joined = client.post("/api/agent/capture", json={"tab": refs_tab})
         assert joined.status_code == 200, joined.text
         failed = joined.json()
         snapshot_path = Path(failed["snapshot_path"])
@@ -2480,24 +2664,16 @@ def test_lfs_capture_contains_errors_and_recovers(
             if path == "logo.png":
                 assert oids[failed_side] in diff.text
 
-        repeated = client.post(
-            "/api/agent/continue_review",
-            json={
-                "snapshot_id": failed["snapshot_id"],
-                "last_activity_id": failed["last_activity_id"],
-            },
-        )
+        [failed_logo] = [
+            file for file in failed["files"] if file["right_path"] == "logo.png"
+        ]
+        assert failed_logo["capture_error"] is not None
+        repeated = client.post("/api/agent/capture", json={"tab": refs_tab})
         assert repeated.status_code == 200, repeated.text
         assert repeated.json()["snapshot_id"] == failed["snapshot_id"]
 
         failed_path.write_bytes(payloads[failed_side])
-        recovered = client.post(
-            "/api/agent/continue_review",
-            json={
-                "snapshot_id": failed["snapshot_id"],
-                "last_activity_id": failed["last_activity_id"],
-            },
-        )
+        recovered = client.post("/api/agent/capture", json={"tab": refs_tab})
         assert recovered.status_code == 200, recovered.text
         success = recovered.json()
         assert success["snapshot_id"] != failed["snapshot_id"]
@@ -2516,13 +2692,7 @@ def test_lfs_capture_contains_errors_and_recovers(
             )
             assert media.status_code == 200, media.text
             assert media.content == expected
-        repeated = client.post(
-            "/api/agent/continue_review",
-            json={
-                "snapshot_id": success["snapshot_id"],
-                "last_activity_id": success["last_activity_id"],
-            },
-        )
+        repeated = client.post("/api/agent/capture", json={"tab": refs_tab})
         assert repeated.status_code == 200, repeated.text
         assert repeated.json()["snapshot_id"] == success["snapshot_id"]
 
@@ -2915,34 +3085,43 @@ def test_agent_addresses_an_image_bay_by_its_single_pseudo_line(
     (tmp_path / "logo.png").write_bytes(new_png)
     client, _project_id = create_repo_client(tmp_path)
 
-    joined = client.post(
-        "/api/agent/join_review",
+    profile = client.post(
+        "/api/agent/profile",
         json={
             "agent_uuid": "e" * 32,
             "name": "image reviewer",
-            "tab": {"kind": "head", "repo_path": str(tmp_path)},
+            "model": "test-model",
+            "harness": "pytest",
         },
     ).json()
-
-    # The agent finds the captured side by its bytes, as it must: a File-id
-    # directory carries no repository path, and these bytes are not text.
-    captured = [
-        side
-        for side in sorted(Path(joined["snapshot_path"]).glob("*/right"))
-        if side.read_bytes() == new_png
-    ]
-    assert len(captured) == 1
-    image_side = captured[0]
+    captured = client.post(
+        "/api/agent/capture",
+        json={
+            "tab": {
+                "kind": "head",
+                "repo_path": str(tmp_path),
+                "baseline": subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=tmp_path,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+            }
+        },
+    ).json()
 
     created = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "create-finding",
-                    "file": str(image_side),
+                    "kind": "create-thread",
+                    "snapshot_id": captured["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "logo.png",
+                    "side": "right",
                     "bay": {
                         "bay_key": "image",
                         "start_line": 1,
@@ -2956,13 +3135,16 @@ def test_agent_addresses_an_image_bay_by_its_single_pseudo_line(
     assert created.status_code == 200
     thread_id = created.json()["results"][0]["thread_id"]
 
-    read = client.get(
-        f"/api/agent/thread/{thread_id}",
-        params={"snapshot_id": joined["snapshot_id"], "page": 1, "limit": 20},
-    )
+    read = client.get(f"/api/agent/thread/{thread_id}")
     assert read.status_code == 200
     body = read.json()
-    assert body["bay"] == {"bay_key": "image", "start_line": 1, "end_line": 1}
+    assert body["location"] == {
+        "path": "logo.png",
+        "side": "right",
+        "bay_key": "image",
+        "start_line": 1,
+        "end_line": 1,
+    }
     excerpt = body["original_excerpt"]
     assert excerpt["lines"] == [
         f"image/png, {len(new_png)} bytes, "
@@ -2976,12 +3158,14 @@ def test_agent_addresses_an_image_bay_by_its_single_pseudo_line(
         rejected = client.post(
             "/api/agent/actions",
             json={
-                "snapshot_id": joined["snapshot_id"],
-                "profile_id": joined["profile_id"],
+                "profile_id": profile["profile_id"],
                 "actions": [
                     {
-                        "kind": "create-finding",
-                        "file": str(image_side),
+                        "kind": "create-thread",
+                        "snapshot_id": captured["snapshot_id"],
+                        "role": "reviewer",
+                        "path": "logo.png",
+                        "side": "right",
                         "bay": {
                             "bay_key": "image",
                             "start_line": start_line,
@@ -3002,12 +3186,14 @@ def test_agent_addresses_an_image_bay_by_its_single_pseudo_line(
     stale = client.post(
         "/api/agent/actions",
         json={
-            "snapshot_id": joined["snapshot_id"],
-            "profile_id": joined["profile_id"],
+            "profile_id": profile["profile_id"],
             "actions": [
                 {
-                    "kind": "create-finding",
-                    "file": str(image_side),
+                    "kind": "create-thread",
+                    "snapshot_id": captured["snapshot_id"],
+                    "role": "reviewer",
+                    "path": "logo.png",
+                    "side": "right",
                     "bay": {
                         "bay_key": "flatfile",
                         "start_line": 1,
@@ -3076,11 +3262,19 @@ def test_gitlinks_review_as_commit_ids_through_the_head_tab(
     client, _project_id = create_repo_client(outer)
     with client:
         joined = client.post(
-            "/api/agent/join_review",
+            "/api/agent/capture",
             json={
-                "agent_uuid": "e" * 32,
-                "name": "Gitlink reviewer",
-                "tab": {"kind": "head", "repo_path": str(outer)},
+                "tab": {
+                    "kind": "head",
+                    "repo_path": str(outer),
+                    "baseline": subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        cwd=outer,
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    ).stdout.strip(),
+                }
             },
         )
         assert joined.status_code == 200, joined.text

@@ -3,7 +3,7 @@
 ## Classes
 
 `UserProfileStore` creates, finds, and renames ordinary Profiles. It can also
-create a Profile with the UUID binding required by an agent review session.
+upsert a Profile bound to an agent UUID and its reported model and harness.
 `UserProfileRecord` carries the stable database identity and current username
 used to attribute review actions.
 
@@ -11,7 +11,7 @@ used to attribute review actions.
 
 All human and agent authors use the same Profile identity. Usernames are exact,
 globally unique display names, while an agent UUID is a separate one-to-one
-registration used only to reject reuse.
+registration that makes agent registration idempotent.
 
 This module validates and persists identity. It does not authenticate users,
 select an active Profile, store HUD preferences, or decide whether an author may
@@ -20,70 +20,20 @@ perform a review operation.
 
 from __future__ import annotations
 
-from sqlalchemy import (
-    CheckConstraint,
-    Engine,
-    ForeignKey,
-    String,
-    UniqueConstraint,
-    column,
-    func,
-    insert,
-    select,
-    update,
-)
+from sqlalchemy import Engine, insert, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy.orm import Session
 
 from dirdiff.db.base import (
-    TableBase,
+    AgentProfile,
     UserProfile,
     UserProfileRecord,
     profile_record,
 )
 
 __all__ = [
-    "UserProfileRecord",
     "UserProfileStore",
 ]
-
-
-class AgentProfile(TableBase):
-    """Bind one disposable Profile to the UUID supplied by an agent.
-
-    `UserProfileStore.create_agent` inserts this relation with the ordinary
-    `UserProfile` row in one transaction. Later joins use `profile_id` for
-    review attribution and `agent_uuid` only to reject repeated registration.
-
-    This relation does not create another author shape, store agent state, or
-    classify the Profile as having different permissions.
-    """
-
-    __tablename__ = "agent_profile"
-    __table_args__ = (
-        UniqueConstraint("agent_uuid", name="uq_agent_profile_uuid"),
-        CheckConstraint(
-            (func.length(column("agent_uuid")) == 32)
-            & column("agent_uuid").op("NOT GLOB")("*[^0-9a-f]*"),
-            name="ck_agent_profile_uuid",
-        ),
-    )
-
-    profile_id: Mapped[int] = mapped_column(
-        ForeignKey("user_profile.id"), primary_key=True
-    )
-    """Ordinary Profile identity used for review attribution.
-
-    The one-to-one primary key makes the agent binding an extension of the same
-    author record, not a second kind of Profile.
-    """
-
-    agent_uuid: Mapped[str] = mapped_column(String(32), nullable=False)
-    """Unique lowercase hexadecimal UUID supplied at agent registration.
-
-    It is checked to reject duplicate registration; reuse does not return the
-    existing Profile. Authored review data continues to reference `profile_id`.
-    """
 
 
 def _validate_username(username: str) -> None:
@@ -109,7 +59,7 @@ class UserProfileStore:
 
     # Usage
     Construct one store from the application engine. Use `create`, lookup, and
-    rename operations for human Profiles. Use `create_agent` once for a fresh
+    rename operations for human Profiles. Use `upsert_agent` for an
     agent UUID; it returns the same `UserProfileRecord` shape.
 
     Usernames are non-empty, have no surrounding whitespace, and are globally
@@ -209,78 +159,79 @@ class UserProfileStore:
                 return None
             return profile_record(row.id, row.username)
 
-    def agent_exists(self, agent_uuid: str) -> bool:
-        """Return whether one exact agent registration UUID already exists.
-
-        The probe reads only the agent binding and does not validate the UUID,
-        return its Profile, or mutate registration state.
-
-        # Usage
-
-        Agent registration may use this for an early, readable rejection. It
-        must still handle the uniqueness failure from `create_agent`, which is
-        authoritative under concurrent registration.
-        """
-        with Session(self.engine) as session:
-            return (
-                session.execute(
-                    select(AgentProfile.profile_id).where(
-                        AgentProfile.agent_uuid == agent_uuid
-                    )
-                ).scalar_one_or_none()
-                is not None
-            )
-
-    def create_agent(
+    def upsert_agent(
         self,
         username: str,
         agent_uuid: str,
+        model: str,
+        harness: str,
     ) -> UserProfileRecord:
-        """Atomically create a disposable Profile and its agent UUID binding.
+        """Return the Profile bound to an agent UUID, creating it on first use.
 
-        The UUID must be 32 lowercase hexadecimal characters and must not have
-        been registered before. A uniqueness race rolls back both inserts and
-        is reported as invalid registration input.
+        The call is idempotent on `agent_uuid`. The first call atomically
+        creates the ordinary Profile and its agent binding. A repeat call with
+        the same UUID returns that same Profile and replaces its username,
+        `model`, and `harness` with the supplied values, so an agent that
+        restarts under a new model or name keeps its identity and its authored
+        history.
 
         # Parameters
 
-        - `username`: Valid globally unique display name for the ordinary
-          Profile created for this agent.
-        - `agent_uuid`: Fresh lowercase hexadecimal UUID without separators.
-
-        # Usage
-
-        Generate a fresh UUID for one agent review session and choose the
-        Profile display name before calling. Use the returned ordinary Profile
-        id for every review action authored by that agent.
+        - `username`: Valid globally unique display name.
+        - `agent_uuid`: Lowercase hexadecimal UUID without separators, exactly
+          32 characters.
+        - `model`: Non-empty model name the agent reports.
+        - `harness`: Non-empty name of the program driving the agent.
 
         # Failures
 
-        - Raises `ValueError` when the username is invalid, the UUID is not 32
-          lowercase hexadecimal characters, or either unique value already
-          exists. The transaction leaves neither row behind on failure.
+        - Raises `ValueError` when the username, UUID, model, or harness is
+          invalid, or when the username already belongs to a different Profile.
+          Nothing is written on failure.
         """
         _validate_username(username)
         if len(agent_uuid) != 32 or bool(
             set(agent_uuid) - set("0123456789abcdef")
         ):
             raise ValueError("Invalid agent UUID.")
+        if model.strip() == "" or harness.strip() == "":
+            raise ValueError("Model and harness cannot be blank.")
         try:
             with Session(self.engine) as session, session.begin():
+                existing = session.execute(
+                    select(AgentProfile.profile_id).where(
+                        AgentProfile.agent_uuid == agent_uuid
+                    )
+                ).scalar_one_or_none()
+                if existing is None:
+                    row = session.execute(
+                        insert(UserProfile)
+                        .values(username=username)
+                        .returning(UserProfile.id, UserProfile.username)
+                    ).one()
+                    session.execute(
+                        insert(AgentProfile).values(
+                            profile_id=row.id,
+                            agent_uuid=agent_uuid,
+                            model=model,
+                            harness=harness,
+                        )
+                    )
+                    return profile_record(row.id, row.username)
                 row = session.execute(
-                    insert(UserProfile)
+                    update(UserProfile)
+                    .where(UserProfile.id == existing)
                     .values(username=username)
                     .returning(UserProfile.id, UserProfile.username)
                 ).one()
                 session.execute(
-                    insert(AgentProfile).values(
-                        profile_id=row.id,
-                        agent_uuid=agent_uuid,
-                    )
+                    update(AgentProfile)
+                    .where(AgentProfile.profile_id == existing)
+                    .values(model=model, harness=harness)
                 )
                 return profile_record(row.id, row.username)
         except IntegrityError as exc:
-            raise ValueError("Agent UUID or username already exists.") from exc
+            raise ValueError("Username already exists.") from exc
 
     def get(self, profile_id: int) -> UserProfileRecord | None:
         """Read one durable Profile by stable database identity.

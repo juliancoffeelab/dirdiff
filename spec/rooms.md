@@ -140,8 +140,12 @@ Source setup prepares the identities below; RoomLord constructs the canonical
 JSON key without interpreting their storage meaning. The key encodings are:
 
 - Head uses `{"commit": baseline}`. Git setup supplies the current HEAD commit
-  id or empty-tree hash for unborn HEAD. Continuation keeps this original
-  baseline even after HEAD advances; a new Head capture selects a new Room;
+  id or empty-tree hash for unborn HEAD. A browser continuation keeps this original
+  baseline even after HEAD advances; a new Head capture selects a new Room.
+  The agent's Head descriptor names its baseline commit explicitly, so
+  capturing it keeps that original baseline even after HEAD advances, exactly
+  as a continuation does; a descriptor with a newer baseline selects another
+  Room;
 - Compare Refs freezes commit-backed refs to commit ids and retains `index` and
   `worktree` as explicit ephemeral sides. Snapshot labels use those same
   canonical values rather than the request's ref spelling. The key is
@@ -263,7 +267,7 @@ user_profile
   id, username
 
 agent_profile
-  profile_id, agent_uuid
+  profile_id, agent_uuid, nullable model, nullable harness
 
 review_thread
   thread_id, origin_snapshot_id
@@ -371,28 +375,43 @@ Room correspondence and the two commits only for capture. It does not parse a
 Pull Request URL, contact a forge, fetch refs, derive commits, or apply Branch
 Review selection logic.
 
-`POST /api/agent/join_review` registers one disposable ordinary Profile,
-normalizing either compact lowercase or canonical hyphenated UUID input to the
-compact stored identity. It maps the supplied Tab into the shared capture
-operation and returns the resulting Snapshot id, Profile id, activity boundary,
-and the existing durable Snapshot directory.
-`POST /api/agent/continue_review` recovers the exact Room and persisted Tab from
-the supplied Snapshot and passes the new captured state through the same
-publication path by passing its persisted correspondence to `corresponding_room`.
-Preset continuation is rejected by this endpoint. Neither operation introduces
-another Room identity or
-persistent review-handle entity.
+`POST /api/agent/profile` registers or refreshes one agent Profile
+idempotently, normalizing either compact lowercase or canonical hyphenated UUID
+input to the compact stored identity; it never touches a Room.
+`POST /api/agent/capture` maps the supplied Tab descriptor into the shared
+capture operation, exactly as the browser manifest does, and returns the
+resulting Snapshot id, the manifest of captured File pairs with the absolute
+paths of their bytes in the existing durable Snapshot directory, and the Mark's
+newest activity id. An unchanged capture returns the same Snapshot id, and the
+same descriptor always reaches the same Room. Preset Tabs are rejected because a
+preset Room has no Mark. No agent route introduces another Room identity or
+persistent review-handle entity, and none recovers a Room from a Snapshot to
+recapture it: a later round captures the descriptor again.
 
-Before joining, `GET /api/agent/onboard` translates one complete supported HUD
-Tab URL into the existing join-review Tab shape. It also returns the running
-server origin and exact absolute paths to the three installed agent workflow
-skills. It reads the active Mark registry for repository-backed Tabs but does
-not capture, register, or persist anything.
+A Head Room is identified by its frozen baseline commit, and the agent's Head
+descriptor carries it (`baseline`, a required field everywhere: `onboard`,
+`capture`, `reviews`, and the activity feed). `reviews` therefore tells Head
+reviews apart, and capturing a descriptor taken from it selects that Room and
+captures the live worktree against its original baseline, also after HEAD has
+advanced. The browser's Head selection names no baseline and always freezes the
+current HEAD, so `onboard` fills `baseline` with the current HEAD commit (the
+empty-tree id for an unborn HEAD) when it translates a Head Tab URL.
 
-An agent retains the Profile id, latest Snapshot id/path, and activity boundary
-returned by these operations for later rounds in the same task. Later rounds
-start with continue review; they do not register another Profile through join
-review.
+`GET /api/agent/onboard` translates one complete supported HUD Tab URL into the
+capture Tab shape, plus the Mark id, the running server origin, and exact
+absolute paths to the three installed agent workflow skills, and a plain-text
+`next_step` telling an agent how to run `dirdiff agent init`. It reads the active
+Mark registry for repository-backed Tabs but does not capture, register, or
+persist anything. `GET /api/agent/reviews`, `threads`, `thread`, `activity`, and
+`wait` read Rooms of a Mark through `RoomLord` (`mark_rooms`,
+`find_thread_room`, `mark_activity`, and the history and latest-activity reads);
+`POST /api/agent/actions` applies one batch to exactly one Room through
+`Room.apply_review_batch`. The Tab descriptor of a Room is rebuilt from
+`Room.capture_context`, which returns the Mark id and the persisted selection.
+
+An agent retains its Profile id and the latest activity id returned by these
+operations. Later rounds capture the same descriptor again and read `activity`
+or `wait` from the retained cursor; they do not register another Profile.
 
 `/api/lazy-info` accepts only `snapshot_id`, calls `find_room(snapshot_id)`, and
 then `manifested(snapshot_id)`. It reads captured File metadata and never
@@ -415,13 +434,14 @@ That returned directory is an agent-facing contract: immediate children are
 opaque captured File ids. The exact `left` and/or `right` files are its public
 review sides. A link side may have private `*-link.json` and `*-target` files;
 agents must neither enumerate those as changed Files nor address findings to
-them. The public File ids and side names encode no repository mapping or
-manifest presentation; private link metadata contains only its captured nested
-paths. The tree is read-only. The reviewer and implementor skills provide distinct
-role-specific instructions over this layout in their respective
-`references/snapshot_structure.md` files. Changes to publication
+them. The public File ids and side names encode no repository mapping
+themselves; the agent `capture` manifest (see `spec/reviews.md`) maps
+repository paths to the captured sides, and private link metadata contains only
+its captured nested paths. The tree is read-only. The `review-patch` skill
+explains this layout in its `references/snapshot_structure.md`; `round-review`
+and `babysit-patch` carry a short form in their `SKILL.md`. Changes to publication
 layout, side naming, byte meaning, or path interpretation must update
-`spec/reviews.md` and all three skill references together so capture changes
+`spec/reviews.md` and those three skills together so capture changes
 cannot silently break the agent workflow.
 
 Repository-mark removal deactivates a Mark instead of deleting its row, leaving

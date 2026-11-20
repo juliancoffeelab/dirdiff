@@ -3,21 +3,21 @@
 ## Public interface
 
 `Thread` is the bound discussion handle re-exported by `dirdiff.review`.
-The module also exposes Snapshot placement derivation and the external-agent
+The module also exposes Snapshot placement derivation and the ordered agent
 batch operation assembled from its private leaves.
 
 ## Purpose and boundaries
 
 This module reduces append-only actions into discussion views and applies
 single-Thread Comment and lifecycle operations under the Room write lock. It
-coordinates placement and external-agent instruments because only this module
-may import `_thread`. It does not publish Snapshot contents or serialize HTTP
+coordinates placement and the agent batch because only this module may import
+`_thread`. It does not publish Snapshot contents or serialize HTTP
 entities.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -37,6 +37,8 @@ from dirdiff.db import (
     RangePlacement,
     ReviewActionInput,
     ReviewActionPayload,
+    ReviewProfileRecord,
+    ReviewScopePlacement,
     ReviewThreadRecord,
     ReviewThreadsRecord,
     RoomIdentity,
@@ -46,16 +48,8 @@ from dirdiff.db import (
     SnapshotSymlinkFileSideRecord,
     ThreadDeletedAction,
     ThreadStateAction,
-    UserProfileRecord,
 )
 from dirdiff.engines import DirdiffError
-from dirdiff.review._thread.external_agent import (
-    DeleteThread,
-    ReplyToThread,
-    ResolveThread,
-    ReviewBatchAction,
-    ReviewBatchResult,
-)
 from dirdiff.review._thread.placement import (
     ReviewReadCache,
     build_original_excerpt,
@@ -66,15 +60,26 @@ from dirdiff.review._thread.placement import (
 )
 from dirdiff.review.base import (
     AddComment,
+    BatchComment,
+    BatchCreate,
+    BatchDeleteComment,
+    BatchDeleteThread,
+    BatchEditComment,
+    BatchReopen,
+    BatchResolve,
     ChangeThreadState,
     CreateThread,
     DeleteComment,
     EditComment,
     FilePair,
     ProfileAuthor,
+    ReviewBatchAction,
+    ReviewBatchResult,
     ReviewCommentView,
     ReviewError,
+    ReviewOriginView,
     ReviewProfileView,
+    ReviewRole,
     ThreadDiscussionView,
     ThreadLocationSourceView,
     ThreadPlacementView,
@@ -88,11 +93,6 @@ from dirdiff.review.base import (
 from dirdiff.util import Nothing, Ok, Option, Some
 
 __all__ = [
-    "DeleteThread",
-    "ReplyToThread",
-    "ResolveThread",
-    "ReviewBatchAction",
-    "ReviewBatchResult",
     "Thread",
     "apply_review_batch",
     "create_thread",
@@ -172,7 +172,7 @@ class _CommentState:
 
 def fold_actions(
     actions: tuple[ReviewActionInput, ...],
-    profiles: dict[int, UserProfileRecord],
+    profiles: dict[int, ReviewProfileRecord],
 ) -> tuple[
     Literal["open", "resolved", "deleted"],
     Literal["author", "reviewer", "both", "none"],
@@ -272,6 +272,9 @@ def fold_actions(
         author = ReviewProfileView(
             profile_id=profile.id,
             display_name=profile.username,
+            is_agent=profile.agent is not None,
+            model=None if profile.agent is None else profile.agent.model,
+            harness=None if profile.agent is None else profile.agent.harness,
         )
         views.append(
             {
@@ -310,7 +313,7 @@ def append_review_action(
     thread_lock: Lock,
 ) -> tuple[
     tuple[ReviewActionInput, ...],
-    dict[int, UserProfileRecord],
+    dict[int, ReviewProfileRecord],
 ]:
     """Validate and append one action without loading captured Snapshot Files.
 
@@ -516,7 +519,7 @@ class Thread:
         placement: ReviewThreadRecord,
         origin: ReviewThreadRecord,
         actions: tuple[ReviewActionInput, ...],
-        profiles: dict[int, UserProfileRecord],
+        profiles: dict[int, ReviewProfileRecord],
         files: Optional[_ThreadFiles],
         location_source: ThreadLocationSourceView,
     ) -> None:
@@ -552,9 +555,12 @@ class Thread:
         self._placement = placement.placement
         origin_placement = origin.placement
         assert isinstance(
-            origin_placement, (RangePlacement, FileStartPlacement)
-        ), "a discussion origin is a stored range or File-start row"
-        self._origin: RangePlacement | FileStartPlacement = origin_placement
+            origin_placement,
+            (RangePlacement, FileStartPlacement, ReviewScopePlacement),
+        ), "a discussion origin is a stored range, File-start, or review row"
+        self._origin: (
+            RangePlacement | FileStartPlacement | ReviewScopePlacement
+        ) = origin_placement
         self._action_records = actions
         self._profiles = profiles
         # Mutated once by `_located_files` when constructed deferred; every
@@ -564,7 +570,9 @@ class Thread:
 
     def _records(
         self,
-    ) -> tuple[Placement, RangePlacement | FileStartPlacement]:
+    ) -> tuple[
+        Placement, RangePlacement | FileStartPlacement | ReviewScopePlacement
+    ]:
         """Return the proven selected placement and unique immutable origin.
 
         Both values were validated by the store and narrowed during handle
@@ -573,7 +581,7 @@ class Thread:
         # Returns
 
         - `First`: The Thread's placement in the bound Snapshot.
-        - `Second`: Its immutable origin placement, narrowed to the two valid
+        - `Second`: Its immutable origin placement, narrowed to the three valid
           origin shapes.
         """
         return self._placement, self._origin
@@ -605,6 +613,9 @@ class Thread:
         """
         if self._files is None:
             placement, origin = self._records()
+            assert not isinstance(origin, ReviewScopePlacement), (
+                "a review-scoped Thread has no Snapshot Files"
+            )
             origin_ref = (origin.snapshot_id, origin.snapshot_file_id)
             selected_ids: tuple[str, ...] = ()
             absent_refs: tuple[tuple[str, str], ...] = ()
@@ -614,6 +625,7 @@ class Thread:
             if isinstance(placement, FileMissingPlacement):
                 absent_refs = (origin_ref,)
             elif not isinstance(placement, FileUnreadablePlacement):
+                assert not isinstance(placement, ReviewScopePlacement)
                 selected_ids = (placement.snapshot_file_id,)
             origin_files, selected_files, conflicts, _comparison_files = (
                 self._database.review_thread_files(
@@ -631,7 +643,9 @@ class Thread:
             if selected_ids != ():
                 assert not isinstance(
                     placement,
-                    FileMissingPlacement | FileUnreadablePlacement,
+                    FileMissingPlacement
+                    | FileUnreadablePlacement
+                    | ReviewScopePlacement,
                 )
                 selected_file = selected_files.get(placement.snapshot_file_id)
                 assert selected_file is not None, (
@@ -660,6 +674,9 @@ class Thread:
         invariant, not a substitute.
         """
         placement, origin = self._records()
+        if isinstance(placement, ReviewScopePlacement):
+            return {"kind": "review-scope"}
+        assert not isinstance(origin, ReviewScopePlacement)
         files = self._located_files()
         if isinstance(placement, FileUnreadablePlacement):
             return {"kind": "file-unreadable"}
@@ -727,6 +744,8 @@ class Thread:
                     )
                     return {"kind": "whole-file"}
                 return {"kind": "side-lost"}
+            case ReviewScopePlacement():
+                raise AssertionError("handled before File loading")
 
     def discussion(self) -> ThreadDiscussionView:
         """Fold the complete discussion with its bounded original excerpt.
@@ -750,13 +769,18 @@ class Thread:
         _placement, origin = self._records()
         actions = self._actions()
         state, attention, comments = fold_actions(actions, self._profiles)
-        files = self._located_files()
-        origin_target = origin_target_view(origin, files.origin_file)
+        origin_target: ReviewOriginView
+        if isinstance(origin, ReviewScopePlacement):
+            origin_target = {"kind": "review"}
+        else:
+            files = self._located_files()
+            origin_target = origin_target_view(origin, files.origin_file)
         if isinstance(origin, RangePlacement):
             # Only a discussion read builds an excerpt, and it belongs to the
             # origin it is cut from. The summary path reads no captured text,
             # so the key is attached here rather than by the shared builder.
             assert origin_target["kind"] == "text"
+            files = self._located_files()
             origin_target["excerpt"] = build_original_excerpt(
                 origin, files.origin_file, files.cache
             )
@@ -796,12 +820,18 @@ class Thread:
         state, attention, comments = fold_actions(actions, self._profiles)
         assert comments != [], "persisted Thread folded to zero Comments"
         _placement, origin = self._records()
-        files = self._located_files()
+        origin_target: ReviewOriginView
+        if isinstance(origin, ReviewScopePlacement):
+            origin_target = {"kind": "review"}
+        else:
+            origin_target = origin_target_view(
+                origin, self._located_files().origin_file
+            )
         return ThreadSummaryView(
             thread_id=self.thread_id.hex,
             state=state,
             attention=attention,
-            origin_target=origin_target_view(origin, files.origin_file),
+            origin_target=origin_target,
             placement=self._placement_view(),
             first_comment=comments[0],
             latest_comment=comments[-1],
@@ -1227,9 +1257,15 @@ def _bind_threads(
 
     placements = {row.placement.thread_id: row for row in data.threads}
     origins = {row.placement.thread_id: row for row in data.origins}
+    # Review-scoped Threads reference no Snapshot File, so they stay out of
+    # every File lookup below and bind with no preloaded Files.
     origin_locations: dict[str, RangePlacement | FileStartPlacement] = {}
+    review_scope_ids: set[str] = set()
     for record in data.origins:
         origin = record.placement
+        if isinstance(origin, ReviewScopePlacement):
+            review_scope_ids.add(origin.thread_id)
+            continue
         assert isinstance(origin, (RangePlacement, FileStartPlacement)), (
             "review origin has no Snapshot File"
         )
@@ -1298,7 +1334,29 @@ def _bind_threads(
     assert conflicts == (), "file_missing placement has an exact Snapshot File"
     cache = ReviewReadCache()
     threads: list[Thread] = []
-    for origin in origin_locations.values():
+    for origin_record in data.origins:
+        thread_key = origin_record.placement.thread_id
+        if thread_key in review_scope_ids:
+            threads.append(
+                Thread(
+                    database=database,
+                    identity=identity,
+                    snapshot_id=UUID(
+                        hex=placements[thread_key].placement.snapshot_id
+                    ),
+                    thread_id=UUID(hex=thread_key),
+                    lock_path=lock_path,
+                    thread_lock=thread_lock,
+                    placement=placements[thread_key],
+                    origin=origin_record,
+                    actions=tuple(actions[thread_key]),
+                    profiles=profiles,
+                    files=None,
+                    location_source={"kind": "displayed-snapshot"},
+                )
+            )
+            continue
+        origin = origin_locations[thread_key]
         record = placements[origin.thread_id]
         placement = record.placement
         origin_ref = origin.snapshot_id, origin.snapshot_file_id
@@ -1521,262 +1579,331 @@ def apply_review_batch(
     *,
     database: RoomStore,
     identity: RoomIdentity,
-    snapshot_id: UUID,
     batch: tuple[ReviewBatchAction, ...],
     lock_path: Path,
     thread_lock: Lock,
 ) -> tuple[ReviewBatchResult, ...]:
     """Validate and apply one ordered multi-Thread batch atomically.
 
-    The agent boundary generates fresh identifiers before calling. Every
-    semantic check runs while holding the same Room lock used by browser
+    Every semantic check runs while holding the same Room lock used by browser
     writes. Only after all items are valid are their placement and action rows
-    inserted in one database transaction.
+    inserted in one database transaction. Later items observe earlier ones in
+    memory, including Threads the batch itself creates.
 
     # Parameters
 
     - `database`: Persistence used for set-based validation and one final write.
     - `identity`: Room containing every addressed Thread and Snapshot.
-    - `snapshot_id`: Exact code universe against which all actions apply.
-    - `batch`: Ordered non-empty instruments; later items observe earlier items
-      in memory before anything is committed.
+    - `batch`: Ordered non-empty items. Creations name their own origin
+      Snapshot; an item addressing an existing Thread is recorded against that
+      Thread's origin Snapshot, which always places it.
     - `lock_path`: Cross-process Room write lock shared with publication.
     - `thread_lock`: In-process Room write lock held for the complete batch.
 
     # Usage
 
-    Call through `Room.apply_review_batch` with the agent's full ordered batch.
-    Every command must use the same author Profile. Results preserve input order
-    and contain the authoritative state after each accepted command.
+    Call through `Room.apply_review_batch`. Any Profile may perform any item;
+    role is stated by the item, never read from the Profile. After a Comment,
+    creation, or reopen in role R the Thread waits on the other role; after a
+    resolve or deletion it waits on nobody; edits and Comment deletions keep the
+    waiting role. Results preserve input order.
 
     # Returns
 
-    - `Members`: One authoritative result for every accepted input action,
-      containing its instrument, identities, resulting state, and attention.
-    - `Order`: Results match input order after later actions have observed
-      earlier batch state; an invalid batch returns nothing and writes nothing.
+    - One `ReviewBatchResult` per item, in input order.
+    - Each result names the Thread, the created or changed Comment (if any),
+      the authored activity id, and the Thread's status and attention after
+      that item.
 
     # Failures
 
-    - Raises `ReviewError` when the batch is empty, mixes authors, repeats an
-      operation id, addresses invalid code, or contains an operation invalid for
-      the current in-memory Thread state. Nothing is written on failure.
-    - Raises `AssertionError` when persistence or command shapes contradict the
-      review invariants.
+    - Raises `ReviewError` when the batch is empty, an addressed Thread or
+      Comment is unknown or belongs to another Room, a Thread is deleted, a
+      transition is invalid for the in-memory state, a non-author edits, or a
+      target is invalid. Nothing is written on failure.
+    - Raises `DirdiffError` for a Snapshot outside the Room.
+    - Raises `AssertionError` when persistence contradicts review invariants.
     """
     if batch == ():
         raise ReviewError("invalid_target", "Review batch cannot be empty.")
     with room_write_lock(thread_lock, lock_path):
-        # One set-based File read replaces hydrating the whole Snapshot:
-        # only the batch's distinct creation targets are loaded, in a single
-        # query and transaction that also answers Snapshot visibility.
-        # Absent pairs stay unmapped so planning rejects exactly the invalid
-        # creation.
-        creation_pairs = tuple(
-            dict.fromkeys(
-                action.target.file
-                for action in batch
-                if isinstance(action, CreateThread)
-            )
-        )
-        lookup = database.snapshot_files_by_pairs(
-            identity,
-            snapshot_id=snapshot_id.hex,
-            pairs=tuple(
-                (pair.left_path.get(), pair.right_path.get())
-                for pair in creation_pairs
-            ),
-        )
-        if not Ok.good(lookup):
-            raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
-        found_by_pair = lookup.value
-        selected_files_by_pair: dict[FilePair, SnapshotFileRecord] = {
-            pair: found_by_pair[(pair.left_path.get(), pair.right_path.get())]
-            for pair in creation_pairs
-            if (pair.left_path.get(), pair.right_path.get()) in found_by_pair
-        }
         cache = ReviewReadCache()
         placements: list[ReviewThreadRecord] = []
         records: list[ReviewActionInput] = []
-        results: list[ReviewBatchResult] = []
+        # Per-record (comment id, thread id, resulting state) for the result.
+        outcomes: list[
+            tuple[
+                UUID,
+                Optional[UUID],
+                Literal["open", "resolved", "deleted"],
+                Literal["author", "reviewer", "both", "none"],
+            ]
+        ] = []
 
-        # Set-based reads replace per-action queries: every author in one
-        # Profile read, every addressed existing Thread history in one
-        # placement/action read. The ordered in-memory reduction below still lets
-        # later actions observe earlier ones from the same batch, including a
-        # Thread the batch itself creates.
-        author_ids = [
-            action.author.profile_id
-            if isinstance(action, CreateThread)
-            else action.command.author.profile_id
-            for action in batch
-        ]
+        # Set-based reads replace per-item queries: every author in one
+        # Profile read, every addressed existing Thread history in one read,
+        # and every creation target File per origin Snapshot in one lookup.
+        author_ids = tuple(
+            dict.fromkeys(item.command.author.profile_id for item in batch)
+        )
         known_profiles = {
             profile.id: profile
-            for profile in database.review_profiles(
-                tuple(dict.fromkeys(author_ids))
-            )
+            for profile in database.review_profiles(author_ids)
         }
         for author_id in author_ids:
             if author_id not in known_profiles:
                 raise ReviewError(
                     "profile_not_found", f"Unknown Profile: {author_id}"
                 )
+        created_ids = {
+            item.command.thread_id.hex
+            for item in batch
+            if isinstance(item, BatchCreate)
+        }
         addressed = tuple(
             dict.fromkeys(
-                action.thread_id.hex
-                for action in batch
-                if not isinstance(action, CreateThread)
+                item.thread_id.hex
+                for item in batch
+                if not isinstance(item, BatchCreate)
+                and item.thread_id.hex not in created_ids
             )
         )
-        histories, history_profiles = database.review_actions_many(
-            snapshot_id.hex, addressed
+        histories, history_profiles = database.review_thread_histories(
+            addressed
         )
+        for thread_key in addressed:
+            history = histories.get(thread_key)
+            if history is None:
+                raise ReviewError(
+                    "thread_not_found", f"Unknown Thread: {thread_key}"
+                )
+            if history.identity != identity:
+                raise ReviewError(
+                    "invalid_target",
+                    f"Thread {thread_key} belongs to a different Room.",
+                )
         fold_profiles = {
             profile.id: profile for profile in history_profiles
         } | known_profiles
-        simulated: dict[str, list[ReviewActionInput]] = {}
 
-        for action in batch:
-            if isinstance(action, CreateThread):
-                rows, first_action = plan_thread_creation(
-                    command=action,
-                    created_at=action_timestamp(),
-                    snapshot_id=snapshot_id.hex,
-                    target_file=selected_files_by_pair.get(action.target.file),
-                    cache=cache,
+        creation_pairs: dict[str, dict[FilePair, None]] = {}
+        review_snapshots: set[str] = set()
+        for item in batch:
+            if not isinstance(item, BatchCreate):
+                continue
+            if isinstance(item.command, CreateThread):
+                creation_pairs.setdefault(item.snapshot_id.hex, {})[
+                    item.command.target.file
+                ] = None
+            else:
+                review_snapshots.add(item.snapshot_id.hex)
+        files_by_pair: dict[tuple[str, FilePair], SnapshotFileRecord] = {}
+        for snapshot_key, pairs in creation_pairs.items():
+            lookup = database.snapshot_files_by_pairs(
+                identity,
+                snapshot_id=snapshot_key,
+                pairs=tuple(
+                    (pair.left_path.get(), pair.right_path.get())
+                    for pair in pairs
+                ),
+            )
+            if not Ok.good(lookup):
+                raise DirdiffError(f"Unknown snapshot id: {snapshot_key}")
+            for pair in pairs:
+                found = lookup.value.get(
+                    (pair.left_path.get(), pair.right_path.get())
+                )
+                if found is not None:
+                    files_by_pair[(snapshot_key, pair)] = found
+        for snapshot_key in review_snapshots:
+            if database.room_identity(snapshot_key) != identity:
+                raise DirdiffError(f"Unknown snapshot id: {snapshot_key}")
+
+        # Thread key -> (origin Snapshot key, actions so far).
+        simulated: dict[str, tuple[str, list[ReviewActionInput]]] = {
+            thread_key: (
+                history.origin.placement.snapshot_id,
+                [record.action for record in history.actions],
+            )
+            for thread_key, history in histories.items()
+        }
+
+        def waits_after(
+            role: ReviewRole,
+        ) -> Literal["author", "reviewer"]:
+            """Return the role a Thread waits on after `role` acted."""
+            return "reviewer" if role == "author" else "author"
+
+        for item in batch:
+            if isinstance(item, BatchCreate):
+                command = item.command
+                snapshot_key = item.snapshot_id.hex
+                if isinstance(command, CreateThread):
+                    rows, first_action = plan_thread_creation(
+                        command=command,
+                        created_at=action_timestamp(),
+                        snapshot_id=snapshot_key,
+                        target_file=files_by_pair.get(
+                            (snapshot_key, command.target.file)
+                        ),
+                        cache=cache,
+                    )
+                else:
+                    validate_comment_body(command.body)
+                    rows = (
+                        ReviewThreadRecord(
+                            ReviewScopePlacement(
+                                command.thread_id.hex, snapshot_key
+                            ),
+                            True,
+                            None,
+                        ),
+                    )
+                    first_action = ReviewActionInput(
+                        operation_id=command.operation_id.hex,
+                        thread_id=command.thread_id.hex,
+                        snapshot_id=snapshot_key,
+                        sequence=0,
+                        profile_id=command.author.profile_id,
+                        created_at=action_timestamp(),
+                        status_after="open",
+                        attention_after="author",
+                        payload=CommentCreatedAction(
+                            "thread-created",
+                            AuthoredComment(
+                                command.comment_id.hex, command.body
+                            ),
+                        ),
+                    )
+                first_action = replace(
+                    first_action, attention_after=waits_after(item.role)
                 )
                 placements.extend(rows)
                 records.append(first_action)
-                # Seed the materialized state so later batch actions can address the
-                # Thread this batch just created.
-                simulated[action.thread_id.hex] = [first_action]
-                results.append(
-                    ReviewBatchResult(
-                        "create-finding",
-                        action.thread_id,
-                        action.comment_id,
+                simulated[command.thread_id.hex] = (
+                    snapshot_key,
+                    [first_action],
+                )
+                outcomes.append(
+                    (
+                        command.thread_id,
+                        command.comment_id,
                         "open",
-                        "author",
+                        waits_after(item.role),
                     )
                 )
                 continue
 
-            thread_key = action.thread_id.hex
-            thread_actions = simulated.get(thread_key)
-            if thread_actions is None:
-                persisted_actions = histories.get(thread_key)
-                if persisted_actions is None:
-                    raise ReviewError(
-                        "thread_not_found",
-                        f"Unknown Thread: {thread_key}",
-                    )
-                thread_actions = [record.action for record in persisted_actions]
-                simulated[thread_key] = thread_actions
-
-            command = action.command
-            profile_id = command.author.profile_id
-            state, attention, _comments = fold_actions(
+            thread_key = item.thread_id.hex
+            origin_snapshot, thread_actions = simulated[thread_key]
+            profile_id = item.command.author.profile_id
+            state, attention, comments = fold_actions(
                 tuple(thread_actions), fold_profiles
             )
             if state == "deleted":
                 raise ReviewError("state_conflict", "Thread is deleted.")
-            if isinstance(action, ReplyToThread):
-                reply = action.command
-                validate_comment_body(reply.body)
-                allowed_attention = {
-                    "author-response": {"author", "both"},
-                    "reviewer-return": {"reviewer", "both"},
-                    "inert-comment": {"author", "reviewer", "both", "none"},
-                }[action.instrument]
-                if action.instrument != "inert-comment" and (
-                    state != "open" or attention not in allowed_attention
-                ):
-                    raise ReviewError(
-                        "state_conflict",
-                        f"{action.instrument} is not valid for this Thread outcome.",
+            payload: ReviewActionPayload
+            comment_id: Optional[UUID] = None
+            next_state: Literal["open", "resolved", "deleted"] = state
+            next_attention = attention
+            if isinstance(item, BatchComment):
+                validate_comment_body(item.command.body)
+                comment_id = item.command.comment_id
+                payload = CommentCreatedAction(
+                    "comment-created",
+                    AuthoredComment(comment_id.hex, item.command.body),
+                )
+                next_attention = waits_after(item.role)
+            elif isinstance(item, (BatchResolve, BatchReopen)):
+                if isinstance(item, BatchResolve):
+                    if state != "open":
+                        raise ReviewError(
+                            "state_conflict",
+                            "Only an open Thread may be resolved.",
+                        )
+                    kind: Literal["thread-resolved", "thread-reopened"] = (
+                        "thread-resolved"
                     )
-                next_attention: Literal["author", "reviewer", "both", "none"]
-                if action.instrument == "author-response":
-                    next_attention = "reviewer"
-                elif action.instrument == "reviewer-return":
-                    next_attention = "author"
+                    next_state, next_attention = "resolved", "none"
                 else:
-                    next_attention = attention
-                record = ReviewActionInput(
-                    operation_id=reply.operation_id.hex,
-                    thread_id=thread_key,
-                    snapshot_id=snapshot_id.hex,
-                    sequence=len(thread_actions),
-                    profile_id=profile_id,
-                    created_at=action_timestamp(),
-                    status_after=state,
-                    attention_after=next_attention,
-                    payload=CommentCreatedAction(
-                        "comment-created",
-                        AuthoredComment(reply.comment_id.hex, reply.body),
-                    ),
-                )
-                result = ReviewBatchResult(
-                    action.instrument,
-                    action.thread_id,
-                    reply.comment_id,
-                    state,
-                    next_attention,
-                )
-            elif isinstance(action, ResolveThread):
-                resolve = action.command
-                if state != "open" or attention not in {"reviewer", "both"}:
-                    raise ReviewError(
-                        "state_conflict",
-                        "reviewer-resolve requires an open reviewer-attention Thread.",
+                    if state != "resolved":
+                        raise ReviewError(
+                            "state_conflict",
+                            "Only a resolved Thread may be reopened.",
+                        )
+                    kind = "thread-reopened"
+                    next_state = "open"
+                    next_attention = waits_after(item.role)
+                authored: Optional[AuthoredComment] = None
+                if item.command.comment_id is not None:
+                    assert item.command.body is not None
+                    validate_comment_body(item.command.body)
+                    comment_id = item.command.comment_id
+                    authored = AuthoredComment(
+                        comment_id.hex, item.command.body
                     )
-                validate_comment_body(resolve.body)
-                record = ReviewActionInput(
-                    operation_id=resolve.operation_id.hex,
-                    thread_id=thread_key,
-                    snapshot_id=snapshot_id.hex,
-                    sequence=len(thread_actions),
-                    profile_id=profile_id,
-                    created_at=action_timestamp(),
-                    status_after="resolved",
-                    attention_after="none",
-                    payload=ThreadStateAction(
-                        "thread-resolved",
-                        AuthoredComment(resolve.comment_id.hex, resolve.body),
+                payload = ThreadStateAction(kind, authored)
+            elif isinstance(item, (BatchEditComment, BatchDeleteComment)):
+                target = next(
+                    (
+                        comment
+                        for comment in comments
+                        if comment["comment_id"] == item.comment_id.hex
                     ),
-                )
-                result = ReviewBatchResult(
-                    "reviewer-resolve",
-                    action.thread_id,
-                    resolve.comment_id,
-                    "resolved",
-                    "none",
-                )
-            else:
-                assert isinstance(action, DeleteThread)
-                deletion = action.command
-                record = ReviewActionInput(
-                    operation_id=deletion.operation_id.hex,
-                    thread_id=thread_key,
-                    snapshot_id=snapshot_id.hex,
-                    sequence=len(thread_actions),
-                    profile_id=profile_id,
-                    created_at=action_timestamp(),
-                    status_after="deleted",
-                    attention_after="none",
-                    payload=ThreadDeletedAction(),
-                )
-                result = ReviewBatchResult(
-                    "reviewer-delete",
-                    action.thread_id,
                     None,
-                    "deleted",
-                    "none",
                 )
+                if target is None:
+                    raise ReviewError(
+                        "comment_not_found",
+                        f"Unknown Comment: {item.comment_id.hex}",
+                    )
+                if target["deleted"]:
+                    raise ReviewError("state_conflict", "Comment is deleted.")
+                comment_id = item.comment_id
+                if isinstance(item, BatchEditComment):
+                    if target["author"]["profile_id"] != profile_id:
+                        raise ReviewError(
+                            "forbidden", "Only the Comment author may edit it."
+                        )
+                    validate_comment_body(item.command.body)
+                    payload = CommentEditedAction(
+                        AuthoredComment(comment_id.hex, item.command.body),
+                        target["revision"],
+                    )
+                else:
+                    payload = CommentDeletedAction(
+                        comment_id.hex, target["revision"]
+                    )
+            else:
+                assert isinstance(item, BatchDeleteThread)
+                assert item.command.comment_id is None
+                payload = ThreadDeletedAction()
+                next_state, next_attention = "deleted", "none"
+            record = ReviewActionInput(
+                operation_id=item.command.operation_id.hex,
+                thread_id=thread_key,
+                snapshot_id=origin_snapshot,
+                sequence=len(thread_actions),
+                profile_id=profile_id,
+                created_at=action_timestamp(),
+                status_after=next_state,
+                attention_after=next_attention,
+                payload=payload,
+            )
             thread_actions.append(record)
             records.append(record)
-            results.append(result)
+            outcomes.append(
+                (item.thread_id, comment_id, next_state, next_attention)
+            )
 
-        database.apply_review_batch(tuple(placements), tuple(records))
-        return tuple(results)
+        activity_ids = database.apply_review_batch(
+            tuple(placements), tuple(records)
+        )
+        return tuple(
+            ReviewBatchResult(
+                thread_id, comment_id, activity_id, status, attention
+            )
+            for (thread_id, comment_id, status, attention), activity_id in zip(
+                outcomes, activity_ids, strict=True
+            )
+        )

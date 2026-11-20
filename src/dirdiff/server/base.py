@@ -55,7 +55,7 @@ __all__ = [
     "BranchReviewManifestSelection",
     "ClassRoutes",
     "ErrorResponse",
-    "HeadManifestSelection",
+    "HeadBaselineManifestSelection",
     "ManifestSelection",
     "PreparedCapture",
     "PresetManifestSelection",
@@ -65,7 +65,6 @@ __all__ = [
     "ReviewExcerptResponse",
     "RuntimeConfig",
     "preset_catalog_dirs",
-    "validate_source_placement",
 ]
 
 
@@ -258,6 +257,82 @@ class HeadManifestSelection(ApiModel):
         """
         root, repository = _capture_repository(db, self.project_id, store_path)
         left = repository.commit_id("HEAD", allow_unborn=True)
+        source = GitChangeSource(
+            root,
+            left=left,
+            right="worktree",
+            show_untracked=self.show_untracked,
+            max_link_target_bytes=1 << 20,
+        )
+        return PreparedCapture(
+            source,
+            HeadCaptureSelection(left),
+            self.project_id,
+            "HEAD",
+            "worktree",
+        )
+
+
+class HeadBaselineManifestSelection(ApiModel):
+    """Select an explicit frozen baseline against the worktree of one Mark.
+
+    The agent API names the Head Room it wants by the baseline commit the Room
+    was keyed on, so a later HEAD does not change the selection. The browser's
+    `HeadManifestSelection` names no baseline and always freezes current HEAD;
+    this model exists beside it rather than loosening that contract. It is not
+    part of `ManifestSelection`.
+    """
+
+    tab: Literal["head"]
+    """Discriminator selecting the Head Tab."""
+    project_id: Annotated[int, Field(gt=0)]
+    """Positive active repository Mark id."""
+    baseline: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1)
+    ]
+    """Nonblank commit id, or the repository's empty-tree id, of the baseline."""
+    show_untracked: bool
+    """Whether to include untracked worktree Files."""
+
+    def prepare(
+        self,
+        db: RepoMarkStore,
+        presets_root: str,
+        *,
+        store_path: Path,
+    ) -> PreparedCapture:
+        """Freeze the named baseline and select the complete live worktree.
+
+        Call explicitly after model validation. Construction performs no I/O.
+
+        # Parameters
+
+        - `db`: Active Mark registry and application database location.
+        - `presets_root`: Application preset root supplied with capture
+          configuration; Head does not read it.
+        - `store_path`: Snapshot root configured for the caller's RoomLord.
+
+        # Returns
+
+        One `PreparedCapture` with Head correspondence keyed on the full
+        baseline id, the source comparing it with the worktree, the Mark id, and
+        fixed `HEAD`/`worktree` labels.
+
+        # Failures
+
+        - Missing Marks/repositories, unsafe storage placement, and a baseline
+          that is neither a commit nor the empty tree raise `DirdiffError`.
+        - Unexpected repository and filesystem failures propagate.
+        """
+        root, repository = _capture_repository(db, self.project_id, store_path)
+        # An unborn-HEAD review records the empty-tree id, which is not a
+        # commit; any other baseline must be a commit.
+        empty_tree = repository.empty_tree_id()
+        left = (
+            empty_tree
+            if self.baseline.strip() == empty_tree
+            else repository.commit_id(self.baseline)
+        )
         source = GitChangeSource(
             root,
             left=left,

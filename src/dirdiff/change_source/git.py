@@ -403,6 +403,20 @@ class _GitWorkspace(WorkspaceStorageProtocol):
             raise DirdiffError(f"Unknown Git ref: {side}")
         return side
 
+    def empty_tree_id(self) -> str:
+        """Return the repository-format empty-tree hash without writing an object.
+
+        # Failures
+
+        - Process-launch or decoding failures raise; an empty answer from Git
+          is an assertion failure.
+        """
+        empty_tree = self._run_git_text(
+            ["hash-object", "-t", "tree", os.devnull]
+        ).stdout.strip()
+        assert empty_tree != "", "Git returned no empty-tree hash"
+        return empty_tree
+
     def commit_id(self, side: SideName, *, allow_unborn: bool = False) -> str:
         """Return a commit id, or the empty-tree hash for allowed unborn HEAD.
 
@@ -439,11 +453,7 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         commit_id = result.stdout.strip()
         if result.returncode != 0 or commit_id == "":
             if allow_unborn and normalized == "HEAD":
-                empty_tree = self._run_git_text(
-                    ["hash-object", "-t", "tree", os.devnull]
-                ).stdout.strip()
-                assert empty_tree != "", "Git returned no empty-tree hash"
-                return empty_tree
+                return self.empty_tree_id()
             raise DirdiffError(f"Unknown Git ref: {side}")
         return commit_id
 
@@ -1835,6 +1845,21 @@ class GitRepository:
         - Process-launch failures propagate.
         """
         return self._workspace.normalize_side(raw_side)
+
+    def empty_tree_id(self) -> str:
+        """Return the repository-format empty-tree id; it writes no Git object.
+
+        # Usage
+
+        A Head review of an unborn HEAD records this id as its baseline, so
+        callers use it to recognize that baseline before validating any other
+        baseline with `commit_id`.
+
+        # Failures
+
+        - Process-launch or decoding failures propagate.
+        """
+        return self._workspace.empty_tree_id()
 
     def commit_id(self, side: SideName, *, allow_unborn: bool = False) -> str:
         """Freeze a commit-backed revision control to its complete object id.

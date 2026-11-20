@@ -420,9 +420,12 @@ adds one placement row per Thread/Snapshot pair and
 append-only actions authored through one existing ordinary Profile. The
 shared internal Profile table contract lets Profile and Room persistence
 reference the same identity. Profile usernames are globally unique and select
-one existing local identity without credentials. Agent registration adds a one-to-one UUID binding
-without changing that Profile shape. `db.room` contains these relations,
-immutable records, and transactions through `RoomStore`.
+one existing local identity without credentials. Agent registration adds a
+one-to-one UUID binding, with the agent's model and harness, without changing
+that Profile shape. `db.room` contains these relations,
+immutable records, and transactions through `RoomStore`; its review Profile
+reads join that registration, so every review author record carries the agent's
+model and harness, absent for a human.
 Store records expose validated placement variants, tagged action payloads,
 and nested regular/link File sides. Review action insertion inputs omit global
 activity order; persisted outputs require it. Nullable shape columns remain
@@ -466,9 +469,12 @@ Room methods require that key explicitly while providing metadata, manifested fi
 iteration, direct captured-file lookup, and Thread access through `threads`,
 `get_thread`, `thread_for_comment`, and `create_thread`; Comment and lifecycle
 writes belong to the returned bound Threads. The agent boundary also uses the
-Room's explicit activity reads, atomic review batch, complete persisted
-`capture_context` and read-only
+Room's atomic review batch, complete persisted `capture_context`, and read-only
 `path_for_snapshot` access to the already published Snapshot directory.
+`RoomLord` adds the Mark-wide agent reads: `mark_rooms`, `mark_activity`,
+`mark_latest_activity_id`, `thread_histories`, `thread_latest_activity`, and
+`find_thread_room`, which finds a Thread's Room and origin Snapshot from its
+id alone.
 Concrete source setup supplies the 1 MiB reached-link limit at construction. RoomLord captures and persists the source's raw
 bytes and link facts. The source stops before
 a repeated normalized path, refuses targets outside the repository, and checks
@@ -511,17 +517,17 @@ Thread stays bound to its real origin and reports a captured-File comparison for
 navigation. A read publishes each Thread as its immutable origin plus one real
 placement, and the placement vocabulary is limited to `region-kept`,
 `region-changed`, `region-lost`, `bay-lost`, `side-lost`, `file-absent`,
-`file-unreadable`, and `whole-file`.
+`file-unreadable`, `whole-file`, and `review-scope`. A review-scoped Thread has
+no File, and derivation copies its placement into every new Snapshot.
 The review model is described in [`reviews.md`](reviews.md).
 
 The package facade exports the review commands, views, bound `Thread`, and
-external-agent batch instruments used by `Room` and the HTTP boundaries.
+the agent batch actions and results used by `Room` and the HTTP boundaries.
 `base.py` contains shared contracts and Room write invariants. `thread.py`
 contains ordinary Thread operations and is the sole caller into `_thread`.
 The private `placement.py` leaf contains origin construction and later-Snapshot
-placement derivation; the independent `external_agent.py` leaf contains batch
-instrument and result contracts. `thread.py` coordinates the batch operation
-across them. Snapshot publication, SQL, and HTTP serialization remain outside
+placement derivation. `thread.py` coordinates the batch operation, whose action
+and result contracts live in `base.py`. Snapshot publication, SQL, and HTTP serialization remain outside
 the package.
 
 ## `dirdiff.server`
@@ -551,17 +557,22 @@ file kind to the returned envelope. Snapshot-context browser review
 routes read one bounded Room Thread page and apply Profile-authored Thread and
 Comment actions through the Room's bound Threads. Existing-Thread writes
 return only current state and the changed Comment.
-Agent review routes register an ordinary Profile with its agent UUID, capture a
-logical Tab into the same Snapshot identity, expose captured changed Files on
-disk, page open Threads, recapture the persisted Tab with File and authored
-Thread deltas, role-filtered attention inboxes, and one atomic batch of the
-role-specific review instruments. The pre-session onboarding route translates a
-complete supported HUD Tab to the join-review shape and returns the running
-server origin with exact installed agent-skill entry paths; it creates no review
-state.
+Agent review routes register an ordinary Profile with its agent UUID
+idempotently, capture a logical Tab into the same Snapshot identity and list its
+captured File pairs with their paths on disk, list a Mark's Rooms with their
+attention counts, page a Room's Threads, read one Thread by id alone, read and
+wait on the Mark-wide activity feed from a cursor, and apply one atomic
+single-Room batch of role-stated actions. The pre-session onboarding route
+translates a complete supported HUD Tab to the capture Tab shape and returns the
+running server origin and Mark id with exact installed agent-skill entry paths;
+it creates no review state. The nine-route contract is specified in
+[`reviews.md`](reviews.md).
 The agent-visible Snapshot filesystem contract is documented in
-[`reviews.md`](reviews.md) and mirrored by both project-local agent skills;
-changes to capture layout must update those operational references together.
+[`reviews.md`](reviews.md) and mirrored by the reviewer skill's
+`references/snapshot_structure.md` and, in short form, by the `round-review`
+and `babysit-patch` skills; changes to capture layout must update those
+together. Agents reach these routes through
+the `dirdiff agent` commands of `dirdiff.cli`, never through hand-written HTTP.
 Browser review failures expose stable structured codes and messages.
 Profile routes explicitly select an existing exact username, create a unique
 username, or rename one Profile to another unique username.
@@ -605,4 +616,6 @@ the selected server topology, opens the browser, and exposes repository-mark
 commands. Editable installations run Vite and reloadable uvicorn; standard
 installations run the bundled HUD and API through one non-reloading uvicorn
 process. `base.py` is the sole caller into `_base`, whose private modules
-implement registry operations and process launch. See [`release.md`](release.md).
+implement registry operations and process launch. `_base/agent_commands.py` defines the
+`dirdiff agent` command group, the only client of the `/api/agent/*` routes; see
+[`reviews.md`](reviews.md). See [`release.md`](release.md).

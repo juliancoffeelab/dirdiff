@@ -9,7 +9,8 @@ schema work on an already-constructed engine.
 
 `TableBase` is the common SQLAlchemy metadata root. The exported
 `UserProfileRecord` is the Profile identity shared by Profile and review
-persistence.
+persistence. `AgentProfile` is the agent registration relation of a Profile and
+`AgentDetails` the facts it exposes; the Profile and Room stores both read it.
 
 ## Purpose and boundaries
 
@@ -30,7 +31,17 @@ from typing import Optional
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import Engine, String, UniqueConstraint, create_engine, event
+from sqlalchemy import (
+    CheckConstraint,
+    Engine,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    column,
+    create_engine,
+    event,
+    func,
+)
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
@@ -38,6 +49,8 @@ from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
 from alembic import command
 
 __all__ = [
+    "AgentDetails",
+    "AgentProfile",
     "TableBase",
     "UserProfile",
     "UserProfileRecord",
@@ -115,6 +128,65 @@ class UserProfileRecord:
     It may change while `id` and every relation referencing the Profile remain
     unchanged.
     """
+
+
+class AgentProfile(TableBase):
+    """Bind one disposable Profile to the UUID supplied by an agent.
+
+    `UserProfileStore.upsert_agent` inserts this relation with the ordinary
+    `UserProfile` row in one transaction. Review attribution uses `profile_id`;
+    `agent_uuid` identifies the agent across repeated registration.
+
+    This relation does not create another author shape, store agent state, or
+    classify the Profile as having different permissions.
+    """
+
+    __tablename__ = "agent_profile"
+    __table_args__ = (
+        UniqueConstraint("agent_uuid", name="uq_agent_profile_uuid"),
+        CheckConstraint(
+            (func.length(column("agent_uuid")) == 32)
+            & column("agent_uuid").op("NOT GLOB")("*[^0-9a-f]*"),
+            name="ck_agent_profile_uuid",
+        ),
+    )
+
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("user_profile.id"), primary_key=True
+    )
+    """Ordinary Profile identity used for review attribution.
+
+    The one-to-one primary key makes the agent binding an extension of the same
+    author record, not a second kind of Profile.
+    """
+
+    agent_uuid: Mapped[str] = mapped_column(String(32), nullable=False)
+    """Unique lowercase hexadecimal UUID supplied at agent registration.
+
+    Registering the same UUID again returns this Profile. Authored review data
+    continues to reference `profile_id`.
+    """
+
+    model: Mapped[str | None] = mapped_column(String, nullable=True)
+    """Model name the agent last reported; NULL for pre-migration agents."""
+
+    harness: Mapped[str | None] = mapped_column(String, nullable=True)
+    """Harness the agent last reported; NULL for pre-migration agents."""
+
+
+@dataclass(frozen=True)
+class AgentDetails:
+    """Facts an agent reported when it registered its Profile.
+
+    Present only for agent Profiles; a human Profile has no `AgentDetails`.
+    Both fields are `None` only for agents registered before they were recorded.
+    """
+
+    model: str | None
+    """Model name the agent reported, `None` for older registrations."""
+
+    harness: str | None
+    """Program name driving the agent, `None` for older registrations."""
 
 
 def profile_record(

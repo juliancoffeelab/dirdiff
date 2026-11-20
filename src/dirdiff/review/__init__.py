@@ -1,34 +1,39 @@
-"""Expose persistent review discussions and external-agent instruments.
+"""Expose persistent review discussions and agent batches.
 
 The facade publishes the review contracts and operations used outside this
 package. Shared contracts, bound Thread behavior, Snapshot placement, and
-external-agent batches live in separate sibling modules. SQL, Snapshot
+agent batches live in separate sibling modules. SQL, Snapshot
 publication, and HTTP serialization remain outside this package.
 """
 
 from dirdiff.review.base import (
     AddComment,
+    BatchComment,
+    BatchCreate,
+    BatchDeleteComment,
+    BatchDeleteThread,
+    BatchEditComment,
+    BatchReopen,
+    BatchResolve,
     ChangeThreadState,
+    CreateReviewThread,
     CreateThread,
     DeleteComment,
     EditComment,
     FilePair,
     LineRange,
     ProfileAuthor,
+    ReviewBatchAction,
+    ReviewBatchResult,
+    ReviewCommentView,
     ReviewError,
     ReviewErrorCode,
-    ReviewOriginView,
+    ReviewRole,
     TextTarget,
     ThreadDiscussionView,
-    ThreadPlacementView,
     ThreadSummaryView,
 )
 from dirdiff.review.thread import (
-    DeleteThread,
-    ReplyToThread,
-    ResolveThread,
-    ReviewBatchAction,
-    ReviewBatchResult,
     Thread,
     apply_review_batch,
     create_thread,
@@ -39,25 +44,30 @@ from dirdiff.review.thread import (
 
 __all__ = [
     "AddComment",
+    "BatchComment",
+    "BatchCreate",
+    "BatchDeleteComment",
+    "BatchDeleteThread",
+    "BatchEditComment",
+    "BatchReopen",
+    "BatchResolve",
     "ChangeThreadState",
+    "CreateReviewThread",
     "CreateThread",
     "DeleteComment",
-    "DeleteThread",
     "EditComment",
     "FilePair",
     "LineRange",
     "ProfileAuthor",
-    "ReplyToThread",
-    "ResolveThread",
     "ReviewBatchAction",
     "ReviewBatchResult",
+    "ReviewCommentView",
     "ReviewError",
     "ReviewErrorCode",
-    "ReviewOriginView",
+    "ReviewRole",
     "TextTarget",
     "Thread",
     "ThreadDiscussionView",
-    "ThreadPlacementView",
     "ThreadSummaryView",
     "apply_review_batch",
     "create_thread",

@@ -31,7 +31,7 @@ import hashlib
 import json
 import shutil
 import tempfile
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
@@ -51,7 +51,9 @@ from dirdiff.change_source import (
     WorkspaceChanges,
 )
 from dirdiff.db import (
-    ReviewActionRecord,
+    ReviewMarkActionRecord,
+    ReviewProfileRecord,
+    ReviewThreadHistory,
     RoomIdentity,
     RoomStore,
     SnapshotFileRecord,
@@ -62,7 +64,6 @@ from dirdiff.db import (
     SnapshotRecord,
     SnapshotRegularFileSideRecord,
     SnapshotSymlinkFileSideRecord,
-    UserProfileRecord,
 )
 from dirdiff.engines import DirdiffError
 from dirdiff.formats import (
@@ -93,7 +94,6 @@ __all__ = [
     "PullRequestCaptureSelection",
     "RevisionsCaptureSelection",
     "Room",
-    "RoomCaptureContext",
     "RoomLord",
 ]
 
@@ -402,38 +402,6 @@ type CapturedFileSide = CapturedRegularFileSide | CapturedSymlinkFileSide
 Consumers branch on `kind`. Side absence remains `None` outside this union.
 Neither variant carries the enclosing File's repository path or `FileMeta`.
 """
-
-
-class SnapshotFileDelta(TypedDict):
-    """Describe captured side paths changed between two Snapshots.
-
-    `Room.file_delta` returns this to agent continuation. Paths are absolute,
-    read-only captured sides rather than repository names or writable workspace
-    files.
-    """
-
-    added: tuple[Path, ...]
-    """Absolute captured side paths whose side/path identity is newly present.
-
-    Every path points into the later immutable Snapshot. The tuple is sorted and
-    may include either side of a newly introduced File identity.
-    """
-
-    changed: tuple[Path, ...]
-    """Absolute later-Snapshot side paths whose captured raw bytes changed.
-
-    The side and repository path exist in both Snapshots. Only outer-side bytes
-    participate; changes only to reached target bytes do not add the outer link
-    side to the delta.
-    Returned paths always name the newer capture.
-    """
-
-    removed: tuple[Path, ...]
-    """Absolute captured side paths whose side/path identity is no longer present.
-
-    Every path points into the earlier immutable Snapshot so callers can still
-    inspect the removed bytes. The tuple is sorted and never names live files.
-    """
 
 
 class Room:
@@ -783,100 +751,6 @@ class Room:
             },
         )
 
-    def file_delta(
-        self, previous_snapshot_id: UUID, snapshot_id: UUID
-    ) -> SnapshotFileDelta:
-        """Return added, changed, and removed captured side paths between Snapshots.
-
-        # Parameters
-
-        - `previous_snapshot_id`: Earlier Snapshot whose removed side paths are
-          reported from its immutable directory.
-        - `snapshot_id`: Later Snapshot whose added and changed paths are
-          reported.
-
-        # Usage
-
-        Agent continuation calls this after capture. Use returned absolute
-        paths as handles into the two immutable Snapshot directories; do not
-        reinterpret them as repository paths.
-
-        # Returns
-
-        A `SnapshotFileDelta` with sorted captured paths:
-
-        - `added`: Newly present side/path identities in the later Snapshot.
-        - `changed`: Existing side/path identities whose raw captured bytes
-          changed, addressed in the later Snapshot.
-        - `removed`: No-longer-present side/path identities, addressed in the
-          earlier Snapshot.
-
-        *Implementation detail:* The delta compares persisted side digests
-        without rereading captured bytes.
-
-        # Failures
-
-        - Raises `DirdiffError` unless both keys belong to this Room.
-        """
-        snapshots = []
-        for captured_id in (previous_snapshot_id, snapshot_id):
-            snapshot = self._database.snapshot(self._identity, captured_id.hex)
-            if snapshot is None:
-                raise DirdiffError(f"Unknown snapshot id: {captured_id.hex}")
-            snapshots.append(snapshot)
-
-        def sides(
-            snapshot: SnapshotRecord,
-        ) -> dict[tuple[str, str], tuple[Path, bytes]]:
-            """Index present captured sides by side name and repository path.
-
-            Each value carries the immutable capture path and persisted digest.
-            The helper is called once for each already-validated Snapshot
-            and never reads the side's bytes.
-
-            # Returns
-
-            - Each key's first item is the `left` or `right` side name. Both
-              present sides of one File receive separate entries.
-            - Each key's second item is that side's repository path.
-            - Each value's first item is the absolute immutable capture path.
-            - Each value's second item is the persisted content digest.
-            """
-            indexed: dict[tuple[str, str], tuple[Path, bytes]] = {}
-            for file in snapshot.files:
-                for side, record in (
-                    ("left", file.left),
-                    ("right", file.right),
-                ):
-                    if Some.present(record):
-                        indexed[(side, record.value.repository_path)] = (
-                            Path(file.path) / side,
-                            record.value.content_hash,
-                        )
-            return indexed
-
-        previous = sides(snapshots[0])
-        current = sides(snapshots[1])
-        return {
-            "added": tuple(
-                sorted(
-                    current[key][0] for key in current.keys() - previous.keys()
-                )
-            ),
-            "changed": tuple(
-                sorted(
-                    current[key][0]
-                    for key in current.keys() & previous.keys()
-                    if current[key][1] != previous[key][1]
-                )
-            ),
-            "removed": tuple(
-                sorted(
-                    previous[key][0] for key in previous.keys() - current.keys()
-                )
-            ),
-        }
-
     def captured_files_for_pairs(
         self,
         snapshot_id: UUID,
@@ -942,109 +816,6 @@ class Room:
             assert not Some.present(left_file) or left_file.value.is_file()
             assert not Some.present(right_file) or right_file.value.is_file()
             result[pair] = (left_file, right_file)
-        return result
-
-    def locate_captured_files(
-        self, snapshot_id: UUID, captured: tuple[Path, ...]
-    ) -> dict[
-        Path,
-        Optional[tuple[Option[Path], Option[Path], Literal["left", "right"]]],
-    ]:
-        """Identify captured side paths as their repository pairs and sides.
-
-        Every supplied path receives an entry; `None` means it does not name
-        a captured side of this exact Snapshot. The captured layout is
-        `<file-directory>/<side>` with the File id as the directory name; the
-        persisted record's own directory must equal the supplied parent, so a
-        lookalike path outside the Snapshot store never matches. One read
-        serves every path; no side content is touched.
-
-        # Parameters
-
-        - `snapshot_id`: Exact Snapshot against which paths are validated.
-        - `captured`: Absolute paths supplied at the agent action boundary.
-
-        # Usage
-
-        Pass agent-supplied captured paths here before converting them to review
-        targets. A `None` result is an unauthenticated path and must be rejected
-        by the caller.
-
-        # Returns
-
-        - Each key is one distinct absolute input path, whether valid or not.
-        - A valid value's first item is the File's optional left repository path.
-        - Its second item is the optional right repository path.
-        - Its third item is the matched `left` or `right` side name.
-        - `None`: The key does not identify a present side of this exact
-          Snapshot. The caller must reject it as an untrusted captured handle.
-
-        # Failures
-
-        - Invalid or unrelated paths are returned as `None`; this method does
-          not raise merely because an input fails validation.
-        """
-
-        def parsed_file_id(path: Path) -> Optional[str]:
-            """Extract an untrusted candidate File id from a capture-side path.
-
-            The helper accepts only `<hex-id>/left` or `<hex-id>/right` shape and
-            returns `None` for every other input. A candidate is not trusted
-            until the focused database read proves its exact persisted parent.
-
-            # Returns
-
-            - The 32-character lowercase hexadecimal directory name when the
-              path has the expected captured-side shape.
-            - `None`: The basename is not a side name or its parent is not a
-              syntactically valid File id. The caller excludes it from lookup.
-            """
-            if path.name != "left" and path.name != "right":
-                return None
-            file_id = path.parent.name
-            if len(file_id) != 32 or any(
-                character not in "0123456789abcdef" for character in file_id
-            ):
-                return None
-            return file_id
-
-        distinct = tuple(dict.fromkeys(captured))
-        candidate_ids = tuple(
-            dict.fromkeys(
-                file_id
-                for file_id in (parsed_file_id(path) for path in distinct)
-                if file_id is not None
-            )
-        )
-        records = self._database.snapshot_files_by_ids(
-            self._identity,
-            snapshot_id=snapshot_id.hex,
-            file_ids=candidate_ids,
-        )
-        result: dict[
-            Path,
-            Optional[
-                tuple[Option[Path], Option[Path], Literal["left", "right"]]
-            ],
-        ] = {}
-        for path in distinct:
-            result[path] = None
-            file_id = parsed_file_id(path)
-            if file_id is None:
-                continue
-            record = records.get(file_id)
-            if record is None or Path(record.path) != path.parent:
-                continue
-            side: Literal["left", "right"] = (
-                "left" if path.name == "left" else "right"
-            )
-            if not Some.present(
-                record.left if side == "left" else record.right
-            ):
-                continue
-            left = record.left.map(lambda side: Path(side.repository_path))
-            right = record.right.map(lambda side: Path(side.repository_path))
-            result[path] = (left, right, side)
         return result
 
     def threads(
@@ -1220,53 +991,6 @@ class Room:
         self.meta(snapshot_id)
         return self._database.review_latest_activity_id(self._identity)
 
-    def continuation(
-        self,
-        snapshot_id: UUID,
-        activity_id: int,
-        limit: int,
-    ) -> tuple[
-        tuple[ReviewActionRecord, ...],
-        bool,
-        int,
-        tuple[UserProfileRecord, ...],
-    ]:
-        """Return one bounded ordered page of later Thread changes.
-
-        The page, has-more marker, open-Thread count, and acting Profiles are
-        read consistently in one persistence read; the count holds at the
-        page's inclusive end boundary.
-
-        # Parameters
-
-        - `snapshot_id`: Snapshot used to prove this Room is the intended one.
-        - `activity_id`: Exclusive lower boundary retained by the agent.
-        - `limit`: Positive maximum number of later actions.
-
-        # Usage
-
-        Begin with the cursor retained from capture or the prior page. Continue
-        using the last returned action id until the has-more value is false.
-
-        # Returns
-
-        - First, at most `limit` later actions in activity order.
-        - Second, whether another action exists after this page.
-        - Third, the open logical Thread count at the page's inclusive end.
-        - Fourth, current Profile records for every author in the returned page.
-
-        # Failures
-
-        - Raises `DirdiffError` for a Snapshot outside this Room.
-        - Asserts when the activity id is negative or `limit` is not positive.
-        """
-        self.meta(snapshot_id)
-        return self._database.review_continuation(
-            self._identity,
-            activity_id,
-            limit,
-        )
-
     def review_attention_counts(
         self, snapshot_id: UUID, through_activity_id: int
     ) -> dict[Literal["author", "reviewer", "both"], int]:
@@ -1299,37 +1023,35 @@ class Room:
 
     def apply_review_batch(
         self,
-        snapshot_id: UUID,
         batch: tuple[ReviewBatchAction, ...],
     ) -> tuple[ReviewBatchResult, ...]:
         """Apply one validated agent batch in a single database transaction.
 
         # Parameters
 
-        - `snapshot_id`: Exact Snapshot against which every action is validated.
-        - `batch`: Ordered, non-empty agent actions sharing one author Profile.
+        - `batch`: Ordered, non-empty agent items. Every addressed Thread and
+          creation Snapshot must belong to this Room.
 
         # Usage
 
-        Preserve the agent's submitted order and pass the complete non-empty
-        batch once. Use the returned results in the same order as the commands.
+        Preserve the agent's submitted order and pass the complete batch once.
+        Use the returned results in the same order as the items.
 
         # Returns
 
-        - Each item is the canonical persisted action outcome for one command,
-          including its Thread state and any created Comment identity.
-        - Results preserve the non-empty batch's submission order, so callers
-          may zip both tuples without another ordering key.
+        - One result per item, in submission order.
+        - Each result carries the Thread, created or changed Comment, authored
+          activity id, and the Thread's status and waiting role after that item.
 
         # Failures
 
-        - Raises `ReviewError` when any command is invalid for the bound
-          Snapshot or current Thread state. No command is persisted on failure.
+        - Raises `ReviewError` when any item is invalid for current Thread
+          state. No item is persisted on failure.
+        - Raises `DirdiffError` for a Snapshot outside this Room.
         """
         return apply_review_batch(
             database=self._database,
             identity=self._identity,
-            snapshot_id=snapshot_id,
             batch=batch,
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
@@ -1656,6 +1378,14 @@ class RoomLord:
         identity = self._database.room_identity(snapshot_id.hex)
         if identity is None:
             raise DirdiffError(f"Unknown snapshot id: {snapshot_id.hex}")
+        return self.room_for(identity)
+
+    def room_for(self, identity: RoomIdentity) -> Room:
+        """Return the Room object for an identity read from persistence.
+
+        The identity must come from a persisted Room row (a store read), never
+        from caller input; an unknown Tab asserts.
+        """
         if identity.tab not in {
             "head",
             "refs",
@@ -1674,6 +1404,108 @@ class RoomLord:
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
         )
+
+    def mark_rooms(self, mark_id: int) -> tuple[tuple[Room, UUID], ...]:
+        """List every Room of one repository with its newest Snapshot.
+
+        # Returns
+
+        - One pair per Room that has a Snapshot, in Room creation order.
+        - Each pair holds the Room and its newest Snapshot id; an unknown Mark
+          yields an empty tuple.
+        """
+        return tuple(
+            (self.room_for(identity), UUID(hex=snapshot_id))
+            for identity, snapshot_id in self._database.rooms_for_mark(mark_id)
+        )
+
+    def mark_latest_activity_id(self, mark_id: int) -> int:
+        """Return the greatest authored activity id across one repository.
+
+        0 means no Room of the Mark has an authored action. The id is
+        database-wide increasing, so it is a valid cursor for
+        `mark_activity`.
+        """
+        return self._database.review_mark_latest_activity_id(mark_id)
+
+    def mark_activity(
+        self, mark_id: int, after: int, limit: int
+    ) -> tuple[ReviewMarkActionRecord, ...]:
+        """Return authored actions of every Room of a repository after a cursor.
+
+        # Parameters
+
+        - `mark_id`: Repository whose Rooms are read.
+        - `after`: Exclusive activity id cursor; 0 starts from the beginning.
+        - `limit`: Maximum number of actions to return.
+
+        # Returns
+
+        - At most `limit` actions with activity id greater than `after`, in
+          increasing activity order.
+        - Each action carries the identity of its Room.
+        """
+        return self._database.review_mark_actions(mark_id, after, limit)
+
+    def thread_histories(
+        self, thread_ids: Iterable[str]
+    ) -> tuple[dict[str, ReviewThreadHistory], tuple[ReviewProfileRecord, ...]]:
+        """Load Room, origin, File paths and actions of Threads by id alone.
+
+        # Parameters
+
+        - `thread_ids`: Thread ids to load.
+
+        # Returns
+
+        - First, a mapping from id to history; unknown ids are absent.
+        - Second, the current Profile of every author in those histories.
+        """
+        return self._database.review_thread_histories(thread_ids)
+
+    def thread_latest_activity(
+        self, thread_ids: Iterable[str], through_activity_id: int
+    ) -> dict[str, int]:
+        """Return the greatest authored activity id of each Thread up to a pivot.
+
+        # Parameters
+
+        - `thread_ids`: Thread ids to look up.
+        - `through_activity_id`: Inclusive pivot of the read these Threads
+          came from; actions after it are not counted.
+
+        # Returns
+
+        - A mapping from Thread id to its greatest activity id at or before
+          the pivot.
+        - Ids without any action at or before the pivot are absent.
+        """
+        return self._database.review_latest_activity_by_thread(
+            thread_ids, through_activity_id
+        )
+
+    def find_thread_room(self, thread_id: UUID) -> tuple[Room, UUID]:
+        """Return a Thread's Room and origin Snapshot from its id alone.
+
+        The origin Snapshot always places the Thread, so it is a valid
+        Snapshot through which to bind it.
+
+        # Returns
+
+        - First, the Room that contains the Thread.
+        - Second, the Thread's origin Snapshot id within that Room.
+
+        # Failures
+
+        - Raises `ReviewError` with code `thread_not_found` for an unknown id.
+        """
+        origin = self._database.review_thread_origin_snapshot(thread_id.hex)
+        if origin is None:
+            raise ReviewError(
+                "thread_not_found", f"Unknown Thread: {thread_id.hex}"
+            )
+        snapshot_id = UUID(hex=origin)
+        return self.find_room(snapshot_id), snapshot_id
 
 
 class _SnapshotStore:

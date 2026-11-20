@@ -39,6 +39,7 @@ from dirdiff.db import (
     Placement,
     RangePlacement,
     ReviewActionInput,
+    ReviewScopePlacement,
     ReviewThreadRecord,
     RoomIdentity,
     RoomStore,
@@ -1232,9 +1233,21 @@ def derive_room_threads(
     # reference; the origin Snapshots themselves are never hydrated. The
     # target Snapshot arrives fully loaded from the capture that triggered
     # this derivation.
+    # A review-scoped Thread is about the review, not captured code, so it is
+    # copied into the target Snapshot as-is and takes no part in File derivation.
+    review_scope: list[ReviewThreadRecord] = []
     origin_refs_list: list[tuple[str, str]] = []
     for record in origins.values():
         origin = record.placement
+        if isinstance(origin, ReviewScopePlacement):
+            review_scope.append(
+                ReviewThreadRecord(
+                    ReviewScopePlacement(origin.thread_id, target_snapshot.id),
+                    False,
+                    None,
+                )
+            )
+            continue
         assert isinstance(origin, (RangePlacement, FileStartPlacement)), (
             "invalid discussion origin"
         )
@@ -1257,6 +1270,8 @@ def derive_room_threads(
     ] = []
     for record in origins.values():
         origin = record.placement
+        if isinstance(origin, ReviewScopePlacement):
+            continue
         assert isinstance(origin, (RangePlacement, FileStartPlacement)), (
             "a discussion origin is a stored range or File-start row"
         )
@@ -1315,7 +1330,7 @@ def derive_room_threads(
                 locator=locator if is_origin else None,
             )
         )
-    return tuple(placements)
+    return (*placements, *review_scope)
 
 
 def _origin_record(

@@ -103,10 +103,22 @@ File-level origin and placement as `file-start`, choosing the captured right
 side when present and otherwise the left side of that exact placement. It does
 not read captured bytes, fabricate a range, excerpt, or private coordinate, or
 change any Thread, action, or Comment identity. New Thread creation accepts
-only selected text ranges.
+only a selected text range or the whole review.
 
-Every newly created Thread originates from a selected text range. Retained
-historical File-level Threads are the sole `file-start` origin exception.
+Every newly created File Thread originates from a selected text range.
+Retained historical File-level Threads are the sole `file-start` origin
+exception. The other creation shape is the review-scoped Thread, which has no
+File at all: it is a conversation about the review as a whole, such as a
+summary or a question to the author.
+
+A review-scoped Thread stores the origin `review` and the placement
+`review-scope`, which carry no File reference, bay, range, side, digest, or
+private coordinate. Placement derivation copies its `review-scope` placement
+into every later Snapshot of the Room unchanged, so it is placed in every
+Snapshot and is never outdated, relocated, missing, or unreadable. It travels
+the browser boundary as `origin_target: {"kind": "review"}` with `placement:
+{"kind": "review-scope"}` and no excerpt, and the agent boundary reports it
+with no `location`.
 A text-origin placement lands in one of six stored states, and each one
 publishes as exactly one browser placement kind:
 
@@ -125,7 +137,8 @@ File not captured       -> no code, file_unreadable           -> file-unreadable
 exact File absent       -> no code, file_missing              -> file-absent
 ```
 
-A retained historical File-level placement is the eighth kind, `whole-file`.
+A retained historical File-level placement is the eighth kind, `whole-file`;
+the review-scoped placement is the ninth, `review-scope`.
 The stored `bay_not_found` covers two different landings, and the browser
 names them apart because they present differently: `bay-lost` has a bay to
 mark and navigate to, `side-lost` has none.
@@ -243,7 +256,7 @@ one-to-one relation without changing the existing Profile relation:
 ```text
 user_profile(id, username UNIQUE)
 
-agent_profile(profile_id, agent_uuid)
+agent_profile(profile_id, agent_uuid, model NULL, harness NULL)
 
 review_thread(thread_id, origin_snapshot_id)
 
@@ -262,12 +275,14 @@ review_action(
 
 `review_action.profile_id` is non-null and references `user_profile.id` for
 every author. Agent Profiles have the same author shape as frontend Profiles;
-`agent_profile` retains only the UUID supplied at agent registration.
+`agent_profile` retains the UUID supplied at agent registration and the model
+and harness names the agent last reported; both are NULL only for agents that
+registered before they were recorded.
 
 Every action row has Thread and sequence values. Comments are folded, while
 lifecycle and attention are read directly from the latest persisted outcome.
-`activity_id` is a durable increasing order used by agent
-continuation reads. There is no separate event, submission, delta, checkpoint,
+`activity_id` is a durable, database-wide increasing order used by the agent
+`activity` and `wait` reads as their cursor, across every Room of a Mark. There is no separate event, submission, delta, checkpoint,
 or agent-authorship action variant.
 
 The store exposes `ReviewThreadRecord.placement` as one validated range,
@@ -334,6 +349,13 @@ current status, attention, discussion revision, and only the changed Comment.
 Lifecycle actions return a Comment when their optional body is present. The discussion revision is the
 accepted action's per-Thread sequence. No follow-up read is required for a
 contiguous action result.
+Every Comment in every browser response carries `author` as
+`{profile_id, display_name, is_agent, model, harness}`. `model` and `harness`
+are the facts an agent Profile reported, null for an agent that registered
+before they were recorded, and always null for a human, whose `is_agent` is
+false. The review domain's author view carries these facts itself: the bulk
+Profile read that a review read already performs joins the agent registration,
+so no response, browser or agent, reads them separately.
 A returned Thread states its immutable creation target once, as
 `origin_target`, and either what the displayed Snapshot did to it or its real
 origin placement when the displayed Snapshot predates it. `location_source`
@@ -343,6 +365,14 @@ the reconstructed excerpt cut from its own Snapshot; the placement adds only
 what the origin cannot say — the relocated range, the replacement bay, or the
 bare name of the loss. No field pairing crosses the two, so no response shape
 is valid in one field and invalid in another.
+`post_comment` takes `{snapshot_id, profile_id, target, body}`. Its `target`
+is either a `text` target (File pair, composed bay, side, and inclusive range)
+or `{"kind": "review"}`. A text target goes through code Thread creation. A
+review target reuses the agent batch's `CreateReviewThread` operation in a
+batch of one, acting as `reviewer`; the new Thread therefore waits on the
+author, as every browser-created code Thread does. Its response carries
+`origin_target` `{"kind": "review"}` and placement `review-scope`, and the
+operation hydrates no File.
 No History endpoint exists. Expected browser review failures return a direct
 `{code, message}` body using the stable review error enum; clients never parse
 presentation text to distinguish conflicts.
@@ -395,8 +425,19 @@ draft retains only its draft ID, Thread ID, Profile, and body; an edit draft add
 its Comment ID. Reply and edit drafts do not retain a Snapshot, code location,
 or timestamp because their loaded Thread supplies current placement and
 submission context. No draft copies source excerpts or Thread data.
-New-Thread drafts appear in the Drafts section and expose `Continue editing` for
-their saved code target. Reply drafts appear only in their Thread's permanent
+The History header carries one whole-review control, a Comment icon titled
+"Comment on the whole review". It opens the ordinary new-Thread Comment input in
+a slot at the top of History's scroll area, or closes it when it is already
+open there. That input has no code anchor, so renderer changes never close it.
+An inline/split view switch rebuilds History and discards its slot, so the switch
+explicitly closes the input mounted there with ordinary close semantics: typed
+text remains a draft under Drafts and an empty input leaves none, and the
+header control then opens a fresh input in the new slot.
+It is also available on a Snapshot with no Files. Its draft targets
+`{"kind": "review"}` and has no line marker.
+New-Thread drafts appear in the Drafts section and expose `Continue editing`: a
+code draft continues at its saved code target, a whole-review draft, labelled
+"Whole review", in History's slot. Reply drafts appear only in their Thread's permanent
 reply input. Edit drafts appear only beneath their Comment. Their stable Thread
 and Comment identities carry them into a later Snapshot representation of the
 same discussion without rewriting localStorage on mount. Because the
@@ -413,7 +454,8 @@ line; `region-lost` and `bay-lost` mark line one of the bay they name — both
 are ordinary line markers on coordinates the backend stored, with no read-time
 reconstruction and no frontend-minted bay key. The three placements naming no
 bay — `side-lost`, `file-absent`, `file-unreadable` — and every `whole-file`
-placement produce no marker, and History is their only presentation. Before a renderer replaces or disposes row DOM,
+placement produce no marker, and History is their only presentation; a
+`review-scope` placement likewise produces no marker. Before a renderer replaces or disposes row DOM,
 it explicitly closes only the Comment input or inline Thread panel anchored inside
 that DOM; unfinished input remains saved, and Comment inputs anchored in other Files
 remain open. An expanded fold-edge Comment trigger remains visible and its
@@ -506,7 +548,11 @@ confirmation before their HTTP action begins.
 
 Each History Thread header strip toggles that Thread's folded state; it has no
 separate fold control. A folded strip contains the author and location on its
-first line and a one-line Comment summary beneath it. The go-to-code icon is the
+first line and a one-line Comment summary beneath it. Wherever History, the inline
+Thread panel, or a folded strip names a Comment author, an agent's name is
+followed by a quiet label: its model and harness joined by " · ", the one it
+reported, or "agent" when it reported neither. A human shows only the name. The
+name and label truncate inside the header and the tooltip carries both in full. The go-to-code icon is the
 only part of the strip that does not toggle. For a displayed-Snapshot placement,
 it expands the Thread, navigates to its rendered marker, and opens that exact
 Thread in the code-aligned panel. Origin-bound navigation expands the Thread but
@@ -521,7 +567,9 @@ A Thread whose
 File this Snapshot could not offer at all — `file-absent` or
 `file-unreadable` — disables the control and states on hover and in its
 expanded content which of the two happened to the reviewed File. Every other
-placement keeps the enabled control, which the loaded-File rule then governs. Folding a History row does not navigate.
+placement keeps the enabled control, which the loaded-File rule then governs.
+A review-scoped Thread has no File: History labels it "Whole review" in place of
+File and line, shows no excerpt, and renders no go-to control. Folding a History row does not navigate.
 
 Unexpected review-presentation derivation failures are contained around the
 Comment input, inline Thread panel, and History presentation. The File lane is a
@@ -530,121 +578,276 @@ to stop at their individual File boundary.
 
 ## Agent HTTP boundary
 
-The agent API is a filesystem-oriented boundary over the same Rooms,
-Snapshots, Threads, Comments, and Profiles as the browser:
+The agent API mirrors what the browser does and gates nothing: it is the
+browser's Rooms, Snapshots, Threads, Comments, and Profiles, reached with
+cheap reads and one write route, so the common loop is a few calls. There is no
+session, no role stored on a Profile, no continuation protocol, and no
+instrument vocabulary. Nine routes exist; every other `/api/agent` path is
+absent.
 
 ```text
-GET  /api/agent/onboard?tab=...
-POST /api/agent/join_review
-GET  /api/agent/thread_summary?snapshot_id=...&page=...&limit=...
-GET  /api/agent/threads?snapshot_id=...&for=author|reviewer&page=...&limit=...&through_activity_id=...
-GET  /api/agent/thread/{thread_id}?snapshot_id=...&page=...&limit=...
-POST /api/agent/continue_review
-POST /api/agent/actions
+GET  /api/agent/onboard?<copied HUD tab URL params>
+POST /api/agent/profile   {agent_uuid, name, model, harness}
+POST /api/agent/capture   {tab}
+GET  /api/agent/reviews?project_id=
+GET  /api/agent/threads?snapshot_id=&status=open|all&page=&limit=&through_activity_id=
+GET  /api/agent/thread/{thread_id}?page=&limit=
+GET  /api/agent/activity?project_id=&after=&limit=
+GET  /api/agent/wait?project_id=&after=&timeout=
+POST /api/agent/actions   {profile_id, actions: [...]}
 ```
 
-Agent onboarding is a read-only pre-session operation. The Profile menu copies
-an absolute onboarding URL only when the browser URL describes one complete
-Head, Refs, Branch Review, or Pull Request Tab; Preset and incomplete Tabs keep
-that action disabled. Repository-backed URLs carry the active Mark id, which the
-route translates to the exact registered repository path used by join review.
-The response contains the running server origin as `dirdiff_url`, the complete
-join-review `tab`, and absolute paths to the installed `review-patch`,
-`round-review`, and `babysit-patch` `SKILL.md` files. Onboarding creates no
-Profile, Room, Snapshot, or review activity.
+`threads` mirrors the browser's `/api/review/threads` pivot: the response
+carries the concrete `through_activity_id` it was read at, the first page omits
+the parameter so the server picks the Room's greatest current activity, and
+every later page must repeat the returned value, so membership, order, and
+total stay fixed while a caller pages (a first page that sends it, or a later
+page that omits it, is rejected). Comment pages of `thread/{thread_id}` have no
+pivot. Responses are JSON. `limit` defaults to 20 for Thread lists and Comment pages
+and to 50 for activity, and is at most 100; pages are one-based and a page past
+the end is empty. Every rejected operation returns a non-2xx response whose
+plain-text body describes the concrete failure (see the end of this section).
 
-Join review accepts a compact lowercase or canonical hyphenated agent UUID,
-normalizes it to compact lowercase, and accepts a display name plus an explicit
-HEAD, refs, Branch Review, or Pull Request Tab. Repository-backed Tabs name the
-exact path of an active Mark; nothing marks a path implicitly. Registration
-creates one ordinary `user_profile` and its one-to-one `agent_profile` UUID binding.
-The response contains only the Profile id, Snapshot id, current activity
-boundary, actionable author/reviewer/both counts, and absolute filesystem
-Snapshot path.
+### Onboard
 
-The filesystem path is the existing durable Snapshot directory already
-published by normal capture. Agents use ordinary filesystem operations on the
-exact captured Files used by the frontend. The API creates no copy, hardlink,
-materialized directory, generated layout, File reference, or HTTP File-content
-operation.
+Onboarding is a read-only pre-session operation. The Profile menu copies an
+absolute onboarding URL only when the browser URL describes one complete Head,
+Refs, Branch Review, or Pull Request Tab; Preset and incomplete Tabs keep that
+action disabled. The route takes those same query parameters and returns
+`{dirdiff_url, project_id, tab, skill_paths, next_step}`: the running server origin, the
+Mark id (`null` for a Pull Request URL, which names no registered repository),
+the Tab descriptor accepted unchanged by `capture`, and the absolute paths of
+the installed `review-patch`, `round-review`, and `babysit-patch` `SKILL.md`
+files, and `next_step`, plain text giving the `dirdiff agent init` command with
+the requested URL filled in, which skill fits which role, and that the CLI is the
+supported way to use the API. Repository-backed Tabs name the exact path of an active Mark; nothing
+marks a path implicitly. The browser's Head selection names no baseline: it
+always means the current HEAD. Onboarding therefore fills the descriptor's
+`baseline` with the repository's current HEAD commit id (the empty-tree id for
+an unborn HEAD), so the `tab=head&project_id=N` URL an agent builds by hand
+works the same and yields a descriptor `capture` can use immediately. Onboarding creates no Profile, Room, Snapshot, or
+activity.
 
-The returned directory has one immediate opaque File-id directory per captured
-File pair. Each pair directory contains an exact `left` file when the left side
-exists and an exact `right` file when the right side exists. Link sides may have
-private `*-link.json` and `*-target` composition data beside them; those are not
-changed Files or valid finding paths. File ids are not repository paths, and the
-public ids and side names contain no manifest, ordering, display name, or
-outer-File repository mapping. Private link metadata states its captured nested
-paths but is not a general manifest.
-Public sides contain materialized file content: Git LFS sides hold the verified
-payload, not the repository's pointer. Loading failures use the existing
-captured diagnostic bytes and File error; they are not source content.
-Agents enumerate every pair, inspect each public side with content-appropriate
-tools, and pass the exact absolute `left` or `right` path to `create-finding`.
-Missing public side files represent absent sides; the Snapshot tree is immutable
-and never a worktree.
+### Profile
+
+`profile` registers or refreshes one agent. `agent_uuid` is a compact lowercase
+or canonical hyphenated UUID, normalized to compact lowercase. The call is
+idempotent on that UUID: the first call creates one ordinary `user_profile` with
+its one-to-one `agent_profile` binding, and later calls return the same Profile
+and replace its name, model, and harness. It returns
+`{profile_id, name, model, harness}`. A name already used by a different Profile
+is rejected. The Profile carries no role and no permission; any Profile may
+perform any action, and its id is the only author identity.
+
+### Capture
+
+`capture` takes `{tab}` where `tab` is the descriptor `onboard` or `reviews`
+returned, naming `kind` `head`, `refs`, `branch-review`, or `pull-request` with
+the same fields as the browser's Tab. It runs the same preparation and
+`corresponding_room` publication as the browser manifest, so the same
+descriptor reaches the same Room, and an unchanged capture returns the same
+Snapshot id. It returns:
+
+```json
+{"project_id": 1, "snapshot_id": "<32 hex>", "tab": {...},
+ "snapshot_path": "<dir>",
+ "latest_activity_id": 0,
+ "files": [{"left_path": "a.txt", "right_path": "a.txt",
+            "change_type": "modify|add|delete|rename|copy",
+            "capture_error": null,
+            "left_file": "<abs path>", "right_file": "<abs path>"}]}
+```
+
+`files` is the manifest: one entry per captured File pair with its repository
+paths, change type, and the absolute paths of the captured `left` and `right`
+bytes (`null` for an absent side). The paths are the existing durable Snapshot
+directory published by normal capture; the API creates no copy, hardlink, File
+reference, or HTTP File-content operation, and the tree is read-only and never
+a worktree. A File whose capture failed stays listed with its `capture_error`;
+its captured bytes are dirdiff's placeholder, not source. Public sides hold
+materialized content: Git LFS sides hold the verified payload, not the
+repository's pointer. Link sides may have private `*-link.json` and `*-target`
+files beside them; those are not changed Files and never appear in `files`.
+`latest_activity_id` is the newest authored activity of the Mark, ready to pass
+as `after` to `activity` or `wait`; 0 means none. `tab` is the descriptor of
+the Room the capture landed in, in the same form `reviews` lists.
+
+A Head descriptor is `{"kind": "head", "repo_path": ..., "baseline": <full
+commit id>}`; `baseline` is required everywhere. A Head Room is keyed on its
+baseline commit, so `capture` with a descriptor naming it selects that Room and
+compares the live worktree with that original baseline, also after HEAD has
+advanced, and `reviews` lists each Head review with its own baseline. A new
+Head review starts from a fresh `onboard`, which names the then-current HEAD.
+The browser's Head manifest still always freezes the current HEAD; the agent
+capture uses its own selection model that takes the baseline explicitly.
+
+The path-and-bay addressing below needs no search of the Snapshot directory:
+`files` maps repository paths to captured bytes directly.
 
 The captured bytes also carry the placement coordinate, so no composed content
 crosses the agent boundary. An ordinary text File composes the single
-`flatfile` bay spanning the whole File, so its bay lines are the lines of
-the side on disk. A notebook cell bay is keyed by the `id` that cell carries
-in the `.ipynb`, and its lines are the lines of that cell's joined `source`.
-Bays whose text a renderer produces rather than the File — cell outputs, cell
-metadata, and notebook metadata — hold no coordinate an agent can derive from
-the bytes. Review accepts those keys like any other; the agent boundary simply
+`flatfile` bay spanning the whole File, so its bay lines are the lines of the
+side on disk. A notebook cell bay is keyed by the `id` that cell carries in the
+`.ipynb`, and its lines are the lines of that cell's joined `source`. Bays whose
+text a renderer produces rather than the File, such as cell outputs, cell
+metadata, and notebook metadata, hold no coordinate an agent can derive from
+the bytes; review accepts those keys like any other, and the agent boundary
 gives an agent no way to count lines inside them. An `image` or `blob` File
-composes one bay keyed `image` or `blob`, and there is nothing to count there
-either: the agent inspects the captured bytes with content-appropriate tools and
-addresses the whole content as the single line `1..1`.
+composes one bay keyed `image` or `blob`, and the agent addresses its whole
+content as the single line `1..1`.
 
-This filesystem contract has separate role-specific operational instructions
-in `.agents/skills/review-patch/references/snapshot_structure.md`,
-`.agents/skills/round-review/references/snapshot_structure.md`, and the
-implementor appendix in
-`.agents/skills/babysit-patch/references/snapshot_structure.md`. Any change to
-Snapshot directory organization, side filenames, path meaning, mutability, or
-the way agents obtain captured bytes must update all three skill references and
-this specification in the same change. The reviewer document defines complete
-capture inspection and finding paths; the implementor document defines
-finding-evidence reads, live-worktree changes, recapture, and reviewer handoff.
+This filesystem contract is taught by
+`.agents/skills/review-patch/references/snapshot_structure.md` (manifest, bay
+keys, line addressing) and in short form by the `SKILL.md` files of
+`round-review` and `babysit-patch`. Any change to Snapshot directory
+organization, side filenames, path meaning, mutability, the manifest shape, or
+the way agents obtain captured bytes must update those three skills and this
+specification in the same change.
 
-Thread summary returns open Threads with first/latest Comment previews and
-counts. It defaults to 20 items and permits at most 100. Bulk Threads returns
-complete open Threads, defaults to 5, and permits at most 20. Focused Thread
-reads include every lifecycle state, repeat placement and original-excerpt
-metadata on each page, default to 20 Comments, and permit at most 100. Pages
-are one-based; pages past the end are empty. A reported range placement names
-its public bay key beside its line range, and those lines are local to that
-bay rather than to the captured File; a bay-start placement names its bay key
-alone, and a File-level landing reports no bay at all. Agents write only
-full ranges — the bay-key-only shape is read-only. Preview bodies contain at most 256
-Unicode characters, using the first 255 and `…` when truncated. Complete
-Thread data and present original excerpts are never truncated; text excerpts
-are inherently bounded by the selected range and six context lines. Only
-retained historical `file-start` origins omit the excerpt.
+### The `dirdiff agent` CLI
 
-Continue uses the old Snapshot to recover its Room and persisted Tab, captures
-that Tab again, derives missing placements only when the capture publishes a
-genuinely new Snapshot, and returns the selected Snapshot directory. File
-changes are sorted absolute paths to captured Files in the old or new Snapshot.
-Thread changes are only
-authored `review_action` rows after the supplied activity id, ordered by
-`activity_id`; placement changes and code changes are not Thread activity.
-The default activity limit is 20 and the maximum is 100.
+Agents do not write HTTP. `dirdiff agent <command>` (`src/dirdiff/cli/_base/agent_commands.py`)
+is the supported client of the routes above and the interface the three skills
+teach. Every command takes a required `--session PATH` naming that agent's own
+JSON file; there is no default path and no environment lookup, so an author and
+a reviewer in one directory keep separate state. The file holds the server URL,
+the agent UUID (generated by `init`), the Profile id, the role, the Tab
+descriptor, the repository id, the latest Snapshot id and directory, and the
+activity cursor. The role is taken from it for every `create-thread`, `comment`,
+and `reopen`. A session file belongs to one review. A first `init` generates the
+agent UUID; joining another review under the same Profile is `init
+--identity-from OTHER_SESSION`, which copies the UUID, name, model, and harness
+from that file (and rejects `--name`, `--model`, `--harness` beside it), relying
+on `profile` being idempotent on the UUID.
 
-Actions accepts one to 100 ordered `create-finding`, `author-response`,
-`reviewer-return`, `reviewer-resolve`, `inert-comment`, or `reviewer-delete`
-items. The Profile is the ordinary Profile returned by join review. Creation
-accepts the actual absolute path of an existing captured File in the named
-Snapshot, the public bay key that File composes, and an inclusive one-based
-range local to that bay. Bay keys the File does not compose are rejected;
-the boundary assumes no key of its own. A non-text bay accepts only `1..1`,
-and any wider or later range against it is rejected rather than clamped.
-The complete array is validated and appended under the Room write lock in one
-database transaction; any invalid item discards the complete batch. Generated
-Thread, Comment, and operation ids are fresh. Re-sending an HTTP entity simply
-performs its actions again; the agent boundary has no submission identity,
-retry, replay, checkpoint, or recovery contract.
+| command | route |
+| --- | --- |
+| `init --onboard-url --role (--name --model --harness \| --identity-from SESSION)` | `onboard`, `capture`, `profile`, `threads` |
+| `capture` | `capture` |
+| `reviews` | `reviews` |
+| `threads [--all]` | `threads` (every page, repeating the returned `through_activity_id`) |
+| `show THREAD_ID` | `thread/{id}` (every page) |
+| `news`, `wait --timeout S` | `activity`, `wait`; advance the cursor |
+| `find --path --side --lines --bay`, `find --review` | `actions` `create-thread` |
+| `comment`, `resolve`, `reopen THREAD_ID` | `actions` |
+| `edit`, `delete-comment THREAD_ID COMMENT_ID`, `delete-thread THREAD_ID` | `actions` |
+
+Bodies come from `--body-file` or standard input, never from an argument. Output
+is compact plain text with repository paths, titles, who a Thread waits on, and
+timestamps labelled UTC. `news` and `wait` print only other participants'
+events and move the cursor past their own; `wait` keeps holding, within its
+`--timeout`, until an event from another participant arrives. A failing call prints the server's
+plain-text body to standard error and exits non-zero; nothing is retried.
+
+### Reviews
+
+`reviews?project_id=` lists the Rooms of one Mark that have a Snapshot, in Room
+creation order, as `{reviews: [{tab, snapshot_id, open_threads,
+waiting_on_author, waiting_on_reviewer}]}`. `tab` is a descriptor accepted
+unchanged by `capture`, rebuilt from the Room's persisted selection;
+`snapshot_id` is the Room's newest Snapshot. A Thread whose latest state came
+from a browser action waits on `both` and counts toward each role. Preset Rooms
+belong to no Mark and never appear.
+
+### Threads and Thread
+
+`threads?snapshot_id=&status=` lists the Threads of the whole Room containing
+the Snapshot, as the browser History does, so any Snapshot id of the Room
+works and an older id still lists every Thread. `status` is required: `open` lists
+open Threads and `all` adds resolved and deleted Threads. Each item is
+`{thread_id, status, waiting_on, title, location, outdated_reason,
+comment_count, first_comment, latest_comment, latest_activity_id}`, where
+`latest_activity_id` is the Thread's greatest activity at or before the page's
+`through_activity_id`. `status` is
+`open|resolved|deleted` and `waiting_on` is `author|reviewer|both|none`.
+`title` is the first line of the first Comment cut to 120 characters, and
+`null` when that Comment was deleted. `location` is read through the given
+Snapshot: `{path, side, bay_key, start_line, end_line}` with a repository path
+and the bay-local inclusive one-based lines, or `null` for a review-scoped
+Thread. A kept or relocated range reports its landed lines; every other landing
+reports the original lines, a lost bay names its replacement bay, and a
+historical File-level Thread has a null `bay_key` and no lines.
+`outdated_reason` is null when the original lines are intact, otherwise one of
+`region_changed`, `region_not_found`, `bay_not_found`, `file_missing`, or
+`file_unreadable`. Previews are `{body, deleted, truncated}` with at most 256
+Unicode characters, the first 255 and `…` when truncated. The wrapper is
+`{items, page, limit, total, has_more}`.
+
+`thread/{thread_id}` reads one Thread by its id alone, in any state, with no
+Snapshot. It returns `{thread_id, snapshot_id, status, waiting_on, location,
+original_excerpt, comments, page, limit, total_comments, has_more}`:
+`snapshot_id` is the origin Snapshot, and `location` and `original_excerpt`
+describe the Thread as created there. `original_excerpt` is the bounded
+selected-line context, null for a review-scoped or historical File-level
+Thread. Comments are in creation order, tombstones included, each as
+`{comment_id, author, body, deleted, revision, created_at, updated_at}` with
+`author` as `{profile_id, name, is_agent, model, harness}`; complete Comments
+and present excerpts are never truncated.
+
+### Activity and wait
+
+`activity?project_id=&after=&limit=` returns the authored actions newer than the
+cursor `after` across every Room of the Mark, in increasing `activity_id`, as
+`{events, next_after, has_more}`. Each event is self-contained:
+`{activity_id, created_at, tab, thread_id, title, location, action, author,
+comment, status, waiting_on}`, where `action` is the action kind, `comment` is
+the created or changed Comment `{comment_id, author, body}` or null, and
+`status` and `waiting_on` are the Thread's state after that action. Pass
+`next_after` as `after` in the next call; with no events it equals `after`.
+Placement changes and code changes are not activity.
+
+`wait?project_id=&after=&timeout=` returns the same response, but when nothing
+newer than `after` exists it waits up to `timeout` seconds (1 to 540) and
+returns an empty `events` list if time runs out. It polls the newest activity id
+without holding a worker thread. A caller that gets an empty result simply calls
+again with the same cursor.
+
+### Actions
+
+`actions` takes `{profile_id, actions}`: one Profile and one to 100 ordered
+actions, each with a `kind`:
+
+| kind | fields | effect |
+| --- | --- | --- |
+| `create-thread` | `snapshot_id`, `role`, `body`, optional `path`, `side`, `bay` | new Thread, first Comment |
+| `comment` | `thread_id`, `role`, `body` | append a Comment |
+| `reopen` | `thread_id`, `role`, `body` | resolved to open with a Comment |
+| `resolve` | `thread_id` | open to resolved |
+| `edit-comment` | `thread_id`, `comment_id`, `body` | revise own Comment |
+| `delete-comment` | `thread_id`, `comment_id` | tombstone a Comment |
+| `delete-thread` | `thread_id` | delete the Thread |
+
+`role` is `author` or `reviewer`, is required on `create-thread`, `comment`,
+and `reopen`, and states which side of the conversation the acting Profile
+speaks for in that action only; it is never stored on the Profile. After such
+an action the Thread waits on the other role. After `resolve` and
+`delete-thread` it waits on nobody (`none`); `edit-comment` and
+`delete-comment` leave the wait unchanged. The same legal transitions as the
+browser apply: resolved Threads accept Comments, deleted Threads accept
+nothing, only a Comment's author may edit it, and any Profile may tombstone a
+Comment or delete a Thread.
+
+`create-thread` sends `path`, `side`, and `bay` together or not at all. Together
+they make a code Thread: `path` is the repository-relative path of a File in
+the named Snapshot, `side` is `left` or `right` and must name a present side of
+that File, and `bay` is `{bay_key, start_line, end_line}` with the public bay
+key the File composes and an inclusive one-based range local to that bay. Bay
+keys the File does not compose are rejected; the boundary assumes no key of its
+own. A non-text bay accepts only `1..1`, and any wider or later range is
+rejected rather than clamped. Sent with none of them it makes a review-scoped
+Thread. Thread ids are generated by the server, so one batch cannot address a
+Thread it creates.
+
+Every action of a batch must address the same Room. An action on an existing
+Thread is recorded against that Thread's origin Snapshot, so no Snapshot id is
+sent. Each action is validated against the state the earlier ones produce, and
+the complete array is appended under the Room write lock in one database
+transaction; any invalid item discards the whole batch. When several items are
+invalid, which item's error is reported is unspecified. The response is `{results: [{kind,
+thread_id, comment_id, activity_id, status, waiting_on}]}` in input order, with
+`comment_id` null for `resolve` and `delete-thread`. Re-sending a request
+simply performs its actions again; the agent boundary has no submission
+identity, retry, replay, checkpoint, or recovery contract.
 
 Every rejected agent HTTP operation returns a non-2xx response whose
 plain-text body describes the concrete validation, HTTP, or domain failure.

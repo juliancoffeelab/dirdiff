@@ -26,19 +26,29 @@ from threading import Lock
 from typing import Literal, NotRequired, Optional, TypedDict
 from uuid import UUID
 
-from dirdiff.db import RoomStore, UserProfileRecord
+from dirdiff.db import ReviewProfileRecord, RoomStore
 from dirdiff.engines import DirdiffError
 from dirdiff.util import Option, Some
 
 __all__ = [
     "AddComment",
+    "BatchComment",
+    "BatchCreate",
+    "BatchDeleteComment",
+    "BatchDeleteThread",
+    "BatchEditComment",
+    "BatchReopen",
+    "BatchResolve",
     "ChangeThreadState",
+    "CreateReviewThread",
     "CreateThread",
     "DeleteComment",
     "EditComment",
     "FilePair",
     "LineRange",
     "ProfileAuthor",
+    "ReviewBatchAction",
+    "ReviewBatchResult",
     "ReviewCommentView",
     "ReviewError",
     "ReviewErrorCode",
@@ -46,6 +56,7 @@ __all__ = [
     "ReviewFilePairView",
     "ReviewOriginView",
     "ReviewProfileView",
+    "ReviewRole",
     "TextTarget",
     "ThreadDiscussionView",
     "ThreadLocationSourceView",
@@ -527,13 +538,203 @@ class ChangeThreadState:
         assert (self.comment_id is None) == (self.body is None)
 
 
+type ReviewRole = Literal["author", "reviewer"]
+"""Conversational role an actor plays in one Thread action.
+
+Role is stated per action and never stored on a Profile or Room. After a
+Comment-writing action in role R the Thread waits on the other role.
+"""
+
+
+@dataclass(frozen=True)
+class CreateReviewThread:
+    """Create one Thread about the review as a whole, with its first Comment.
+
+    The Thread names no File, bay, side, or range and is present in every
+    Snapshot of its Room. The caller supplies fresh identities and a nonblank
+    body, exactly as for `CreateThread`. It does not select a Snapshot; the
+    enclosing `BatchCreate` does.
+    """
+
+    thread_id: UUID
+    """Fresh global identity of the new Thread; collisions are rejected."""
+
+    operation_id: UUID
+    """Fresh identity of the creation action in the event log."""
+
+    comment_id: UUID
+    """Fresh global identity of the sequence-zero Comment."""
+
+    author: ProfileAuthor
+    """Existing Profile attributed to the first Comment and creation."""
+
+    body: str
+    """Nonblank first Comment text, stored verbatim."""
+
+
+@dataclass(frozen=True)
+class BatchCreate:
+    """Batch item creating a Thread in one Snapshot with a stated role.
+
+    After the action the Thread waits on the role opposite to `role`.
+    """
+
+    snapshot_id: UUID
+    """Origin Snapshot; for a File target its range is validated against it."""
+
+    command: CreateThread | CreateReviewThread
+    """Code-targeted or review-scoped creation command."""
+
+    role: ReviewRole
+    """Role the actor plays when opening the Thread."""
+
+
+@dataclass(frozen=True)
+class BatchComment:
+    """Batch item appending a Comment to an existing or batch-created Thread.
+
+    After the action the Thread waits on the role opposite to `role`. Valid for
+    open and resolved Threads; a deleted Thread rejects it.
+    """
+
+    thread_id: UUID
+    """Thread receiving the Comment."""
+
+    command: AddComment
+    """Fresh identities, author, and nonblank body."""
+
+    role: ReviewRole
+    """Role the actor plays when commenting."""
+
+
+@dataclass(frozen=True)
+class BatchResolve:
+    """Batch item resolving an open Thread, optionally with a Comment.
+
+    After the action the Thread waits on nobody.
+    """
+
+    thread_id: UUID
+    """Open Thread to resolve."""
+
+    command: ChangeThreadState
+    """Author and optional paired explanation Comment."""
+
+
+@dataclass(frozen=True)
+class BatchReopen:
+    """Batch item reopening a resolved Thread, optionally with a Comment.
+
+    After the action the Thread waits on the role opposite to `role`.
+    """
+
+    thread_id: UUID
+    """Resolved Thread to reopen."""
+
+    command: ChangeThreadState
+    """Author and optional paired explanation Comment."""
+
+    role: ReviewRole
+    """Role the actor plays when reopening."""
+
+
+@dataclass(frozen=True)
+class BatchEditComment:
+    """Batch item replacing the body of the actor's own Comment.
+
+    Thread status and waiting role are unchanged.
+    """
+
+    thread_id: UUID
+    """Thread containing the Comment."""
+
+    comment_id: UUID
+    """Comment to edit; only its author may edit it."""
+
+    command: EditComment
+    """Fresh operation id, author, and nonblank replacement body."""
+
+
+@dataclass(frozen=True)
+class BatchDeleteComment:
+    """Batch item tombstoning one Comment of a live Thread.
+
+    Any Profile may delete; status and waiting role are unchanged.
+    """
+
+    thread_id: UUID
+    """Thread containing the Comment."""
+
+    comment_id: UUID
+    """Comment to tombstone."""
+
+    command: DeleteComment
+    """Fresh operation id and acting author."""
+
+
+@dataclass(frozen=True)
+class BatchDeleteThread:
+    """Batch item terminally deleting a live Thread, keeping its history.
+
+    After the action the Thread waits on nobody and rejects every later action.
+    """
+
+    thread_id: UUID
+    """Live Thread to delete."""
+
+    command: ChangeThreadState
+    """Author; its Comment fields must be absent."""
+
+
+type ReviewBatchAction = (
+    BatchCreate
+    | BatchComment
+    | BatchResolve
+    | BatchReopen
+    | BatchEditComment
+    | BatchDeleteComment
+    | BatchDeleteThread
+)
+"""One write accepted by `Room.apply_review_batch`.
+
+A batch is applied in order inside one transaction, and later items observe
+earlier ones. Any Profile may perform any item; only the Thread model's own
+rules (comment authorship for edits, deleted Threads reject everything) apply.
+"""
+
+
+@dataclass(frozen=True)
+class ReviewBatchResult:
+    """Authoritative outcome of one applied batch item.
+
+    `Room.apply_review_batch` returns one per input item in the same order.
+    """
+
+    thread_id: UUID
+    """Thread created or changed by the item."""
+
+    comment_id: Optional[UUID]
+    """Comment created or changed by the item, `None` for bare transitions."""
+
+    activity_id: int
+    """Database-wide activity id assigned to the item's authored action."""
+
+    status: Literal["open", "resolved", "deleted"]
+    """Thread status immediately after the item."""
+
+    attention: Literal["author", "reviewer", "both", "none"]
+    """Role the Thread waits on immediately after the item."""
+
+
 class ReviewProfileView(TypedDict):
     """Expose current Profile attribution beside a public Comment.
 
-    Discussion reads build this from persisted Profile records. Callers use
-    `profile_id` for stable identity and `display_name` for presentation.
+    Discussion reads build this from the Profile records loaded for the same
+    read. Callers use `profile_id` for stable identity and `display_name` for
+    presentation. The agent facts come from the Profile's agent registration,
+    so a human carries none.
 
-    It carries no role, agent registration, or permission.
+    It carries no role or permission.
     """
 
     profile_id: int
@@ -549,6 +750,17 @@ class ReviewProfileView(TypedDict):
     The name is read when the discussion is materialized and may differ from what was
     displayed earlier; durable attribution remains `profile_id`.
     """
+
+    is_agent: bool
+    """Whether the Profile has an agent registration."""
+
+    model: Optional[str]
+    """Model the agent reported; `None` for humans and for agents registered
+    before it was recorded."""
+
+    harness: Optional[str]
+    """Harness the agent reported; `None` for humans and for agents registered
+    before it was recorded."""
 
 
 class ReviewCommentView(TypedDict):
@@ -810,11 +1022,25 @@ class FileStartReviewOriginView(TypedDict):
     """
 
 
-type ReviewOriginView = TextReviewOriginView | FileStartReviewOriginView
+class ReviewScopeOriginView(TypedDict):
+    """Expose the immutable origin of a Thread about the whole review.
+
+    The Thread names no File, bay, side, or range and has no excerpt, because
+    its subject is the review rather than captured code.
+    """
+
+    kind: Literal["review"]
+    """Discriminator selecting a review-scoped origin."""
+
+
+type ReviewOriginView = (
+    TextReviewOriginView | FileStartReviewOriginView | ReviewScopeOriginView
+)
 """Expose the immutable creation target of one Thread.
 
-- `TextReviewOriginView` is the current constructible text target.
+- `TextReviewOriginView` is a text target.
 - `FileStartReviewOriginView` preserves historical File-level origins.
+- `ReviewScopeOriginView` is a Thread about the review as a whole.
 
 Consumers branch on `kind`. Placement is a separate value and may change across
 Snapshots; origin never does.
@@ -943,6 +1169,16 @@ class ThreadWholeFilePlacementView(TypedDict):
     """
 
 
+class ThreadReviewScopePlacementView(TypedDict):
+    """Locate a review-scoped Thread, which sits in every Snapshot of its Room.
+
+    It has no code coordinate and is never outdated.
+    """
+
+    kind: Literal["review-scope"]
+    """State that the Thread is about the review and has no code location."""
+
+
 type ThreadPlacementView = (
     ThreadRegionPlacementView
     | ThreadRegionLostPlacementView
@@ -951,6 +1187,7 @@ type ThreadPlacementView = (
     | ThreadFileAbsentPlacementView
     | ThreadFileUnreadablePlacementView
     | ThreadWholeFilePlacementView
+    | ThreadReviewScopePlacementView
 )
 """Expose where one Thread lands in the Snapshot containing its placement.
 
@@ -959,6 +1196,7 @@ type ThreadPlacementView = (
 - `ThreadSideLostPlacementView` retains only File discovery.
 - File absent and unreadable variants have no current code location.
 - `ThreadWholeFilePlacementView` preserves historical File-level placement.
+- `ThreadReviewScopePlacementView` marks a Thread about the whole review.
 
 Combine this value with `ReviewOriginView`; placement deliberately avoids
 repeating File, side, and origin bay facts.
@@ -1225,7 +1463,7 @@ def validate_comment_body(body: str) -> None:
 
 def validate_author(
     database: RoomStore, author: ProfileAuthor
-) -> UserProfileRecord:
+) -> ReviewProfileRecord:
     """Return the exact durable Profile or reject the write.
 
     # Parameters

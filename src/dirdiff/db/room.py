@@ -45,17 +45,20 @@ from sqlalchemy import (
     func,
     insert,
     literal,
+    literal_column,
     or_,
     select,
     tuple_,
 )
+from sqlalchemy.engine import Row
 from sqlalchemy.orm import Mapped, Session, aliased, mapped_column
 from sqlalchemy.sql.elements import ColumnElement
 
 from dirdiff.db.base import (
+    AgentDetails,
+    AgentProfile,
     TableBase,
     UserProfile,
-    UserProfileRecord,
     profile_record,
 )
 from dirdiff.util import Err, Nothing, Ok, Option, Result, Some, maybe
@@ -73,7 +76,10 @@ __all__ = [
     "RangePlacement",
     "ReviewActionInput",
     "ReviewActionPayload",
-    "ReviewActionRecord",
+    "ReviewMarkActionRecord",
+    "ReviewProfileRecord",
+    "ReviewScopePlacement",
+    "ReviewThreadHistory",
     "ReviewThreadRecord",
     "ReviewThreadsRecord",
     "RoomIdentity",
@@ -89,6 +95,81 @@ __all__ = [
     "ThreadDeletedAction",
     "ThreadStateAction",
 ]
+
+
+@dataclass(frozen=True)
+class ReviewProfileRecord:
+    """Describe one review author: identity, current name, and agent facts.
+
+    Every review read returns this record for the Profiles it attributes, so a
+    Comment author's agent facts come from the same read as its name.
+
+    The record is current data at read time; it carries no role or permission.
+    """
+
+    id: int
+    """Stable positive Profile id that authored actions reference."""
+
+    username: str
+    """Current non-empty display name of the Profile."""
+
+    agent: AgentDetails | None
+    """Facts the agent reported, or `None` when the Profile is a human."""
+
+
+def _review_profile_select(
+    where: ColumnElement[bool],
+) -> Select[tuple[int, str, int, Optional[str], Optional[str]]]:
+    """Select Profiles matching `where` together with any agent registration.
+
+    Every review Profile read goes through this one statement; rows are decoded
+    by `_review_profile`.
+
+    # Parameters
+
+    - `where`: Condition over `UserProfile` columns choosing the Profiles.
+
+    # Returns
+
+    - A statement whose rows carry the Profile id and current username.
+    - The same rows carry the agent registration's profile id, model, and
+      harness; the profile id is NULL for a human, whose row is still kept.
+    """
+    return (
+        select(
+            UserProfile.id,
+            UserProfile.username,
+            AgentProfile.profile_id.label("agent_profile_id"),
+            AgentProfile.model,
+            AgentProfile.harness,
+        )
+        .select_from(UserProfile)
+        .outerjoin(AgentProfile, AgentProfile.profile_id == UserProfile.id)
+        .where(where)
+    )
+
+
+def _review_profile(
+    row: Row[tuple[int, str, int, Optional[str], Optional[str]]],
+) -> ReviewProfileRecord:
+    """Decode one `_review_profile_select` row into a validated record.
+
+    # Parameters
+
+    - `row`: Row produced by `_review_profile_select`.
+
+    # Failures
+
+    - Asserts when the persisted id or username is invalid.
+    """
+    profile = profile_record(row.id, row.username)
+    return ReviewProfileRecord(
+        profile.id,
+        profile.username,
+        None
+        if row.agent_profile_id is None
+        else AgentDetails(row.model, row.harness),
+    )
 
 
 class Room(TableBase):
@@ -709,12 +790,13 @@ class ReviewThreadPlacement(TableBase):
     """
 
     target_kind: Mapped[
-        Optional[Literal["range", "bay-start", "file-start"]]
+        Optional[Literal["range", "bay-start", "file-start", "review"]]
     ] = mapped_column(String, nullable=True)
     """Shape of a located target, or `None` for an unlocated Thread.
 
     A `range` carries a bay, side, and inclusive line span; `bay-start` omits
-    the span; `file-start` carries only the side.
+    the span; `file-start` carries only the side; `review` carries nothing
+    because the Thread is about the whole review.
     """
 
     bay_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -1616,12 +1698,41 @@ class FileUnreadablePlacement:
         ), "placement requires Thread and Snapshot identities"
 
 
+@dataclass(frozen=True)
+class ReviewScopePlacement:
+    """A Thread about the whole review, with no File and no code location.
+
+    A review-scoped Thread is written once with its origin and then copied into
+    every later Snapshot of its Room, because its subject is the review rather
+    than any captured bytes. It carries no File reference, bay, side, or range,
+    and it can never be outdated.
+    """
+
+    thread_id: str
+    """Global logical Thread identity of the review-scoped discussion."""
+
+    snapshot_id: str
+    """Immutable Snapshot in which this copy of the Thread is stored."""
+
+    def __post_init__(self) -> None:
+        """Reject a placement with no Thread or Snapshot identity.
+
+        # Failures
+
+        - Missing identity values raise `AssertionError`.
+        """
+        assert isinstance(self.thread_id, str) and isinstance(
+            self.snapshot_id, str
+        ), "placement requires Thread and Snapshot identities"
+
+
 Placement = (
     RangePlacement
     | BayStartPlacement
     | FileStartPlacement
     | FileMissingPlacement
     | FileUnreadablePlacement
+    | ReviewScopePlacement
 )
 """One Thread's immutable location in one Snapshot, in the shape review needs.
 
@@ -1630,6 +1741,7 @@ Placement = (
 - `FileStartPlacement` retains a File-side landing without a bay.
 - `FileMissingPlacement` states that the exact File pair is absent.
 - `FileUnreadablePlacement` states that capture could not retain the File.
+- `ReviewScopePlacement` marks a Thread about the whole review.
 
 `RoomStore` validates SQL rows into these variants before returning them.
 A `ReviewThreadRecord` pairs a placement with its origin label and optional
@@ -1670,6 +1782,7 @@ class ReviewThreadRecord:
                 FileStartPlacement,
                 FileMissingPlacement,
                 FileUnreadablePlacement,
+                ReviewScopePlacement,
             ),
         ), "Thread record requires a placement variant"
         assert self.private_locator is None or isinstance(
@@ -1957,7 +2070,7 @@ class ReviewThreadsRecord:
     No action newer than the inclusive activity boundary may appear here.
     """
 
-    profiles: tuple[UserProfileRecord, ...]
+    profiles: tuple[ReviewProfileRecord, ...]
     """Every Profile referenced by `actions`, with no active-user meaning.
 
     The collection supports attribution joins and must not be treated as selectable Profiles.
@@ -1968,6 +2081,54 @@ class ReviewThreadsRecord:
 
     Consumers use it for pagination independently of the current page length.
     """
+
+
+@dataclass(frozen=True)
+class ReviewThreadHistory:
+    """One Thread's origin, Room, and complete action history.
+
+    `RoomStore.review_thread_histories` returns this for Thread ids supplied
+    without a Snapshot, so agent reads and batches can address a Thread by its
+    identity alone. It carries raw relational facts; folding them into state is
+    the review layer's job.
+    """
+
+    identity: RoomIdentity
+    """Room containing the Thread, derived from its origin Snapshot."""
+
+    origin: ReviewThreadRecord
+    """The Thread's unique immutable origin placement."""
+
+    origin_left_path: Optional[str]
+    """Repository-relative left path of the origin File pair, if present.
+
+    `None` for an absent left side and for a review-scoped Thread, which has no
+    File. At most one of the two paths is `None` for a File-bound Thread.
+    """
+
+    origin_right_path: Optional[str]
+    """Repository-relative right path of the origin File pair, if present.
+
+    Same convention as `origin_left_path`.
+    """
+
+    actions: tuple[ReviewActionRecord, ...]
+    """Every authored action of the Thread in sequence order, never empty."""
+
+
+@dataclass(frozen=True)
+class ReviewMarkActionRecord:
+    """One authored action together with the Room it belongs to.
+
+    `RoomStore.review_mark_actions` returns these ordered by activity id so
+    callers can serve a repository-wide activity feed without a second lookup.
+    """
+
+    record: ReviewActionRecord
+    """The authored action and its database-wide activity id."""
+
+    identity: RoomIdentity
+    """Room of the Snapshot the action was recorded against."""
 
 
 class _ReviewThreadInsertValues(TypedDict):
@@ -1998,7 +2159,7 @@ class _ReviewThreadInsertValues(TypedDict):
     Unreadable and absent placements use null rather than a synthetic File identity.
     """
 
-    target_kind: Literal["range", "bay-start", "file-start"] | None
+    target_kind: Literal["range", "bay-start", "file-start", "review"] | None
     """Stored placement shape, absent only for an unlocated Thread.
 
     It governs which bay and range columns must be present in the remaining row.
@@ -2236,6 +2397,8 @@ class RoomStore:
                 values["outdated_reason"] = "file_missing"
             case FileUnreadablePlacement():
                 values["outdated_reason"] = "file_unreadable"
+            case ReviewScopePlacement():
+                values["target_kind"] = "review"
         return values
 
     @staticmethod
@@ -2312,7 +2475,7 @@ class RoomStore:
         """
         target_kind_value = placement.target_kind
         match target_kind_value:
-            case "range" | "bay-start" | "file-start" | None:
+            case "range" | "bay-start" | "file-start" | "review" | None:
                 target_kind = target_kind_value
             case _:
                 raise AssertionError(
@@ -2345,7 +2508,13 @@ class RoomStore:
         bay_key = placement.bay_key
         start, end = placement.start_line, placement.end_line
         location: Placement
-        if target_kind == "range":
+        if target_kind == "review":
+            assert file_id is None and bay_key is None and side is None
+            assert start is None and end is None and outdated_reason is None
+            location = ReviewScopePlacement(
+                placement.thread_id, placement.snapshot_id
+            )
+        elif target_kind == "range":
             assert (
                 file_id is not None and bay_key is not None and side is not None
             )
@@ -2656,7 +2825,7 @@ class RoomStore:
             right=maybe(right),
         )
 
-    def review_profile(self, profile_id: int) -> Optional[UserProfileRecord]:
+    def review_profile(self, profile_id: int) -> Optional[ReviewProfileRecord]:
         """Return one current Profile identity, or `None` when absent.
 
         Review writes use this boundary to reject a missing browser author
@@ -2676,14 +2845,11 @@ class RoomStore:
         """
         with Session(self.engine) as session:
             row = session.execute(
-                select(
-                    UserProfile.id,
-                    UserProfile.username,
-                ).where(UserProfile.id == profile_id)
+                _review_profile_select(UserProfile.id == profile_id)
             ).one_or_none()
         if row is None:
             return None
-        return profile_record(row.id, row.username)
+        return _review_profile(row)
 
     def room_identity(self, snapshot_id: str) -> Optional[RoomIdentity]:
         """Return the complete Room identity containing one Snapshot key.
@@ -3397,92 +3563,6 @@ class RoomStore:
             )
         )
 
-    def snapshot_files_by_ids(
-        self,
-        identity: RoomIdentity,
-        *,
-        snapshot_id: str,
-        file_ids: tuple[str, ...],
-    ) -> dict[str, SnapshotFileRecord]:
-        """Return the id-addressed Files of a Snapshot visible in one Room.
-
-        One read serves every requested id; ids naming no File of that
-        visible Snapshot are simply absent from the result, and the caller
-        decides which failure an absence is.
-
-        # Parameters
-
-        - `identity`: Room that must contain the addressed Snapshot.
-        - `snapshot_id`: Exact Snapshot from which Files may be returned.
-        - `file_ids`: Snapshot File ids to load as one set; duplicates do not
-          duplicate results.
-
-        # Usage
-
-        Batch origin or placement hydration through this method, then compare
-        result keys with the ids the higher-level invariant requires.
-
-        # Returns
-
-        - Each key is an input File id found in the visible Snapshot; missing and
-          duplicate input ids create no entry.
-        - Each value is that exact File record with its retained nullable side
-          records. An empty mapping means no requested id was found.
-        """
-        if file_ids == ():
-            return {}
-        mark_clause = (
-            Room.mark_id.is_(None)
-            if identity.mark_id is None
-            else Room.mark_id == identity.mark_id
-        )
-        with Session(self.engine) as session:
-            rows = session.execute(
-                select(
-                    SnapshotFile,
-                    SnapshotFileLeft.repository_path.label("left_path"),
-                    SnapshotFileLeft.content_hash.label("left_hash"),
-                    SnapshotFileRight.repository_path.label("right_path"),
-                    SnapshotFileRight.content_hash.label("right_hash"),
-                )
-                .join(Snapshot, Snapshot.id == SnapshotFile.snapshot_id)
-                .join(Room, Room.id == Snapshot.room_id)
-                .outerjoin(
-                    SnapshotFileLeft,
-                    SnapshotFileLeft.file_id == SnapshotFile.id,
-                )
-                .outerjoin(
-                    SnapshotFileRight,
-                    SnapshotFileRight.file_id == SnapshotFile.id,
-                )
-                .where(
-                    Snapshot.id == snapshot_id,
-                    SnapshotFile.id.in_(set(file_ids)),
-                    Room.tab == identity.tab,
-                    Room.backend_key == identity.correspondence_key,
-                    mark_clause,
-                )
-            ).all()
-            symlinks = self._file_symlink_records(
-                session.execute(
-                    select(SnapshotFileSymlink).where(
-                        SnapshotFileSymlink.file_id.in_(
-                            {row[0].id for row in rows}
-                        )
-                    )
-                ).scalars()
-                if rows != []
-                else ()
-            )
-        return {
-            row[0].id: self._file_record(
-                *row,
-                left_symlink=symlinks.get((row[0].id, "left")),
-                right_symlink=symlinks.get((row[0].id, "right")),
-            )
-            for row in rows
-        }
-
     def snapshot_files_by_pairs(
         self,
         identity: RoomIdentity,
@@ -4079,14 +4159,9 @@ class RoomStore:
             ).all()
             profile_ids = {action.profile_id for action in actions}
             profile_rows = session.execute(
-                select(
-                    UserProfile.id,
-                    UserProfile.username,
-                ).where(UserProfile.id.in_(profile_ids))
+                _review_profile_select(UserProfile.id.in_(profile_ids))
             ).all()
-        profiles = [
-            profile_record(row.id, row.username) for row in profile_rows
-        ]
+        profiles = [_review_profile(row) for row in profile_rows]
         assert {profile.id for profile in profiles} == profile_ids, (
             "review action references a missing Profile"
         )
@@ -4202,14 +4277,9 @@ class RoomStore:
             assert actions != [], "review Thread has no creation action"
             profile_ids = {action.profile_id for action in actions}
             profile_rows = session.execute(
-                select(
-                    UserProfile.id,
-                    UserProfile.username,
-                ).where(UserProfile.id.in_(profile_ids))
+                _review_profile_select(UserProfile.id.in_(profile_ids))
             ).all()
-        profiles = tuple(
-            profile_record(row.id, row.username) for row in profile_rows
-        )
+        profiles = tuple(_review_profile(row) for row in profile_rows)
         assert {profile.id for profile in profiles} == profile_ids, (
             "review action references a missing Profile"
         )
@@ -4230,7 +4300,7 @@ class RoomStore:
         snapshot_id: str,
         thread_id: str,
     ) -> Optional[
-        tuple[tuple[ReviewActionRecord, ...], tuple[UserProfileRecord, ...]]
+        tuple[tuple[ReviewActionRecord, ...], tuple[ReviewProfileRecord, ...]]
     ]:
         """Load authoritative actions and authors for one placed Thread.
 
@@ -4275,13 +4345,9 @@ class RoomStore:
             assert actions != [], "review Thread has no creation action"
             profile_ids = {action.profile_id for action in actions}
             profile_rows = session.execute(
-                select(UserProfile.id, UserProfile.username).where(
-                    UserProfile.id.in_(profile_ids)
-                )
+                _review_profile_select(UserProfile.id.in_(profile_ids))
             ).all()
-        profiles = tuple(
-            profile_record(row.id, row.username) for row in profile_rows
-        )
+        profiles = tuple(_review_profile(row) for row in profile_rows)
         assert {profile.id for profile in profiles} == profile_ids, (
             "review action references a missing Profile"
         )
@@ -4292,7 +4358,7 @@ class RoomStore:
 
     def review_profiles(
         self, profile_ids: tuple[int, ...]
-    ) -> tuple[UserProfileRecord, ...]:
+    ) -> tuple[ReviewProfileRecord, ...]:
         """Load the existing Profiles among `profile_ids` in one set query.
 
         Missing ids are absent from the result. The caller decides whether an
@@ -4314,11 +4380,9 @@ class RoomStore:
             return ()
         with Session(self.engine) as session:
             rows = session.execute(
-                select(UserProfile.id, UserProfile.username).where(
-                    UserProfile.id.in_(set(profile_ids))
-                )
+                _review_profile_select(UserProfile.id.in_(set(profile_ids)))
             ).all()
-        return tuple(profile_record(row.id, row.username) for row in rows)
+        return tuple(_review_profile(row) for row in rows)
 
     def review_actions_many(
         self,
@@ -4326,7 +4390,7 @@ class RoomStore:
         thread_ids: tuple[str, ...],
     ) -> tuple[
         dict[str, tuple[ReviewActionRecord, ...]],
-        tuple[UserProfileRecord, ...],
+        tuple[ReviewProfileRecord, ...],
     ]:
         """Load actions for every placed Thread among `thread_ids` at once.
 
@@ -4376,9 +4440,7 @@ class RoomStore:
             ).all()
             profile_ids = {action.profile_id for action in actions}
             profile_rows = session.execute(
-                select(UserProfile.id, UserProfile.username).where(
-                    UserProfile.id.in_(profile_ids)
-                )
+                _review_profile_select(UserProfile.id.in_(profile_ids))
             ).all()
         actions_by_thread: dict[str, list[ReviewActionRecord]] = {}
         for action in actions:
@@ -4388,9 +4450,7 @@ class RoomStore:
         assert actions_by_thread.keys() == placed, (
             "review Thread has no creation action"
         )
-        profiles = tuple(
-            profile_record(row.id, row.username) for row in profile_rows
-        )
+        profiles = tuple(_review_profile(row) for row in profile_rows)
         assert {profile.id for profile in profiles} == profile_ids, (
             "review action references a missing Profile"
         )
@@ -4588,7 +4648,7 @@ class RoomStore:
         self,
         thread_rows: tuple[ReviewThreadRecord, ...],
         actions: tuple[ReviewActionInput, ...],
-    ) -> None:
+    ) -> tuple[int, ...]:
         """Insert prevalidated Thread placements and actions atomically.
 
         The caller holds the Room write lock and supplies actions in authored
@@ -4606,6 +4666,11 @@ class RoomStore:
         Validate the complete ordered batch and allocate any new Thread
         placements before calling under the shared Room lock. Use this single
         transaction rather than appending actions individually.
+
+        # Returns
+
+        - One activity id per action, in input order.
+        - Each id is database-wide and increasing.
 
         # Failures
 
@@ -4651,6 +4716,7 @@ class RoomStore:
                     for offset, action in enumerate(actions)
                 ],
             )
+        return tuple(range(next_activity_id, next_activity_id + len(actions)))
 
     def review_latest_activity_id(self, identity: RoomIdentity) -> int:
         """Return the Room's greatest review activity id, or 0 when empty.
@@ -4681,168 +4747,250 @@ class RoomStore:
             ).scalar_one()
         return 0 if latest is None else latest
 
-    def _review_open_thread_count(
-        self,
-        session: Session,
-        identity: RoomIdentity,
-        through_activity_id: int,
-    ) -> int:
-        """Count open logical Threads in one Room at one inclusive pivot.
-
-        Threads whose first action lies after the pivot do not exist yet at
-        that pivot; their latest-action subquery finds nothing, so the join
-        excludes them.
+    def rooms_for_mark(
+        self, mark_id: int
+    ) -> tuple[tuple[RoomIdentity, str], ...]:
+        """List every Room of one repository with its newest Snapshot key.
 
         # Parameters
 
-        - `session`: Existing read transaction shared with the surrounding
-          continuation query.
-        - `identity`: Room whose logical Threads are counted.
-        - `through_activity_id`: Inclusive action boundary defining state.
-        """
-        mark_clause = (
-            Room.mark_id.is_(None)
-            if identity.mark_id is None
-            else Room.mark_id == identity.mark_id
-        )
-        room_threads = (
-            select(ReviewThread.thread_id)
-            .join(Snapshot, Snapshot.id == ReviewThread.origin_snapshot_id)
-            .join(Room, Room.id == Snapshot.room_id)
-            .where(
-                Room.tab == identity.tab,
-                Room.backend_key == identity.correspondence_key,
-                mark_clause,
-            )
-            .cte("open_count_room_threads")
-            .prefix_with("MATERIALIZED")
-        )
-        latest_for_thread = (
-            select(func.max(ReviewAction.activity_id))
-            .where(
-                ReviewAction.thread_id == room_threads.c.thread_id,
-                ReviewAction.activity_id <= through_activity_id,
-            )
-            .correlate(room_threads)
-            .scalar_subquery()
-        )
-        return session.execute(
-            select(func.count())
-            .select_from(room_threads)
-            .join(
-                ReviewAction,
-                ReviewAction.activity_id == latest_for_thread,
-            )
-            .where(ReviewAction.status_after == "open")
-        ).scalar_one()
-
-    def review_continuation(
-        self,
-        identity: RoomIdentity,
-        activity_id: int,
-        limit: int,
-    ) -> tuple[
-        tuple[ReviewActionRecord, ...],
-        bool,
-        int,
-        tuple[UserProfileRecord, ...],
-    ]:
-        """Return one bounded page of later actions with consistent context.
-
-        One database session reads the ordered action page after
-        `activity_id`, its has-more marker, the open logical Thread count,
-        and the acting Profiles, so a continuation response cannot mix
-        observations from different review universes. The count is evaluated
-        at the page's inclusive end boundary: the last returned action's
-        activity id, or `activity_id` when the page is empty. Every returned
-        action's Profile is present in the returned Profiles; a missing
-        Profile row fails the read.
-
-        # Parameters
-
-        - `identity`: Room whose later authored actions are read.
-        - `activity_id`: Exclusive lower activity boundary retained by the
-          agent from its prior response.
-        - `limit`: Positive maximum action count for this page.
-
-        # Usage
-
-        Pass the last activity id retained by the agent. Continue with the final
-        id from each returned page until `has_more` is false; the returned open
-        count describes state at that page's inclusive end.
+        - `mark_id`: Repository Mark whose Rooms are listed.
 
         # Returns
 
-        - First, at most `limit` later `ReviewActionRecord` values ordered by
-          their required `activity_id`.
-        - Second, whether another later action exists beyond this page.
-        - Third, the count of open logical Threads at the page's inclusive end
-          boundary, not necessarily at the newest database action.
-        - Fourth, current Profile records for every author in the action page.
-
-        # Failures
-
-        - Asserts for a negative boundary, nonpositive limit, or a persisted
-          action whose author Profile is missing.
+        - One pair per Room that has at least one Snapshot, in Room creation
+          order.
+        - Each pair holds the Room identity and its most recently published
+          Snapshot id; an unknown Mark yields an empty tuple.
         """
-        assert activity_id >= 0, "review activity boundary must be nonnegative"
-        assert limit > 0, "review activity limit must be positive"
-        mark_clause = (
-            Room.mark_id.is_(None)
-            if identity.mark_id is None
-            else Room.mark_id == identity.mark_id
-        )
         with Session(self.engine) as session:
-            rows = session.scalars(
+            rows = session.execute(
+                select(Room.id, Room.tab, Room.backend_key, Snapshot.id)
+                .join(Snapshot, Snapshot.room_id == Room.id)
+                .where(Room.mark_id == mark_id)
+                # `snapshot.rowid` grows with publication, so within one Room
+                # the last row is the most recently published Snapshot.
+                .order_by(Room.id, literal_column("snapshot.rowid"))
+            ).all()
+        rooms: dict[int, tuple[RoomIdentity, str]] = {}
+        for room_id, tab, backend_key, snapshot_id in rows:
+            rooms[room_id] = (
+                RoomIdentity(
+                    mark_id=mark_id, tab=tab, correspondence_key=backend_key
+                ),
+                snapshot_id,
+            )
+        return tuple(rooms.values())
+
+    def review_thread_origin_snapshot(self, thread_id: str) -> Optional[str]:
+        """Return the Snapshot a Thread was created in.
+
+        The origin Snapshot always holds a placement of the Thread, so it is a
+        valid Snapshot through which to bind the Thread without the caller
+        knowing any Snapshot.
+
+        # Parameters
+
+        - `thread_id`: Thread id to look up.
+
+        # Returns
+
+        - The origin Snapshot id.
+        - `None`: no Thread has this id.
+        """
+        with Session(self.engine) as session:
+            return session.execute(
+                select(ReviewThread.origin_snapshot_id).where(
+                    ReviewThread.thread_id == thread_id
+                )
+            ).scalar_one_or_none()
+
+    def review_thread_histories(
+        self, thread_ids: Iterable[str]
+    ) -> tuple[
+        dict[str, ReviewThreadHistory],
+        tuple[ReviewProfileRecord, ...],
+    ]:
+        """Load Room, origin, origin File paths, and actions of Threads by id.
+
+        # Parameters
+
+        - `thread_ids`: Thread identities, in any Snapshot or Room.
+
+        # Returns
+
+        - First, a mapping from every known Thread id to its history. Unknown
+          ids are absent; the caller decides whether that is an error.
+        - Second, the current Profile of every author in those histories.
+        """
+        wanted = set(thread_ids)
+        if wanted == set():
+            return {}, ()
+        with Session(self.engine) as session:
+            origin_rows = session.execute(
+                select(
+                    ReviewThreadPlacement,
+                    Room.mark_id,
+                    Room.tab,
+                    Room.backend_key,
+                    SnapshotFileLeft.repository_path.label("left_path"),
+                    SnapshotFileRight.repository_path.label("right_path"),
+                )
+                .join(
+                    ReviewThread,
+                    (ReviewThread.thread_id == ReviewThreadPlacement.thread_id)
+                    & (
+                        ReviewThread.origin_snapshot_id
+                        == ReviewThreadPlacement.snapshot_id
+                    ),
+                )
+                .join(
+                    Snapshot, Snapshot.id == ReviewThreadPlacement.snapshot_id
+                )
+                .join(Room, Room.id == Snapshot.room_id)
+                .outerjoin(
+                    SnapshotFileLeft,
+                    SnapshotFileLeft.file_id
+                    == ReviewThreadPlacement.snapshot_file_id,
+                )
+                .outerjoin(
+                    SnapshotFileRight,
+                    SnapshotFileRight.file_id
+                    == ReviewThreadPlacement.snapshot_file_id,
+                )
+                .where(ReviewThreadPlacement.thread_id.in_(wanted))
+            ).all()
+            actions = session.scalars(
                 select(ReviewAction)
+                .where(ReviewAction.thread_id.in_(wanted))
+                .order_by(ReviewAction.thread_id, ReviewAction.sequence)
+            ).all()
+            profile_ids = {action.profile_id for action in actions}
+            profile_rows = session.execute(
+                _review_profile_select(UserProfile.id.in_(profile_ids))
+            ).all()
+        actions_by_thread: dict[str, list[ReviewActionRecord]] = {}
+        for action in actions:
+            actions_by_thread.setdefault(action.thread_id, []).append(
+                self._action_record(action)
+            )
+        histories: dict[str, ReviewThreadHistory] = {}
+        for row in origin_rows:
+            placement = row[0]
+            thread_actions = actions_by_thread.get(placement.thread_id)
+            assert thread_actions is not None, (
+                "review Thread has no creation action"
+            )
+            histories[placement.thread_id] = ReviewThreadHistory(
+                identity=RoomIdentity(
+                    mark_id=row.mark_id,
+                    tab=row.tab,
+                    correspondence_key=row.backend_key,
+                ),
+                origin=self._thread_record(placement, True),
+                origin_left_path=row.left_path,
+                origin_right_path=row.right_path,
+                actions=tuple(thread_actions),
+            )
+        assert histories.keys() == actions_by_thread.keys(), (
+            "review action has no origin placement"
+        )
+        profiles = tuple(_review_profile(row) for row in profile_rows)
+        return histories, profiles
+
+    def review_latest_activity_by_thread(
+        self, thread_ids: Iterable[str], through_activity_id: int
+    ) -> dict[str, int]:
+        """Return the greatest activity id of each given Thread up to a pivot.
+
+        # Parameters
+
+        - `thread_ids`: Thread ids to look up.
+        - `through_activity_id`: Inclusive upper bound; later actions are
+          ignored, matching a read pinned to that pivot.
+
+        # Returns
+
+        - A mapping from Thread id to its greatest activity id at or before
+          the pivot. A Thread created at or before the pivot always appears.
+        - Unknown ids and Threads with no action at or before the pivot are
+          absent.
+        """
+        wanted = set(thread_ids)
+        if wanted == set():
+            return {}
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(
+                    ReviewAction.thread_id,
+                    func.max(ReviewAction.activity_id),
+                )
+                .where(
+                    ReviewAction.thread_id.in_(wanted),
+                    ReviewAction.activity_id <= through_activity_id,
+                )
+                .group_by(ReviewAction.thread_id)
+            ).all()
+        return {thread_id: latest for thread_id, latest in rows}
+
+    def review_mark_latest_activity_id(self, mark_id: int) -> int:
+        """Return the greatest review activity id across one repository.
+
+        The result is 0 when no Room of the Mark has an authored action.
+        """
+        with Session(self.engine) as session:
+            latest: int | None = session.execute(
+                select(func.max(ReviewAction.activity_id))
+                .join(Snapshot, Snapshot.id == ReviewAction.snapshot_id)
+                .join(Room, Room.id == Snapshot.room_id)
+                .where(Room.mark_id == mark_id)
+            ).scalar_one()
+        return 0 if latest is None else latest
+
+    def review_mark_actions(
+        self, mark_id: int, after: int, limit: int
+    ) -> tuple[ReviewMarkActionRecord, ...]:
+        """Return a repository's authored actions with activity id above `after`.
+
+        # Parameters
+
+        - `mark_id`: Repository Mark whose Rooms are all included.
+        - `after`: Exclusive activity-id lower bound; 0 starts from the first.
+        - `limit`: Positive maximum number of actions to return.
+
+        # Returns
+
+        - At most `limit` actions in increasing activity id order.
+        - Each action carries the Room of the Snapshot it was recorded against.
+        """
+        assert after >= 0 and limit >= 1
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(
+                    ReviewAction,
+                    Room.mark_id,
+                    Room.tab,
+                    Room.backend_key,
+                )
                 .join(Snapshot, Snapshot.id == ReviewAction.snapshot_id)
                 .join(Room, Room.id == Snapshot.room_id)
                 .where(
-                    ReviewAction.activity_id > activity_id,
-                    ReviewAction.kind.in_(
-                        (
-                            "thread-created",
-                            "comment-created",
-                            "comment-edited",
-                            "comment-deleted",
-                            "thread-resolved",
-                            "thread-reopened",
-                            "thread-deleted",
-                        )
-                    ),
-                    Room.tab == identity.tab,
-                    Room.backend_key == identity.correspondence_key,
-                    mark_clause,
+                    Room.mark_id == mark_id,
+                    ReviewAction.activity_id > after,
                 )
                 .order_by(ReviewAction.activity_id)
-                .limit(limit + 1)
+                .limit(limit)
             ).all()
-            page = rows[:limit]
-            boundary = activity_id
-            if page != []:
-                last_activity = page[-1].activity_id
-                assert last_activity is not None
-                boundary = last_activity
-            open_count = self._review_open_thread_count(
-                session, identity, boundary
+        return tuple(
+            ReviewMarkActionRecord(
+                self._action_record(row[0]),
+                RoomIdentity(
+                    mark_id=row.mark_id,
+                    tab=row.tab,
+                    correspondence_key=row.backend_key,
+                ),
             )
-            profile_ids = {row.profile_id for row in page}
-            profile_rows = session.execute(
-                select(UserProfile.id, UserProfile.username).where(
-                    UserProfile.id.in_(profile_ids)
-                )
-            ).all()
-        profiles = tuple(
-            profile_record(row.id, row.username) for row in profile_rows
-        )
-        assert {profile.id for profile in profiles} == profile_ids, (
-            "review action references a missing Profile"
-        )
-        return (
-            tuple(self._action_record(action) for action in page),
-            len(rows) > limit,
-            open_count,
-            profiles,
+            for row in rows
         )
 
     def review_attention_counts(

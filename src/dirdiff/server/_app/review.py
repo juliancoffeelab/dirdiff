@@ -32,7 +32,9 @@ from dirdiff.engines import (
 )
 from dirdiff.review import (
     AddComment,
+    BatchCreate,
     ChangeThreadState,
+    CreateReviewThread,
     CreateThread,
     DeleteComment,
     EditComment,
@@ -236,20 +238,37 @@ class TextReviewTarget(ApiModel):
         return self
 
 
-ReviewTargetModel = TextReviewTarget
+class ReviewScopeTarget(ApiModel):
+    """Target the review as a whole rather than any captured code.
+
+    The new Thread names no File pair, bay, side, or range, and is present in
+    every Snapshot of the Room. It cannot carry a code coordinate.
+    """
+
+    kind: Literal["review"]
+    """Select the review-scoped target shape."""
+
+
+ReviewTargetModel = Annotated[
+    TextReviewTarget | ReviewScopeTarget,
+    Field(discriminator="kind"),
+]
 """Name the complete set of review targets accepted for new HTTP Threads.
 
-Only `TextReviewTarget` is currently constructible. Historical File-level
-origins appear in response types but cannot enter through this alias.
+- `TextReviewTarget` selects one text range of a captured File.
+- `ReviewScopeTarget` addresses the review as a whole.
+
+Historical File-level origins appear in response types but cannot enter
+through this alias.
 """
 
 
 class NewCodeCommentRequest(ApiModel):
     """Request creation of one Thread and its first Comment.
 
-    The browser sends the exact Snapshot, acting Profile, validated text target,
-    and non-empty body. The route generates durable ids and asks Room to create
-    the discussion.
+    The browser sends the exact Snapshot, acting Profile, validated text or
+    review-scoped target, and non-empty body. The route generates durable ids
+    and asks Room to create the discussion.
 
     The request cannot create a File-level origin or choose lifecycle state.
     """
@@ -269,10 +288,11 @@ class NewCodeCommentRequest(ApiModel):
     """
 
     target: ReviewTargetModel
-    """Code location that becomes the Thread's immutable origin.
+    """Code location or whole review that becomes the Thread's immutable origin.
 
-    Room validates its File, bay, side, and range against `snapshot_id` before
-    persisting the origin and first Comment in one operation.
+    Room validates a text target's File, bay, side, and range against
+    `snapshot_id` before persisting the origin and first Comment in one
+    operation. A review-scoped target names only the Snapshot's Room.
     """
 
     body: str = Field(min_length=1)
@@ -483,9 +503,11 @@ class ReviewAuthorResponse(ApiModel):
     """Return current Profile attribution beside a browser Comment.
 
     Response conversion uses the stable positive id and current display name
-    from review materialization.
+    and agent facts from review materialization.
+    Every browser response that carries a Comment carries this one shape.
 
-    The shape carries no role, permission, or agent registration.
+    The shape carries no role or permission. A human has `is_agent` false and
+    no model or harness.
     """
 
     profile_id: int = Field(gt=0)
@@ -501,6 +523,31 @@ class ReviewAuthorResponse(ApiModel):
     Reads resolve the latest non-empty name, so it may differ from the text
     shown when the Comment was authored. It is presentation, not identity.
     """
+
+    is_agent: bool
+    """Whether the Profile was registered as an agent through the agent API."""
+
+    model: str | None
+    """Model the agent reported; `None` for humans and for agents registered
+    before it was recorded."""
+
+    harness: str | None
+    """Harness the agent reported; `None` for humans and for agents registered
+    before it was recorded."""
+
+    @model_validator(mode="after")
+    def validate_human(self) -> Self:
+        """Reject agent facts on a human Profile.
+
+        # Failures
+
+        - Raises `ValueError` when a non-agent carries a model or harness.
+        """
+        if not self.is_agent and (
+            self.model is not None or self.harness is not None
+        ):
+            raise ValueError("Human authors have no model or harness.")
+        return self
 
 
 class ReviewCommentResponse(ApiModel):
@@ -740,6 +787,17 @@ class ThreadWholeFilePlacementResponse(ApiModel):
     """
 
 
+class ThreadReviewScopePlacementResponse(ApiModel):
+    """Locate a review-scoped Thread, which sits on no File.
+
+    Every Snapshot of the Room holds the Thread unchanged, so it carries no
+    line range, bay, or File coordinate and navigation has nowhere to land.
+    """
+
+    kind: Literal["review-scope"]
+    """Identify a Thread addressed to the review as a whole."""
+
+
 ThreadPlacementResponse = Annotated[
     ThreadRegionKeptPlacementResponse
     | ThreadRegionChangedPlacementResponse
@@ -748,7 +806,8 @@ ThreadPlacementResponse = Annotated[
     | ThreadSideLostPlacementResponse
     | ThreadFileAbsentPlacementResponse
     | ThreadFileUnreadablePlacementResponse
-    | ThreadWholeFilePlacementResponse,
+    | ThreadWholeFilePlacementResponse
+    | ThreadReviewScopePlacementResponse,
     Field(discriminator="kind"),
 ]
 """Return where one Thread sits in one Snapshot, and what became of it.
@@ -760,6 +819,7 @@ Derivation returns exactly one placement:
 - `bay-lost` names a replacement bay on the origin side.
 - `side-lost`, `file-absent`, and `file-unreadable` have no code coordinate.
 - `whole-file` retains a historical File-level origin.
+- `review-scope` marks a Thread on the review as a whole; it has no coordinate.
 
 The File pair and side always come from the immutable origin; the bay also comes
 from the origin except for `bay-lost`. Consumers must not infer a more precise
@@ -842,14 +902,28 @@ class FileStartReviewOriginResponse(ApiModel):
     """
 
 
+class ReviewScopeOriginResponse(ApiModel):
+    """Return the origin of a Thread addressed to the review as a whole.
+
+    It names no File pair, side, bay, range, or excerpt; the Thread belongs to
+    the Room and is present in every Snapshot of it.
+    """
+
+    kind: Literal["review"]
+    """Identify a review-scoped origin."""
+
+
 ReviewOriginResponse = Annotated[
-    TextReviewOriginResponse | FileStartReviewOriginResponse,
+    TextReviewOriginResponse
+    | FileStartReviewOriginResponse
+    | ReviewScopeOriginResponse,
     Field(discriminator="kind"),
 ]
 """Return the immutable creation target of one Thread.
 
 - `TextReviewOriginResponse` names a File pair, bay, side, range, and excerpt.
 - `FileStartReviewOriginResponse` retains a File-and-side target without a bay.
+- `ReviewScopeOriginResponse` targets the review as a whole, with no File.
 
 This is the only response value that states the Thread's File pair and side.
 Readers combine it with placement, which must not repeat or contradict those
@@ -1241,12 +1315,13 @@ class ReviewRoutes:
                 scope="room",
                 through_activity_id=through_activity_id,
             )
+            discussions = [thread.discussion() for thread in threads]
             return ReviewThreadPage(
                 snapshot_id=snapshot_id.hex,
                 through_activity_id=through_activity_id,
                 threads=[
-                    ReviewThreadResponse.model_validate(thread.discussion())
-                    for thread in threads
+                    ReviewThreadResponse.model_validate(discussion)
+                    for discussion in discussions
                 ],
                 page=page,
                 limit=limit,
@@ -1260,7 +1335,7 @@ class ReviewRoutes:
                 ReviewError("invalid_target", str(exc))
             ) from exc
 
-    def review_target(self, request: NewCodeCommentRequest) -> TextTarget:
+    def review_target(self, target: TextReviewTarget) -> TextTarget:
         """Translate one validated browser code target to Thread input.
 
         Pydantic has already checked path, bay, side, and ordered line fields;
@@ -1269,7 +1344,7 @@ class ReviewRoutes:
 
         # Parameters
 
-        - `request`: New-Thread HTTP entity carrying one complete text target.
+        - `target`: Complete text target of a new-Thread HTTP entity.
 
         # Failures
 
@@ -1278,16 +1353,16 @@ class ReviewRoutes:
           invalid review target.
         """
         file = FilePair(
-            maybe(request.target.file.left_path),
-            maybe(request.target.file.right_path),
+            maybe(target.file.left_path),
+            maybe(target.file.right_path),
         )
         return TextTarget(
             file,
-            request.target.bay.bay_key,
-            request.target.side,
+            target.bay.bay_key,
+            target.side,
             LineRange(
-                request.target.range.start_line,
-                request.target.range.end_line,
+                target.range.start_line,
+                target.range.end_line,
             ),
         )
 
@@ -1303,8 +1378,10 @@ class ReviewRoutes:
     ) -> ReviewThreadResponse | ReviewThreadUpdateResponse:
         """Start one Thread or append one Comment to an existing Thread.
 
-        New-code input allocates fresh Thread, operation, and Comment identities and
-        validates its target against the exact Snapshot. Reply input addresses one
+        New-Thread input allocates fresh Thread, operation, and Comment identities
+        and validates a text target against the exact Snapshot; a review-scoped
+        target creates a Thread about the whole review, waiting on the author like
+        every browser-created Thread. Reply input addresses one
         existing Thread and applies the requested attention result. The endpoint
         returns the complete created discussion or one contiguous Thread update;
         typed review failures retain their browser status contract.
@@ -1330,6 +1407,30 @@ class ReviewRoutes:
             snapshot_id = UUID(hex=request.snapshot_id)
             room = self.room_lord.find_room(snapshot_id)
             if isinstance(request, NewCodeCommentRequest):
+                if isinstance(request.target, ReviewScopeTarget):
+                    # The agent batch is the one review-scoped creation
+                    # operation. Acting as reviewer makes the Thread wait on
+                    # the author, the attention every browser-created code
+                    # Thread starts with.
+                    (created,) = room.apply_review_batch(
+                        (
+                            BatchCreate(
+                                snapshot_id,
+                                CreateReviewThread(
+                                    uuid4(),
+                                    uuid4(),
+                                    uuid4(),
+                                    ProfileAuthor(request.profile_id),
+                                    request.body,
+                                ),
+                                "reviewer",
+                            ),
+                        )
+                    )
+                    discussion = room.get_thread(
+                        snapshot_id, created.thread_id
+                    ).discussion()
+                    return ReviewThreadResponse.model_validate(discussion)
                 thread = room.create_thread(
                     snapshot_id,
                     CreateThread(
@@ -1337,11 +1438,12 @@ class ReviewRoutes:
                         uuid4(),
                         uuid4(),
                         ProfileAuthor(request.profile_id),
-                        self.review_target(request),
+                        self.review_target(request.target),
                         request.body,
                     ),
                 )
-                return ReviewThreadResponse.model_validate(thread.discussion())
+                discussion = thread.discussion()
+                return ReviewThreadResponse.model_validate(discussion)
             update = room.get_thread(
                 snapshot_id, UUID(hex=request.thread_id)
             ).add_comment(
@@ -1392,16 +1494,17 @@ class ReviewRoutes:
             snapshot_id = UUID(hex=request.snapshot_id)
             room = self.room_lord.find_room(snapshot_id)
             comment_id = UUID(hex=request.comment_id)
-            return ReviewThreadUpdateResponse.model_validate(
-                room.thread_for_comment(snapshot_id, comment_id).edit_comment(
-                    comment_id,
-                    EditComment(
-                        uuid4(),
-                        ProfileAuthor(request.profile_id),
-                        request.body,
-                    ),
-                )
+            update = room.thread_for_comment(
+                snapshot_id, comment_id
+            ).edit_comment(
+                comment_id,
+                EditComment(
+                    uuid4(),
+                    ProfileAuthor(request.profile_id),
+                    request.body,
+                ),
             )
+            return ReviewThreadUpdateResponse.model_validate(update)
         except ReviewError as exc:
             raise self.review_http_exception(exc) from exc
         except DirdiffError as exc:
@@ -1440,12 +1543,13 @@ class ReviewRoutes:
             snapshot_id = UUID(hex=request.snapshot_id)
             room = self.room_lord.find_room(snapshot_id)
             comment_id = UUID(hex=request.comment_id)
-            return ReviewThreadUpdateResponse.model_validate(
-                room.thread_for_comment(snapshot_id, comment_id).delete_comment(
-                    comment_id,
-                    DeleteComment(uuid4(), ProfileAuthor(request.profile_id)),
-                )
+            update = room.thread_for_comment(
+                snapshot_id, comment_id
+            ).delete_comment(
+                comment_id,
+                DeleteComment(uuid4(), ProfileAuthor(request.profile_id)),
             )
+            return ReviewThreadUpdateResponse.model_validate(update)
         except ReviewError as exc:
             raise self.review_http_exception(exc) from exc
         except DirdiffError as exc:
