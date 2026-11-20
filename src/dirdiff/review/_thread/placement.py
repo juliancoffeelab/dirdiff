@@ -202,7 +202,6 @@ def _path_hint(file: SnapshotFileRecord, side: Literal["left", "right"]) -> str:
 
 @lru_cache(maxsize=3)
 def _regions_for_source(path: str, text: str) -> tuple[_SourceRegion, ...]:
-
     def parser_for_path() -> Optional[Parser]:
         lower = path.lower()
         for suffixes, module_name, attribute in _LANGUAGES:
@@ -489,7 +488,6 @@ def _derive_record(
     target_files_by_pair: dict[FilePair, SnapshotFileRecord],
     cache: ReviewReadCache,
 ) -> Placement:
-
     def file_start(side: Literal["left", "right"]) -> FileStartPlacement:
         assert target_file is not None
         return FileStartPlacement(
@@ -665,7 +663,6 @@ def build_original_excerpt(
     origin_file: SnapshotFileRecord,
     cache: ReviewReadCache,
 ) -> ReviewExcerptView:
-
     selected_start = origin.start_line
     selected_end = origin.end_line
     # An excerpt is the origin bay's own text, never an alignment of two
@@ -825,7 +822,6 @@ def _origin_record(
     file: SnapshotFileRecord,
     cache: ReviewReadCache,
 ) -> tuple[RangePlacement, _Locator]:
-
     def origin_region(
         path: str, text: str, selected: LineRange
     ) -> _SourceRegion:

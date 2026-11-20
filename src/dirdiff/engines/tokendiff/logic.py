@@ -252,7 +252,6 @@ def _region_ops(left_atoms: list[str], right_atoms: list[str]) -> list[_Op]:
 
 
 def _demote_isolated_matches(ops: list[_Op]) -> None:
-
     def content_changed(op: _Op) -> bool:
         if op.left is not None and op.left == op.right and not op.demoted:
             return False

@@ -521,7 +521,6 @@ def _inspect_type(status_file: str, location: str) -> str | None:
 
 
 def _is_bool_type_text(type_text: str) -> bool:
-
     def is_bool_atom(item: str) -> bool:
         if item == BOOL_INSTANCE:
             return True
@@ -566,7 +565,6 @@ def _is_object_name(annotation: ast.AST, *, object_names: set[str]) -> bool:
 
 
 def _enabled_codes_from_options(options: Namespace) -> frozenset[str]:
-
     def _option_code_prefixes(
         options: Namespace, names: Sequence[str]
     ) -> set[str]:

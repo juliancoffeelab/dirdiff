@@ -25,7 +25,6 @@ __all__ = ["HelperTopologyPlugin"]
 def _project_interface_diagnostics(
     project_root: Path,
 ) -> dict[Path, tuple[_InterfaceDiagnostic, ...]]:
-
     def module_parts(path: Path) -> tuple[str, ...]:
         source_root = project_root / "src"
         tests_root = project_root / "tests"

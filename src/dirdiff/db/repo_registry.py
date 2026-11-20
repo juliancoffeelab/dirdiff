@@ -97,11 +97,9 @@ class RepoMainBranchRecord:
 
 class RepoMarkStore:
     def __init__(self, engine: Engine) -> None:
-
         self.engine: Engine = engine
 
     def new_mark(self, path: Path, name: str) -> RepoMarkRecord:
-
         assert path.is_absolute(), f"repo path must be absolute: {path}"
         assert path.is_dir(), f"repo path must be a directory: {path}"
         display_name = name.strip()
@@ -150,7 +148,6 @@ class RepoMarkStore:
             )
 
     def list(self) -> Sequence[RepoMarkRecord]:
-
         with Session(self.engine) as session:
             rows = (
                 session.execute(
@@ -186,7 +183,6 @@ class RepoMarkStore:
             )
 
     def get(self, project_id: int) -> RepoMarkRecord | None:
-
         with Session(self.engine) as session:
             res = (
                 session.execute(
@@ -234,7 +230,6 @@ class RepoMarkStore:
             return deactivated_id is not None
 
     def get_main_branch(self, project_id: int) -> RepoMainBranchRecord | None:
-
         with Session(self.engine) as session:
             row = session.execute(
                 select(
@@ -270,7 +265,6 @@ class RepoMarkStore:
         remote: str | None,
         branch: str,
     ) -> RepoMainBranchRecord:
-
         mark = self.get(project_id)
         assert mark is not None, f"repo mark must exist: {project_id}"
         with Session(self.engine) as session, session.begin():

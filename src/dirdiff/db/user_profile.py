@@ -27,14 +27,12 @@ def _validate_username(username: str) -> None:
 
 class UserProfileStore:
     def __init__(self, engine: Engine) -> None:
-
         self.engine: Engine = engine
 
     def create(
         self,
         username: str,
     ) -> UserProfileRecord:
-
         _validate_username(username)
         try:
             with Session(self.engine) as session, session.begin():
@@ -118,7 +116,6 @@ class UserProfileStore:
             raise ValueError("Username already exists.") from exc
 
     def get(self, profile_id: int) -> UserProfileRecord | None:
-
         with Session(self.engine) as session:
             row = session.execute(
                 select(
@@ -133,7 +130,6 @@ class UserProfileStore:
     def update_username(
         self, profile_id: int, username: str
     ) -> UserProfileRecord | None:
-
         _validate_username(username)
         try:
             with Session(self.engine) as session, session.begin():

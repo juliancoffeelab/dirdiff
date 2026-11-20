@@ -133,7 +133,6 @@ def run_gumtree_json(
     left_path_hint: str,
     right_path_hint: str,
 ) -> GumTreeJson:
-
     def _temp_file_name(label: str, path_hint: str) -> str:
         if path_hint == "":
             return label

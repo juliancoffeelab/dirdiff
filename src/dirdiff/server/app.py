@@ -347,12 +347,10 @@ def _create_runtime_app() -> FastAPI:
 
 
 def development_uvicorn_entrypoint() -> FastAPI:
-
     app = _create_runtime_app()
 
     @app.get("/", response_class=HTMLResponse)
     def serve_frontend_missing() -> HTMLResponse:
-
         return HTMLResponse(
             """
             <!doctype html>
@@ -407,7 +405,6 @@ def development_uvicorn_entrypoint() -> FastAPI:
 
 
 def release_uvicorn_entrypoint() -> FastAPI:
-
     app = _create_runtime_app()
     frontend_path = Path(str(files("dirdiff").joinpath("frontend")))
     index_path = frontend_path / "index.html"
@@ -419,7 +416,6 @@ def release_uvicorn_entrypoint() -> FastAPI:
 
     @app.get("/")
     def serve_release_frontend() -> FileResponse:
-
         return FileResponse(index_path, headers={"Cache-Control": "no-cache"})
 
     app.mount("/assets", StaticFiles(directory=assets_path), name="assets")

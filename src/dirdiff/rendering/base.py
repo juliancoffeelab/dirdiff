@@ -449,7 +449,6 @@ def highlight_lines_for_path(
     path: str | None,
     text: str,
 ) -> list[list[SyntaxSpan]] | None:
-
     def _syntax_spec_for_path(path: str) -> _SyntaxLanguageSpec | None:
         normalized = path.casefold()
         basename = normalized.rsplit("/", 1)[-1]
@@ -488,7 +487,6 @@ def _load_syntax_language_query(
 
 @cache
 def _load_syntax_query_text(package_name: str, query_path: str) -> str:
-
     def _inherited_query_names(query_text: str) -> list[str]:
         inherited_names: list[str] = []
         for line in query_text.splitlines():
@@ -524,7 +522,6 @@ def _highlight_lines_with_spec(
     spec: _SyntaxLanguageSpec,
     text: str,
 ) -> list[list[SyntaxSpan]] | None:
-
     def _classes_for_capture(
         capture_name: str,
     ) -> tuple[SyntaxClass, ...]:
@@ -703,7 +700,6 @@ def enrich_rows_for_display(
     left_path_hint: str | None = None,
     right_path_hint: str | None = None,
 ) -> EnrichedRows:
-
     def _syntax_for_side(
         side: Literal["left", "right"],
         path_hint: str | None,

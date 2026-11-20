@@ -51,7 +51,6 @@ cli_app.add_typer(agent_app, name="agent")
 
 
 def configure_logging() -> None:
-
     logging.basicConfig(
         level=logging.INFO
         if os.environ.get("DIRDIFF_DEBUG_PERF") == "1"
@@ -64,7 +63,6 @@ def configure_logging() -> None:
 
 
 def _installation() -> tuple[InstallationMode, Path]:
-
     try:
         installed_distribution = distribution("dirdiff")
     except PackageNotFoundError as exc:
@@ -514,5 +512,4 @@ def mark(
 
 
 def main() -> None:
-
     cli_app()

@@ -112,7 +112,6 @@ def fold_actions(
     Literal["author", "reviewer", "both", "none"],
     list[ReviewCommentView],
 ]:
-
     # Impossible persisted history asserts; it is never repaired or skipped.
     assert actions != () and actions[0].payload.kind == "thread-created"
     assert [action.sequence for action in actions] == list(
@@ -750,12 +749,10 @@ def _bind_threads(
     lock_path: Path,
     thread_lock: Lock,
 ) -> tuple[Thread, ...]:
-
     def same_captured_file(
         origin_file: SnapshotFileRecord,
         displayed_file: SnapshotFileRecord,
     ) -> bool:
-
         def side_identity(
             side: Option[SnapshotFileSideRecord],
         ) -> Option[tuple[str, bytes, tuple[bytes, bytes | None] | None]]:
@@ -993,7 +990,6 @@ def create_thread(
     lock_path: Path,
     thread_lock: Lock,
 ) -> Thread:
-
     with room_write_lock(thread_lock, lock_path):
         profile = validate_author(database, command.author)
         # One focused File read replaces hydrating the whole Snapshot: the

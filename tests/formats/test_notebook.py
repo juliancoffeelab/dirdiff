@@ -318,7 +318,6 @@ def test_cells_pair_by_id_so_an_edited_cell_is_not_an_add_and_a_remove() -> (
 
 
 def test_bay_keys_survive_a_source_rewrite() -> None:
-
     def notebook(source: str) -> bytes:
         return json.dumps(
             {
@@ -355,7 +354,6 @@ def test_bay_keys_survive_a_source_rewrite() -> None:
 
 
 def test_cell_reorder_keeps_one_unique_key_per_cell() -> None:
-
     def notebook(order: list[str]) -> bytes:
         return json.dumps(
             {
@@ -525,7 +523,6 @@ def test_unchanged_presets_cover_added_and_removed_plot_outputs() -> None:
 
 
 def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
-
     def notebook(identifiers: list[JsonValue]) -> bytes:
         return json.dumps(
             {
@@ -588,7 +585,6 @@ def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
 
 
 def test_schema_violations_degrade_only_the_affected_notebook_part() -> None:
-
     def notebook(cell: dict[str, JsonValue]) -> bytes:
         return json.dumps(
             {
@@ -663,7 +659,6 @@ def test_schema_violations_degrade_only_the_affected_notebook_part() -> None:
 
 
 def test_a_cell_key_is_the_id_verbatim() -> None:
-
     def notebook(source: str) -> bytes:
         return json.dumps(
             {
@@ -700,7 +695,6 @@ def test_a_cell_key_is_the_id_verbatim() -> None:
 
 
 def test_notebook_level_metadata_change_is_reachable() -> None:
-
     def notebook(kernel: str, minor: int) -> bytes:
         return json.dumps(
             {
@@ -839,7 +833,6 @@ def test_one_sided_notebook_never_invents_the_absent_side() -> None:
 
 
 def test_cells_are_named_by_prompt_and_a_move_reports_both_names() -> None:
-
     def code(key: str, count: int | None, source: str) -> dict[str, JsonValue]:
         return {
             "cell_type": "code",

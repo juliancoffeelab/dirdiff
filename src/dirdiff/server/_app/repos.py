@@ -108,7 +108,6 @@ class PullRequestPrepareResponse(ApiModel):
 def _pull_request_prepare_response(
     prepared: PreparedPullRequest,
 ) -> PullRequestPrepareResponse:
-
     return PullRequestPrepareResponse.model_validate(
         {
             "project_id": prepared.project_id,

@@ -348,7 +348,6 @@ def _collect_markdown_section_hints(
     right_line_to_row: dict[int, int],
     rows: list[DiffEngineRow],
 ) -> list[FoldHint]:
-
     if spec.rules == ():
         return []
 
@@ -448,7 +447,6 @@ def _collect_candidates(
     source_bytes: bytes,
     right_line_to_row: dict[int, int],
 ) -> list[FoldCandidate]:
-
     deduped: dict[tuple[str, int, int, int, int], FoldCandidate] = {}
 
     for pattern_index, capture_map in matches:
@@ -533,7 +531,6 @@ def _collect_candidates(
 
 
 def _assign_candidate_parents(candidates: list[FoldCandidate]) -> None:
-
     ordered = sorted(
         candidates,
         key=lambda candidate: (
@@ -604,7 +601,6 @@ def _candidate_to_hint(
     candidate: FoldCandidate,
     rows: list[DiffEngineRow],
 ) -> FoldHint | None:
-
     hidden_rows = candidate.hidden_end_row - candidate.hidden_start_row
     if hidden_rows < candidate.rule.min_hidden_rows:
         return None
@@ -641,7 +637,6 @@ def _collect_top_level_hints(
     rows: list[DiffEngineRow],
     existing_hints: list[FoldHint],
 ) -> list[FoldHint]:
-
     items = _collect_top_level_items(
         root_node,
         source_bytes,
@@ -681,7 +676,6 @@ def _collect_top_level_items(
     source_bytes: bytes,
     right_line_to_row: dict[int, int],
 ) -> list[TopLevelItem]:
-
     if root_node.type == "document":
         return _collect_json_top_level_items(
             root_node,
@@ -720,7 +714,6 @@ def _collect_json_top_level_items(
     source_bytes: bytes,
     right_line_to_row: dict[int, int],
 ) -> list[TopLevelItem]:
-
     containers = [
         child
         for child in root_node.children
@@ -758,7 +751,6 @@ def _collect_json_top_level_items(
 
 
 def _json_top_level_label_kind(node: Node) -> str | None:
-
     if node.type == "pair":
         return "property"
     if node.type in {
@@ -775,7 +767,6 @@ def _json_top_level_label_kind(node: Node) -> str | None:
 
 
 def _classify_top_level_node(node: Node) -> tuple[Node, str] | None:
-
     if node.type == "export_statement":
         return node, "declaration"
     label_kind = TOP_LEVEL_NODE_KINDS.get(node.type)
@@ -790,7 +781,6 @@ def _append_top_level_run_hint(
     existing_ranges: set[tuple[int, int]],
     hints: list[FoldHint],
 ) -> None:
-
     if run == []:
         return
     start_row = run[0].start_row
@@ -828,7 +818,6 @@ def _top_level_run_label(run: list[TopLevelItem]) -> str:
 
 
 def _fold_hint_sort_key(hint: FoldHint) -> tuple[int, int]:
-
     return int(hint["start_row"]), int(hint["end_row"])
 
 
@@ -836,7 +825,6 @@ def _child_candidates(
     parent: FoldCandidate,
     all_candidates: list[FoldCandidate],
 ) -> list[FoldCandidate]:
-
     return sorted(
         (
             candidate
@@ -851,7 +839,6 @@ def _child_candidates(
 
 
 def _rows_are_unchanged(rows: list[DiffEngineRow]) -> bool:
-
     return bool(rows) and all(not engine_row_has_change(row) for row in rows)
 
 
@@ -859,7 +846,6 @@ def _has_ancestor_kind(
     candidate: FoldCandidate,
     region_kind: RegionKind,
 ) -> bool:
-
     parent = candidate.parent
     while parent is not None:
         if parent.rule.region_kind == region_kind:
@@ -872,7 +858,6 @@ def _contains(
     outer: FoldCandidate,
     inner: FoldCandidate,
 ) -> bool:
-
     return (
         outer.context_start_byte <= inner.context_start_byte
         and outer.context_end_byte >= inner.context_end_byte
@@ -884,7 +869,6 @@ def _contains(
 
 
 def _node_line_span(node: Node, source_bytes: bytes) -> tuple[int, int]:
-
     start_line = node.start_point.row + 1
     end_line = node.end_point.row + 1
     if (
@@ -901,7 +885,6 @@ def _hidden_line_span(
     source_bytes: bytes,
     start_mode: StartMode,
 ) -> tuple[int, int]:
-
     start_line, end_line = _node_line_span(node, source_bytes)
     if start_mode == "next_line":
         start_line += 1
@@ -913,7 +896,6 @@ def _lines_to_row_span(
     start_line: int,
     end_line: int,
 ) -> tuple[int, int] | None:
-
     start_row = right_line_to_row.get(start_line)
     end_row = right_line_to_row.get(end_line)
     if start_row is None or end_row is None:
@@ -922,14 +904,12 @@ def _lines_to_row_span(
 
 
 def _node_text(node: Node, source_bytes: bytes) -> str:
-
     return source_bytes[node.start_byte : node.end_byte].decode(
         "utf-8", errors="ignore"
     )
 
 
 def _markdown_heading_level(node: Node) -> int:
-
     if node.type == "atx_heading":
         for child in node.children:
             if child.type.startswith("atx_h") and child.type.endswith(
@@ -950,7 +930,6 @@ def _markdown_heading_level(node: Node) -> int:
 
 
 def _spec_for_path(path: str) -> FoldLanguageSpec | None:
-
     normalized = path.casefold()
     basename = normalized.rsplit("/", 1)[-1]
     for spec in FOLD_LANGUAGE_SPECS:
@@ -967,7 +946,6 @@ def _load_language_query(
     language_attr: str,
     query_path: str,
 ) -> tuple[Language, Query]:
-
     module = importlib.import_module(module_name)
     language_factory = getattr(module, language_attr)
     language = Language(language_factory())

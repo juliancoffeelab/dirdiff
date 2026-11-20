@@ -122,7 +122,6 @@ def bootstrap_tables(
     *,
     migrate: Optional[tuple[Path, Path]] = None,
 ) -> None:
-
     if migrate is not None:
         db_path, migration_config_path = migrate
         assert migration_config_path.is_file(), (
@@ -144,7 +143,6 @@ def bootstrap_tables(
 
 
 def open_sqlite_engine(db_path: Path, migration_config_path: Path) -> Engine:
-
     expanded_path = db_path.expanduser()
     expanded_path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{expanded_path}")
@@ -157,7 +155,6 @@ def open_sqlite_engine(db_path: Path, migration_config_path: Path) -> Engine:
 
 
 def open_ephemeral_engine() -> Engine:
-
     # StaticPool shares one connection across sessions and threads; each new
     # connection would otherwise be a separate empty in-memory database.
     engine = create_engine(

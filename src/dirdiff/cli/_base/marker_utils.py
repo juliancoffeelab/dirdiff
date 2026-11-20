@@ -45,14 +45,12 @@ __all__ = [
 
 
 def agent_skills_path(mode: InstallationMode) -> Path:
-
     if mode == "development":
         return DEVELOPMENT_AGENT_SKILLS_PATH
     return Path(str(distribution("dirdiff").locate_file("dirdiff/skills")))
 
 
 def migration_config_path(mode: InstallationMode) -> Path:
-
     if mode == "development":
         return DEVELOPMENT_MIGRATION_CONFIG_PATH
     return Path(
@@ -61,14 +59,12 @@ def migration_config_path(mode: InstallationMode) -> Path:
 
 
 def default_db_path(mode: InstallationMode) -> Path:
-
     if mode == "development":
         return DEVELOPMENT_DB_PATH
     return RELEASE_DB_PATH
 
 
 def db_path_or_default(db_path: Path | None, mode: InstallationMode) -> Path:
-
     if db_path is not None:
         return db_path.expanduser()
     configured = os.environ.get(DB_PATH_ENV)
@@ -78,7 +74,6 @@ def db_path_or_default(db_path: Path | None, mode: InstallationMode) -> Path:
 
 
 def absolute_repo_path(repo_path: Path) -> Path:
-
     expanded_path = repo_path.expanduser()
     if expanded_path.is_absolute():
         return expanded_path
@@ -88,7 +83,6 @@ def absolute_repo_path(repo_path: Path) -> Path:
 
 
 def duplicate_repo_path_error(repo_path: Path, exc: IntegrityError) -> NoReturn:
-
     # SQLAlchemy raises one IntegrityError type for every constraint; only the
     # path uniqueness failure is an expected user error.
     if "repo_mark.path" in str(exc):
@@ -103,7 +97,6 @@ def mark_repo(
     db_path: Path | None,
     mode: InstallationMode,
 ) -> None:
-
     engine = open_sqlite_engine(
         db_path_or_default(db_path, mode), migration_config_path(mode)
     )
@@ -125,7 +118,6 @@ def mark_repo(
 
 
 def print_marked_repos(*, db_path: Path | None, mode: InstallationMode) -> None:
-
     engine = open_sqlite_engine(
         db_path_or_default(db_path, mode), migration_config_path(mode)
     )
@@ -142,7 +134,6 @@ def print_marked_repos(*, db_path: Path | None, mode: InstallationMode) -> None:
 def remove_marked_repo(
     *, project_id: int, db_path: Path | None, mode: InstallationMode
 ) -> None:
-
     engine = open_sqlite_engine(
         db_path_or_default(db_path, mode), migration_config_path(mode)
     )

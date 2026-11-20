@@ -66,7 +66,6 @@ def image_bays(
     left_media_type: Option[str],
     right_media_type: Option[str],
 ) -> Iterator[Bay]:
-
     def metadata(
         side: Option[MediaSide],
         side_label: str,

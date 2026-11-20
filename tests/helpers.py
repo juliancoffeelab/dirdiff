@@ -120,7 +120,6 @@ def tool_json(
     right: ToolSide,
     allow_mismatches: bool = False,
 ) -> DifftasticJson | GumTreeJson | DiffsitterJson:
-
     def valid_cache_key(value: str) -> bool:
         return (
             re.fullmatch(
@@ -364,7 +363,6 @@ def build_loaded_diff(
     left_path_hint: str | None = None,
     right_path_hint: str | None = None,
 ) -> _LoadedDiff:
-
     renderer = TextDiffEngine()
     rendered = renderer.render_diff(
         old=DiffSide(

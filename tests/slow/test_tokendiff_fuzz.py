@@ -60,7 +60,6 @@ def _mutant(source: str, rng: random.Random) -> str:
 
 
 def _check_invariants(left: str, right: str) -> None:
-
     def _side_no(row: DiffEngineRow, side: Side) -> int | None:
         number = row.get(f"{side}_no")
         assert number is None or isinstance(number, int)

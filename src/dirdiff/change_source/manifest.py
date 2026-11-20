@@ -96,7 +96,6 @@ def file_kind_for_change_type(
 
 
 def _lazy_reason_for_repo_entry(entry: ManifestPath) -> LazyReason | None:
-
     def _looks_generated_path(path: Option[str]) -> bool:
         return (
             Some.present(path)

@@ -398,7 +398,6 @@ def _has_shared_informative_alignment_word(
     left_words: list[str],
     right_words: list[str],
 ) -> bool:
-
     def _is_informative_alignment_word(word: str) -> bool:
         folded = word.casefold()
         return not folded.isdigit() and folded not in ALIGNMENT_NOISE_WORDS
@@ -420,7 +419,6 @@ def _has_shared_informative_alignment_word(
 
 
 def _line_alignment_ratio(left_line: str, right_line: str) -> float:
-
     def _line_alignment_words(text: str) -> list[str]:
         return ALIGNMENT_WORD_PATTERN.findall(text.lstrip())
 

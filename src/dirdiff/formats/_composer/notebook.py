@@ -148,7 +148,6 @@ def try_load_notebook_document(data: bytes) -> Option[NotebookDocument]:
         return "".join(parts)
 
     def try_load_output(entry: JsonValue) -> NotebookOutputEntry:
-
         def rejected(reason: str) -> Err[RejectedNotebookPart]:
             return Err(
                 RejectedNotebookPart(
@@ -368,7 +367,6 @@ def _paired_cells(
     left_cells: list[NotebookCellEntry],
     right_cells: list[NotebookCellEntry],
 ) -> list[tuple[str, Option[int], Option[int], bool]]:
-
     def entry_keys(entries: list[NotebookCellEntry]) -> list[str]:
         occurrences: dict[str, int] = {}
         keys: list[str] = []
@@ -457,7 +455,6 @@ def notebook_bays(
     right_bytes: Option[bytes],
     context: BayContext,
 ) -> Iterator[TextBay | ImageBay]:
-
     def canonical_json(value: JsonValue) -> str:
         return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
 

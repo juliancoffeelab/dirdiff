@@ -144,7 +144,6 @@ class ClassRoutes:
         summary: str | None,
         response_class: type[Response],
     ) -> Callable[[Endpoint], Endpoint]:
-
         def record(endpoint: Endpoint) -> Endpoint:
             assert isinstance(endpoint, FunctionType)
             self._declarations.append(
@@ -167,7 +166,6 @@ class ClassRoutes:
         self,
         exception_class: type[Exception],
     ) -> Callable[[Endpoint], Endpoint]:
-
         def record(endpoint: Endpoint) -> Endpoint:
             assert isinstance(endpoint, FunctionType)
             self._declarations.append(

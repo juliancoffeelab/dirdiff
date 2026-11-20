@@ -70,7 +70,6 @@ def build_gumtree_rows_from_json(
     left_path_hint: str,
     right_path_hint: str,
 ) -> list[DiffEngineRow]:
-
     def lines(text: str) -> list[_Line]:
         result: list[_Line] = []
         cursor = 0
@@ -400,7 +399,6 @@ class GumTreeDiffEngine(DiffEngineProtocol):
         old: DiffSide,
         new: DiffSide,
     ) -> DiffEngineResult:
-
         def _unified_diff_rows(
             *,
             left_text: str,
@@ -561,7 +559,6 @@ class GumTreeDiffEngine(DiffEngineProtocol):
         left_path_hint: str,
         right_path_hint: str,
     ) -> GumTreeJson:
-
         return run_gumtree_json(
             matcher=self.matcher,
             gumtree_bin=gumtree_executable_for_cwd(Path.cwd()),

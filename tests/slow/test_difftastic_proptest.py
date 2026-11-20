@@ -228,7 +228,6 @@ def _text_without_difftastic_ignored_trailing_commas(
 def test_difftastic_preset_tokens_stay_in_source_order(
     case: PresetCase,
 ) -> None:
-
     def _side_rendered_text(
         rows: list[DiffEngineRow],
         *,
@@ -480,7 +479,6 @@ def test_difftastic_preset_diff_replays_both_directions(
         target_changed: set[str],
         direction: str,
     ) -> None:
-
         side_parts: dict[Side, list[tuple[str, str]]] = {
             "left": [],
             "right": [],

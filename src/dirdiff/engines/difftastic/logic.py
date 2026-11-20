@@ -195,7 +195,6 @@ def _span_index(
 def _line_tokens(
     line: str, spans: list[_Span]
 ) -> list[_DifftasticPartitionToken]:
-
     if spans == []:
         return []
 

@@ -49,7 +49,6 @@ class Composer:
         right: Option[bytes],
         context: BayContext,
     ) -> Iterator[Bay]:
-
         if Some.present(context.left_link) or Some.present(context.right_link):
             yield from symlink_bays(left, right, context)
             return

@@ -897,7 +897,6 @@ class ExternalAgentRoutes:
         }
 
         def require_parameters(required: set[str]) -> None:
-
             supplied_query = request.query_params.multi_items()
             supplied_names = {name for name, _value in supplied_query}
             expected_names = {"tab", *required}

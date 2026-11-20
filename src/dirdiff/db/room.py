@@ -2248,7 +2248,6 @@ class RoomStore:
         tuple[str, ...],
         dict[tuple[str, str], SnapshotFileRecord],
     ]:
-
         file_query = (
             select(
                 SnapshotFile,

@@ -353,7 +353,6 @@ class ActionsResponse(Wire):
 
 
 def fail(message: str) -> NoReturn:
-
     typer.echo(message, err=True)
     raise typer.Exit(1)
 
@@ -361,7 +360,6 @@ def fail(message: str) -> NoReturn:
 def endpoint(
     server_url: str, path: str, query: dict[str, str | int] | None = None
 ) -> str:
-
     if query is None:
         return server_url + path
     return f"{server_url}{path}?{urlencode(query)}"
@@ -374,7 +372,6 @@ def fetch[Result: Wire](
     body: dict[str, JsonValue] | None = None,
     timeout: float = 60,
 ) -> Result:
-
     request = Request(
         url,
         data=None if body is None else json.dumps(body).encode(),
@@ -395,7 +392,6 @@ def fetch[Result: Wire](
 
 
 def load_session(path: Path) -> Session:
-
     if not path.is_file():
         fail(f"Session file {path} does not exist; create it with `init`.")
     try:
@@ -405,12 +401,10 @@ def load_session(path: Path) -> Session:
 
 
 def save_session(path: Path, session: Session) -> None:
-
     path.write_text(session.model_dump_json(indent=2) + "\n")
 
 
 def read_body(body_file: Path | None) -> str:
-
     if body_file is not None:
         if not body_file.is_file():
             fail(f"Body file {body_file} does not exist.")
@@ -425,7 +419,6 @@ def read_body(body_file: Path | None) -> str:
 
 
 def describe_author(author: Author) -> str:
-
     if not author.is_agent:
         return f"{author.name} (human)"
     details = [x for x in (author.model, author.harness) if x is not None]
@@ -433,12 +426,10 @@ def describe_author(author: Author) -> str:
 
 
 def format_time(moment: AwareDatetime) -> str:
-
     return moment.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def describe_location(location: Location | None) -> str:
-
     if location is None:
         return "whole review"
     parts = [location.side]
@@ -450,19 +441,16 @@ def describe_location(location: Location | None) -> str:
 
 
 def describe_state(status: str, waiting_on: str) -> str:
-
     if waiting_on == "none":
         return status
     return f"{status}, waiting on {waiting_on}"
 
 
 def indent(text: str, prefix: str) -> str:
-
     return "\n".join(prefix + line for line in text.splitlines())
 
 
 def list_threads(session: Session, status: Literal["open", "all"]) -> None:
-
     items: list[ThreadSummary] = []
     page = 1
     # Page one omits the pivot and the server chooses it; later pages repeat it
@@ -506,7 +494,6 @@ def list_threads(session: Session, status: Literal["open", "all"]) -> None:
 def print_snapshot(
     old_snapshot_id: str | None, capture: CaptureResponse
 ) -> None:
-
     if old_snapshot_id is None:
         typer.echo(f"Snapshot {capture.snapshot_id}")
     elif old_snapshot_id == capture.snapshot_id:
@@ -542,7 +529,6 @@ def print_snapshot(
 def apply_action(
     session: Session, action: dict[str, JsonValue]
 ) -> ActionResult:
-
     response = fetch(
         ActionsResponse,
         endpoint(session.server_url, "/api/agent/actions"),
@@ -829,7 +815,6 @@ def show(session: SessionOption, thread_id: str) -> None:
 
 
 def report_activity(session_path: Path, wait_seconds: int | None) -> None:
-
     state = load_session(session_path)
     # Own events are skipped but the cursor still moves past them; printing
     # them would make `wait` return right after every post.

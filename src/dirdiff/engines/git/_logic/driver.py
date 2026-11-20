@@ -69,7 +69,6 @@ def run_git_no_index_diff(
     left_path_hint: str | None,
     right_path_hint: str | None,
 ) -> str:
-
     def _temp_file_name(label: str, path_hint: str | None) -> str:
         if path_hint is None:
             return f"{label}.txt"

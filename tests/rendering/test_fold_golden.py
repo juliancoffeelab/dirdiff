@@ -38,7 +38,6 @@ def test_fold_preset_hints_match_golden(
     preset_dir: Path,
     snapshot_json: SnapshotAssertion,
 ) -> None:
-
     def display_row_has_change(row: DiffRow) -> bool:
         if row["status"] != "equal":
             return True

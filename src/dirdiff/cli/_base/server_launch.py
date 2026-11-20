@@ -55,7 +55,6 @@ class AppOptions:
 
 
 def build_url(port: int, config: RuntimeConfig) -> str:
-
     root = f"http://127.0.0.1:{port}/"
     if config.tab == "head":
         return root
@@ -92,7 +91,6 @@ def start_frontend_dev_server(
     backend_port: int,
     frontend_port: int,
 ) -> subprocess.Popen[bytes]:
-
     env = os.environ.copy()
     env["VITE_DIRDIFF_BACKEND_ORIGIN"] = f"http://127.0.0.1:{backend_port}"
     # --strictPort: Vite must not silently move, or the printed URL would point
@@ -115,7 +113,6 @@ def start_frontend_dev_server(
 
 
 def can_bind_port(port: int) -> bool:
-
     # Non-reserving probe: another process can still take the port before the
     # server binds. Any bind error counts as unavailable.
     try:
@@ -128,7 +125,6 @@ def can_bind_port(port: int) -> bool:
 
 
 def require_bindable_port(port: int, *, label: str) -> None:
-
     if can_bind_port(port):
         return
     raise SystemExit(
@@ -138,7 +134,6 @@ def require_bindable_port(port: int, *, label: str) -> None:
 
 
 def choose_port_pair(backend_port: int, frontend_port: int) -> tuple[int, int]:
-
     # Both ports shift by the same offset so their requested relationship holds.
     for offset in range(PORT_FALLBACK_ATTEMPTS):
         next_backend_port = backend_port + offset
@@ -162,7 +157,6 @@ def require_marked_repos(
     migration_config_path: Path,
     default_db_path: Path,
 ) -> None:
-
     engine = open_sqlite_engine(db_path, migration_config_path)
     marks = RepoMarkStore(engine).list()
     if len(marks) > 0:
@@ -180,7 +174,6 @@ def choose_runtime_ports(
     frontend_port: int,
     use_frontend_dev: bool,
 ) -> tuple[int, int]:
-
     if use_frontend_dev:
         backend, frontend = choose_port_pair(
             backend_port,
@@ -210,7 +203,6 @@ def choose_runtime_ports(
 
 
 def open_browser(url: str) -> None:
-
     # Delay so uvicorn and Vite bind first; failures surface on the timer
     # thread and are not reported. The printed URL remains for manual opening.
     threading.Timer(1.0, lambda: webbrowser.open(url)).start()
@@ -224,7 +216,6 @@ def start_frontend(
     backend_url: str,
     frontend_url: str,
 ) -> tuple[subprocess.Popen[bytes] | None, str]:
-
     if not use_frontend_dev:
         return None, backend_url
     try:
@@ -248,7 +239,6 @@ def run_uvicorn(
     port: int,
     mode: Literal["development", "release"],
 ) -> None:
-
     # Keep uvicorn out of normal CLI import cost; this path is only reached
     # once the command is ready to hand control to the backend server process.
     import uvicorn  # noqa: PLC0415

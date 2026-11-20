@@ -177,7 +177,6 @@ def test_git_preset_diff_replays_both_directions(
     preset: Path,
     algorithm: GitAlgorithm,
 ) -> None:
-
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     old_text = old_path.read_text()
@@ -257,7 +256,6 @@ def test_git_preset_word_diff_replays_both_directions(
     preset: Path,
     algorithm: GitAlgorithm,
 ) -> None:
-
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     old_text = old_path.read_text()
@@ -387,7 +385,6 @@ def test_git_preset_word_diff_row_status_preserves_complete_token_facts(
     preset: Path,
     algorithm: GitAlgorithm,
 ) -> None:
-
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     result = GitDiffEngine(algorithm=algorithm, word_diff=True).render_diff(
@@ -450,7 +447,6 @@ def test_git_preset_line_alignment_matches_git_patch(
     algorithm: GitAlgorithm,
     tmp_path: Path,
 ) -> None:
-
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     old_text = old_path.read_text()
@@ -550,7 +546,6 @@ def test_git_preset_changed_rows_match_git_patch(
     color_moved_ws: GitColorMovedWs,
     tmp_path: Path,
 ) -> None:
-
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     old_text = old_path.read_text()
@@ -733,7 +728,6 @@ def test_git_preset_ignore_space_change_matches_whitespace_mutation(
     reverse: bool,
     algorithm: GitAlgorithm,
 ) -> None:
-
     # Stage 0: generate ignored whitespace changes plus one inserted line.
     source_path = next(preset.glob(f"{source_side}.*"))
     source_text = source_path.read_text()
@@ -918,7 +912,6 @@ def test_git_preset_word_diff_ignore_space_change_replays_whitespace_mutation(
     reverse: bool,
     algorithm: GitAlgorithm,
 ) -> None:
-
     # Stage 0: generate ignored whitespace changes plus one real word edit.
     source_path = next(preset.glob(f"{source_side}.*"))
     source_text = source_path.read_text()
@@ -1022,7 +1015,6 @@ def test_git_preset_word_diff_ignore_space_change_reproduces_color_word_stream(
     reverse: bool,
     algorithm: GitAlgorithm,
 ) -> None:
-
     # Stage 0: generate ignored whitespace changes plus one real word edit.
     source_path = next(preset.glob(f"{source_side}.*"))
     source_text = source_path.read_text()

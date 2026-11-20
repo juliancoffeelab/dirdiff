@@ -4,7 +4,6 @@ from dirdiff.change_source import pull_request
 
 
 def test_github_pull_request_url_parses_repo_and_number() -> None:
-
     parsed = pull_request.parse_github_pull_request_url(
         "https://github.com/Wilfred/difftastic/pull/1007"
     )
@@ -13,7 +12,6 @@ def test_github_pull_request_url_parses_repo_and_number() -> None:
 
 
 def test_github_remote_key_matches_git_remote_url() -> None:
-
     assert pull_request.repo_key_from_git_url(
         "https://github.com/Wilfred/difftastic"
     ) == pull_request.repo_key_from_git_url(
@@ -22,7 +20,6 @@ def test_github_remote_key_matches_git_remote_url() -> None:
 
 
 def test_gitlab_merge_request_url_parses_nested_project_path() -> None:
-
     parsed = pull_request.parse_gitlab_merge_request_url(
         "https://gitlab.example.com/group/subgroup/project/-/merge_requests/17"
     )
@@ -36,7 +33,6 @@ def test_gitlab_merge_request_url_parses_nested_project_path() -> None:
 
 
 def test_gitlab_remote_key_matches_git_remote_url() -> None:
-
     assert pull_request.repo_key(
         host="gitlab.example.com",
         path="group/subgroup/project",
