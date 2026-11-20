@@ -12,66 +12,59 @@ or the frontend. Outdated state is highly unlikely, and is a likely a bug.
 This document is for agents, README.md is for humans and you are not allowed
 to edit top-level README.md, ever.
 
-## Non-negotiable rules
+This file holds what applies to every task. Procedures for one kind of task
+live in skills under `.agents/skills/`.
 
-### Do not make unauthorized changes
+## Permission and contradictions
 
-- Discussion, investigation, a proposed design, and approval of documentation
-  are not permission to edit code.
-- Permission applies once, to the exact action and scope the user approved. It
-  does not silently extend to adjacent fixes, cleanup, tests, documentation, or
-  later turns.
-- Questions are read-only. "Why X", "what about Y", "you think it should work
-  like that" and others *forbid* editing code.
+- Approval covers the exact action and scope the user approved, once. Adjacent
+  fixes, cleanup, tests, documentation and later turns each need their own.
+  Discussion, investigation, a proposed design and approved documentation are
+  not approval to edit code.
+- A question is read-only. "Why X", "what about Y", "you think it should work
+  like that": answer it and edit nothing.
+- When user instructions, documentation, code, tests or tooling contradict one
+  another, or the instructions have a gap, stop and report: the conflicting
+  statements, their concrete consequence, and the reasonable choices. Wait for
+  the user when the resolution changes behavior, architecture, scope or an
+  invariant.
 
-### Do not hide broken contracts
+## Contracts and failures
 
-- Do not add fallbacks, compatibility shims, silent recovery, invented defaults,
-  or substitute data without explicit user approval.
-  You can't violate that rule and then ask if it's ok. You must get an explicit
-  approval before you do that.
-- Never swallow errors. JavaScript may throw or show a Toast; Python may throw or
-  log at an explicitly valid damage boundary.
-- Damage stops at the smallest UI piece that cannot produce a valid result.
-  Unexpected thrown failures are contained by the nearest `ErrorBoundary`.
-- Required inputs are required. Do not make a parameter optional merely to avoid
-  handling an invariant.
-- Assert invalid data at the boundary where it becomes invalid. TypeScript uses
-  `assert()` and `expect()` from `utils.ts`; Python uses `assert`.
-- When an interface changes, update every in-scope caller and test. Do not create
-  a compatibility path.
+- Fallbacks, compatibility shims, silent recovery, invented defaults and
+  substitute data need the user's explicit approval before they are written,
+  not after. When an interface changes, update every in-scope caller and test.
+- Errors surface. JavaScript throws or shows a Toast; Python raises, or logs at
+  an explicitly valid damage boundary. Damage stops at the smallest UI piece
+  that cannot produce a valid result; the nearest `ErrorBoundary` contains
+  unexpected throws.
+- Required inputs stay required. Assert invalid data at the boundary where it
+  becomes invalid: `assert()` and `expect()` from `utils.ts`, `assert` in
+  Python.
 
-### Do not create accidental complexity
+## Simplicity
 
-- Prefer one explicit action over effects, observers, implicit repair, duplicated
-  state, or several paths to the same operation.
-- Do not introduce reconciliation, healing, regulation, or similar machinery to
-  compensate for an unclear architecture. Create an explicit action that changes
-  the authoritative data or DOM directly.
-- Do not copy backend query results into another client store. Keep one
-  authoritative representation for each piece of data.
-- Do not add optional inputs, providers, signals, caches, queues, callbacks, or
-  helper layers without a concrete contract that requires them.
-- Before adding a helper, inspect every use. If it has one use, inline it with a
-  local comment. If all uses belong to one function, nest it in that function.
-  If a separate helper still appears beneficial, explain that to the user before
-  adding it, and add it only if user agrees.
-- Strongly prefer composition over inheritance.
+- One explicit action that changes the authoritative data or DOM directly, in
+  place of effects, observers, implicit repair, duplicated state or several
+  paths to one operation.
+- One authoritative representation per piece of data. Backend query results
+  stay in the query cache.
+- An optional input, provider, signal, cache, queue, callback or helper layer
+  exists only where a concrete contract requires it.
+- Before adding a helper, inspect every use. One use: inline it with a local
+  comment. All uses in one function: nest it there. If a separate helper still
+  looks better, explain why to the user and add it only if they agree.
+- Composition over inheritance.
 
-### Preserve explicit invariants
+## Invariants and documentation
 
-- Read `spec/frontend_index.md` or `spec/backend_index.md` and the relevant
-  subsystem document before changing that subsystem.
-- Do not add another `selectHunk()` caller. A deterministic lint enforces its
-  five direct callers.
-- Initial hunk selection belongs to the mounted snapshot. FileTree name
-  navigation selects hunks; line-pin navigation does not.
-- Preserve other documented ownership, lifetime, ordering, and DOM invariants.
-  If the code and documentation disagree, investigate the disagreement instead
-  of silently forcing either side to match.
-
-### Comment what the code cannot say
-
+- Read the relevant document under `spec/` before changing that subsystem.
+  Specs describe the code as it is and hold only what the code cannot show:
+  invariants, ownership, lifetimes, ordering, and the reason for a choice. Code
+  and specs change together; when they disagree, investigate the disagreement.
+- `selectHunk()` has a fixed set of direct callers, enforced by lint. Initial
+  hunk selection belongs to the mounted snapshot. FileTree name navigation
+  selects hunks; line-pin navigation does not.
 - A comment or docstring states a fact the code cannot: why, an invariant, a
   lifetime, an ordering constraint, or a quirk of an external tool. Everything
   else is said by names, types and the code itself, and gets no comment, unless
@@ -79,46 +72,25 @@ to edit top-level README.md, ever.
 - CLI help text and HTTP endpoint descriptions are user-facing output, written
   for the person reading `--help` or the API schema.
 
-## Authority and contradictions
-
-- `spec/goal.md` defines the role of the architecture documents. They are living
-  descriptions of the implementation, not frozen requirements for a future
-  implementation.
-- Code and documentation evolve together. Neither silently overrides stale text
-  in the other.
-- If user instructions, documentation, implementation, tests, or tooling
-  contradict one another, stop before choosing a resolution.
-  If user instructions have gaps, ask, don't assume.
-- Report the conflicting statements, their concrete consequence, and the
-  reasonable choices. Wait for the user when the resolution changes
-  behavior, architecture, scope, or an explicit invariant.
-- Do not use an unusual workaround to make contradictory requirements appear
-  compatible.
-
 ## Module architecture
 
 ### Frontend
 
-- `spec/frontend_index.md` maps the current frontend modules and their
-  interfaces.
-- Existing documented module boundaries remain stable unless the user approves
-  an architectural change.
-- Do not create a new module unless its coherent implementation is reasonably
-  expected to exceed 500 lines. A component boundary is not automatically a
-  file boundary. If you think something should have a module, suggest it to the
-  user.
 - Domain-independent controls live in `frontend/src/comp/`; dirdiff UI lives in
   `frontend/src/hud/`; backend communication and TanStack definitions live in
-  `frontend/src/api/`.
-- `utils.ts` is the explicit exception for small, genuinely shared
+  `frontend/src/api/`. `utils.ts` holds small, genuinely shared
   domain-independent operations.
+- Module boundaries stay as they are unless the user approves an architectural
+  change. A new module needs a coherent implementation expected to exceed 500
+  lines; a component boundary is not a file boundary. Suggest a module to the
+  user when you think one is due.
 
 ### Python packages
 
 - Package `__init__.py` files are public facades containing re-exports only.
   The sole exception is a private `_x/__init__.py`, which is empty.
-- Code outside a package imports its public items from the package root, not its
-  submodules. Never from its submodules.
+- Code outside a package imports its public items from the package root, never
+  from its submodules.
 - Package-internal shared contracts, types, helpers, and invariants belong in
   `base.py`. Sibling modules import those internals from `base.py`, not from the
   package facade.
@@ -130,11 +102,10 @@ to edit top-level README.md, ever.
 - Top-level modules directly under `dirdiff` are peer packages represented by
   one file. Their module interface is their package interface, so other
   top-level packages import them directly.
-- A Python module must define `__all__`. Items can be listed there when they are
-  actually used outside that module. Empty private `_x/__init__.py` files are
-  the sole exception.
-- Do not use ORM, but dont throw raw SQL around, use Python DSL operations.
-- Database design must satisfy Second Normal Form or better.
+- A Python module defines `__all__`, listing the items actually used outside
+  that module. Empty private `_x/__init__.py` files are the sole exception.
+- Database access goes through Python DSL operations: no ORM, no raw SQL.
+  Database design satisfies Second Normal Form or better.
 
 ## Terminology
 
@@ -184,79 +155,62 @@ Names that commonly expose bad patterns require architectural scrutiny:
 
 ## Frontend and visual work
 
-- Treat the application as a browser UI first.
-- Preserve current visible behavior and styling unless the user explicitly asks
-  for a change. Architectural cleanup does not authorize visual redesign.
-- This is a desktop application. Do not spend project scope on mobile or narrow
-  responsive layouts unless requested.
-- Use the user’s existing hot-reloadable dirdiff/Vite session. Do not start an
-  alternative server, unless asked.
-- For user-visible frontend or rendering changes, verify the actual behavior in
-  the browser at a supported desktop viewport using screenshots.
-- Use screenshots and direct interaction for visual verification. DOM structure,
-  type checks, or computed measurements alone do not prove a visual change.
-- Do not rebuild or commit generated frontend bundles during ordinary UI work.
-  Run `bun run --cwd frontend build` only when explicitly requested.
+- This is a desktop browser UI. Mobile and narrow layouts are out of scope
+  unless requested.
+- Visible behavior and styling stay as they are unless the user asks for a
+  change. Architectural cleanup is not a redesign.
+- Use the user's running hot-reload dirdiff/Vite session; start another server
+  only when asked.
+- A user-visible change is verified in the browser with screenshots and direct
+  interaction. Type checks, DOM structure and computed measurements do not
+  prove a visual change.
+- Generated frontend bundles are built (`bun run --cwd frontend build`) and
+  committed only on request.
 
-## Testing and checks
+## Tests and checks
 
-- Choose checks that can verify the requested change. Do not run unrelated
-  suites as a substitute for examining behavior.
-- Run `make format` after code changes for which the formatter applies.
-- Use `make tscheck` & `make eslint` for ordinary frontend TypeScript
-  verification.
-- Use `make mypy` & `make ruff` & `make pyflake` for ordinary backend Python
-  verification.
-- A CSS or interaction change requires browser verification and screenshots;
-  TypeScript checks do not verify it.
-- Never change test behavior or expectations without explicit user approval.
+- Pick checks that can verify the requested change, and run `make format`
+  after code changes. Ordinary verification is `make tscheck` and
+  `make eslint` for the frontend, `make mypy`, `make ruff` and `make pyflake`
+  for the backend.
+- Run Python tests with `make pytest`, the fast subset. A bare
+  `uv run pytest` also runs the real-git integration tests; those and
+  `make pytest-slow` take tens of minutes. `make fullcheck` runs everything
+  and is for when the user asks.
+- Test behavior and expectations change only with the user's explicit approval.
+- A permanent test is added only when its value exceeds its total cost:
+  runtime, maintenance, brittleness and duplication. A missing test alone is
+  not a reason to add one. A test that is added goes after edge cases and
+  plausible bugs, not the happy path.
 - A test shows its inputs, the call and the expectation in its own body.
   Shared test infrastructure lives in `tests/helpers.py`; adding to it needs
-  the user's agreement.
-- Tests should be fast and adversarial. They should exercise edge cases and
-  reproduce plausible bugs rather than merely execute the happy path.
-- Investigative monkey-patching or internal state manipulation is acceptable
-  for finding an edge case. Final confirmation must exercise the real
-  implementation and user-visible behavior.
-  Permanent python tests *are not allowed* to use patching.
-- `uv --no-cache run pytest` runs the Python suite, including real-git
-  integration tests under `tests/integration`.
-  Dont run it, use `make pytest`, which runs relatively fast tests.
-  There is `make pytest-slow` and `make pytest-integration` which can take
-  tens of minutes.
-- If you need to do scratch checks against the project, there is (*and must
-  remain*) `tests/e2e_temp` directory. Use it if it is reasonable.
-- When user asks, there's `make fullcheck` command. But it takes a long time,
-  since it includes everything.
+  the user's agreement. [`spec/testing.md`](spec/testing.md) covers the kinds
+  of tests and how to add a preset.
+- Monkey-patching and internal state manipulation are for investigation.
+  Final confirmation exercises the real implementation and user-visible
+  behavior, and permanent Python tests use no patching.
+- Scratch checks go in `tests/e2e_temp`, which must remain.
 
 ## Review and completion
 
-- Before repository work, read the prelude in `reviewer.md`. Independent
-  reviewers read the whole file.
-- Never report completion without reading the actual diff and verifying the
-  requested outcome.
-- Formatting, type checks, and `git diff --check` are mechanical checks, not a
-  code review.
-- Review affected implementation, adjacent callers, documentation, lifecycle,
-  cancellation, errors, and user-visible behavior in proportion to the change.
-- When the user requires a zero-objection review, the existing reviewer reviews
-  every accepted fix and continues reviewing until that reviewer explicitly
-  reports zero remaining objections. Start a fresh independent reviewer only
-  after the existing reviewer has no objections. Give each fresh reviewer fresh
-  context and the required input from `reviewer.md`, then repeat the same
-  sequential process until the required independent review is complete.
+- Report completion only after reading the actual diff and verifying the
+  requested outcome. Formatting, type checks and `git diff --check` are
+  mechanical checks, not a review: look at the affected implementation, its
+  callers, lifecycle, cancellation, errors and user-visible behavior in
+  proportion to the change.
+- As you work, keep what a reviewer will need: the user's messages verbatim,
+  your test plan, what you actually ran, and screenshots of visible changes.
+  Before asking for a review, read
+  [`.agents/skills/review/handoff.md`](.agents/skills/review/handoff.md).
 
 ## Project commands and environment
 
-- Use `uv` for Python commands and dependency changes.
-- Prefer `uv --no-cache run ...` to avoid cache-permission problems in sandboxed
-  sessions.
-- `.venv/bin/...` entry points are suitable for repeated local commands that do
-  not need dependency resolution.
-- When requested to start a server, use `uv --no-cache run dirdiff --headless`.
-- When verification needs isolated server state, pass `--db-path` with a
-  disposable SQLite file.
+- Use `uv` for Python commands and dependency changes, as
+  `uv --no-cache run ...` to avoid cache-permission problems in sandboxed
+  sessions. `.venv/bin/...` entry points suit repeated local commands that need
+  no dependency resolution.
+- Start a server, when requested, with `uv --no-cache run dirdiff --headless`.
+  For isolated server state pass `--db-path` with a disposable SQLite file.
+  Mark a repository with `uv --no-cache run dirdiff mark [--db-path ...]`.
 - The user normally runs the editable installed tool through
-  `uv tool install -e .`.
-- Console entry points remain in `pyproject.toml`.
-- You can mark new repos with `uv --no-cache run dirdiff mark [--db-path ...]`
+  `uv tool install -e .`. Console entry points remain in `pyproject.toml`.
