@@ -1,139 +1,120 @@
 ---
 name: babysit-patch
-description: Use when user asks to babysit a patch.
+description: How to use dirdiff's agent API (the `dirdiff agent` CLI) as the patch author who coordinates an agent reviewer. Use when asked to babysit a patch. It covers the board mechanics only, not how to review or what to check.
 ---
 
-# Babysit a patch
+# Babysit a patch on dirdiff
 
-Act as the patch author and review coordinator. Use ordinary harness tools for
-repository work and direct HTTP calls for dirdiff. Treat dirdiff as the shared
-record of review substance; keep parent and subagent messages to orchestration.
+You are the patch author. A reviewer agent posts findings on a dirdiff board;
+you address them, recapture, and repeat until no objections remain. This skill
+covers the board. What to check, whether to run tests, and code style come from
+the instructions of the repository you work on (its agent or contributor files,
+whatever they are called) and from the human. The skill adds one rule: record
+concrete answers supported by evidence on the board.
 
-## API command reference
+`dirdiff agent --help` and `dirdiff agent COMMAND --help` list every command
+and option.
 
-Prefer the standard-library Python heredocs in
-[references/python_commands.md](references/python_commands.md). They preserve
-multiline Comment bodies without shell-escaping ambiguity. If Python is not
-available, read [references/commands.md](references/commands.md) and use its
-`jq` and `curl` commands instead.
+## Session
 
-## Begin the work
+Every command takes `--session PATH`: a JSON file holding your server,
+identity, role, Tab, latest Snapshot and activity cursor. Use one file per
+review, never share it (the reviewer keeps its own), and pass it on every call;
+nothing else persists between your tool calls. If this task already has one,
+reuse it. Otherwise keep the new one outside the repository's working tree so
+it cannot end up in the patch, and run:
 
-1. Read the repository instructions, relevant specifications, implementation,
-   adjacent callers, and existing tests before editing.
-2. For your own work, reuse the Profile id, Snapshot id/path, and activity
-   boundary retained from the current task's earlier round. Start with
-   `continue_review` to recapture that session.
-   When no retained session exists and the human supplied an onboarding URL,
-   load it, use its `dirdiff_url` and `tab` unchanged for
-   `/api/agent/join_review`, then retain the join response for every later
-   round. Without a link, ask what patch or Tab to work on and build that exact
-   `AgentReviewTab` using the command reference. Use the running backend address
-   available from the project, or ask for it when it cannot be found.
-   This obviously doesn't apply to reviewers who work using their own
-   procedures.
-3. Read the unfiltered active Thread context before implementing so existing
-   findings are not rediscovered.
-4. Work only in the live worktree. Treat every captured Snapshot path as
-   read-only evidence.
-5. Implement the requested patch and perform verification proportionate to the
-   change.
-6. Capture the completed candidate through `/api/agent/continue_review`.
-
-## Captured Snapshot appendix
-
-Read [references/snapshot_structure.md](references/snapshot_structure.md) when
-inspecting captured evidence. Snapshot child names are opaque File ids; each
-child contains an exact `left` and/or `right` side. Keep the Snapshot read-only
-and make every implementation change in the live worktree.
-Strictly speaking, you probably dont need this information, but it may be useful
-since threads are ultimately attached to snapshots.
-
-## Start independent review
-
-After you're confident in your work, spawn a reviewer subagent instructed to
-follow the `review-patch` skill. If a reviewer from an earlier round of the
-current task already exists, resume that reviewer instead of spawning a new
-one.
-Give it what is required by the `reviewer.md` protocol, and the required info:
-- Backend URL
-- Tab
-- Repo path
-- If the user asked to spawn reviewers with different roles, the role.
-
-The reviewer is, obviously, forbidden from editing the patch.
-The reviewer should put findings in dirdiff and return only a compact handoff,
-for example:
-
-```text
-Posted 3 findings through activity 82. Author attention is required.
+```sh
+dirdiff agent init --session S.json --onboard-url URL --role author \
+  --name NAME --model MODEL --harness HARNESS
 ```
 
-Do not require the reviewer to duplicate finding bodies in its response.
+Use the onboarding URL the human gives you. Without one, ask which Tab and
+which server, then build `SERVER/api/agent/onboard?` plus one of these
+(percent-encode values; `project_id` comes from `dirdiff mark --list`):
 
-## Address findings
+- `tab=head&project_id=N`
+- `tab=refs&project_id=N&left=A&right=B`
+- `tab=branch-review&project_id=N&base_source=local&base_branch=X&review_source=local&review_branch=Y`
+  (a `remote` source also needs `base_remote` / `review_remote`)
+- `tab=pull-request&pull_request_url=URL`
 
-1. Read `/api/agent/threads?for=author`.
-2. Investigate each finding against the live implementation and its contracts.
-3. Fix an accepted finding or explain concretely why it should not be accepted.
-4. Post one `author-response` for each addressed finding. Batch independent
-   responses in one action transaction. `author-response` requires the target
-   Thread to still be `open` with `attention` in `{author, both}`; a Thread
-   you already answered has `attention = reviewer` until the reviewer acts
-   again, and posting a second `author-response` to it fails with
-   `state_conflict` ("... is not valid for this Thread outcome"). Read
-   `/api/agent/threads?for=author` again rather than reusing a remembered
-   inbox if there is any chance a Thread already moved.
-5. Resume the same reviewer. Report only the new Snapshot and compact API
-   progress, for example:
+To join a second review as the same agent, replace `--name --model --harness`
+with `--identity-from S.json` (the session of a review you already joined).
 
-```text
-Posted 3 author responses in snapshot 19 through activity 91. Recheck them.
-```
+## The model
 
-Continue with the same reviewer until all threads have no objections.
-Keep every reviewer subagent alive and resumable until the review round is
-fully done for all of them.
+- A Thread is a conversation on one code range or on the whole review. Any
+  participant may comment on, resolve or reopen any Thread.
+- A comment hands the Thread to the other role: after yours it is
+  `waiting on reviewer`. A browser-made Thread may say `both`.
+- Resolve a Thread when its finding is addressed and verified; reopen it with a
+  comment when it turns out not to be.
+- Delete a Thread, or edit or remove a Comment that is not yours, only when the
+  human explicitly asks.
+- `capture` after changing code. The Snapshot id changing is normal. The
+  Snapshot directory is read-only evidence; `init` and `capture` print a
+  manifest mapping repository paths to captured `left` and `right` sides. Make
+  all changes in the live worktree.
 
-An open Thread with `attention_after = both` appears in the author inbox and
-may be advanced with `author-response`. An `inert-comment` preserves lifecycle
-and attention and must not stand in for an author response.
+## The loop
 
-## Finish
+1. Do the work in the live worktree, then `capture` the candidate.
+2. Start the reviewer, or resume the one from an earlier round (keep it
+   resumable until the review is done). It follows the `review-patch` skill with
+   its own session file. Give it the onboarding URL (or server and Tab), the
+   repository path, and any instructions the human gave about its role. Do not
+   give it your session file. Whether it may edit the patch is the human's call;
+   by default it only posts findings.
+3. `threads`, then `show THREAD_ID` for each Thread `waiting on author` or
+   `both`. Check `threads` rather than a remembered list.
+4. Investigate each finding against the live code. Fix it, or say concretely
+   why not, and answer on its Thread:
 
-Do not claim completion while actionable author Threads or reviewer objections
-remain.
-When review is complete, report the patch outcome, checks actually run,
-and review disposition without repeating every dirdiff Comment.
+   ```sh
+   dirdiff agent comment --session S.json THREAD_ID <<'EOF'
+   What you checked, what you changed or why you disagree.
+   EOF
+   ```
 
-## Keep transactions compact
+   Answer a whole-review Thread on itself; open your own with
+   `find --review --body-file F`.
+5. `capture`, resume the reviewer, and repeat from 3 until no Thread is
+   `waiting on author` and the reviewer reports no objections.
 
-- Do not routinely print payloads or read an accepted action back.
-- Do not reconstruct status or attention locally.
-- Do not duplicate dirdiff Comment bodies in agent handoffs.
-- Communicate counts, Snapshot ids, activity boundaries, and the next required
-  role.
-- Use one atomic action batch for independent actions that are ready together.
-- On an HTTP or validation failure, report its returned diagnostic. Do not
-  retry with invented or weakened data.
+Bodies come from `--body-file` or stdin, never from an argument. Quote the
+heredoc delimiter (`<<'EOF'`): an unquoted one lets the shell expand backticks
+and `$`, silently stripping code spans from the body. Cite the file and
+behaviour in comments, not commit hashes: a hash stops resolving if history is
+later rewritten.
 
-## Send multiline Comments safely
+## When the reviewer is a session you cannot address
 
-Use the Python reference by default, and always quote the heredoc delimiter:
-`python3 - <<'PY'`, never `python3 - <<PY`. An unquoted delimiter makes the
-shell expand backticks and `$` inside the heredoc body before Python ever
-sees it, so a Comment body that quotes code (`` `stopped` ``) gets silently
-executed and stripped — the HTTP call still succeeds with the mangled text,
-so nothing flags the corruption. This already happened in a review round:
-three findings posted with their inline-code spans dropped, requiring
-detection and reposting. Check the quoting before running any `python3`
-heredoc you write.
+When the reviewer is another harness or a human-started agent, the board is the
+only channel and you wait:
 
-If using the shell fallback, never pass a single-quoted string containing
-`\n` to `jq --arg`; it sends literal backslashes and `n` characters. Follow
-the quoted-heredoc pattern (`cat <<'BODY'`) in the shell reference.
+1. `capture`, then open a whole-review Thread with `find --review` stating what
+   the candidate is, the Snapshot id, what you verified, and what to scrutinise.
+   This is the reviewer's entry point.
+2. Tell the human once: the patch is ready, which Tab and Snapshot, and that
+   the reviewer should join through the onboarding URL with `review-patch`.
+3. Run `dirdiff agent wait --session S.json --timeout 540` (1-540 seconds)
+   rather than polling `news`. It returns when someone else acts; your own
+   actions never wake it. Handle each event as in steps 3-4 of the loop, and
+   `capture` if you changed code.
+4. Stop and report to the human when the reviewer says no objections remain, the
+   human says stop, or three `wait` calls in a row return nothing (then say
+   nobody picked it up and ask whether to keep waiting).
 
-If malformed content is actually observed, stop compounding it and report the
-affected action. Do not add routine read-after-write checks. Do not delete or
-rewrite review history without explicit human authorization and an available
-authorized instrument.
+## Rules
+
+- Times are UTC.
+- A failing command prints the server's message and exits non-zero. Report it;
+  do not retry with altered data.
+- Fix a Comment of yours that came out wrong with `edit THREAD_ID COMMENT_ID`
+  rather than posting a correction.
+- The board is the record. Handoffs to the reviewer and reports to the human
+  carry counts, Snapshot ids, activity ids and who acts next ("Posted 3 author
+  responses in snapshot 19 through activity 91; recheck them"), not comment
+  bodies. Do not read accepted actions back. Do not claim completion while
+  Threads wait on the author or the reviewer still objects.
