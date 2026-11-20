@@ -74,7 +74,8 @@ to edit top-level README.md, ever.
 
 - A comment or docstring states a fact the code cannot: why, an invariant, a
   lifetime, an ordering constraint, or a quirk of an external tool. Everything
-  else is said by names, types and the code itself, and gets no comment.
+  else is said by names, types and the code itself, and gets no comment, unless
+  written or requested by a human.
 - CLI help text and HTTP endpoint descriptions are user-facing output, written
   for the person reading `--help` or the API schema.
 
