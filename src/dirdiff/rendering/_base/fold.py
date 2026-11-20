@@ -533,6 +533,14 @@ def _collect_hints(
             rows[candidate.context_start_row : candidate.context_end_row]
         )
 
+    def has_ancestor_kind(region_kind: RegionKind) -> bool:
+        parent = candidate.parent
+        while parent is not None:
+            if parent.rule.region_kind == region_kind:
+                return True
+            parent = parent.parent
+        return False
+
     if candidate.rule.region_kind == "class_like":
         if region_is_unchanged():
             hint = _candidate_to_hint(candidate, rows)
@@ -551,8 +559,8 @@ def _collect_hints(
                 if child.rule.region_kind in {"function_like", "class_like"}:
                     _collect_hints(child, all_candidates, rows, hints)
     elif candidate.rule.region_kind == "container":
-        if not _has_ancestor_kind(candidate, "function_like") and not (
-            _has_ancestor_kind(candidate, "class_like")
+        if not has_ancestor_kind("function_like") and not (
+            has_ancestor_kind("class_like")
         ):
             if region_is_unchanged():
                 hint = _candidate_to_hint(candidate, rows)
@@ -816,18 +824,6 @@ def _child_candidates(
 
 def _rows_are_unchanged(rows: list[DiffEngineRow]) -> bool:
     return bool(rows) and all(not engine_row_has_change(row) for row in rows)
-
-
-def _has_ancestor_kind(
-    candidate: FoldCandidate,
-    region_kind: RegionKind,
-) -> bool:
-    parent = candidate.parent
-    while parent is not None:
-        if parent.rule.region_kind == region_kind:
-            return True
-        parent = parent.parent
-    return False
 
 
 def _contains(
