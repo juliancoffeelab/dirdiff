@@ -210,7 +210,9 @@ Names that commonly expose bad patterns require architectural scrutiny:
 - A CSS or interaction change requires browser verification and screenshots;
   TypeScript checks do not verify it.
 - Never change test behavior or expectations without explicit user approval.
-- Never create helpers in tests.
+- A test shows its inputs, the call and the expectation in its own body.
+  Shared test infrastructure lives in `tests/helpers.py`; adding to it needs
+  the user's agreement.
 - Tests should be fast and adversarial. They should exercise edge cases and
   reproduce plausible bugs rather than merely execute the happy path.
 - Investigative monkey-patching or internal state manipulation is acceptable

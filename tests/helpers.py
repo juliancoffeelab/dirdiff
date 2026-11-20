@@ -45,7 +45,6 @@ from dirdiff.engines import (
     DiffSummary,
     DifftasticDiffEngine,
     DifftasticJson,
-    GitDiffEngine,
     GumTreeDiffEngine,
     GumTreeJson,
     TextDiffEngine,
@@ -475,8 +474,3 @@ class WorkspaceDiffServiceAdapter:
 class TextDiffService(WorkspaceDiffServiceAdapter):
     def __init__(self, backend: GitRepository) -> None:
         super().__init__(backend, TextDiffEngine())
-
-
-class GitDiffService(WorkspaceDiffServiceAdapter):
-    def __init__(self, backend: GitRepository) -> None:
-        super().__init__(backend, GitDiffEngine())

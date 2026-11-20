@@ -91,23 +91,6 @@ def clone_test_remote(
     return tmp_path / worktree_name
 
 
-def clone_test_remote_with_unknown_head(tmp_path: Path) -> Path:
-    source_repo = tmp_path / "remote-source"
-    source_repo.mkdir()
-    create_committed_repo(source_repo, branch="main")
-    run_git(tmp_path, "clone", "--bare", str(source_repo), "remote.git")
-    run_git(
-        tmp_path / "remote.git", "symbolic-ref", "HEAD", "refs/heads/missing"
-    )
-    subprocess.run(
-        ["git", "clone", str(tmp_path / "remote.git"), "worktree"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    return tmp_path / "worktree"
-
-
 def test_historical_file_review_migration_never_reads_captured_text(
     tmp_path: Path,
 ) -> None:
@@ -622,7 +605,20 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
 def test_repo_defaults_reports_unresolved_base_when_remote_head_is_missing(
     tmp_path: Path,
 ) -> None:
-    repo_path = clone_test_remote_with_unknown_head(tmp_path)
+    source_repo = tmp_path / "remote-source"
+    source_repo.mkdir()
+    create_committed_repo(source_repo, branch="main")
+    run_git(tmp_path, "clone", "--bare", str(source_repo), "remote.git")
+    run_git(
+        tmp_path / "remote.git", "symbolic-ref", "HEAD", "refs/heads/missing"
+    )
+    subprocess.run(
+        ["git", "clone", str(tmp_path / "remote.git"), "worktree"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    repo_path = tmp_path / "worktree"
     client, project_id = create_repo_client(repo_path)
 
     response = client.get(

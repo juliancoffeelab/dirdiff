@@ -3,7 +3,7 @@ from pathlib import Path
 
 from helpers import ToolText, tool_json
 
-from dirdiff.engines import DiffEngineRow, DiffSide, InlineToken
+from dirdiff.engines import DiffEngineRow, DiffSide
 from dirdiff.engines.difftastic import DifftasticDiffEngine, DifftasticJson
 from dirdiff.engines.difftastic.logic import (
     difftastic_engine_warning,
@@ -14,82 +14,34 @@ from dirdiff.rendering import enrich_rows_for_display
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
 
 
-def _word_like_token_atoms(text: str) -> list[str]:
-    return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", text)
+_WORD_LIKE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+")
 
 
 def _pure_unchanged_one_sided_change_texts(
     rows: list[DiffEngineRow],
 ) -> list[str]:
+    # A deleted or inserted row must mark at least one word-like token as
+    # changed; these are the texts of rows that mark none.
     broken_texts: list[str] = []
     for row in rows:
-        status = row.get("status")
-        if status not in {"delete", "insert"}:
+        if row["status"] not in {"delete", "insert"}:
             continue
-
-        side: str | None = None
-        if row.get("left_no") is not None and row.get("right_no") is None:
-            side = "left"
-        elif row.get("left_no") is None and row.get("right_no") is not None:
-            side = "right"
-        if side is None:
-            continue
-
-        tokens: list[InlineToken] | None
-        if side == "left":
-            tokens = row.get("left_tokens")
+        if row["left_no"] is not None and row["right_no"] is None:
+            tokens = row.get("left_tokens", [])
+            text = row["left_text"]
+        elif row["left_no"] is None and row["right_no"] is not None:
+            tokens = row.get("right_tokens", [])
+            text = row["right_text"]
         else:
-            tokens = row.get("right_tokens")
-        if tokens is None:
             continue
-
-        meaningful_tokens: list[InlineToken] = []
-        for token in tokens:
-            text = token.get("text")
-            if _word_like_token_atoms(text) != []:
-                meaningful_tokens.append(token)
-
-        if meaningful_tokens == []:
-            continue
-
-        if all(
-            token.get("status") == "unchanged" for token in meaningful_tokens
+        word_tokens = [
+            token for token in tokens if _WORD_LIKE.search(token["text"])
+        ]
+        if word_tokens != [] and all(
+            token["status"] == "unchanged" for token in word_tokens
         ):
-            row_text = row.get(f"{side}_text")
-            assert isinstance(row_text, str)
-            broken_texts.append(row_text)
+            broken_texts.append(text)
     return broken_texts
-
-
-def _assert_no_pure_unchanged_one_sided_changes(
-    rows: list[DiffEngineRow],
-) -> None:
-    broken_texts = _pure_unchanged_one_sided_change_texts(rows)
-    assert broken_texts == [], broken_texts
-
-
-def _changed_word_like_atoms_for_line(
-    rows: list[DiffEngineRow],
-    *,
-    side: str,
-    line_no: int,
-) -> list[str]:
-    changed_atoms: list[str] = []
-    for row in rows:
-        if row.get(f"{side}_no") != line_no:
-            continue
-        tokens = row.get(f"{side}_tokens")
-        if tokens is None:
-            continue
-        assert isinstance(tokens, list)
-        for token in tokens:
-            assert isinstance(token, dict)
-            if token.get("status") == "unchanged":
-                continue
-            text = token.get("text")
-            assert isinstance(text, str)
-            changed_atoms.extend(_word_like_token_atoms(text))
-    return changed_atoms
 
 
 def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
@@ -267,7 +219,7 @@ def test_difftastic_z_enum_expansion_does_not_render_existing_members_as_one_sid
         right_text=new_text,
     )
 
-    _assert_no_pure_unchanged_one_sided_changes(rows)
+    assert _pure_unchanged_one_sided_change_texts(rows) == []
 
 
 def test_difftastic_filter_expansion_does_not_render_existing_condition_as_one_sided_change() -> (
@@ -293,7 +245,7 @@ def test_difftastic_filter_expansion_does_not_render_existing_condition_as_one_s
         right_text=new_text,
     )
 
-    _assert_no_pure_unchanged_one_sided_changes(rows)
+    assert _pure_unchanged_one_sided_change_texts(rows) == []
 
 
 def test_difftastic_python_literal_expansion_does_not_render_existing_members_as_one_sided_change() -> (
@@ -315,7 +267,7 @@ def test_difftastic_python_literal_expansion_does_not_render_existing_members_as
         right_text=new_text,
     )
 
-    _assert_no_pure_unchanged_one_sided_changes(rows)
+    assert _pure_unchanged_one_sided_change_texts(rows) == []
 
 
 def test_difftastic_json_rows_use_structural_alignment_and_changed_ranges() -> (
@@ -1136,12 +1088,22 @@ def test_difftastic_rows_keep_split_show_condition_as_context() -> None:
     )
 
     condition_atoms = {"when", "ui", "displayFiles", "length", "0"}
-    left_changed_atoms = set(
-        _changed_word_like_atoms_for_line(rows, side="left", line_no=4)
-    )
-    right_changed_atoms = set(
-        _changed_word_like_atoms_for_line(rows, side="right", line_no=6)
-    )
+    left_changed_atoms = {
+        atom
+        for row in rows
+        if row["left_no"] == 4
+        for token in row.get("left_tokens", [])
+        if token["status"] != "unchanged"
+        for atom in _WORD_LIKE.findall(token["text"])
+    }
+    right_changed_atoms = {
+        atom
+        for row in rows
+        if row["right_no"] == 6
+        for token in row.get("right_tokens", [])
+        if token["status"] != "unchanged"
+        for atom in _WORD_LIKE.findall(token["text"])
+    }
 
     assert condition_atoms.isdisjoint(left_changed_atoms)
     assert condition_atoms.isdisjoint(right_changed_atoms)

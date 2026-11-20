@@ -64,15 +64,6 @@ def _side_tokens(row: DiffEngineRow, side: Side) -> list[InlineToken]:
     return tokens
 
 
-def _source_line_count(text: str) -> int:
-    if text == "":
-        return 0
-    lines = text.split("\n")
-    if lines[-1] == "":
-        lines.pop()
-    return len(lines)
-
-
 def _replayed(rows: list[DiffEngineRow], *, onto: Side) -> list[str]:
     source_side: Side = "left" if onto == "right" else "right"
     rebuilt: list[str] = []
@@ -132,7 +123,10 @@ def test_tokendiff_line_numbers_cover_sources_in_order(
             for row in rows
             if _side_no(row, side) is not None
         ]
-        assert numbers == list(range(1, _source_line_count(source) + 1))
+        source_lines = source.split("\n")
+        if source_lines[-1] == "":
+            source_lines.pop()
+        assert numbers == list(range(1, len(source_lines) + 1))
 
 
 @pytest.mark.parametrize(("left", "right"), CASES)
