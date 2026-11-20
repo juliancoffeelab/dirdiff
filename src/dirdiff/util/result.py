@@ -76,12 +76,28 @@ __all__ = ["Err", "Ok", "Result", "catch"]
 @final
 @dataclass(frozen=True, slots=True)
 class Ok[T]:
-    # Ok never inspects its payload: Ok(ValueError(...)) and Ok(Err(...)) are
-    # successes, and Ok.or_raise returns them as-is.
+    """A successful payload of type T.
+
+    # Note on nesting
+
+    `Ok(ValueError)` counts as successful, as does `Ok(Err("error"))`.
+
+    Even `Ok.or_raise` on it would return an error as is, without throwing an
+    exception.
+    """
+
     value: T
+    """The exact required payload, retained without copying."""
 
     @staticmethod
     def good[U, E](result: Result[U, E]) -> TypeIs[Ok[U]]:
+        """Test success and narrow the explicit argument to Ok[U].
+
+        # Returns
+
+        - True: The argument is Ok, with a required payload of type U.
+        - False: The argument is Err, with a required error of type E.
+        """
         return isinstance(result, Ok)
 
     def map[U](self, function: Callable[[T], U]) -> Ok[U]:
@@ -138,6 +154,13 @@ class Ok[T]:
         return Ok(function(self.value, *arguments))
 
     def map_err[F](self, _function: Callable[[Never], F]) -> Ok[T]:
+        """Preserve success without invoking the error callback.
+
+        # Returns
+
+        - `Ok[T]`: This successful value, unchanged.
+        - `Err[F]`: Not possible for `Ok.map_err`.
+        """
         return self
 
     def and_then[U, F](
@@ -167,34 +190,67 @@ class Ok[T]:
         return function(self.value)
 
     def or_raise(self) -> T:
+        """Return the required payload unchanged."""
         return self.value
 
     def __bool__(self) -> Never:
+        """Reject implicit truth testing; use `Ok.good` to inspect success."""
         raise TypeError("use Ok.good()")
 
 
 @final
 class Err[E]:
+    """An object representing a failed operation with type E.
+
+    The error can be any value, it doesn't have to be an exception.
+
+    You can use various monadic operations, similar to `dirdiff.util.Option`,
+    or if you want to interact with Python's exceptions, use `@catch` to
+    make a function capture an exception, or use `Err.or_raise` to raise
+    an exception.
+    In that case, you do need an error to subclass an Exception.
+    """
+
     __slots__ = ("error",)
     __match_args__ = ("error",)
 
     def __init__(self, error: E) -> None:
+        """Retain the required error unchanged."""
         self.error: Final[E] = error
 
     @override
     def __delattr__(self, _name: str) -> Never:
+        """Reject deletion because the error payload is required."""
         raise AttributeError("Err is immutable")
 
     @override
     def __repr__(self) -> str:
+        """Represent this Err with its error's repr."""
         return f"Err(error={self.error!r})"
 
     def map[U](self, _function: Callable[[Never], U]) -> Err[E]:
+        """Preserve failure without invoking the callback.
+
+        # Returns
+
+        - `Err[E]`: This failed value, unchanged.
+        - `Ok[U]`: Not possible for `Err.map`.
+        """
         return self
 
     def map_bind[U, *Args](
         self, _arguments: tuple[*Args], _function: Callable[[Never, *Args], U]
     ) -> Err[E]:
+        """Preserve failure without invoking a callback with additional inputs.
+
+        This is the failed case of `map_bind`. Supplied arguments have already
+        been evaluated by the caller; this variant retains none of them.
+
+        # Returns
+
+        - `Err[E]`: This failed value, unchanged.
+        - `Ok[U]`: Not possible for `Err.map_bind`.
+        """
         return self
 
     def map_err[F](self, function: Callable[[E], F]) -> Err[F]:
@@ -219,6 +275,13 @@ class Err[E]:
     def and_then[U, F](
         self, _function: Callable[[Never], Result[U, F]]
     ) -> Err[E]:
+        """Preserve failure without invoking the Result-returning callback.
+
+        # Returns
+
+        - `Err[E]`: This failed value, unchanged.
+        - `Ok[U]`: Not possible for `Err.and_then`.
+        """
         return self
 
     def or_raise(self: Err[Exception]) -> Never:
@@ -244,34 +307,110 @@ class Err[E]:
         raise self.error
 
     def __bool__(self) -> Never:
+        """Reject implicit truth testing; use `Ok.good` to inspect success."""
         raise TypeError("use Ok.good()")
 
 
 type Result[T, E] = Ok[T] | Err[E]
+"""A successful T or explicit error E, with a shared transformation interface.
+
+Narrow with `Ok.good`, or match the variants directly. This alias is an
+annotation, not a constructor. Use Option for absence.
+"""
 
 
 @overload
 def catch[E1: Exception, **P, T](
     error1: type[E1], /
-) -> Callable[[Callable[P, T]], Callable[P, Result[T, E1]]]: ...
+) -> Callable[[Callable[P, T]], Callable[P, Result[T, E1]]]:
+    """Wrap a function's result in Ok, or return a caught exception as Err.
+
+    The wrapped function keeps its parameter types. Other exceptions propagate.
+
+    # Parameters
+
+    - `error1`: Exception class to catch, including its subclasses.
+
+    # Returns
+
+    The decorator's wrapped function returns:
+
+    - `Ok[T]`: The function's result.
+    - `Err[E1]`: The caught exception, unchanged.
+    """
+    ...
 
 
 @overload
 def catch[E1: Exception, E2: Exception, **P, T](
     error1: type[E1], error2: type[E2], /
-) -> Callable[[Callable[P, T]], Callable[P, Result[T, E1 | E2]]]: ...
+) -> Callable[[Callable[P, T]], Callable[P, Result[T, E1 | E2]]]:
+    """Wrap a function's result in Ok, or return a caught exception as Err.
+
+    The wrapped function keeps its parameter types. Other exceptions propagate.
+
+    # Parameters
+
+    - `error1`: Exception class to catch, including its subclasses.
+    - `error2`: Exception class to catch, including its subclasses.
+
+    # Returns
+
+    The decorator's wrapped function returns:
+
+    - `Ok[T]`: The function's result.
+    - `Err[E1 | E2]`: The caught exception, unchanged.
+    """
+    ...
 
 
 @overload
 def catch[E1: Exception, E2: Exception, E3: Exception, **P, T](
     error1: type[E1], error2: type[E2], error3: type[E3], /
-) -> Callable[[Callable[P, T]], Callable[P, Result[T, E1 | E2 | E3]]]: ...
+) -> Callable[[Callable[P, T]], Callable[P, Result[T, E1 | E2 | E3]]]:
+    """Wrap a function's result in Ok, or return a caught exception as Err.
+
+    The wrapped function keeps its parameter types. Other exceptions propagate.
+
+    # Parameters
+
+    - `error1`: Exception class to catch, including its subclasses.
+    - `error2`: Exception class to catch, including its subclasses.
+    - `error3`: Exception class to catch, including its subclasses.
+
+    # Returns
+
+    The decorator's wrapped function returns:
+
+    - `Ok[T]`: The function's result.
+    - `Err[E1 | E2 | E3]`: The caught exception, unchanged.
+    """
+    ...
 
 
 @overload
 def catch[E1: Exception, E2: Exception, E3: Exception, E4: Exception, **P, T](
     error1: type[E1], error2: type[E2], error3: type[E3], error4: type[E4], /
-) -> Callable[[Callable[P, T]], Callable[P, Result[T, E1 | E2 | E3 | E4]]]: ...
+) -> Callable[[Callable[P, T]], Callable[P, Result[T, E1 | E2 | E3 | E4]]]:
+    """Wrap a function's result in Ok, or return a caught exception as Err.
+
+    The wrapped function keeps its parameter types. Other exceptions propagate.
+
+    # Parameters
+
+    - `error1`: Exception class to catch, including its subclasses.
+    - `error2`: Exception class to catch, including its subclasses.
+    - `error3`: Exception class to catch, including its subclasses.
+    - `error4`: Exception class to catch, including its subclasses.
+
+    # Returns
+
+    The decorator's wrapped function returns:
+
+    - `Ok[T]`: The function's result.
+    - `Err[E1 | E2 | E3 | E4]`: The caught exception, unchanged.
+    """
+    ...
 
 
 @overload
@@ -290,9 +429,27 @@ def catch[
     error4: type[E4],
     error5: type[E5],
     /,
-) -> Callable[
-    [Callable[P, T]], Callable[P, Result[T, E1 | E2 | E3 | E4 | E5]]
-]: ...
+) -> Callable[[Callable[P, T]], Callable[P, Result[T, E1 | E2 | E3 | E4 | E5]]]:
+    """Wrap a function's result in Ok, or return a caught exception as Err.
+
+    The wrapped function keeps its parameter types. Other exceptions propagate.
+
+    # Parameters
+
+    - `error1`: Exception class to catch, including its subclasses.
+    - `error2`: Exception class to catch, including its subclasses.
+    - `error3`: Exception class to catch, including its subclasses.
+    - `error4`: Exception class to catch, including its subclasses.
+    - `error5`: Exception class to catch, including its subclasses.
+
+    # Returns
+
+    The decorator's wrapped function returns:
+
+    - `Ok[T]`: The function's result.
+    - `Err[E1 | E2 | E3 | E4 | E5]`: The caught exception, unchanged.
+    """
+    ...
 
 
 @overload
@@ -315,7 +472,28 @@ def catch[
     /,
 ) -> Callable[
     [Callable[P, T]], Callable[P, Result[T, E1 | E2 | E3 | E4 | E5 | E6]]
-]: ...
+]:
+    """Wrap a function's result in Ok, or return a caught exception as Err.
+
+    The wrapped function keeps its parameter types. Other exceptions propagate.
+
+    # Parameters
+
+    - `error1`: Exception class to catch, including its subclasses.
+    - `error2`: Exception class to catch, including its subclasses.
+    - `error3`: Exception class to catch, including its subclasses.
+    - `error4`: Exception class to catch, including its subclasses.
+    - `error5`: Exception class to catch, including its subclasses.
+    - `error6`: Exception class to catch, including its subclasses.
+
+    # Returns
+
+    The decorator's wrapped function returns:
+
+    - `Ok[T]`: The function's result.
+    - `Err[E1 | E2 | E3 | E4 | E5 | E6]`: The caught exception, unchanged.
+    """
+    ...
 
 
 @overload
@@ -340,7 +518,29 @@ def catch[
     /,
 ) -> Callable[
     [Callable[P, T]], Callable[P, Result[T, E1 | E2 | E3 | E4 | E5 | E6 | E7]]
-]: ...
+]:
+    """Wrap a function's result in Ok, or return a caught exception as Err.
+
+    The wrapped function keeps its parameter types. Other exceptions propagate.
+
+    # Parameters
+
+    - `error1`: Exception class to catch, including its subclasses.
+    - `error2`: Exception class to catch, including its subclasses.
+    - `error3`: Exception class to catch, including its subclasses.
+    - `error4`: Exception class to catch, including its subclasses.
+    - `error5`: Exception class to catch, including its subclasses.
+    - `error6`: Exception class to catch, including its subclasses.
+    - `error7`: Exception class to catch, including its subclasses.
+
+    # Returns
+
+    The decorator's wrapped function returns:
+
+    - `Ok[T]`: The function's result.
+    - `Err[E1 | E2 | E3 | E4 | E5 | E6 | E7]`: The caught exception, unchanged.
+    """
+    ...
 
 
 @overload
@@ -368,7 +568,31 @@ def catch[
 ) -> Callable[
     [Callable[P, T]],
     Callable[P, Result[T, E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8]],
-]: ...
+]:
+    """Wrap a function's result in Ok, or return a caught exception as Err.
+
+    The wrapped function keeps its parameter types. Other exceptions propagate.
+
+    # Parameters
+
+    - `error1`: Exception class to catch, including its subclasses.
+    - `error2`: Exception class to catch, including its subclasses.
+    - `error3`: Exception class to catch, including its subclasses.
+    - `error4`: Exception class to catch, including its subclasses.
+    - `error5`: Exception class to catch, including its subclasses.
+    - `error6`: Exception class to catch, including its subclasses.
+    - `error7`: Exception class to catch, including its subclasses.
+    - `error8`: Exception class to catch, including its subclasses.
+
+    # Returns
+
+    The decorator's wrapped function returns:
+
+    - `Ok[T]`: The function's result.
+    - `Err[E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8]`: The caught exception,
+      unchanged.
+    """
+    ...
 
 
 @overload
@@ -398,7 +622,32 @@ def catch[
 ) -> Callable[
     [Callable[P, T]],
     Callable[P, Result[T, E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | E9]],
-]: ...
+]:
+    """Wrap a function's result in Ok, or return a caught exception as Err.
+
+    The wrapped function keeps its parameter types. Other exceptions propagate.
+
+    # Parameters
+
+    - `error1`: Exception class to catch, including its subclasses.
+    - `error2`: Exception class to catch, including its subclasses.
+    - `error3`: Exception class to catch, including its subclasses.
+    - `error4`: Exception class to catch, including its subclasses.
+    - `error5`: Exception class to catch, including its subclasses.
+    - `error6`: Exception class to catch, including its subclasses.
+    - `error7`: Exception class to catch, including its subclasses.
+    - `error8`: Exception class to catch, including its subclasses.
+    - `error9`: Exception class to catch, including its subclasses.
+
+    # Returns
+
+    The decorator's wrapped function returns:
+
+    - `Ok[T]`: The function's result.
+    - `Err[E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | E9]`: The caught exception,
+      unchanged.
+    """
+    ...
 
 
 @overload
@@ -430,7 +679,33 @@ def catch[
 ) -> Callable[
     [Callable[P, T]],
     Callable[P, Result[T, E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | E9 | E10]],
-]: ...
+]:
+    """Wrap a function's result in Ok, or return a caught exception as Err.
+
+    The wrapped function keeps its parameter types. Other exceptions propagate.
+
+    # Parameters
+
+    - `error1`: Exception class to catch, including its subclasses.
+    - `error2`: Exception class to catch, including its subclasses.
+    - `error3`: Exception class to catch, including its subclasses.
+    - `error4`: Exception class to catch, including its subclasses.
+    - `error5`: Exception class to catch, including its subclasses.
+    - `error6`: Exception class to catch, including its subclasses.
+    - `error7`: Exception class to catch, including its subclasses.
+    - `error8`: Exception class to catch, including its subclasses.
+    - `error9`: Exception class to catch, including its subclasses.
+    - `error10`: Exception class to catch, including its subclasses.
+
+    # Returns
+
+    The decorator's wrapped function returns:
+
+    - `Ok[T]`: The function's result.
+    - `Err[E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | E9 | E10]`: The caught
+      exception, unchanged.
+    """
+    ...
 
 
 def catch[E: Exception, **P, T](
@@ -493,6 +768,15 @@ def catch[E: Exception, **P, T](
     ), "catch requires Exception subclasses"
 
     def decorate(function: Callable[P, T]) -> Callable[P, Result[T, E]]:
+        """Wrap a synchronous function without changing its parameters.
+
+        # Returns
+
+        - Normal return: The wrapped function supplies Ok with the returned
+          value.
+        - Selected exception: The wrapped function supplies Err with that
+          exception.
+        """
         assert not (
             iscoroutinefunction(function)
             or isgeneratorfunction(function)
@@ -501,6 +785,18 @@ def catch[E: Exception, **P, T](
 
         @wraps(function)
         def wrapped(*args: P.args, **kwargs: P.kwargs) -> Result[T, E]:
+            """Call function once and wrap its result or selected exception.
+
+            # Parameters
+
+            - `args`: Positional arguments passed to function unchanged.
+            - `kwargs`: Keyword arguments passed to function unchanged.
+
+            # Returns
+
+            - `Ok[T]`: The function's result.
+            - `Err[E]`: The caught exception, unchanged.
+            """
             try:
                 return Ok(function(*args, **kwargs))
             except errors as error:
