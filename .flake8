@@ -1,6 +1,7 @@
 [flake8]
 exclude =
     tests/presets/
+    tests/e2e_temp/
 
 [flake8:local-plugins]
 extension =
