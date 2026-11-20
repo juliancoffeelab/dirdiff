@@ -1,11 +1,3 @@
-"""Exercise GumTree's source, alignment, and move contracts adversarially.
-
-Real presets cover executable output across languages. Generated single-line
-moves check Unicode conversion, nested edits, and syntax splitting against
-source coordinates independently of row building. Preset properties compare
-rendered characters and move endpoints with raw executable facts.
-"""
-
 import re
 from pathlib import Path
 
@@ -23,16 +15,10 @@ from dirdiff.rendering import highlight_lines_for_path, weave_decorated_parts
 __all__: list[str] = []
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "gumtree"
-"""Readable source pairs shared by snapshots, invariant tests, and the HUD."""
 
 
 @pytest.mark.parametrize("preset", sorted(PRESETS_ROOT.glob("*/*")), ids=str)
 def test_sources_survive_alignment_and_decoration(preset: Path) -> None:
-    """Every source line occurs once in order and every decorated character survives.
-
-    Real language syntax splitting must retain each character's diff status
-    and move endpoints, including on updates.
-    """
     left = next(preset.glob("old.*"))
     right = next(preset.glob("new.*"))
     left_text = left.read_bytes().decode()
@@ -107,15 +93,6 @@ def test_sources_survive_alignment_and_decoration(preset: Path) -> None:
 def test_one_sided_edits_do_not_displace_unchanged_lines(
     context: list[str], position: int, count: int, delete: bool
 ) -> None:
-    """One-sided blocks leave surrounding unchanged lines paired, including repeats.
-
-    # Parameters
-
-    - `context`: Generated source lines, allowing repeats, blanks, and an empty file.
-    - `position`: Insertion position reduced to the source line bounds.
-    - `count`: Number of lines in the one-sided structural action.
-    - `delete`: Whether to reverse the source pair and delete the block.
-    """
     position %= len(context) + 1
     left = "".join(line + "\n" for line in context)
     added = "added\n" * count
@@ -157,17 +134,6 @@ def test_one_sided_edits_do_not_displace_unchanged_lines(
 def test_edited_moves_keep_exact_unicode_endpoints(
     prefix: str, suffix: str, reverse: bool
 ) -> None:
-    """Nested updates retain the surrounding move after Unicode and syntax splitting.
-
-    Synthetic single-line actions isolate the adapter contract from matcher
-    heuristics: exactly one character changes inside one containing move.
-
-    # Parameters
-
-    - `prefix`: Unicode source preceding the changed character.
-    - `suffix`: Unicode source following it; may make the update cover the move.
-    - `reverse`: Whether to reverse action order to expose precedence mistakes.
-    """
     left, right = prefix + "1" + suffix, prefix + "2" + suffix
     byte_start = len(prefix.encode())
     byte_end = len(left.encode())
@@ -246,14 +212,6 @@ def test_edited_moves_keep_exact_unicode_endpoints(
 
 @pytest.mark.parametrize("preset", sorted(PRESETS_ROOT.glob("*/*")), ids=str)
 def test_preset_actions_and_moves_match_gumtree_facts(preset: Path) -> None:
-    """Every rendered character must agree with real action and destination facts.
-
-    The oracle encodes source positions into GumTree coordinates, the reverse
-    of the adapter's conversion. It checks action coverage without using the
-    adapter's range parser or sweep, including nested and edited moves. When
-    both sides retain the same unchanged-line sequence, every line must pair
-    with its counterpart despite intervening changes or moves.
-    """
     left, right = next(preset.glob("old.*")), next(preset.glob("new.*"))
     texts = [left.read_bytes().decode(), right.read_bytes().decode()]
     facts = tool_json(
@@ -438,13 +396,6 @@ def test_preset_actions_and_moves_match_gumtree_facts(preset: Path) -> None:
 def test_preset_row_status_preserves_complete_insert_or_delete(
     preset: Path,
 ) -> None:
-    """Only complete insertion or deletion changes an adapter row's status.
-
-    A nonempty row whose every token, including whitespace, is inserted or
-    deleted keeps that status. Every other mixture remains equal. Exact token
-    classifications are checked independently against raw GumTree actions by
-    the span property.
-    """
     left, right = next(preset.glob("old.*")), next(preset.glob("new.*"))
     rows = build_gumtree_rows_from_json(
         diff_json=tool_json(

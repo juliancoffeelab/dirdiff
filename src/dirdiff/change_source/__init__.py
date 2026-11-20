@@ -1,20 +1,3 @@
-"""Prepare workspace selections and read their changed File sides.
-
-Import `GitRepository` for ref and Branch Review preparation or `PresetCatalog`
-for picker groups. Construct `GitChangeSource` or `PresetChangeSource` with one
-selected Tab's inputs. Both implement `ChangeSourceProtocol`, whose two operations
-list `WorkspaceChanges` and load paired `LoadedFile` results. Manifest builders
-turn captured path facts into HUD payloads. Pull Request preparation is also
-exported here.
-
-## Purpose and boundaries
-
-This package keeps source-specific Git and fixture storage behind one capture
-contract. It does not select Rooms, publish Snapshots, or decode formats.
-`dirdiff.room_lord` handles capture and persistence; `dirdiff.formats` uses
-the supplied bytes after capture.
-"""
-
 from dirdiff.change_source.base import (
     BranchSelection,
     CapturedLink,

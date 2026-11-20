@@ -1,33 +1,3 @@
-/**
- * Renders a composed `image` bay as its old and new pictures.
- *
- * The browser loads immutable Snapshot media URLs. A whole image File states its
- * byte facts in a separate text bay, while a notebook output stays one image bay.
- * Each present side exposes one pseudo-line so review and line-pin code can use
- * the same File, bay, side, and line coordinate as text content.
- *
- * The widget retains only its rendered DOM and decode error for each mounted
- * side. It publishes the mounted line-preparation operations FileCard needs, but
- * stores no expansion or navigation state and never selects a hunk.
- *
- * ## The review line host
- *
- * An image bay exposes exactly one pseudo-line, numbered 1, on each side with an
- * image representation. That makes a picture commentable without inventing a
- * second review target shape, and it costs this widget the rendered-row DOM
- * contract the rest of the review machinery already reads:
- *
- * - a `.diff-grid` carrying `data-review-bay`, holding a `.diff-lines` element
- *   that answers `prepareLine_impl`, which is how `FileCard` resolves a pin or
- *   History go-to inside one bay;
- * - one `.diff-side` per side, holding a `.line-no` with the side and line
- *   coordinates and a sibling `.line-code`. `ChangeSet` reads the pair back as
- *   a Comment anchor and `Review` mounts the Comment input beside.
- *
- * Those class names are the review host contract, not text decoration. A widget
- * that wants comments implements them; nothing else in the review path learns
- * that image bays exist.
- */
 import {
   Index,
   Show,
@@ -54,104 +24,24 @@ import {
   type ReviewTextGridBinding,
 } from "../../../review/Review";
 
-/**
- * The one line coordinate an image bay has.
- *
- * A picture holds no lines, so the single line a review target or a pin may
- * name against it describes nothing inside it. The number is fictional on
- * purpose: it buys one target shape through validation, placement, History, and
- * every frontend path that handles a target, and the backend rejects any range
- * other than this one against a non-text bay.
- */
 const PSEUDO_LINE = 1;
 
-/**
- * Describes the enrichment operation every mounted bay wrapper exposes.
- *
- * `FileCard` calls it before searching a bay for a pinned line. An image bay has
- * no deferred representation to materialize, so its implementation resolves
- * immediately: the lines it hosts are mounted for the wrapper's whole lifetime.
- */
 type EnrichableImageBay = HTMLElement & {
-  /**
-   * Materializes the mounted bay representation before line lookup.
-   *
-   * FileCard calls this operation through the bay wrapper and awaits it before
-   * searching for a line host. Image bays are always fully mounted, so this
-   * implementation resolves immediately without changing DOM or state. Cleanup
-   * removes the operation when the wrapper unmounts.
-   */
   waitToEnrich_impl: () => Promise<void>;
 };
 
-/**
- * Describes the line-preparation operation the bay's line host exposes.
- *
- * `FileCard` supplies a complete semantic target and its AbortSignal and
- * receives the rendered row, without scrolling, painting, or URL mutation.
- */
 type PreparableImageLines = HTMLElement & {
-  /**
-   * Resolves one semantic line target against this mounted image bay.
-   *
-   * `target` must address this File and bay. The operation returns the single
-   * mounted pseudo-row only for line one on a present side, reports `missing`
-   * for absent coordinates, and reports `stopped` after cancellation or disposal.
-   * It never scrolls, paints a pin, loads bytes, or selects a hunk. Cleanup removes
-   * the operation with the line host.
-   *
-   * @param target Complete File, bay, side, and line coordinate to prepare.
-   * @param abortSignal Navigation cancellation that may stop the lookup.
-   */
   prepareLine_impl(
     target: LinePinTarget,
     abortSignal: AbortSignal,
   ): Promise<PreparedLine>;
 };
 
-/**
- * Renders one `image` bay as its two picture representations.
- *
- * The sides sit beside each other in Split view and stack in Inline view, the
- * same arrangement the text grid uses, because the question a reviewer asks of
- * two pictures is the one they ask of two texts. A missing representation is
- * explicit: an added image has no old picture, and one side of a notebook
- * output may have text but no PNG.
- */
 export function ImageBayView(props: {
-  /**
-   * Complete captured File pair used by every review and pin coordinate.
-   *
-   * It must match the containing File response and remains intact across renames;
-   * ImageBayView never reconstructs it from media references.
-   */
   reviewFile: ReviewFilePair;
-  /**
-   * Complete enclosing bay envelope carrying public identity and presentation facts.
-   *
-   * The widget uses its opaque key for DOM, review, and line-pin addressing. Its
-   * content arm has already been narrowed separately by FrameView.
-   */
   bay: BayPayload;
-  /**
-   * Narrowed image content containing nullable references for both sides.
-   *
-   * A null side renders explicit absence and exposes no pseudo-line coordinate;
-   * present references describe bytes fetched only through the media URL.
-   */
   content: ImageKindPayload;
-  /**
-   * Current split or inline presentation shared with text grids.
-   *
-   * It changes side layout only and never affects review coordinates or media URLs.
-   */
   view: DiffViewMode;
-  /**
-   * Snapshot-scoped line-pin interface shared by the containing ChangeSet.
-   *
-   * The widget reads initial URL state at mount and invokes direct toggle for user
-   * line-number activation; it stores no second pin authority.
-   */
   linePins: LinePins;
 }): JSX.Element {
   // Each ref holds the plain element and is converted at the one place its
@@ -168,27 +58,9 @@ export function ImageBayView(props: {
     bay: { bay_key: bayKey },
   };
 
-  /**
-   * Returns the current image reference for one exact side.
-   *
-   * The accessor reads the narrowed content reactively. `null` is genuine side
-   * absence and controls whether that side receives review or pin coordinates.
-   *
-   * # Returns
-   *
-   * - The composed media reference for the requested side.
-   * - `null`: That side has no image representation. Pin parsing and review
-   *   marker lookup must reject coordinates for it.
-   */
   const sideRef = (side: "left" | "right"): MediaRef | null =>
     side === "left" ? props.content.left : props.content.right;
 
-  /**
-   * Toggles this bay's pin for one side and repaints the ChangeSet's one pin.
-   *
-   * The URL is the authority: the class below decorates whatever the toggle
-   * decided. The operation scrolls nothing, loads nothing, and selects no hunk.
-   */
   function togglePin(side: "left" | "right"): void {
     const target: LinePinTarget = {
       file: props.reviewFile,
@@ -212,18 +84,6 @@ export function ImageBayView(props: {
     }
   }
 
-  /**
-   * Answers one exact pin or review target inside this bay.
-   *
-   * A target naming another File or another bay is a routing contradiction and
-   * throws. A line other than the pseudo-line, or a side with no image
-   * representation, names nothing here and is `missing`. The single row is mounted
-   * for this widget's whole lifetime, so the only `stopped` cause is
-   * cancellation or disposal.
-   *
-   * @param target Complete semantic coordinate routed to this bay.
-   * @param abortSignal Navigation cancellation checked before returning DOM.
-   */
   async function prepareLine_impl(
     target: LinePinTarget,
     abortSignal: AbortSignal,
@@ -318,51 +178,11 @@ export function ImageBayView(props: {
   );
 }
 
-/**
- * Renders one side of an image bay, with its pseudo-line coordinate.
- *
- * A present image side carries the review coordinate. It contains the line-number
- * cell holding Comment triggers and the code cell where Comment input mounts. It
- * shows the picture itself. An absent representation says so and carries no
- * coordinate: there is nothing there to comment on, and the backend rejects a
- * target naming it. For a notebook output, the File side may exist while its
- * MIME bundle has no PNG.
- */
 function ImageSideView(props: {
-  /**
-   * Narrowed two-sided image content shared by both rendered side components.
-   *
-   * This component reads only the reference selected by `side` and treats null as
-   * genuine absence without borrowing the opposite reference.
-   */
   content: ImageKindPayload;
-  /**
-   * Exact old or new side rendered by this component instance.
-   *
-   * It selects media, review, line-pin, classes, and accessible wording together;
-   * the value never changes meaning within the mount.
-   */
   side: "left" | "right";
-  /**
-   * Complete captured File pair used in media, review, and pin addresses.
-   *
-   * It is forwarded unchanged and never reduced to the current side's path.
-   */
   reviewFile: ReviewFilePair;
-  /**
-   * Snapshot, File, and bay identity shared with the Review provider.
-   *
-   * The side and pseudo-line are added only at marker lookup or activation so
-   * this binding may serve either rendered side.
-   */
   binding: ReviewTextGridBinding;
-  /**
-   * Handles direct activation of this present side's pseudo-line number.
-   *
-   * `side` is this component's exact side. The callback runs only when media is
-   * present and the click was not consumed by a Comment control; the parent
-   * toggles authoritative URL state and repaints the single ChangeSet pin.
-   */
   onPin: (side: "left" | "right") => void;
 }): JSX.Element {
   const review = useReview();
@@ -373,35 +193,11 @@ function ImageSideView(props: {
   const [decodeFailed, setDecodeFailed] = createSignal(false);
   let codeCell!: HTMLDivElement;
 
-  /**
-   * Reads this component's current composed media reference.
-   *
-   * Null drives explicit absence and removes pin and review coordinates rather
-   * than producing a broken media URL.
-   *
-   * # Returns
-   *
-   * - The composed media reference for this rendered side.
-   * - `null`: This side has no media. The component renders its empty-side state
-   *   without a pin coordinate, review coordinate, or media request.
-   */
   const mediaRef = (): MediaRef | null =>
     props.side === "left" ? props.content.left : props.content.right;
   // "old" and "new" are what the inline text header calls the two sides; the
   // same two words name them here.
-  /**
-   * Returns the established user-facing name for this rendered side.
-   *
-   * The same old/new vocabulary labels inline text sides, media alternatives,
-   * pin affordances, and decode errors.
-   */
   const sideName = (): string => (props.side === "left" ? "old" : "new");
-  /**
-   * Reads derived review controls for this exact pseudo-line coordinate.
-   *
-   * Review remains authoritative for marker availability and state; the image
-   * widget does not copy or infer Thread and draft data.
-   */
   const markerState = () =>
     review.markerState(props.binding, props.side, PSEUDO_LINE);
 
@@ -513,65 +309,16 @@ function ImageSideView(props: {
   );
 }
 
-/**
- * Renders one review control at an image bay's pseudo-line.
- *
- * The control names its action: start a Comment, reopen a draft, or open the
- * Threads already recorded here. It hands its own button back on activation,
- * because the Comment input and the Thread panel anchor to that exact element.
- * The wording and classes match the text grid's controls deliberately: the same
- * action at the same kind of coordinate must not be named two ways. That grid
- * builds its controls imperatively against reused DOM, so the few lines of
- * shared vocabulary are restated here rather than pulled into a helper neither
- * renderer could use as it stands.
- */
 function CommentTrigger(props: {
-  /**
-   * Derived review control represented by this exact button.
-   *
-   * Its discriminant selects classes, count, warning, and activation meaning. The
-   * button stores no Thread or draft state outside this descriptor.
-   */
   marker: ReviewMarkerDescriptor;
-  /**
-   * Captured old or new side on which the pseudo-line control is rendered.
-   *
-   * It contributes accessible wording and is already part of the parent binding
-   * used by activation.
-   */
   side: "left" | "right";
-  /**
-   * Whether canonical review state currently forbids marker activation.
-   *
-   * The native button enforces the value. Disabled controls emit no activation
-   * callback and remain visible to explain unavailable review state.
-   */
   disabled: boolean;
-  /**
-   * Handles activation from this exact connected Comment button.
-   *
-   * `trigger` is the button element that received the click and becomes the
-   * anchored UI identity. CommentTrigger stops pin propagation before invoking
-   * the callback; the caller opens the descriptor's action and retains later state.
-   */
   onActivate: (trigger: HTMLButtonElement) => void;
 }): JSX.Element {
-  /**
-   * Reports whether the marker represents a countable persisted Thread group.
-   *
-   * New-comment and draft controls remain action labels; open, resolved, and
-   * deleted groups render their exact derived count.
-   */
   const counted = (): boolean =>
     props.marker.kind === "open" ||
     props.marker.kind === "resolved" ||
     props.marker.kind === "deleted";
-  /**
-   * Builds the complete visible and accessible action label for this marker.
-   *
-   * Draft and creation actions use fixed verbs. Persisted groups include their
-   * exact count, lifecycle state, and singular or plural Thread wording.
-   */
   const actionLabel = (): string => {
     const marker = props.marker;
     if (marker.kind === "draft") {

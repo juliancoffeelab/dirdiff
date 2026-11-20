@@ -1,14 +1,3 @@
-"""Prove persistence refuses malformed placement, action and link rows.
-
-The schema retains nullable columns for variant storage. These cases exercise
-RoomStore's existing read mappers, which validate each row and construct typed
-records before it can reach review or capture consumers. Valid rows must retain
-their exact values; every formerly rejected malformed shape still must fail.
-
-Some rows intentionally cross the typed ORM boundary with SimpleNamespace
-values. Narrow suppressions keep that deliberate boundary violation visible.
-"""
-
 from types import SimpleNamespace
 
 import pytest
@@ -30,12 +19,6 @@ _RANGE = {
     "outdated_reason": None,
     "private_locator": b"\x01\x02",
 }
-"""Valid live range origin varied by every placement invariant case.
-
-Each parametrized case changes only the fields involved in its claim, so a
-failure identifies one tagged-placement relationship rather than rebuilding a
-large unrelated record per case.
-"""
 
 _ACTION = {
     "operation_id": "d" * 32,
@@ -52,11 +35,6 @@ _ACTION = {
     "attention_after": "author",
     "activity_id": 12,
 }
-"""Valid authored Comment action varied by every action invariant case.
-
-The baseline supplies complete persisted context. Each case changes the one
-variant or lifecycle relationship it intends to accept or reject.
-"""
 
 
 @pytest.mark.parametrize(
@@ -126,12 +104,6 @@ variant or lifecycle relationship it intends to accept or reject.
 def test_valid_placements_construct(
     changes: dict[str, str | int | None],
 ) -> None:
-    """Every placement review derivation emits must still be constructible.
-
-    The four tagged-union variants and both outdated forms of a range are the
-    whole set `dirdiff.review` produces, so a check that rejected one of them
-    would break persistence outright rather than merely tighten it.
-    """
     record = RoomStore._thread_record(
         SimpleNamespace(**{**_RANGE, **changes}),  # type: ignore[arg-type]
         True,
@@ -245,11 +217,6 @@ def test_valid_placements_construct(
 def test_invalid_placement_is_refused(
     changes: dict[str, str | int | None],
 ) -> None:
-    """No placement outside the tagged union may be constructed.
-
-    Each case is a malformed SQL shape whose fields cannot form a placement
-    variant. The store must refuse it before returning any review record.
-    """
     with pytest.raises(AssertionError):
         RoomStore._thread_record(SimpleNamespace(**{**_RANGE, **changes}), True)  # type: ignore[arg-type]
 
@@ -287,11 +254,6 @@ def test_invalid_placement_is_refused(
     ],
 )
 def test_valid_actions_construct(changes: dict[str, str | int | None]) -> None:
-    """Every action variant the review API writes must stay constructible.
-
-    The cases exercise discriminator-specific nullable fields so record validation
-    cannot accidentally reject a server-supported operation shape.
-    """
     record = RoomStore._action_record(SimpleNamespace(**{**_ACTION, **changes}))  # type: ignore[arg-type]
     assert record.action.operation_id == _ACTION["operation_id"]
 
@@ -333,11 +295,6 @@ def test_valid_actions_construct(changes: dict[str, str | int | None]) -> None:
 def test_invalid_action_is_refused(
     changes: dict[str, str | int | None],
 ) -> None:
-    """No action whose fields contradict its kind may be constructed.
-
-    Each malformed row must fail payload construction or the accepted-action
-    author boundary before becoming a persisted output.
-    """
     with pytest.raises(AssertionError):
         RoomStore._action_record(SimpleNamespace(**{**_ACTION, **changes}))  # type: ignore[arg-type]
 
@@ -360,17 +317,6 @@ def test_invalid_action_is_refused(
 def test_persisted_action_enums_are_validated_on_read(
     status_after: str, attention_after: str, message: str
 ) -> None:
-    """A stored lifecycle value outside its vocabulary must fail the read.
-
-    Mapped string columns cannot express the record's narrower lifecycle
-    vocabulary, so the read boundary must still reject values outside it.
-
-    # Parameters
-
-    - `status_after`: Persisted lifecycle value substituted into the test row.
-    - `attention_after`: Persisted attention value substituted into that row.
-    - `message`: Expected invalid-field fragment proving which boundary failed.
-    """
     columns = {**_ACTION, "status_after": status_after}
     columns["attention_after"] = attention_after
     action = SimpleNamespace(**columns)
@@ -393,14 +339,6 @@ def test_valid_snapshot_symlink_descriptor_constructs(
     target_capture_path: str | None,
     target_hash: bytes | None,
 ) -> None:
-    """Accept both complete shapes of one relational symlink descriptor.
-
-    # Parameters
-
-    - `target_capture_path`: Absolute reached-target path or absence after a
-      stopped walk.
-    - `target_hash`: Exact 32-byte digest with matching presence.
-    """
     records = RoomStore._file_symlink_records(
         (  # type: ignore[arg-type]
             SimpleNamespace(
@@ -453,13 +391,6 @@ def test_valid_snapshot_symlink_descriptor_constructs(
 def test_invalid_snapshot_symlink_descriptor_is_refused(
     changes: dict[str, str | bytes | None],
 ) -> None:
-    """Reject every malformed path, digest, or target-presence relation.
-
-    # Parameters
-
-    - `changes`: One invalid mutation of an otherwise valid stopped-walk
-      descriptor.
-    """
     with pytest.raises(AssertionError):
         RoomStore._file_symlink_records(
             (  # type: ignore[arg-type]

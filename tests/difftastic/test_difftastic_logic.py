@@ -1,11 +1,3 @@
-"""Check Difftastic row construction against focused alignment cases.
-
-The tests combine sparse Difftastic facts with complete source text and assert
-lossless rows, token status, and line status. They call private row-building
-helpers where the public result cannot isolate an alignment invariant.
-Subprocess execution and final API serialization are outside this module.
-"""
-
 import re
 from pathlib import Path
 
@@ -20,40 +12,15 @@ from dirdiff.engines.difftastic.logic import (
 from dirdiff.rendering import enrich_rows_for_display
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
-"""Regression fixture catalog used by focused Difftastic row-building tests.
-
-Helpers address cases relative to this root and require one old/new source pair,
-keeping fixture identity visible in assertion failures.
-"""
 
 
 def _word_like_token_atoms(text: str) -> list[str]:
-    """Extract identifier and numeric atoms used by regression assertions.
-
-    Punctuation and whitespace are deliberately ignored because these helpers
-    detect source words incorrectly painted on one side.
-    """
     return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", text)
 
 
 def _pure_unchanged_one_sided_change_texts(
     rows: list[DiffEngineRow],
 ) -> list[str]:
-    """Find one-sided changed rows whose meaningful text is all unchanged.
-
-    Such rows are contradictory: a deletion or insertion cannot consist only
-    of word-like tokens marked unchanged. Returned text makes failures readable.
-
-    # Usage
-
-    Use through `_assert_no_pure_unchanged_one_sided_changes` unless a test needs
-    the contradictory row texts for a more specific assertion.
-
-    # Failures
-
-    Asserts when a row selected as contradictory does not carry string text on
-    its present side.
-    """
     broken_texts: list[str] = []
     for row in rows:
         status = row.get("status")
@@ -97,20 +64,6 @@ def _pure_unchanged_one_sided_change_texts(
 def _assert_no_pure_unchanged_one_sided_changes(
     rows: list[DiffEngineRow],
 ) -> None:
-    """Reject contradictory one-sided rows containing only unchanged words.
-
-    Punctuation-only one-sided changes remain valid. The helper targets rows
-    whose meaningful source atoms claim both one-sided change and no change.
-
-    # Usage
-
-    Call this after building Difftastic rows for a regression case where
-    one-sided token status must remain semantically honest.
-
-    # Failures
-
-    Raises `AssertionError` with the contradictory row texts when any are found.
-    """
     broken_texts = _pure_unchanged_one_sided_change_texts(rows)
     assert broken_texts == [], broken_texts
 
@@ -121,23 +74,6 @@ def _changed_word_like_atoms_for_line(
     side: str,
     line_no: int,
 ) -> list[str]:
-    """Collect changed identifier atoms from one exact source line.
-
-    # Parameters
-
-    - `rows`: Projected rows containing the addressed side.
-    - `side`: `left` or `right`, used for line and token field selection.
-    - `line_no`: One-based source line whose changed atoms are wanted.
-
-    # Usage
-
-    Focused status regressions call this after identifying the exact side and
-    line whose changed identifiers matter.
-
-    # Failures
-
-    Raises `AssertionError` when a matching row contains malformed token data.
-    """
     changed_atoms: list[str] = []
     for row in rows:
         if row.get(f"{side}_no") != line_no:
@@ -157,11 +93,6 @@ def _changed_word_like_atoms_for_line(
 
 
 def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
-    """Expose Difftastic's graph-limit label without masking ordinary languages.
-
-    The warning discriminator is part of the engine result contract; a normal
-    parser label must not produce a degraded-mode warning.
-    """
     assert difftastic_engine_warning(
         {"language": "Text (exceeded DFT_GRAPH_LIMIT)"}
     ) == {
@@ -172,12 +103,6 @@ def test_difftastic_engine_warning_reports_graph_limit_fallback() -> None:
 
 
 def test_difftastic_engine_keeps_identical_source_rows() -> None:
-    """Render identical source as readable context with no changed lines.
-
-    Difftastic reports no structural rows for equal inputs. The engine must
-    still return the complete source because composed notebook bays rely on
-    opening an unchanged cell to reveal its contents.
-    """
     source = """value = 1
 print(value)
 """
@@ -213,11 +138,6 @@ print(value)
 
 
 def test_difftastic_rows_classify_makefile_target_suffix_insert() -> None:
-    """Classify a Make target suffix as changed, not unchanged context.
-
-    This fixture guards the row status derived from Difftastic tokens when an
-    existing target grows one syntactic suffix.
-    """
     preset_dir = (
         PRESETS_ROOT
         / "makefile"
@@ -242,11 +162,6 @@ def test_difftastic_rows_classify_makefile_target_suffix_insert() -> None:
 
 
 def test_difftastic_makefile_plain_render_keeps_inline_tokens() -> None:
-    """Keep Difftastic token changes through display enrichment for Makefiles.
-
-    Syntax highlighting may be unavailable, but weaving must still preserve
-    the engine's inline insert and unchanged partitions.
-    """
     preset_dir = (
         PRESETS_ROOT
         / "makefile"
@@ -299,11 +214,6 @@ def test_difftastic_makefile_plain_render_keeps_inline_tokens() -> None:
 def test_difftastic_rows_classify_makefile_wrapped_command_suffix_inserts() -> (
     None
 ):
-    """Classify suffix additions on wrapped Make commands as changed lines.
-
-    The case covers repeated structural punctuation around an inserted command
-    fragment, where row status must follow token changes.
-    """
     preset_dir = (
         PRESETS_ROOT
         / "makefile"
@@ -341,11 +251,6 @@ def test_difftastic_rows_classify_makefile_wrapped_command_suffix_inserts() -> (
 def test_difftastic_z_enum_expansion_does_not_render_existing_members_as_one_sided_change() -> (
     None
 ):
-    """Keep existing Z enum members out of one-sided change rows.
-
-    Structural expansion may realign the surrounding list, but unchanged member
-    words must remain context rather than contradictory inserted/deleted text.
-    """
     old_path = PRESETS_ROOT / "typescript/z-enum-adds-top-level-member/old.ts"
     new_path = PRESETS_ROOT / "typescript/z-enum-adds-top-level-member/new.ts"
     old_text = old_path.read_bytes().decode("utf-8")
@@ -368,11 +273,6 @@ def test_difftastic_z_enum_expansion_does_not_render_existing_members_as_one_sid
 def test_difftastic_filter_expansion_does_not_render_existing_condition_as_one_sided_change() -> (
     None
 ):
-    """Keep the original filter condition as context when its body expands.
-
-    This catches Difftastic alignments that place shared condition text on a
-    one-sided row while marking every meaningful token unchanged.
-    """
     old_path = (
         PRESETS_ROOT / "typescript/filter-condition-adds-top-level-kind/old.ts"
     )
@@ -399,11 +299,6 @@ def test_difftastic_filter_expansion_does_not_render_existing_condition_as_one_s
 def test_difftastic_python_literal_expansion_does_not_render_existing_members_as_one_sided_change() -> (
     None
 ):
-    """Keep shared Python literal members paired through list expansion.
-
-    Added members may change wrapping, but pre-existing words cannot become
-    one-sided rows containing only unchanged tokens.
-    """
     old_path = PRESETS_ROOT / "python/python-literal-adds-top-level-kind/old.py"
     new_path = PRESETS_ROOT / "python/python-literal-adds-top-level-kind/new.py"
     old_text = old_path.read_bytes().decode("utf-8")
@@ -426,11 +321,6 @@ def test_difftastic_python_literal_expansion_does_not_render_existing_members_as
 def test_difftastic_json_rows_use_structural_alignment_and_changed_ranges() -> (
     None
 ):
-    """Project Difftastic alignment and byte ranges into lossless row tokens.
-
-    The test fixes the boundary between external structural facts and original
-    source text: alignment chooses rows, while changed ranges choose tokens.
-    """
     left_text = """def alpha():
     return 1
 """
@@ -479,11 +369,6 @@ def beta():
 def test_difftastic_rows_do_not_reconstruct_unchanged_tail_after_split_call_change() -> (
     None
 ):
-    """Do not synthesize a shared call tail after Difftastic splits the call.
-
-    Row building must follow supplied alignment exactly; reconstructing attractive
-    context locally can duplicate or reorder source fragments.
-    """
     left_text = """return compute(foo.bar, baz);
 """
     right_text = """return compute(
@@ -538,11 +423,6 @@ def test_difftastic_rows_do_not_reconstruct_unchanged_tail_after_split_call_chan
 def test_difftastic_rows_do_not_reconstruct_typescript_array_tail_after_wrap() -> (
     None
 ):
-    """Preserve Difftastic's TypeScript array wrapping without a rebuilt tail.
-
-    Shared closing syntax may move across lines, but row building may not invent a
-    paired suffix outside the external alignment.
-    """
     old_path = (
         PRESETS_ROOT
         / "typescript/typescript-array-tail-after-wrap-should-stay-right-only/old.ts"
@@ -579,11 +459,6 @@ def test_difftastic_rows_do_not_reconstruct_typescript_array_tail_after_wrap() -
 def test_difftastic_rows_do_not_reconstruct_python_dict_tail_after_wrap() -> (
     None
 ):
-    """Preserve wrapped Python dictionary alignment without tail repair.
-
-    The source replay invariant wins over visually pairing a shared closing
-    fragment that Difftastic placed on separate rows.
-    """
     left_text = """value = make({"left": thing, "mid": keep, "right": done})
 """
     right_text = """value = make({
@@ -615,11 +490,6 @@ def test_difftastic_rows_do_not_reconstruct_python_dict_tail_after_wrap() -> (
 def test_difftastic_rows_do_not_reconstruct_clojure_vector_tail_after_wrap() -> (
     None
 ):
-    """Keep a wrapped Clojure vector tail on Difftastic's chosen rows.
-
-    Row building must not rebuild shared delimiters into a synthetic pair after
-    structural wrapping changes their line placement.
-    """
     old_path = (
         PRESETS_ROOT
         / "clojure/clojure-vector-tail-after-wrap-should-stay-right-only/old.clj"
@@ -652,11 +522,6 @@ def test_difftastic_rows_do_not_reconstruct_clojure_vector_tail_after_wrap() -> 
 def test_difftastic_rows_do_not_reconstruct_clojure_map_tail_after_wrap_removal() -> (
     None
 ):
-    """Keep Clojure map closing syntax faithful after wrapped content removal.
-
-    The regression rejects local tail reconstruction that would detach a
-    delimiter from its source line or consume it twice.
-    """
     old_path = (
         PRESETS_ROOT
         / "clojure/clojure-map-tail-after-wrap-should-stay-right-only/old.clj"
@@ -689,11 +554,6 @@ def test_difftastic_rows_do_not_reconstruct_clojure_map_tail_after_wrap_removal(
 def test_difftastic_rows_do_not_reconstruct_rust_range_tail_after_wrap() -> (
     None
 ):
-    """Preserve Rust range tail placement across a wrapping change.
-
-    A repeated range delimiter is not permission to override Difftastic's line
-    alignment or create context that the source rows do not support.
-    """
     old_path = (
         PRESETS_ROOT
         / "rust/rust-range-tail-after-wrap-should-stay-right-only/old.rs"
@@ -727,11 +587,6 @@ def test_difftastic_rows_do_not_reconstruct_rust_range_tail_after_wrap() -> (
 def test_difftastic_rows_do_not_reconstruct_rust_range_inclusive_tail_after_wrap() -> (
     None
 ):
-    """Preserve inclusive Rust range syntax without reconstructed context.
-
-    This variant fixes the same replay boundary for `..=` tokens, whose shared
-    punctuation previously invited an incorrect paired tail.
-    """
     old_path = (
         PRESETS_ROOT
         / "rust/rust-range-inclusive-tail-after-wrap-should-stay-right-only/old.rs"
@@ -765,11 +620,6 @@ def test_difftastic_rows_do_not_reconstruct_rust_range_inclusive_tail_after_wrap
 def test_difftastic_rows_do_not_reconstruct_ocaml_atat_tail_after_wrap() -> (
     None
 ):
-    """Keep OCaml `@@` tail fragments on their structurally aligned rows.
-
-    Row building may decorate the exact source slices but must not repair the
-    external alignment around repeated application operators.
-    """
     old_path = (
         PRESETS_ROOT
         / "ocaml/ocaml-atat-tail-after-wrap-should-stay-right-only/old.ml"
@@ -818,11 +668,6 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_tail_after_wrap() -> (
 def test_difftastic_rows_do_not_reconstruct_ocaml_atat_nested_tail_after_wrap() -> (
     None
 ):
-    """Preserve nested OCaml `@@` tails through a wrapping change.
-
-    Nested repeated operators make textual pairing tempting; the rows must
-    still replay each side exactly in Difftastic order.
-    """
     old_path = (
         PRESETS_ROOT
         / "ocaml/ocaml-atat-nested-tail-after-wrap-should-stay-right-only/old.ml"
@@ -871,11 +716,6 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_atat_nested_tail_after_wrap() 
 def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_tail_after_wrap() -> (
     None
 ):
-    """Keep an OCaml pipe tail on the source rows Difftastic aligned.
-
-    Shared operator text cannot be pulled into a synthetic context row when its
-    line placement differs between the documents.
-    """
     old_path = (
         PRESETS_ROOT
         / "ocaml/ocaml-pipe-tail-after-wrap-should-stay-right-only/old.ml"
@@ -924,11 +764,6 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_tail_after_wrap() -> (
 def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_double_tail_after_wrap() -> (
     None
 ):
-    """Keep repeated OCaml pipe tails lossless after wrapping.
-
-    The test covers two neighboring operators so row building cannot accidentally
-    reuse one source fragment while trying to align the other.
-    """
     old_path = (
         PRESETS_ROOT
         / "ocaml/ocaml-pipe-double-tail-after-wrap-should-stay-right-only/old.ml"
@@ -975,11 +810,6 @@ def test_difftastic_rows_do_not_reconstruct_ocaml_pipe_double_tail_after_wrap() 
 
 
 def test_difftastic_does_not_pair_bare_brace_residual_fragment() -> None:
-    """Leave a residual bare brace one-sided when Difftastic does not pair it.
-
-    Punctuation identity alone is insufficient evidence to reconstruct a row;
-    doing so would contradict the structural alignment and source order.
-    """
     left_text = """  let cursor = 0;
   for (const span of syntax) {
     const start = clamp(span.start, 0, text.length);
@@ -1011,11 +841,6 @@ def test_difftastic_does_not_pair_bare_brace_residual_fragment() -> None:
 def test_difftastic_rows_do_not_duplicate_reconstructed_right_line_numbers() -> (
     None
 ):
-    """Emit every real right line number once when alignment has split tails.
-
-    This catches reconstruction that consumes a right-side source line twice,
-    breaking both navigation coordinates and replay.
-    """
     left_text = """        "right_path": entry.right_path,
         "change_type": entry.change_type,
         "lazy": True,
@@ -1063,11 +888,6 @@ def test_difftastic_rows_do_not_duplicate_reconstructed_right_line_numbers() -> 
 def test_difftastic_rows_follow_changed_condition_ranges_in_partial_context() -> (
     None
 ):
-    """Preserve real changed ranges for a condition in an indented fragment.
-
-    Without the enclosing function, Difftastic marks the entire new condition
-    as inserted tokens. The row builder must retain that external decision.
-    """
     left_text = """        "right_path": entry.right_path,
         "change_type": entry.change_type,
         "lazy": True,
@@ -1127,11 +947,6 @@ def test_difftastic_rows_follow_changed_condition_ranges_in_partial_context() ->
 def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() -> (
     None
 ):
-    """Do not reinterpret an assignment value as a newly inserted argument.
-
-    Similar source text appears in two syntax roles. Row building must honor
-    Difftastic's ranges instead of pairing by textual coincidence.
-    """
     left_text = """        )
         payload["change_type"] = change_type
         payload["left_path"] = normalized_left
@@ -1298,11 +1113,6 @@ def test_difftastic_rows_do_not_reconstruct_assignment_rhs_as_insert_argument() 
 
 
 def test_difftastic_rows_keep_split_show_condition_as_context() -> None:
-    """Keep a split `show` condition as context around the actual edit.
-
-    The regression distinguishes unchanged structural text from the nearby
-    insertion after Difftastic spreads the expression across rows.
-    """
     old_path = (
         PRESETS_ROOT
         / "typescript/typescript-repo-fold-controls-show-placeholder-aligns-poorly/old.tsx"
@@ -1340,11 +1150,6 @@ def test_difftastic_rows_keep_split_show_condition_as_context() -> None:
 def test_difftastic_rows_status_is_equal_for_real_right_only_context_line() -> (
     None
 ):
-    """Treat a one-sided aligned line with no changed spans as context.
-
-    Difftastic can emit a real right-only alignment row whose presence is not an
-    insertion; row status must follow changed ranges, not null pairing alone.
-    """
     left_text = """return compute(foo.bar, baz);
 """
     right_text = """return compute(
@@ -1386,11 +1191,6 @@ def test_difftastic_rows_status_is_equal_for_real_right_only_context_line() -> (
 def test_difftastic_rows_status_is_equal_for_real_mixed_unchanged_and_insert_tokens() -> (
     None
 ):
-    """Keep mixed unchanged and inserted token context on an equal row.
-
-    A line retaining meaningful old context is not a pure insertion even when
-    every changed token appears on the right.
-    """
     left_text = """return compute(foo.bar, baz);
 """
     right_text = """return compute(
@@ -1428,11 +1228,6 @@ def test_difftastic_rows_status_is_equal_for_real_mixed_unchanged_and_insert_tok
 def test_difftastic_rows_status_is_insert_when_real_right_only_line_is_changed() -> (
     None
 ):
-    """Classify a genuinely changed right-only row as an insertion.
-
-    Unlike context-only right rows, reported inserted token content gives the
-    row a one-sided change status.
-    """
     left_text = """value = arg
 """
     right_text = """value = arg
@@ -1475,14 +1270,6 @@ new_value
 
 
 def test_difftastic_omitted_gaps_become_unchanged_at_public_boundary() -> None:
-    """Expose omitted Difftastic gaps without inventing a change status.
-
-    Difftastic reports sparse syntax spans and omits the separating whitespace.
-    The private lossless partition retains an omitted gap as a private
-    classification until the public boundary, then exposes it as unchanged
-    without leaking an internal status. That mixed public partition keeps the
-    row equal.
-    """
     text = "export async\n"
     diff_json: DifftasticJson = {
         "aligned_lines": [[0, None], [None, 0]],
@@ -1547,11 +1334,6 @@ def test_difftastic_omitted_gaps_become_unchanged_at_public_boundary() -> None:
 def test_difftastic_rows_status_is_equal_when_changed_tokens_are_mixed() -> (
     None
 ):
-    """Keep the row equal when changed tokens do not form a pure insertion.
-
-    Mixed or paired changed classifications must not combine into a one-sided
-    row status merely because the alignment is asymmetric.
-    """
     left_text = """value = old
 """
     right_text = """value = new
@@ -1591,11 +1373,6 @@ def test_difftastic_rows_status_is_equal_when_changed_tokens_are_mixed() -> (
 def test_difftastic_rows_status_is_delete_when_every_changed_token_is_delete() -> (
     None
 ):
-    """Use deletion for a row whose meaningful changed tokens are all deleted.
-
-    With no unchanged non-whitespace context, the token verdict is a complete
-    one-sided removal rather than a replacement.
-    """
     left_text = """value = arg
 old_value
 """
@@ -1638,11 +1415,6 @@ old_value
 
 
 def test_difftastic_rows_statuses_for_real_lazy_manifest_hunk() -> None:
-    """Pin token-derived statuses for the lazy-manifest regression hunk.
-
-    The real fixture mixes paired context and one-sided structural spans; each
-    row status must agree with its rendered tokens.
-    """
     left_text = """def _to_lazy_repo_manifest_file_entry(entry: RepoDiffPath) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "change_type": entry.change_type,
@@ -1710,11 +1482,6 @@ def test_difftastic_rows_statuses_for_real_lazy_manifest_hunk() -> None:
 
 
 def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
-    """Pin row classification for a real File-kind assignment change.
-
-    Similar assignments and punctuation surround the edit, exercising the
-    distinction between unchanged context, replacement, and insertion.
-    """
     left_text = """            right_path_hint=normalized_right,
         )
         payload["change_type"] = change_type
@@ -1892,12 +1659,6 @@ def test_difftastic_rows_statuses_for_real_file_kind_assignment_hunk() -> None:
 
 
 def test_difftastic_rows_classify_runtime_config_service_tail_tokens() -> None:
-    """Classify runtime-config tail rows from reported and synthesised tokens.
-
-    Synthesised whitespace becomes unchanged and therefore prevents a uniform
-    deletion verdict. Omitted punctuation or absent spans likewise keep the
-    remaining rows equal.
-    """
     old_path = (
         PRESETS_ROOT
         / "python/create-app-runtime-config-collapses-service-block-copy/old.py"
@@ -1956,11 +1717,6 @@ def test_difftastic_rows_classify_runtime_config_service_tail_tokens() -> None:
 def test_difftastic_rows_keep_member_access_dot_unchanged_across_wrapped_pair() -> (
     None
 ):
-    """Keep a shared member-access dot unchanged across wrapped paired rows.
-
-    Punctuation between stable members is context; wrapping alone must not
-    repaint it as part of the adjacent replacement.
-    """
     left_text = """repo_root = (
     Path(config.repo_root).expanduser() if config.repo_root else None
 )
@@ -2029,11 +1785,6 @@ def test_difftastic_rows_keep_member_access_dot_unchanged_across_wrapped_pair() 
 def test_difftastic_rows_keep_inserted_structural_closer_context_unchanged() -> (
     None
 ):
-    """Keep a structural closer unchanged beside inserted content.
-
-    The closer already belongs to both sources. Its new line placement does not
-    make it an insertion when Difftastic reports it as shared context.
-    """
     old_path = (
         PRESETS_ROOT
         / "python/create-app-runtime-config-collapses-service-block-copy/old.py"
@@ -2083,11 +1834,6 @@ def test_difftastic_rows_keep_inserted_structural_closer_context_unchanged() -> 
 def test_difftastic_rows_keep_defaults_argument_punctuation_context_unchanged() -> (
     None
 ):
-    """Preserve shared punctuation around a changed defaults argument.
-
-    Only the argument content should be painted; commas and delimiters that
-    remain in both sources stay unchanged context.
-    """
     old_path = (
         PRESETS_ROOT
         / "python/create-app-runtime-config-collapses-service-block-copy/old.py"
@@ -2132,11 +1878,6 @@ def test_difftastic_rows_keep_defaults_argument_punctuation_context_unchanged() 
 
 
 def test_difftastic_rows_do_not_paint_defaults_right_comma_as_delete() -> None:
-    """Never mark a right-side defaults comma with a deletion status.
-
-    Side and token classifications must agree. A token present on the new side
-    can be unchanged, inserted, or replaced, but not deleted.
-    """
     old_path = (
         PRESETS_ROOT
         / "python/create-app-runtime-config-collapses-service-block-copy/old.py"
@@ -2172,11 +1913,6 @@ def test_difftastic_rows_do_not_paint_defaults_right_comma_as_delete() -> None:
 
 
 def test_difftastic_rows_do_not_paint_review_branch_equals_as_delete() -> None:
-    """Never paint the new-side review-branch equals sign as deleted.
-
-    This real alignment once leaked an old-side verdict onto shared right-side
-    punctuation; the regression fixes side-local token status.
-    """
     old_path = (
         PRESETS_ROOT
         / "python/create-app-runtime-config-collapses-service-block-copy/old.py"
@@ -2214,11 +1950,6 @@ def test_difftastic_rows_do_not_paint_review_branch_equals_as_delete() -> None:
 
 
 def test_difftastic_rows_keep_normalized_base_branch_comma_unchanged() -> None:
-    """Keep the normalized base-branch comma as unchanged context.
-
-    Neighboring expression changes do not alter this delimiter, so its token
-    must remain stable after structural normalization.
-    """
     old_path = (
         PRESETS_ROOT
         / "python/create-app-runtime-config-collapses-service-block-normalized/old.py"
@@ -2257,11 +1988,6 @@ def test_difftastic_rows_keep_normalized_base_branch_comma_unchanged() -> None:
 def test_difftastic_rows_keep_normalized_services_mapping_comma_unchanged() -> (
     None
 ):
-    """Keep the services-mapping comma unchanged after normalized alignment.
-
-    The regression checks that shared punctuation does not inherit a changed
-    status from an adjacent mapping value.
-    """
     old_path = (
         PRESETS_ROOT
         / "python/create-app-runtime-config-collapses-service-block-normalized/old.py"
@@ -2297,11 +2023,6 @@ def test_difftastic_rows_keep_normalized_services_mapping_comma_unchanged() -> (
 
 
 def test_difftastic_rows_keep_normalized_create_app_closer_unchanged() -> None:
-    """Keep the normalized `create_app` closer as unchanged context.
-
-    Structural alignment may move the delimiter between rows, but its source
-    identity and token status remain shared.
-    """
     old_path = (
         PRESETS_ROOT
         / "python/create-app-runtime-config-collapses-service-block-normalized/old.py"

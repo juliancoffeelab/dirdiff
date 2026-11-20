@@ -1,11 +1,3 @@
-"""Check notebook composition against executed notebook fixtures.
-
-The tests pin one frame per cell, the notebook-metadata frame, source-bay
-expansion, closed metadata attachments, text and PNG output selection, durable
-IDs, source-derived keys, movement, one-sided cells, and local degradation of
-malformed notebook parts.
-"""
-
 from __future__ import annotations
 
 import json
@@ -21,20 +13,9 @@ from dirdiff.formats import (
 from dirdiff.util import JsonValue, maybe
 
 NOTEBOOKS = Path(__file__).resolve().parents[1] / "presets" / "notebook"
-"""Executed notebook fixture catalog used for format-level behavior checks.
-
-These are real serialized notebook sides, so tests cover structures and output
-forms produced by kernels rather than hand-authored approximations alone.
-"""
 
 
 def test_error_traceback_output_bay_keeps_uninterpreted_escapes() -> None:
-    """Keep an error output's traceback text exact in a dedicated closed bay.
-
-    ANSI escapes and traceback line boundaries remain uninterpreted source for
-    the text engine. The output must not become notebook metadata, a warning, or
-    a pre-expanded body.
-    """
     directory = NOTEBOOKS / "basic" / "error-traceback-appears"
     context = ComposeContext.build(
         left_path=maybe("error.ipynb"),
@@ -82,12 +63,6 @@ def test_error_traceback_output_bay_keeps_uninterpreted_escapes() -> None:
 
 
 def test_metadata_change_collapses_source_and_adds_metadata_bay() -> None:
-    """Represent a metadata-only cell change without claiming source changed.
-
-    The source bay remains unchanged and starts closed, while canonical metadata
-    JSON appears in a separate changed bay with the expected tags. Both stay in the
-    same cell frame.
-    """
     directory = NOTEBOOKS / "basic" / "cell-metadata-changed"
     context = ComposeContext.build(
         left_path=maybe("meta.ipynb"),
@@ -127,12 +102,6 @@ def test_metadata_change_collapses_source_and_adds_metadata_bay() -> None:
 
 
 def test_added_and_removed_cells_are_separate_frames() -> None:
-    """Keep unmatched added and removed cells as distinct document-order frames.
-
-    Each changed cell contributes one frame whose bay rows expose only that cell's
-    insertion or deletion status. Unchanged cells contribute no changed frame,
-    and headings do not stand in for semantic change.
-    """
     directory = NOTEBOOKS / "basic" / "cell-added-removed"
     context = ComposeContext.build(
         left_path=maybe("s.ipynb"),
@@ -151,18 +120,6 @@ def test_added_and_removed_cells_are_separate_frames() -> None:
     # removed is read from the bays, not from the heading. Only the cells
     # that changed compose a frame; the untouched ones do not.
     def statuses(frame: FramePayload) -> set[str]:
-        """Return the distinct text-row statuses visible inside one frame.
-
-        Image bays have no rows and are ignored. The assertion uses this set to
-        prove a cell frame does not mix added and removed content from two
-        unmatched cells.
-
-        # Returns
-
-        - `Members`: Distinct statuses from every text row in the frame.
-        - `Omissions`: Image bays and duplicate statuses add no entries, so the
-          set describes only row-status kinds visible in text bays.
-        """
         return {
             row["status"]
             for bay in frame["bays"]
@@ -185,12 +142,6 @@ def test_added_and_removed_cells_are_separate_frames() -> None:
 
 
 def test_markdown_edit_is_one_source_bay() -> None:
-    """Keep a markdown source edit in one cell source bay with Markdown syntax.
-
-    The changed cell must not acquire code outputs or metadata bays, while
-    unchanged surrounding cells preserve notebook frame order. The source bay's
-    public coordinate remains the cell-derived one.
-    """
     directory = NOTEBOOKS / "basic" / "markdown-cell-edited"
     context = ComposeContext.build(
         left_path=maybe("md.ipynb"),
@@ -218,12 +169,6 @@ def test_markdown_edit_is_one_source_bay() -> None:
 
 
 def test_invalid_notebook_composes_as_warned_raw_notebook() -> None:
-    """Preserve invalid notebook JSON as warned raw notebook content.
-
-    Classification remains notebook-specific instead of retrying flatfile or
-    blob builders. The composed text bay must expose the original content and a
-    notebook warning so damage is visible without losing File structure.
-    """
     directory = NOTEBOOKS / "invalid" / "not-valid-notebook-json"
     context = ComposeContext.build(
         left_path=maybe("b.ipynb"),
@@ -255,12 +200,6 @@ def test_invalid_notebook_composes_as_warned_raw_notebook() -> None:
 
 
 def test_source_and_output_both_change_in_one_frame() -> None:
-    """Keep one code cell's changed source and stream output under one frame.
-
-    The frame carries separate stable bays for the two reviewable facts, both
-    marked changed. Composition must not split one cell across unrelated frames
-    or hide the output behind the source diff.
-    """
     directory = NOTEBOOKS / "basic" / "stream-output-changed"
     context = ComposeContext.build(
         left_path=maybe("o.ipynb"),
@@ -307,12 +246,6 @@ def test_source_and_output_both_change_in_one_frame() -> None:
 def test_cells_pair_by_id_so_an_edited_cell_is_not_an_add_and_a_remove() -> (
     None
 ):
-    """A cell keeps its key when its source is rewritten.
-
-    The cell id is the public key, so an edited cell pairs with itself rather
-    than composing as one removed and one added cell, and an unchanged cell
-    composes nothing at all.
-    """
     left = json.dumps(
         {
             "cells": [
@@ -388,18 +321,8 @@ def test_cells_pair_by_id_so_an_edited_cell_is_not_an_add_and_a_remove() -> (
 
 
 def test_bay_keys_survive_a_source_rewrite() -> None:
-    """The key a review target names is the same before and after an edit.
-
-    This is the property that lets review store a bay key and nothing else:
-    rewriting a cell's whole source must not change the key that names it.
-    """
 
     def notebook(source: str) -> bytes:
-        """Serialize the fixed-ID one-cell document used by the rewrite case.
-
-        Only `source` varies, so any change to bay identity can be attributed to
-        source replacement rather than metadata, order, prompt, or cell ID.
-        """
         return json.dumps(
             {
                 "cells": [
@@ -435,20 +358,8 @@ def test_bay_keys_survive_a_source_rewrite() -> None:
 
 
 def test_cell_reorder_keeps_one_unique_key_per_cell() -> None:
-    """A moved cell composes once, under the key it already had.
-
-    Sequence alignment reports a move as a deletion plus an insertion, which
-    would emit the same key twice and break the uniqueness every bay key
-    depends on — including the dictionary review builds from `bays()`.
-    """
 
     def notebook(order: list[str]) -> bytes:
-        """Serialize fixed-ID cells in the exact requested document order.
-
-        Cell contents and metadata remain identical across sides, isolating the
-        pairing contract that reorders one durable cell without duplicating its
-        public bay key.
-        """
         return json.dumps(
             {
                 "cells": [
@@ -506,12 +417,6 @@ def test_cell_reorder_keeps_one_unique_key_per_cell() -> None:
 
 
 def test_plot_output_prefers_png_and_stays_reachable() -> None:
-    """A re-rendered plot composes as a changed image bay.
-
-    The plot output offers an unchanged `text/plain` summary beside changed PNG
-    bytes. Stage 3 selects the PNG, retains the output coordinate, and reports
-    the semantic change so the frontend gives the rowless bay one stop.
-    """
     directory = NOTEBOOKS / "rich" / "plot-wettest-highlighted"
     context = ComposeContext.build(
         left_path=maybe("p.ipynb"),
@@ -544,12 +449,6 @@ def test_plot_output_prefers_png_and_stays_reachable() -> None:
 
 
 def test_png_on_only_one_output_side_stays_an_image_bay() -> None:
-    """An asymmetric MIME bundle shows the PNG only where it exists.
-
-    The old output still exists and offers `text/plain`, but the pair selects
-    the richer PNG representation supplied on the new side. Its missing old PNG
-    remains explicit instead of borrowing text or the new image.
-    """
     directory = NOTEBOOKS / "rich" / "plot-wettest-highlighted"
     old_document: JsonValue = json.loads(
         (directory / "old.ipynb").read_text(encoding="utf-8")
@@ -596,13 +495,6 @@ def test_png_on_only_one_output_side_stays_an_image_bay() -> None:
 
 
 def test_unchanged_presets_cover_added_and_removed_plot_outputs() -> None:
-    """Keep one-sided embedded PNGs as explicit image representations.
-
-    The unchanged fixtures pair an executed plot cell with the same unexecuted
-    cell. Its emitted figure output must remain an image bay, with only the
-    captured representation present and the semantic output change stated
-    directly.
-    """
     for case, change, left_present in (
         ("plot-output-added", "added", False),
         ("plot-output-removed", "removed", True),
@@ -636,20 +528,8 @@ def test_unchanged_presets_cover_added_and_removed_plot_outputs() -> None:
 
 
 def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
-    """Missing or duplicate ids preserve cells under degraded source keys.
-
-    Bay keys are what review and line pins persist. When an id cannot supply a
-    unique durable key, the source hash and occurrence among identical sources
-    supply an unambiguous degraded coordinate and the source bay warns.
-    """
 
     def notebook(identifiers: list[JsonValue]) -> bytes:
-        """Serialize otherwise identical cells with caller-supplied raw IDs.
-
-        The helper accepts invalid JSON ID values intentionally. This isolates
-        loader degradation and pseudo-key collision handling from source,
-        metadata, output, and ordering differences.
-        """
         return json.dumps(
             {
                 "cells": [
@@ -711,22 +591,8 @@ def test_cells_without_distinct_ids_use_warned_source_keys() -> None:
 
 
 def test_schema_violations_degrade_only_the_affected_notebook_part() -> None:
-    """A broken read field preserves the notebook and reports its damage.
-
-    The loader is strict about every field composition reads, where strict
-    means the `nbformat` v4.5 schema shape: an id outside the `cell_id`
-    pattern or length, a cell type outside the three cell types, an output
-    type outside the four output types, and an `execute_result` missing its
-    required `data` bundle each make the document not a notebook, rather than
-    a notebook with invented contents.
-    """
 
     def notebook(cell: dict[str, JsonValue]) -> bytes:
-        """Place one possibly malformed cell mapping at a valid document boundary.
-
-        Fixed notebook metadata and format fields ensure the parameterized test
-        exercises nested cell preservation rather than top-level parsing damage.
-        """
         return json.dumps(
             {
                 "cells": [cell],
@@ -800,19 +666,8 @@ def test_schema_violations_degrade_only_the_affected_notebook_part() -> None:
 
 
 def test_a_cell_key_is_the_id_verbatim() -> None:
-    """Keep a valid Jupyter cell ID as the exact public review coordinate.
-
-    Editing the cell source must not rewrite, prefix, hash, or position-qualify
-    that ID. A target copied from the notebook document should address the same
-    source bay on both sides.
-    """
 
     def notebook(source: str) -> bytes:
-        """Serialize fixed-ID cells while varying only the addressed source.
-
-        The unchanged sibling proves composition preserves separate IDs and the
-        edited cell proves its verbatim coordinate survives content changes.
-        """
         return json.dumps(
             {
                 "cells": [
@@ -848,21 +703,8 @@ def test_a_cell_key_is_the_id_verbatim() -> None:
 
 
 def test_notebook_level_metadata_change_is_reachable() -> None:
-    """A change to the notebook's own fields belongs to no cell but still shows.
-
-    A kernelspec swap or a format-version bump changes the file while leaving
-    every cell identical. Composing only cells makes that change invisible, which
-    is the one outcome the reachability rule forbids.
-    """
 
     def notebook(kernel: str, minor: int) -> bytes:
-        """Build a one-cell notebook varying only in its top-level fields.
-
-        # Parameters
-
-        - `kernel`: Kernelspec name placed in notebook metadata.
-        - `minor`: `nbformat_minor` value placed beside the fixed major format.
-        """
         return json.dumps(
             {
                 "cells": [
@@ -945,13 +787,6 @@ def test_notebook_level_metadata_change_is_reachable() -> None:
 
 
 def test_one_sided_notebook_never_invents_the_absent_side() -> None:
-    """An added or removed notebook renders nothing on its absent side.
-
-    Composition must not substitute an empty document for a side that was
-    never captured: the notebook-level metadata bay derives its `change`
-    from the absence, every cell source bay reports the file's direction,
-    and no row carries text on the absent side.
-    """
     directory = NOTEBOOKS / "basic" / "cell-metadata-changed"
     data = (directory / "new.ipynb").read_bytes()
 
@@ -1007,33 +842,8 @@ def test_one_sided_notebook_never_invents_the_absent_side() -> None:
 
 
 def test_cells_are_named_by_prompt_and_a_move_reports_both_names() -> None:
-    """Headings are Jupyter prompts; a move carries the name at each end.
-
-    X is removed and keeps the prompt it had in the old notebook; the
-    markdown cell has no prompt and no heading; D never ran and shows the
-    empty prompt; C was merely re-run, so its name updates while its change
-    stays "unchanged"; and A — moved and edited — reports the move with the
-    prompt it wore on each side instead of composing as "changed", since its
-    rows already show the edit and only `change` can say it moved.
-    """
 
     def code(key: str, count: int | None, source: str) -> dict[str, JsonValue]:
-        """Build one code cell for heading and move assertions.
-
-        # Parameters
-
-        - `key`: Durable notebook cell id used for cross-side pairing.
-        - `count`: Execution count rendered in the cell heading, or `None` for
-          an empty prompt.
-        - `source`: Exact cell source rendered by the text engine.
-
-        # Returns
-
-        - `Identity and prompt`: The mapping carries the supplied cell id and
-          execution count with `cell_type` fixed to `code`.
-        - `Content`: Source is a one-part list; metadata and outputs are empty so
-          heading and movement are the only varied facts.
-        """
         return {
             "cell_type": "code",
             "id": key,
@@ -1044,11 +854,6 @@ def test_cells_are_named_by_prompt_and_a_move_reports_both_names() -> None:
         }
 
     def notebook(cells: list[dict[str, JsonValue]]) -> bytes:
-        """Serialize supplied cell mappings without changing their order or content.
-
-        Fixed top-level metadata and nbformat fields keep the test focused on
-        cell pairing, identity, and degradation across the provided sequence.
-        """
         return json.dumps(
             {
                 "cells": cells,

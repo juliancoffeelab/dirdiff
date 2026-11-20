@@ -1,12 +1,3 @@
-"""Git diff-engine row projection tests.
-
-These tests exercise the engine-facing Git projection boundary.  Git emits
-unified patches with sparse hunk context, but dirdiff engine rows must describe
-the full left/right source surface so the frontend can render and virtualize a
-complete file.  The assertions here keep that source-preservation contract
-separate from repository loading, HTTP serialization, and syntax enrichment.
-"""
-
 import pytest
 
 from dirdiff.engines import (
@@ -20,11 +11,6 @@ from dirdiff.engines.git import GitDiffEngine
 
 
 def test_git_engine_keeps_equal_source_outside_patch_hunks() -> None:
-    """Sparse unified-patch context expands back to every source line.
-
-    Equal prefixes, inter-hunk gaps, and tails must survive in engine rows on
-    both sides, preserving complete File rendering and virtualization.
-    """
     old_lines = [
         "pre 1",
         "pre 2",
@@ -88,7 +74,6 @@ def test_git_engine_keeps_equal_source_outside_patch_hunks() -> None:
 
 
 def test_git_word_default_boundary_splits_at_whitespace_only() -> None:
-    """Without a regex Git treats every run of non-whitespace as one word."""
     engine = GitDiffEngine(
         word_diff=True, word_boundary=GitWordBoundaryDefault(mode="default")
     )
@@ -106,12 +91,6 @@ def test_git_word_default_boundary_splits_at_whitespace_only() -> None:
 
 
 def test_git_word_custom_boundary_matches_whole_codepoints() -> None:
-    """A per-character pattern splits Unicode text at codepoints, not bytes.
-
-    Under a byte locale `.` would match one byte of `₁`, and Git would print
-    token records that are not valid UTF-8. The driver pins a UTF-8 locale so
-    the subscript digit is one token.
-    """
     engine = GitDiffEngine(
         word_diff=True,
         word_boundary=GitWordBoundaryCustom(mode="custom", regex="."),
@@ -134,12 +113,6 @@ def test_git_word_custom_boundary_matches_whole_codepoints() -> None:
 
 
 def test_git_word_language_boundary_uses_python_driver_for_py_suffix() -> None:
-    """A `.py` hint selects Git's Python driver, which splits identifiers at `.`.
-
-    The same text under the default boundary is one `foo.bar(1)` word, so a
-    finer split proves the attributes file reached Git. Unicode identifiers
-    still survive as whole tokens through the driver's own multibyte rule.
-    """
     engine = GitDiffEngine(
         word_diff=True, word_boundary=GitWordBoundaryLanguage(mode="language")
     )
@@ -167,7 +140,6 @@ def test_git_word_language_boundary_uses_python_driver_for_py_suffix() -> None:
 
 
 def test_git_word_language_boundary_ignores_unknown_suffix() -> None:
-    """A suffix with no driver keeps Git's whitespace boundary."""
     engine = GitDiffEngine(
         word_diff=True, word_boundary=GitWordBoundaryLanguage(mode="language")
     )
@@ -187,11 +159,6 @@ def test_git_word_language_boundary_ignores_unknown_suffix() -> None:
 
 
 def test_git_word_custom_boundary_without_pattern_passes_no_regex() -> None:
-    """Custom with no entered pattern behaves like the default boundary.
-
-    `None` must not become a `--word-diff-regex` argument on its way to Git;
-    the flag is omitted and whitespace splitting applies.
-    """
     engine = GitDiffEngine(
         word_diff=True,
         word_boundary=GitWordBoundaryCustom(mode="custom", regex=None),
@@ -213,7 +180,6 @@ def test_git_word_custom_boundary_without_pattern_passes_no_regex() -> None:
 def test_git_word_custom_boundary_surfaces_git_regex_rejection(
     regex: str,
 ) -> None:
-    """Git's own rejection of a malformed pattern reaches the caller."""
     engine = GitDiffEngine(
         word_diff=True,
         word_boundary=GitWordBoundaryCustom(mode="custom", regex=regex),
@@ -226,12 +192,6 @@ def test_git_word_custom_boundary_surfaces_git_regex_rejection(
 
 
 def test_git_word_rows_place_fused_lines_on_their_first_source_line() -> None:
-    """A row fusing several source lines reports the line its text starts on.
-
-    Git's porcelain keeps only the new side's newlines inside unchanged text,
-    so old lines 1 and 2 fuse into one row while the numbering still follows
-    each side's own source.
-    """
     engine = GitDiffEngine(word_diff=True)
     result = engine.render_diff(
         old=DiffSide(
@@ -272,13 +232,6 @@ def test_git_word_rows_round_trip_source_under_every_boundary(
     | GitWordBoundaryLanguage
     | GitWordBoundaryCustom,
 ) -> None:
-    """Row text reproduces each side's non-whitespace source in order.
-
-    Whatever boundary Git split words at, concatenating a side's row text
-    yields the source's non-whitespace characters, and every row's number is
-    the source line holding its first non-whitespace character. This is the
-    property the engine trusts Git for instead of checking per request.
-    """
     old_text = (
         "def total(items):\n"
         "    return sum(item.price * item.qty\n"

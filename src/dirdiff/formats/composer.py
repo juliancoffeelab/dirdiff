@@ -1,21 +1,3 @@
-"""Classification and composition of one captured File pair.
-
-## Public interface
-
-`Composer.bays` classifies the supplied paths and yields the ordered bays built
-by the flatfile, notebook, image, or blob module. `Composer.compose` renders
-that same stream, groups bays into frames, aggregates their summary, and
-returns the composed-diff envelope.
-
-## Purpose and boundaries
-
-Classification is total and depends only on supplied paths and bytes. The
-same bay enumeration serves full rendering, review-coordinate validation, and
-media lookup, so those consumers cannot disagree about which bays a File has.
-File loading and the HTTP-only display name and File kind remain outside this
-module.
-"""
-
 from __future__ import annotations
 
 import json
@@ -58,81 +40,15 @@ __all__ = ["Composer", "read_captured_link", "write_captured_link"]
 
 
 FileFormat = Literal["notebook", "image", "blob", "text"]
-"""Select the format builder for one captured File pair.
-
-- `notebook` uses notebook structure.
-- `image` produces picture, metadata, and facts bays.
-- `text` produces one decoded flatfile bay.
-- `blob` is the terminal for content dirdiff cannot read as text.
-
-Composer derives this value from paths and bytes. It is not a bay kind, VCS
-tracking, or caller-selectable rendering option.
-"""
 
 
 class Composer:
-    """Compose two captured byte sides into one composed diff.
-
-    The class is stateless and pure: construct one and reuse it. For the same
-    captured sides and context, engine-free bay lookup and composed rendering
-    use the same bay identities.
-
-    *Implementation detail:* `compose()` consumes `bays()` as the single
-    enumeration of a File's bays; review replay uses that enumeration too.
-
-    # Usage
-
-    Construct directly. Use `bays` for engine-free bay lookup and `compose` for
-    the serialized diff. The object keeps no state between calls.
-    """
-
     def bays(
         self,
         left: Option[bytes],
         right: Option[bytes],
         context: BayContext,
     ) -> Iterator[Bay]:
-        """Yield every bay this File composes into, in document order.
-
-        The result contains nothing an engine produces: a text bay carries its
-        identity, its two side labels, and its two decoded sides; an image bay
-        carries its identity and its two sides of exact bytes. Callers that only
-        need to know whether a bay key exists, to read one bay's decoded
-        content, or to serve one bay's bytes, get that without rendering any bay
-        and without an engine in reach.
-
-        Paths select notebook, image, blob, or presumed text. Captured link
-        facts select link composition before ordinary path classification.
-        Notebook damage is preserved as raw text or byte facts, and presumed
-        text that cannot decode is stated as blob facts. Both attach visible
-        warnings. A parser failure never retries another format.
-
-        # Parameters
-
-        - `left`: Captured old bytes, or `Nothing` when that side is absent.
-        - `right`: Captured new bytes under the same convention.
-        - `context`: Paths and labels used for classification and bay content.
-
-        # Usage
-
-        Review validation and media serving iterate this method when they need
-        bay identity or content without rendering. Full rendering should call
-        `compose`, which consumes the same iterator.
-
-        # Returns
-
-        - `Yielded bays`: Engine-free bay identity and exact side content later
-          consumed by `compose` or review lookup.
-        - `Order`: Format builders define document order; an iterator may contain
-          one whole-File bay or several format-specific bays.
-
-        # Failures
-
-        - Missing File paths raise `AssertionError` during iteration.
-        - Side facts contradicting the selected format raise `AssertionError`
-          during iteration.
-        - Unexpected parser failures propagate during iteration.
-        """
 
         if Some.present(context.left_link) or Some.present(context.right_link):
             yield from symlink_bays(left, right, context)
@@ -141,13 +57,6 @@ class Composer:
         # Classification belongs to this one dispatch. Keeping it local makes
         # the `match` below the only top-level format-selection operation.
         def path_claim(path: str) -> tuple[FileFormat, Option[str]]:
-            """Return one path's strongest format claim and media type.
-
-            # Returns
-
-            - First, the builder classification claimed by the path.
-            - Second, its declared media type when image/blob needs one.
-            """
             if path.lower().endswith(".ipynb"):
                 return "notebook", Nothing()
             image_type = image_media_type(path)
@@ -211,34 +120,6 @@ class Composer:
         right: Option[bytes],
         context: ComposeContext,
     ) -> ComposedFilePayload:
-        """Compose the whole envelope except its two attached fields.
-
-        Renders each bay yielded by `bays()`. It sends text bays through the
-        engine and reduces image bay sides to references. It wraps each result
-        in the bay envelope, groups rendered bays into contiguous frames,
-        aggregates the summary, and re-emits the paths and labels carried by the
-        context. Row hunk boundaries stay bay-local; the frontend numbers them.
-        `display_name` and `file_kind` are attached by the HTTP boundary.
-
-        # Parameters
-
-        - `left`: Captured old bytes, or `Nothing` when absent.
-        - `right`: Captured new bytes under the same convention.
-        - `context`: Bay inputs plus the selected text renderer.
-
-        # Usage
-
-        Call after loading one captured File pair and constructing its context
-        with `ComposeContext.build`. Attach manifest `display_name` and
-        `file_kind` to the returned value at the HTTP boundary.
-
-        # Failures
-
-        - Classification and builder invariant errors propagate from `bays`.
-        - Engine and display-enrichment failures propagate from text bays.
-
-        Either failure aborts the call without returning a partial envelope.
-        """
         frames: list[FramePayload] = []
         for bay in self.bays(left, right, context.bays):
             # Rendering decides only what the bay holds. The envelope around it
@@ -329,24 +210,6 @@ def symlink_bays(
     right: Option[bytes],
     context: BayContext,
 ) -> Iterator[Bay]:
-    """Compose one link File through independent private format leaves.
-
-    Link-specific mechanics produce the visible payload and normalized target
-    pair. This coordinator then selects exactly one ordinary target builder and
-    applies the link target's collapsed coordinate to its result. Notebook
-    targets flatten to script-like text so nested formats introduce no frames.
-
-    # Parameters
-
-    - `left`: Raw old-side bytes, or `Nothing` when that side is absent.
-    - `right`: Raw new-side bytes under the same convention.
-    - `context`: File paths, labels, and captured link facts for both sides.
-
-    # Returns
-
-    - First, the required visible outer-link payload bay.
-    - Then, one collapsed target bay with reached content or a diagnosis.
-    """
     composition = symlink_composition(left, right, context)
     yield composition.link_bay
     left_target = composition.left_target
@@ -356,13 +219,6 @@ def symlink_bays(
     right_target_path = target_context.right_path
 
     def path_claim(path: str) -> tuple[FileFormat, Option[str]]:
-        """Return one final target path's format and declared media type.
-
-        # Returns
-
-        - First, the target builder classification claimed by the path.
-        - Second, its declared media type when image/blob needs one.
-        """
         if path.lower().endswith(".ipynb"):
             return "notebook", Nothing()
         image_type = image_media_type(path)
@@ -423,7 +279,6 @@ def symlink_bays(
         ):
 
             def notebook_script(document: NotebookDocument) -> bytes:
-                """Flatten one accepted notebook without its output records."""
                 blocks: list[str] = []
                 for entry in document.cells:
                     if Ok.good(entry):

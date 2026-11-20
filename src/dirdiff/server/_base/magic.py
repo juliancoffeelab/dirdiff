@@ -1,19 +1,3 @@
-"""Collect class-local route declarations for later FastAPI registration.
-
-## Public interface
-
-`ClassRoutes` provides the HTTP decorators used by server route groups and
-binds their original functions to one server instance during application
-construction.
-
-## Purpose and boundaries
-
-The collector retains route metadata only. It stores no application, server,
-database, or other runtime service. `server.base` is its sole caller and exposes
-the shared decorator contract to the independent route leaves. FastAPI and
-Starlette handle every HTTP entity after registration.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -32,82 +16,41 @@ __all__ = ["ClassRoutes"]
 
 
 type _ResponseModel = type[BaseModel] | UnionType
-"""One response-model form used by this server's route declarations.
-
-Routes use Pydantic model classes or one union of model classes. The collector
-accepts no other explicit model syntax.
-"""
 
 
 @dataclass(frozen=True)
 class _HttpRouteDeclaration:
-    """Retain one HTTP route declaration until application construction.
-
-    Each instance contains only the FastAPI options used by this module. The
-    endpoint remains the original class-body function until `ClassRoutes`
-    validates and binds it to one route-group instance.
-    """
-
     method: Literal["GET", "POST", "PATCH", "DELETE"]
-    """HTTP method passed unchanged to FastAPI registration."""
 
     path: str
-    """Absolute application path declared beside the endpoint method."""
 
     endpoint: FunctionType
-    """Original function returned unchanged by the route decorator."""
 
     response_model: _ResponseModel | None
-    """Explicit response model, or `None` to let FastAPI infer it."""
 
     status_code: int | None
-    """Declared success status, or `None` for FastAPI's ordinary default."""
 
     responses: Responses | None
-    """Additional OpenAPI response metadata supplied by the declaration."""
 
     summary: str | None
-    """Optional OpenAPI summary declared beside the endpoint."""
 
     response_class: type[Response]
-    """Concrete response class registered for the route."""
 
 
 @dataclass(frozen=True)
 class _ExceptionHandlerDeclaration:
-    """Retain one exception-handler declaration until app construction.
-
-    The exception class and original route-group function are the complete
-    declaration. FastAPI receives the bound method only after validation.
-    """
-
     exception_class: type[Exception]
-    """Exception type whose failures FastAPI sends to this handler."""
 
     endpoint: FunctionType
-    """Original class-body function returned unchanged by the decorator."""
 
 
 type _ClassRouteDeclaration = (
     _HttpRouteDeclaration | _ExceptionHandlerDeclaration
 )
-"""One source-ordered declaration retained by `ClassRoutes`."""
 
 
 class ClassRoutes:
-    """Collect and bind the FastAPI decorator set used by one route group.
-
-    Decorators record declarations and return their exact input functions.
-    `register` first validates the complete declaration set, then binds each
-    function to one concrete route-group instance and gives it to FastAPI in
-    source order.
-
-    The collector stores no application, server, database, or other runtime
-    interface. It does not dispatch HTTP entities after construction.
-    """
-
     def __init__(self) -> None:
-        """Create an empty import-time declaration collector."""
         self._declarations: list[_ClassRouteDeclaration] = []
 
     def get[Endpoint](
@@ -120,22 +63,6 @@ class ClassRoutes:
         summary: str | None = None,
         response_class: type[Response] = JSONResponse,
     ) -> Callable[[Endpoint], Endpoint]:
-        """Record one GET declaration and preserve its endpoint function.
-
-        # Parameters
-
-        - `path`: Absolute FastAPI route path.
-        - `response_model`: Explicit model, or `None` for FastAPI inference.
-        - `status_code`: Explicit success status, or the ordinary default.
-        - `responses`: Additional response models for generated API metadata.
-        - `summary`: Optional summary for generated API metadata.
-        - `response_class`: Response class FastAPI uses for this route.
-
-        # Returns
-
-        - A decorator accepting one undecorated route-group function.
-        - Applying it records the declaration and returns that exact function.
-        """
         return self._http_route(
             "GET",
             path,
@@ -156,22 +83,6 @@ class ClassRoutes:
         summary: str | None = None,
         response_class: type[Response] = JSONResponse,
     ) -> Callable[[Endpoint], Endpoint]:
-        """Record one POST declaration and preserve its endpoint function.
-
-        # Parameters
-
-        - `path`: Absolute FastAPI route path.
-        - `response_model`: Explicit model, or `None` for FastAPI inference.
-        - `status_code`: Explicit success status, or the ordinary default.
-        - `responses`: Additional response models for generated API metadata.
-        - `summary`: Optional summary for generated API metadata.
-        - `response_class`: Response class FastAPI uses for this route.
-
-        # Returns
-
-        - A decorator accepting one undecorated route-group function.
-        - Applying it records the declaration and returns that exact function.
-        """
         return self._http_route(
             "POST",
             path,
@@ -192,22 +103,6 @@ class ClassRoutes:
         summary: str | None = None,
         response_class: type[Response] = JSONResponse,
     ) -> Callable[[Endpoint], Endpoint]:
-        """Record one PATCH declaration and preserve its endpoint function.
-
-        # Parameters
-
-        - `path`: Absolute FastAPI route path.
-        - `response_model`: Explicit model, or `None` for FastAPI inference.
-        - `status_code`: Explicit success status, or the ordinary default.
-        - `responses`: Additional response models for generated API metadata.
-        - `summary`: Optional summary for generated API metadata.
-        - `response_class`: Response class FastAPI uses for this route.
-
-        # Returns
-
-        - A decorator accepting one undecorated route-group function.
-        - Applying it records the declaration and returns that exact function.
-        """
         return self._http_route(
             "PATCH",
             path,
@@ -228,22 +123,6 @@ class ClassRoutes:
         summary: str | None = None,
         response_class: type[Response] = JSONResponse,
     ) -> Callable[[Endpoint], Endpoint]:
-        """Record one DELETE declaration and preserve its endpoint function.
-
-        # Parameters
-
-        - `path`: Absolute FastAPI route path.
-        - `response_model`: Explicit model, or `None` for FastAPI inference.
-        - `status_code`: Explicit success status, or the ordinary default.
-        - `responses`: Additional response models for generated API metadata.
-        - `summary`: Optional summary for generated API metadata.
-        - `response_class`: Response class FastAPI uses for this route.
-
-        # Returns
-
-        - A decorator accepting one undecorated route-group function.
-        - Applying it records the declaration and returns that exact function.
-        """
         return self._http_route(
             "DELETE",
             path,
@@ -265,26 +144,8 @@ class ClassRoutes:
         summary: str | None,
         response_class: type[Response],
     ) -> Callable[[Endpoint], Endpoint]:
-        """Build a decorator that records one typed HTTP declaration.
-
-        # Parameters
-
-        - `method`: HTTP method FastAPI registers for the endpoint.
-        - `path`: Absolute FastAPI route path.
-        - `response_model`: Explicit model, or `None` for FastAPI inference.
-        - `status_code`: Explicit success status, or the ordinary default.
-        - `responses`: Additional response models for generated API metadata.
-        - `summary`: Optional summary for generated API metadata.
-        - `response_class`: Response class FastAPI uses for this route.
-
-        # Returns
-
-        - A decorator accepting one undecorated route-group function.
-        - Applying it records the declaration and returns that exact function.
-        """
 
         def record(endpoint: Endpoint) -> Endpoint:
-            """Append the declaration and return the original function."""
             assert isinstance(endpoint, FunctionType)
             self._declarations.append(
                 _HttpRouteDeclaration(
@@ -306,20 +167,8 @@ class ClassRoutes:
         self,
         exception_class: type[Exception],
     ) -> Callable[[Endpoint], Endpoint]:
-        """Record one exception handler and preserve its endpoint function.
-
-        # Parameters
-
-        - `exception_class`: Failure type FastAPI sends to the bound handler.
-
-        # Returns
-
-        - A decorator accepting one undecorated route-group function.
-        - Applying it records the declaration and returns that exact function.
-        """
 
         def record(endpoint: Endpoint) -> Endpoint:
-            """Append the declaration and return the original function."""
             assert isinstance(endpoint, FunctionType)
             self._declarations.append(
                 _ExceptionHandlerDeclaration(exception_class, endpoint)
@@ -329,18 +178,6 @@ class ClassRoutes:
         return record
 
     def register[Server](self, app: FastAPI, server: Server) -> None:
-        """Validate and bind every declaration onto one fresh application.
-
-        The concrete class must still expose every original function under its
-        declared name, and no function may have more than one declaration. All
-        validation precedes registration so invalid input cannot leave a
-        partially configured application.
-
-        # Parameters
-
-        - `app`: Fresh FastAPI application receiving the declarations.
-        - `server`: Concrete instance whose original methods are bound.
-        """
         server_class = type(server)
         declared_endpoints: set[FunctionType] = set()
         for declaration in self._declarations:

@@ -1,29 +1,9 @@
-"""Preset fixture structure checks.
-
-Preset directories are source-file fixtures consumed by golden and projector
-tests. This module verifies fixture shape: exactly one old File, exactly one
-new File, a coherent format transition, a standard helper Makefile, and cheap
-parser validity where a parser is available. It does not assert rendered diff
-output; that belongs to the golden and logic test modules.
-README files are rejected throughout the preset tree, including catalog roots.
-"""
-
 import re
 import subprocess
 from pathlib import Path
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets"
-"""Fixture catalog root whose two-sided cases this module validates.
-
-All discovery stays below this checked-in tree; temporary or golden output is
-not fixture input.
-"""
 REPO_ROOT = Path(__file__).parents[2]
-"""Project root used to load the installed frontend TypeScript parser.
-
-The parser check runs Node here so the module path matches the frontend's actual
-dependency rather than a separate global compiler.
-"""
 EXPECTED_PRESET_MAKEFILE = """OLD := $(firstword $(wildcard old.*))
 NEW := $(firstword $(wildcard new.*))
 
@@ -55,20 +35,9 @@ bat:
 diffs:
 \tdiffsitter --no-config $(OLD) $(NEW)
 """
-"""Hardcoded shared commands copied into every two-sided preset Makefile.
-
-Catalogs may provide preset.Makefile recipes that extend these defaults. Fixture
-Makefiles stay standalone; no includes or generated files are needed to run a
-command.
-"""
 
 
 def _preset_dirs() -> list[Path]:
-    """Return two-sided fixture cases in stable catalog/group/case order.
-
-    Addition and deletion fixtures intentionally have one side and are outside
-    these paired-file and Makefile checks.
-    """
     return sorted(
         path
         for path in PRESETS_ROOT.glob("*/*/*")
@@ -79,13 +48,6 @@ def _preset_dirs() -> list[Path]:
 
 
 def test_presets_have_no_readme_files() -> None:
-    """Reject README.md at every preset depth, regardless of filename casing.
-
-    Presets must explain themselves through their source pairs and runnable
-    Makefiles. Separate guides add reading overhead and duplicate information
-    that can drift from those inputs and commands. This includes the preset
-    root, catalogs, groups, cases, and companion-file directories.
-    """
     readmes = sorted(
         path.relative_to(PRESETS_ROOT).as_posix()
         for path in PRESETS_ROOT.rglob("*")
@@ -103,12 +65,6 @@ def test_presets_have_no_readme_files() -> None:
 
 
 def test_presets_have_old_and_new_files() -> None:
-    """Every two-sided fixture has one unambiguous old/new File pair.
-
-    Ordinary pairs keep the same extension. A symbolic-link transition may use
-    different suffixes because its captured mode, not its filename, selects the
-    link format. Extra old/new matches remain ambiguous for every format.
-    """
     preset_dirs = _preset_dirs()
     assert preset_dirs != []
     for preset_dir in preset_dirs:
@@ -125,15 +81,6 @@ def test_presets_have_old_and_new_files() -> None:
 
 
 def test_presets_have_standard_makefiles() -> None:
-    """Verify standalone shared commands and each catalog's additive recipes.
-
-    A catalog with additions declares them beside preset.toml. Make itself
-    expands commands against each real source pair. Shared command output must
-    remain identical to the defaults even when a catalog assigns variables or
-    targets. Additional targets are discovered from Make's rule database and
-    dry-run too; Git move commands additionally retain their advertised
-    detection flags.
-    """
     shared_targets = ["difft", "git", "gum", "difft-json", "bat", "diffs"]
     for makefile in PRESETS_ROOT.rglob("*Makefile"):
         assert not any(
@@ -247,21 +194,11 @@ def test_presets_have_standard_makefiles() -> None:
 
 
 def test_python_presets_compile() -> None:
-    """Python fixture sources remain parseable inputs rather than syntax damage.
-
-    Compilation reads every fixture but executes none of it, keeping this a
-    source-validity check rather than a behavioral test.
-    """
     for path in sorted(PRESETS_ROOT.glob("**/*.py")):
         compile(path.read_text(), str(path), "exec")
 
 
 def test_typescript_presets_parse() -> None:
-    """TypeScript and TSX fixtures parse with the frontend compiler version.
-
-    The check reports every diagnostic in one run so malformed fixture source
-    cannot masquerade as a renderer failure.
-    """
     files = sorted(
         [
             *PRESETS_ROOT.glob("**/*.ts"),

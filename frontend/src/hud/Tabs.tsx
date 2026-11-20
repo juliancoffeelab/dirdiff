@@ -1,14 +1,3 @@
-/**
- * Keeps the five review Tabs mounted with their independent selection workflows.
- *
- * Each Tab retains local input and its last complete `DiffParams` while inactive.
- * Repository-backed controls observe shared refs or defaults and publish browser
- * URL state only after an explicit selection or later reactivation. A completed
- * selection mounts its stable ChangeSet boundary.
- *
- * Global repository, engine, view, and visibility choices stay controlled by the
- * workspace. Backend responses remain canonical TanStack Query data.
- */
 import {
   type Accessor,
   For,
@@ -55,12 +44,6 @@ import { ChangeSet } from "./changeSet/ChangeSet";
 import type { StoredProfile } from "./Profile";
 import { assert, expect } from "../utils";
 
-/**
- * Identifies one user-visible application Tab.
- *
- * The value selects a mounted control workflow and the same `tab` field carried by
- * that workflow's complete manifest parameters.
- */
 export type TabId =
   | "head"
   | "refs"
@@ -68,12 +51,6 @@ export type TabId =
   | "pull-request"
   | "preset";
 
-/**
- * Fixes the selector's user-visible Tab order independently of mounted content order.
- *
- * The readonly list is checked to contain only valid identities and is used only
- * to render controls; it carries no activation or lifetime state.
- */
 const tabIds: readonly TabId[] = [
   "head",
   "refs",
@@ -82,11 +59,6 @@ const tabIds: readonly TabId[] = [
   "preset",
 ];
 
-/**
- * Provides the selector label required for every Tab identity.
- *
- * The exhaustive record keeps presentation out of URL and DiffParams values.
- */
 const tabLabels: Record<TabId, string> = {
   head: "Diff against HEAD",
   refs: "Compare refs",
@@ -95,33 +67,12 @@ const tabLabels: Record<TabId, string> = {
   preset: "Preset",
 };
 
-/**
- * Explains each backend-recognized built-in ref in autocomplete results.
- *
- * Exhaustiveness makes a newly supported built-in require deliberate HUD copy;
- * arbitrary branches and remotes do not enter this record.
- */
 const builtinDescriptions: Record<BuiltinRef, string> = {
   HEAD: "Current commit on this branch.",
   index: "Staged snapshot, what the next commit would include.",
   worktree: "Files on disk, including unstaged changes.",
 };
 
-/**
- * Calls one explicit reactivation operation when an eternal Tab becomes active again.
- *
- * The effect explicitly observes only `active`, ignores the initial mount,
- * and invokes `reactivate` solely on a false-to-true transition. Solid disposes
- * the effect with the Tab; no external subscription or cleanup exists. Because
- * `on` untracks the callback, Tab selection reads and writes cannot accidentally
- * become dependencies or trigger duplicate activations.
- *
- * @param active Reactive accessor for this eternal Tab's current visibility.
- * @param reactivate Zero-argument synchronous operation that may establish local
- * selection and publish its accepted URL state after a later activation. It is
- * never called on initial mount or while the Tab remains continuously active; its
- * return value is ignored, and the effect performs no further work after it returns.
- */
 function onTabReactivated(
   active: Accessor<boolean>,
   reactivate: () => void,
@@ -137,509 +88,91 @@ function onTabReactivated(
   );
 }
 
-/**
- * Defines the public rendering inputs for the Tab selector.
- *
- * App supplies one valid active Tab and the explicit selection command. TabStrip
- * stores no Tab lifetime or URL behavior.
- */
 type TabStripProps = {
-  /**
-   * App-controlled Tab currently marked and presented as active.
-   *
-   * TabStrip never changes this value locally; caller updates are reflected
-   * through the matching button's pressed state.
-   */
   active: TabId;
-  /**
-   * Reports activation of the exact button's Tab, including the current Tab.
-   *
-   * The callback may update workspace state and browser navigation. TabStrip does
-   * not suppress same-value activation or retain the result, so the caller must
-   * pass its accepted value back through `active`; focus remains on the button
-   * after the synchronous callback.
-   */
   onSelect: (tab: TabId) => void;
 };
 
-/**
- * Defines every workspace value and explicit command consumed by eternal Tabs.
- *
- * Repository absence is genuine and gates only repo-backed workflows. Browser
- * URL updates remain explicit per workflow; Tabs receive no generic App setter.
- */
 type TabsProps = {
-  /**
-   * App-controlled Tab whose panel and metadata activity are visible.
-   *
-   * All five children stay mounted when this value changes so their completed
-   * selections and control input survive navigation.
-   */
   active: TabId;
-  /**
-   * Global repository identity used by repo-backed workflows, or genuine absence.
-   *
-   * Null mounts the local RepoGate paths. Preset and Pull Request input remain
-   * usable without a repository.
-   */
   repoId: ProjectId | null;
-  /**
-   * Current backend file renderer forwarded to every mounted ChangeSet.
-   *
-   * Changing it affects file requests without replacing a Tab's selected
-   * DiffParams or repository identity.
-   */
   engine: DiffEngine;
-  /**
-   * Current shared split or inline text presentation for ChangeSets.
-   *
-   * It changes client rendering only and never enters manifest query identity.
-   */
   view: DiffViewMode;
-  /**
-   * Workspace-controlled visibility of the active ChangeSet FileTree.
-   *
-   * Tabs forward the value without retaining another visibility state.
-   */
   fileTreeOpen: boolean;
-  /**
-   * Workspace-controlled visibility of ChangeSet diagnostics.
-   *
-   * The value remains separate from selected Tab parameters and backend data.
-   */
   debugHudOpen: boolean;
-  /**
-   * Confirmed Profile used for review authorship, or genuine absence.
-   *
-   * Tabs forward identity to ChangeSet and never load or alter Profile preferences.
-   */
   selectedProfile: StoredProfile | null;
-  /**
-   * Stable mounted header destinations used by active ChangeSet Portals.
-   *
-   * Accessors may throw before AppHeader registration; Tabs neither call nor
-   * replace them until a ChangeSet consumes them.
-   */
   appHeaderOutlets: AppHeaderOutlets;
-  /**
-   * Shared AppHeader target for compact Tab metadata status.
-   *
-   * Null suppresses Portal output but does not create placeholder DOM or move
-   * query state out of the Tab.
-   */
   metadataTarget: HTMLElement | null;
-  /**
-   * Accepts one validated repository chosen from a RepoGate list.
-   *
-   * `projectId` is the exact backend mark identity. It does not run while a repo
-   * is already available or when removal is requested. The caller may reset the
-   * workspace and must return the accepted identity through `repoId`; that reset
-   * may dispose all current Tab state after the callback completes.
-   */
   onRepoSelected: (projectId: ProjectId) => void;
-  /**
-   * Serializes the fixed Head selection after explicit Load or later reactivation.
-   *
-   * It receives no value because HeadTab has one complete parameter set. It does
-   * not run without a repository or merely because the initial active selection
-   * mounts. The caller may replace browser URL state; HeadTab already retains the
-   * matching selection before invoking it and needs no controlled value returned.
-   */
   onHeadSelected: () => void;
-  /**
-   * Serializes one complete old/new ref pair after Load or retained reactivation.
-   *
-   * Arguments are the exact accepted free-form left and right texts. It does not
-   * run for edits, incomplete form submission, or repo-gated controls. The caller
-   * may replace browser URL state; RefsTab retains the matching DiffParams before
-   * invocation and therefore requires no value to be passed back.
-   *
-   * @param left Exact accepted old-side Git ref.
-   * @param right Exact accepted new-side Git ref.
-   */
   onRefsSelected: (left: string, right: string) => void;
-  /**
-   * Serializes a complete structured base/review pair after Load or reactivation.
-   *
-   * `base` and `review` are the exact accepted local-or-remote selections, with
-   * no defaults left to infer. It does not run for field edits, incomplete input,
-   * or repo-gated controls. The caller may replace URL state; Branch Review stores
-   * the matching DiffParams before invocation and needs no controlled handback.
-   *
-   * @param base Complete accepted base-side structured branch.
-   * @param review Complete accepted review-side structured branch.
-   */
   onBranchReviewSelected: (
     base: BranchSelection,
     review: BranchSelection,
   ) => void;
-  /**
-   * Serializes one validated catalog and subset after selection or reactivation.
-   *
-   * `presetType` is the active backend catalog ID and `preset` its accepted group
-   * ID. The callback does not run while catalogs/defaults are unavailable or a
-   * waiting command is obsolete. The caller may replace URL state; Preset retains
-   * the matching DiffParams before invocation and needs no value returned.
-   *
-   * @param presetType Validated backend catalog identity.
-   * @param preset Exact selected group identity within that catalog.
-   */
   onPresetSelected: (presetType: PresetType, preset: string) => void;
-  /**
-   * Republishes a complete already-prepared Pull Request selection on reactivation.
-   *
-   * `selection` contains the retained repository, URL, and two commits. This does
-   * not run for input edits, preparation failure, or initial mount. The caller may
-   * replace URL state but must not reinterpret the values; the Tab retains its
-   * selection and requires no controlled handback.
-   */
   onPullRequestSelected: (selection: PreparedPullRequest) => void;
-  /**
-   * Applies the authoritative backend result after Pull Request preparation succeeds.
-   *
-   * `prepared` contains the replacement repository, authoritative URL, and commit
-   * pair. It never runs for invalid input or mutation failure. The caller may
-   * invalidate repository data and reconstruct the workspace; this Tab keeps no
-   * prepared copy, so accepted state returns only through that reconstruction,
-   * which may dispose the invoking component after the callback completes.
-   */
   onPullRequestPrepared: (prepared: PreparedPullRequest) => void;
-  /**
-   * Requests the opposite shared text presentation from a ChangeSet control.
-   *
-   * It runs only on explicit view-toggle interaction and receives no proposed
-   * value. The caller may update URL and workspace state and must pass the accepted
-   * mode back through `view`; Tabs perform no follow-up after it returns.
-   */
   onToggleView: () => void;
-  /**
-   * Accepts the exact FileTree visibility requested inside a mounted ChangeSet.
-   *
-   * It does not run from Tab activation or file selection. The caller stores the
-   * boolean and must pass it back through `fileTreeOpen`; the ChangeSet continues
-   * using that controlled value after the synchronous callback.
-   */
   onFileTreeOpenChange: (open: boolean) => void;
-  /**
-   * Accepts the exact diagnostic HUD visibility requested by ChangeSet controls.
-   *
-   * It does not run from Tab activation or engine changes. The caller stores the
-   * boolean and must pass it back through `debugHudOpen`; no other action follows
-   * in Tabs after the synchronous callback.
-   */
   onDebugHudOpenChange: (open: boolean) => void;
 };
 
-/**
- * Defines shared inputs for one mounted private Tab.
- *
- * Active controls and expensive ChangeSet content depend on `active`; the outer
- * Tab remains mounted. Engine changes replace file rendering without changing a
- * selected workflow value or manifest identity.
- */
 type TabProps = {
-  /**
-   * Whether this eternal Tab currently presents controls and active ChangeSet work.
-   *
-   * False keeps local selections mounted while disabling Tab-specific observers.
-   */
   active: boolean;
-  /**
-   * Current global repository identity, or absence that mounts this Tab's gate.
-   *
-   * A repository change occurs through workspace reconstruction rather than local
-   * synchronization in a mounted private Tab.
-   */
   repoId: ProjectId | null;
-  /**
-   * Reactive backend file renderer forwarded unchanged to selected ChangeSets.
-   *
-   * It is not stored in any private Tab selection.
-   */
   engine: DiffEngine;
-  /**
-   * Reactive split or inline presentation forwarded to selected ChangeSets.
-   *
-   * It affects no metadata query or DiffParams value.
-   */
   view: DiffViewMode;
-  /**
-   * Controlled FileTree visibility shared across all selected ChangeSets.
-   *
-   * The private Tab forwards it without deriving per-Tab state.
-   */
   fileTreeOpen: boolean;
-  /**
-   * Controlled diagnostic HUD visibility shared across selected ChangeSets.
-   *
-   * The private Tab forwards it without placing it in manifest identity.
-   */
   debugHudOpen: boolean;
-  /**
-   * Confirmed review Profile or genuine absence, forwarded to ChangeSet.
-   *
-   * A private Tab neither mutates nor persists this identity.
-   */
   selectedProfile: StoredProfile | null;
-  /**
-   * Stable header Portal accessors consumed by selected ChangeSets.
-   *
-   * Private Tabs preserve their identity and do not create alternate targets.
-   */
   appHeaderOutlets: AppHeaderOutlets;
-  /**
-   * Current shared target for this Tab's compact metadata presentation.
-   *
-   * Null suppresses Portal rendering without disabling query observation.
-   */
   metadataTarget: HTMLElement | null;
-  /**
-   * Accepts a repository chosen from this Tab's RepoGate.
-   *
-   * The exact mark ID is supplied only by explicit choice. The caller may reset
-   * the workspace and must return it through `repoId`; the invoking gated branch
-   * can be disposed after the callback, and no later local action is required.
-   */
   onRepoSelected: (projectId: ProjectId) => void;
-  /**
-   * Requests the opposite workspace view from a selected ChangeSet.
-   *
-   * The caller stores the result and passes it back through `view`; inactive or
-   * unselected Tabs never invoke it, and the private Tab takes no later action.
-   */
   onToggleView: () => void;
-  /**
-   * Accepts exact FileTree visibility requested by the selected ChangeSet.
-   *
-   * The caller must return accepted state through `fileTreeOpen`. Tab activation
-   * alone does not invoke it, and no asynchronous work follows the callback.
-   */
   onFileTreeOpenChange: (open: boolean) => void;
-  /**
-   * Accepts exact diagnostic HUD visibility requested by the selected ChangeSet.
-   *
-   * The caller must return accepted state through `debugHudOpen`. It is not called
-   * by selection or navigation, and the private Tab retains no visibility copy.
-   */
   onDebugHudOpenChange: (open: boolean) => void;
 };
 
-/**
- * Defines shared required inputs after a RepoGate has narrowed repository state.
- *
- * The project ID is concrete, so canonical query definitions never receive a
- * placeholder identity. App still supplies engine and activation.
- */
 type RepoTabProps = {
-  /**
-   * Whether this repository-bound Tab currently displays and observes metadata.
-   *
-   * False retains local input and selected DiffParams for later reactivation.
-   */
   active: boolean;
-  /**
-   * Concrete repository identity fixed for this keyed child mount.
-   *
-   * Every refs, defaults, and manifest definition built here uses this real ID;
-   * workspace reset replaces the child rather than changing it in place.
-   */
   projectId: ProjectId;
-  /**
-   * Reactive backend file renderer forwarded to the selected ChangeSet.
-   *
-   * It remains outside the stored selection and manifest identity.
-   */
   engine: DiffEngine;
-  /**
-   * Reactive text presentation forwarded to the selected ChangeSet.
-   *
-   * The value creates no repository query and changes no DiffParams.
-   */
   view: DiffViewMode;
-  /**
-   * Workspace-controlled FileTree visibility forwarded to ChangeSet.
-   *
-   * The repository child never stores a competing value.
-   */
   fileTreeOpen: boolean;
-  /**
-   * Workspace-controlled diagnostic HUD visibility forwarded to ChangeSet.
-   *
-   * It is presentation state, not part of the repository selection.
-   */
   debugHudOpen: boolean;
-  /**
-   * Confirmed review Profile or genuine absence for ChangeSet authorship.
-   *
-   * Repository controls do not observe or alter Profile data.
-   */
   selectedProfile: StoredProfile | null;
-  /**
-   * Stable AppHeader targets used when the selected ChangeSet portals status.
-   *
-   * This child forwards the accessors and never creates replacement elements.
-   */
   appHeaderOutlets: AppHeaderOutlets;
-  /**
-   * Shared physical target for refs/defaults status, or null before registration.
-   *
-   * Absence hides the Portal only; query and control lifetimes remain unchanged.
-   */
   metadataTarget: HTMLElement | null;
-  /**
-   * Requests the opposite workspace text view from the selected ChangeSet.
-   *
-   * The caller must publish accepted state back through `view`. It is not invoked
-   * by metadata changes, and no repository-child action follows it.
-   */
   onToggleView: () => void;
-  /**
-   * Accepts exact FileTree visibility requested by the selected ChangeSet.
-   *
-   * The caller returns the accepted boolean through `fileTreeOpen`; the child
-   * keeps no duplicate and does not invoke it while no ChangeSet is mounted.
-   */
   onFileTreeOpenChange: (open: boolean) => void;
-  /**
-   * Accepts exact diagnostic HUD visibility requested by the selected ChangeSet.
-   *
-   * The caller returns the accepted boolean through `debugHudOpen`; metadata and
-   * Tab activation do not invoke this callback.
-   */
   onDebugHudOpenChange: (open: boolean) => void;
 };
 
-/**
- * Defines the complete presentation inputs of a metadata refresh control.
- *
- * The caller supplies current fetching and failure data together with the exact
- * refresh operation. The control stores no query state and chooses no refetch policy.
- */
 type MetadataRefreshProps = {
-  /**
-   * User-visible operation name used for title and accessible labelling.
-   *
-   * It must describe the caller's metadata rather than a generic icon action.
-   */
   label: string;
-  /**
-   * Whether the shared observer is currently fetching any attempt.
-   *
-   * True disables and animates the control and temporarily takes precedence over
-   * stale failure presentation.
-   */
   fetching: boolean;
-  /**
-   * Current observer failure shown in the complete error popover, or null.
-   *
-   * The control does not clear, wrap, or retain this error after caller state changes.
-   */
   error: Error | null;
-  /**
-   * Starts the caller's explicit metadata refetch from button activation or retry.
-   *
-   * It receives no query data and may choose TanStack cancellation policy. It is
-   * not called while the ordinary button is disabled for `fetching`; after it
-   * returns, the caller must publish progress or failure through these props.
-   */
   onRefetch: () => void;
 };
 
-/**
- * Defines one active metadata observer's compact AppHeader presentation.
- *
- * The Tab supplies genuine pending/error state and retry behavior. This value
- * carries presentation only and never moves query data.
- */
 type MetadataStatusPortalProps = {
-  /**
-   * Physical AppHeader destination for the compact status, or genuine absence.
-   *
-   * Null prevents rendering without moving query state into the Portal component.
-   */
   target: HTMLElement | null;
-  /**
-   * Whether this observer is allowed to contribute status to the shared header.
-   *
-   * False suppresses both loading and failure even when the underlying state exists.
-   */
   active: boolean;
-  /**
-   * Stable presentation category used only to distinguish the status element.
-   *
-   * It carries no query key or backend identity.
-   */
   kind: "defaults" | "refs" | "pull-request" | "presets" | "repo-removal";
-  /**
-   * Whether pending work should currently replace failure presentation.
-   *
-   * The caller decides which observer flags qualify as loading.
-   */
   loading: boolean;
-  /**
-   * Current operation failure eligible for retry, or null when none is present.
-   *
-   * It is shown only while active and not loading and is never retained locally.
-   */
   error: Error | null;
-  /**
-   * Exact compact text shown while `loading` is true.
-   *
-   * The Portal does not derive operation names from `kind`.
-   */
   loadingText: string;
-  /**
-   * User-visible failure heading and basis for the error trigger label.
-   *
-   * It must identify the caller's failed operation, not merely the Portal itself.
-   */
   errorTitle: string;
-  /**
-   * Retries the exact failed operation when the error popover requests it.
-   *
-   * It does not run while loading, inactive, targetless, or error-free because no
-   * retry control is rendered. The caller may start work and must return resulting
-   * state through `loading` and `error`; the Portal performs no follow-up action.
-   */
   onRetry: () => void;
 };
 
-/**
- * Defines RepoGate's required workspace selection inputs.
- *
- * Gate receives no repository data because it observes the shared canonical
- * query itself. Selection returns only a validated numeric project ID.
- */
 type RepoGateProps = {
-  /**
-   * Whether the gated Tab may observe and display repository metadata.
-   *
-   * False keeps the gate mounted but disables the canonical list query.
-   */
   active: boolean;
-  /**
-   * AppHeader destination for repository-removal progress, or null before mount.
-   *
-   * Absence suppresses only Portal presentation, not the removal mutation itself.
-   */
   metadataTarget: HTMLElement | null;
-  /**
-   * Accepts the exact positive project ID of an explicitly chosen backend mark.
-   *
-   * It does not run for list loading, failure, or repository removal. The caller
-   * may reconstruct the workspace and must return the accepted identity through
-   * its repo-controlled state; RepoGate performs no action after invocation and
-   * may be disposed by that reconstruction.
-   */
   onSelect: (projectId: ProjectId) => void;
 };
 
-/**
- * Renders the persistent top-level Tab buttons.
- *
- * Activation reports exactly one TabId. Buttons retain the established Tab
- * selector presentation and do not mount or unmount Tab components.
- */
 export function TabStrip(props: TabStripProps): JSX.Element {
   return (
     <fieldset class="tab-choices">
@@ -660,13 +193,6 @@ export function TabStrip(props: TabStripProps): JSX.Element {
   );
 }
 
-/**
- * Mounts all five Tab contents for one workspace lifetime.
- *
- * Only the active control panel is displayed and observes active metadata, while
- * every Tab retains local interaction and selected values. Complete selections
- * mount stable ChangeSet boundaries; no backend data is copied between Tabs.
- */
 export function Tabs(props: TabsProps): JSX.Element {
   return (
     <>
@@ -781,33 +307,8 @@ export function Tabs(props: TabsProps): JSX.Element {
   );
 }
 
-/**
- * Parses one complete base/review pair from canonical browser fields.
- *
- * Both local and remote variants must be complete and noncontradictory. Total
- * absence returns null; partial fields, blank values, unknown sources, and remote
- * fields attached to a local selection throw so the active caller can report the
- * malformed URL before continuing without a URL-backed pair.
- *
- * # Returns
- *
- * - An object pairing the validated base and review selections. Neither side
- *   can be returned without the other.
- * - `null`: All six branch fields are absent. The caller leaves the Branch Tab
- *   unselected rather than constructing a partial pair.
- */
 function branchPairFromUrl(): {
-  /**
-   * Complete local or remote base side reconstructed from the `base_*` fields.
-   *
-   * It is returned only when the review side is also complete and valid.
-   */
   base: BranchSelection;
-  /**
-   * Complete local or remote review side reconstructed from the `review_*` fields.
-   *
-   * It is returned only as part of the same validated pair as `base`.
-   */
   review: BranchSelection;
 } | null {
   const search = new URLSearchParams(window.location.search);
@@ -877,19 +378,6 @@ function branchPairFromUrl(): {
   };
 }
 
-/**
- * Returns one genuinely complete branch selection or explicit absence.
- *
- * Controls may render empty local/remote values while metadata is pending or the
- * user is editing. Only nonblank branches, and nonblank remotes for remote
- * selections, may become selected DiffParams or mutation inputs.
- *
- * # Returns
- *
- * - The original complete selection object, preserving its local or remote arm.
- * - `null`: The input is absent or incomplete. Callers withhold loading and
- *   serialization until the controls produce a complete selection.
- */
 function selectedBranch(
   selection: BranchSelection | null,
 ): BranchSelection | null {
@@ -902,25 +390,8 @@ function selectedBranch(
   return selection;
 }
 
-/**
- * Renders the repo gate or the required-repository Head controls.
- *
- * The explicit null gate keeps every Head selection path, including Tab
- * reactivation, unmounted until a repository exists, so no incomplete Head value
- * can be constructed. The selected Head value is fixed, while engine remains
- * reactive and does not replace the mounted ChangeSet. Workspace reset replaces
- * repository identity.
- */
 function HeadTab(
   props: TabProps & {
-    /**
-     * Serializes Head's fixed parameters after explicit Load or later reactivation.
-     *
-     * It is never called without a repository or from initial selection creation.
-     * The caller may replace browser URL state; Head has already retained the
-     * matching value before invocation and requires no controlled handback. The
-     * submit/reactivation path performs no further action after it returns.
-     */
     onSelected: () => void;
   },
 ): JSX.Element {
@@ -1012,25 +483,8 @@ function HeadTab(
   );
 }
 
-/**
- * Renders the repo gate or the required-repository Refs Tab.
- *
- * The explicit null gate ensures the query-owning child never receives a missing
- * or placeholder project ID. Workspace reset replaces repository identity.
- */
 function RefsTab(
   props: TabProps & {
-    /**
-     * Serializes a retained complete pair after Load or later reactivation.
-     *
-     * `left` and `right` are the exact accepted free-form old/new texts. The
-     * callback does not run for edits or without a repository. The caller may
-     * replace URL state; the child retains matching DiffParams before invocation,
-     * and no controlled handback or subsequent local operation is required.
-     *
-     * @param left Exact accepted old-side Git ref.
-     * @param right Exact accepted new-side Git ref.
-     */
     onSelected: (left: string, right: string) => void;
   },
 ): JSX.Element {
@@ -1067,94 +521,19 @@ function RefsTab(
   );
 }
 
-/**
- * Defines the complete presentation contract shared by both Refs control states.
- *
- * Values and choices are realtime inputs. Each autocomplete reports completed
- * text through its corresponding callback, and the caller stores that value.
- * `action` is either Load or the required repository gate.
- */
 type RefsControlsProps = {
-  /**
-   * Whether this persistent form is currently visible to the user.
-   *
-   * Hidden controls stay mounted so autocomplete edits survive Tab changes.
-   */
   active: boolean;
-  /**
-   * Current caller-held old-side ref used as the first autocomplete seed.
-   *
-   * Autocomplete may protect locally edited text from later seed updates.
-   */
   left: string;
-  /**
-   * Current caller-held new-side ref used as the second autocomplete seed.
-   *
-   * It is presented independently from the selected ChangeSet value.
-   */
   right: string;
-  /**
-   * Current grouped backend suggestions shared by both ref inputs.
-   *
-   * An empty list leaves free-form completion available and does not disable Load.
-   */
   choices: ReturnType<typeof refsChoices>;
-  /**
-   * Caller-provided action rendered inside each suggestions panel, or none.
-   *
-   * RefsControls renders the element unchanged and never invokes it itself.
-   */
   panelAction: JSX.Element | null;
-  /**
-   * Complete action rendered after the two fields.
-   *
-   * Repository-backed callers supply Load; the missing-repo workflow supplies
-   * RepoGate. RefsControls assigns no behavior beyond placing it in the form.
-   */
   action: JSX.Element;
-  /**
-   * Reports direct typing in either autocomplete so the caller may warm metadata.
-   *
-   * It receives no text, does not run for seed changes or choice activation, and
-   * null disables notification. AutocompleteInput has already stored the new local
-   * text and opened its panel before invocation, then performs no follow-up;
-   * completed values return separately through the side-specific callbacks.
-   */
   onEditNotification: (() => void) | null;
-  /**
-   * Accepts the exact old-side text completed by choice, Enter, or blur.
-   *
-   * It does not run for untouched seed changes. The caller may update its live
-   * edit state and must pass the accepted text back through `left`. Choice and
-   * Enter completion store the text and close the panel before invocation, then
-   * restore input focus afterward; blur invokes it before delayed panel dismissal.
-   */
   onLeftDone: (value: string) => void;
-  /**
-   * Accepts the exact new-side text completed by choice, Enter, or blur.
-   *
-   * It does not run for untouched seed changes. The caller may update its live
-   * edit state and must pass the accepted text back through `right`. Choice and
-   * Enter completion store the text and close the panel before invocation, then
-   * restore input focus afterward; blur invokes it before delayed panel dismissal.
-   */
   onRightDone: (value: string) => void;
-  /**
-   * Handles form submission after native default submission is prevented.
-   *
-   * Null makes Enter and submit inert, as required by the repository gate. When
-   * present, the callback receives no values and may snapshot the latest accepted
-   * `left` and `right`; RefsControls performs no action after it returns.
-   */
   onSubmit: (() => void) | null;
 };
 
-/**
- * Renders the free-form old/new ref inputs and their repo-dependent action.
- *
- * It stores no input, query, or selected state. Missing metadata is represented by
- * empty choices and a null panel action without disabling either text control.
- */
 function RefsControls(props: RefsControlsProps): JSX.Element {
   return (
     <form
@@ -1198,12 +577,6 @@ function RefsControls(props: RefsControlsProps): JSX.Element {
   );
 }
 
-/**
- * Keeps the Refs workflow usable before a global repository is selected.
- *
- * The component stores only temporary free-form input for this workspace. It starts
- * no repo query, constructs no DiffParams, and substitutes RepoGate for Load.
- */
 function RefsWithoutRepo(
   props: Pick<TabProps, "active" | "metadataTarget" | "onRepoSelected">,
 ): JSX.Element {
@@ -1232,44 +605,14 @@ function RefsWithoutRepo(
   );
 }
 
-/**
- * Defines the required inputs of the query-owning Refs Tab implementation.
- *
- * The repository is concrete and stable for this mount. Completed selected refs
- * are reported to App solely for canonical browser URL serialization.
- */
 type RefsRepoTabProps = RepoTabProps & {
-  /**
-   * Serializes one complete retained refs selection after Load or reactivation.
-   *
-   * `left` and `right` are exact nonblank old/new values stored in DiffParams. It
-   * does not run for editing or invalid submission. The caller may replace URL
-   * state; this Tab already retains the matching selection before invocation and
-   * needs no controlled handback or later action.
-   *
-   * @param left Exact accepted old-side Git ref.
-   * @param right Exact accepted new-side Git ref.
-   */
   onSelected: (left: string, right: string) => void;
 };
 
-/**
- * Renders free-form ref controls backed by shared autocomplete metadata.
- *
- * Both inputs remain usable without refs data. A separate selected entity controls
- * ChangeSet lifetime; URL and live input seed only the controls until explicit Load.
- */
 function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
   const queryClient = useQueryClient();
   const toast = useToasts();
 
-  /**
-   * Parses one complete initial Refs pair from the active browser URL.
-   *
-   * A fresh or inactive Tab starts with the canonical pair. Partial and blank URL
-   * pairs are one invalid entity: the user is notified after mount and the whole
-   * pair is reconstructed from defaults without rewriting browser state.
-   */
   function parseInitialRefs(): RefsDiffParams {
     if (!props.active) {
       return {
@@ -1350,12 +693,6 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
     },
   );
 
-  /**
-   * Stores and serializes the complete two-ref selection.
-   *
-   * The live controls may be incomplete, but submission requires both values to
-   * be present and nonblank before they can become a selected comparison.
-   */
   function loadRefs(): void {
     const currentLeft = left();
     const currentRight = right();
@@ -1374,12 +711,6 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
     props.onSelected(next.left, next.right);
   }
 
-  /**
-   * Returns the refs observer's panel-local refresh presentation.
-   *
-   * Both autocomplete panels may render this control; they share one observer,
-   * failure state, and refetch operation rather than duplicate backend work.
-   */
   function refreshControl(): JSX.Element {
     return (
       <MetadataRefresh
@@ -1443,12 +774,6 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
   );
 }
 
-/**
- * Calculates domain-independent grouped autocomplete choices from one refs entity.
- *
- * The calculation preserves backend order and adds only established display labels
- * and built-in descriptions. Missing metadata produces an empty list.
- */
 function refsChoices(refs: RefChoices | null) {
   if (refs === null) {
     return [];
@@ -1475,25 +800,8 @@ function refsChoices(refs: RefChoices | null) {
   ];
 }
 
-/**
- * Renders the repo gate or required-repository Branch Review Tab.
- *
- * The explicit null gate supplies one concrete project ID, so refs/defaults
- * queries keep canonical identities and no placeholder query is invented.
- */
 function BranchReviewTab(
   props: TabProps & {
-    /**
-     * Serializes a complete retained base/review pair after Load or reactivation.
-     *
-     * Both arguments are exact accepted structured selections with all remote
-     * data present. It does not run for edits, incomplete controls, or without a
-     * repository. The caller may replace URL state; the child retains the matching
-     * DiffParams first and needs no controlled handback or later operation.
-     *
-     * @param base Complete accepted base-side structured branch.
-     * @param review Complete accepted review-side structured branch.
-     */
     onSelected: (base: BranchSelection, review: BranchSelection) => void;
   },
 ): JSX.Element {
@@ -1530,181 +838,35 @@ function BranchReviewTab(
   );
 }
 
-/**
- * Defines the required inputs of the query-owning Branch Review implementation.
- *
- * The repository is concrete for this mount. Completed branch selections are
- * reported only for canonical browser URL serialization.
- */
 type BranchReviewRepoTabProps = RepoTabProps & {
-  /**
-   * Serializes a complete retained base/review pair after Load or reactivation.
-   *
-   * `base` and `review` are the exact validated local-or-remote selections. The
-   * callback is absent from field edits and incomplete submissions. The caller may
-   * replace URL state; this Tab already retained the pair and requires no value
-   * returned or subsequent local work.
-   *
-   * @param base Complete accepted base-side structured branch.
-   * @param review Complete accepted review-side structured branch.
-   */
   onSelected: (base: BranchSelection, review: BranchSelection) => void;
 };
 
-/**
- * Represents whether Preset has no selection, awaits its requested catalog
- * default, or contains the complete immutable manifest parameters.
- *
- * Catalog arrival alone cannot create a ChangeSet without the waiting command.
- * Live kind and highlighted control state are not selected Tab parameters.
- *
- * A wait's `presetType` is the catalog the user asked for, which is `null`
- * when nobody has asked for one yet and the first listed catalog will answer.
- * It exists so a wait cannot be completed against a catalog selected after it.
- */
 type PresetSelected =
   | {
-      /**
-       * Marks an explicit selection command that cannot complete before catalog data.
-       *
-       * This arm mounts no ChangeSet and becomes inert once replaced by DiffParams.
-       */
       kind: "waiting-default";
-      /**
-       * Catalog identity the command must still match when data arrives.
-       *
-       * Null means no catalog was named and only the first listed catalog may
-       * answer; changing kinds creates a newly tagged command instead.
-       */
       presetType: PresetType | null;
     }
   | PresetDiffParams
   | null;
 
-/**
- * Defines the shared presentational contract of Branch Review controls.
- *
- * Realtime selections and refs remain with the caller. Query-backed actions are
- * explicit nullable slots; `action` is either Load or the repository gate.
- */
 type BranchReviewControlsProps = {
-  /**
-   * Whether this retained form is currently visible.
-   *
-   * Hidden controls remain mounted with caller-held input intact.
-   */
   active: boolean;
-  /**
-   * Effective structured base value currently presented by the first field pair.
-   *
-   * It may still contain empty text while defaults load or the user edits.
-   */
   base: BranchSelection;
-  /**
-   * Effective structured review value presented by the second field pair.
-   *
-   * It remains separate from any immutable selected ChangeSet parameters.
-   */
   review: BranchSelection;
-  /**
-   * Current backend-preferred remote used when a control enters remote mode.
-   *
-   * Empty means no complete remote default is available; controls do not invent one.
-   */
   defaultRemote: string;
-  /**
-   * Current canonical ref choices used for remote and branch suggestions.
-   *
-   * Null keeps every text field free-form without treating missing data as empty
-   * backend metadata.
-   */
   refs: RefChoices | null;
-  /**
-   * Factory for the base field's duplicated position-specific action, or none.
-   *
-   * BranchSelectionFields invokes a non-null factory with no arguments once for
-   * the base source field and once for its branch field during reactive rendering.
-   * The callback may read caller state and must return the complete action JSX;
-   * null prevents both calls. Each result is inserted beside its field immediately
-   * after the callback returns, with no controlled state handoff or retained copy.
-   */
   baseFieldAction: (() => JSX.Element) | null;
-  /**
-   * Factory for the suggestions-panel action shared by all autocomplete fields.
-   *
-   * Each BranchSelectionFields invokes a non-null zero-argument factory for its
-   * source and branch inputs during reactive rendering. The callback may read
-   * caller query state and must return one complete action; null prevents every
-   * call. Each result is handed to AutocompleteInput immediately, which renders it
-   * only with an open panel; no state value is passed back or retained here.
-   */
   panelAction: (() => JSX.Element) | null;
-  /**
-   * Current defaults-query failure shown beside the controls, or null.
-   *
-   * Ref-query failures remain with their refresh/status presentations.
-   */
   error: Error | null;
-  /**
-   * Complete trailing form action supplied by the current repository state.
-   *
-   * It is the Load button for a concrete repo and is rendered unchanged.
-   */
   action: JSX.Element;
-  /**
-   * Retries the canonical defaults observer from its visible error popover.
-   *
-   * It is not invoked without `error` because no retry control exists. The caller
-   * may start a refetch and must return new state through `error`; controls do no
-   * work after the synchronous callback, and the popover remains until caller
-   * state removes or replaces the failure.
-   */
   onErrorRetry: () => void;
-  /**
-   * Reports direct text edits so the caller may warm shared ref metadata.
-   *
-   * It receives no edited value and does not run for seed changes or choice
-   * activation. AutocompleteInput has already stored the local text and opened its
-   * panel before invocation, then performs no follow-up. Completed selections
-   * arrive through the side-specific callbacks.
-   */
   onEditNotification: () => void;
-  /**
-   * Accepts the exact complete-or-in-progress structured base produced by a field.
-   *
-   * It runs after source toggles and remote/branch completion, not for untouched
-   * seed changes. The caller stores the value and must return it through `base`;
-   * controls then render from that accepted controlled selection. A source toggle
-   * performs no later work; autocomplete choice and Enter restore focus afterward,
-   * while blur schedules panel dismissal after invocation.
-   */
   onBaseSelection: (selection: BranchSelection) => void;
-  /**
-   * Accepts the exact complete-or-in-progress structured review from its field.
-   *
-   * It runs after source toggles and remote/branch completion, not for untouched
-   * seed changes. The caller stores the value and must return it through `review`;
-   * controls then render from that accepted controlled selection. A source toggle
-   * performs no later work; autocomplete choice and Enter restore focus afterward,
-   * while blur schedules panel dismissal after invocation.
-   */
   onReviewSelection: (selection: BranchSelection) => void;
-  /**
-   * Requests an immutable snapshot of the effective pair on form submission.
-   *
-   * It receives no arguments because the caller holds `base` and `review`. The
-   * callback is not invoked merely by editing; it may assert completeness, retain
-   * DiffParams, and serialize them. Controls perform no later action.
-   */
   onSubmit: () => void;
 };
 
-/**
- * Renders both structured branch inputs and their smallest dependent actions.
- *
- * It stores no query, defaults, mutation, selected value, or URL state. Null refs
- * keep every field free-form, and callers place RepoGate exactly where Load sits.
- */
 function BranchReviewControls(props: BranchReviewControlsProps): JSX.Element {
   return (
     <form
@@ -1756,13 +918,6 @@ function BranchReviewControls(props: BranchReviewControlsProps): JSX.Element {
   );
 }
 
-/**
- * Renders structured branch controls backed by canonical refs/defaults queries.
- *
- * Untouched inputs derive realtime defaults. URL and default values seed only the
- * controls; explicit Load snapshots the current values. Later edits do not alter
- * the mounted ChangeSet until another Load.
- */
 function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   const queryClient = useQueryClient();
   const toast = useToasts();
@@ -1814,12 +969,6 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   );
   const saveMainBranch = createMutation(() => ({
     ...api.repos.saveMainBranch(),
-    /**
-     * Refreshes repository defaults after the backend accepts the main branch.
-     *
-     * TanStack invokes this only on success. The callback invalidates the one
-     * canonical defaults key and does not copy defaults into Branch Review state.
-     */
     onSuccess() {
       void queryClient.invalidateQueries({
         queryKey: api.repos.defaults(props.projectId).queryKey,
@@ -1837,16 +986,6 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     },
   );
 
-  /**
-   * Replaces the Tab's immutable selected pair and serializes it through App.
-   *
-   * Callers provide two complete structured selections. This is the sole path that
-   * changes the current Branch Review ChangeSet identity.
-   *
-   * @param baseSelection Complete accepted local or remote base side.
-   * @param reviewSelection Complete accepted local or remote review side paired
-   * with the base in the new immutable DiffParams.
-   */
   function selectBranchReview(
     baseSelection: BranchSelection,
     reviewSelection: BranchSelection,
@@ -1860,12 +999,6 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     props.onSelected(baseSelection, reviewSelection);
   }
 
-  /**
-   * Confirms the complete effective base/review pair for this Tab.
-   *
-   * Missing defaults or selection fields block submission visibly by leaving the
-   * action inert; complete selections are serialized and retained as user edits.
-   */
   function loadBranchReview(): void {
     const baseSelection = selectedBranch(base());
     const reviewSelection = selectedBranch(review());
@@ -1878,12 +1011,6 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     selectBranchReview(baseSelection, reviewSelection);
   }
 
-  /**
-   * Returns the shared refs observer's panel-local refresh presentation.
-   *
-   * Every branch/remote autocomplete receives its own rendering of the same state
-   * and operation; no standing field icon is rendered.
-   */
   function refreshControl(): JSX.Element {
     return (
       <MetadataRefresh
@@ -1895,12 +1022,6 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     );
   }
 
-  /**
-   * Returns the old two-position Save main branch control for the effective base.
-   *
-   * The button is disabled until a complete nonempty local or remote base exists.
-   * Both rendered instances invoke the same canonical mutation.
-   */
   function saveMainBranchControl(): JSX.Element {
     const failure = saveMainBranch.error;
     if (failure !== null) {
@@ -2007,97 +1128,19 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
   );
 }
 
-/**
- * Defines the complete inputs for one structured source/branch field pair.
- *
- * The caller stores the selected BranchSelection; the component stores no duplicate
- * domain state and reports complete local or remote variants after interaction.
- */
 type BranchSelectionFieldsProps = {
-  /**
-   * Caption for the source/remote control in this side of the comparison.
-   *
-   * It must distinguish base from review context for the user.
-   */
   sourceLabel: string;
-  /**
-   * Caption for the branch autocomplete paired with the source control.
-   *
-   * The label describes the branch text later returned in `selection`.
-   */
   branchLabel: string;
-  /**
-   * Native hint shown only while the branch input text is empty.
-   *
-   * It is never accepted as branch data or returned to the caller.
-   */
   branchPlaceholder: string;
-  /**
-   * Caller-controlled structured selection currently rendered by both fields.
-   *
-   * Empty branch or remote text is allowed during editing but cannot be loaded
-   * until the outer workflow validates completeness.
-   */
   selection: BranchSelection;
-  /**
-   * Backend-preferred remote used to enter remote mode or seed an empty remote.
-   *
-   * Empty preserves incomplete state when no default exists; the fields never
-   * choose another remote implicitly.
-   */
   defaultRemote: string;
-  /**
-   * Current canonical repository metadata for suggestions, or genuine absence.
-   *
-   * Null leaves the controls free-form and retains the supplied selection.
-   */
   refs: RefChoices | null;
-  /**
-   * Builds the caller action rendered beside each source and branch caption.
-   *
-   * When non-null, BranchSelectionFields invokes this zero-argument callback once
-   * for each of its two fields during reactive rendering. It may read caller state
-   * and must return the complete action JSX; null prevents both calls. Each result
-   * is passed immediately to AutocompleteInput, with no controlled value returned
-   * to the callback and no retained copy after rendering.
-   */
   fieldAction: (() => JSX.Element) | null;
-  /**
-   * Builds the caller action available inside each autocomplete suggestions panel.
-   *
-   * When non-null, BranchSelectionFields invokes this zero-argument callback once
-   * for each of its two fields during reactive rendering. It may read caller query
-   * state and must return complete action JSX; null prevents both calls. Each result
-   * is passed immediately to AutocompleteInput, which shows it only while its panel
-   * is open; neither component returns controlled state or retains the JSX as data.
-   */
   panelAction: (() => JSX.Element) | null;
-  /**
-   * Reports direct text editing so the caller may warm canonical ref metadata.
-   *
-   * It receives no text and is not called for seed updates, source toggles, or
-   * choice activation. Completed state arrives through `onSelection`; the fields
-   * take no action after this notification.
-   */
   onEditNotification: () => void;
-  /**
-   * Accepts each structured selection produced by source toggle or field completion.
-   *
-   * `selection` is the exact local or remote value, possibly incomplete while the
-   * user edits. The callback may store it and must pass accepted state back through
-   * the `selection` prop. It does not run for untouched seeds or metadata arrival.
-   * A source toggle performs no later work; autocomplete choice and Enter restore
-   * focus after invocation, while blur schedules panel dismissal after invocation.
-   */
   onSelection: (selection: BranchSelection) => void;
 };
 
-/**
- * Renders one source toggle/remote control beside one branch autocomplete.
- *
- * Source changes preserve branch text, remote selections require a concrete
- * remote, and branch choices follow the current structured selection variant.
- */
 function BranchSelectionFields(props: BranchSelectionFieldsProps): JSX.Element {
   const remoteChoices = createMemo(() =>
     (props.refs?.remotes ?? []).map((remote) => ({
@@ -2135,12 +1178,6 @@ function BranchSelectionFields(props: BranchSelectionFieldsProps): JSX.Element {
       }));
   });
 
-  /**
-   * Switches between local and remote selection while preserving branch text.
-   *
-   * Entering a remote selection uses the repository default remote. When defaults provide
-   * none, the remote field remains empty and the incomplete selection cannot load.
-   */
   function toggleSource(): void {
     if (props.selection.source === "remote") {
       props.onSelection({ source: "local", branch: props.selection.branch });
@@ -2213,33 +1250,9 @@ function BranchSelectionFields(props: BranchSelectionFieldsProps): JSX.Element {
   );
 }
 
-/**
- * Renders the PR URL workflow and authoritative preparation mutation.
- *
- * The input remains Tab-local. Success returns the complete backend result to App
- * for one URL-backed workspace reset; it never combines with an existing repo.
- */
 function PullRequestTab(
   props: TabProps & {
-    /**
-     * Republishes one retained prepared selection when this Tab is reactivated.
-     *
-     * `selection` is the complete repository, URL, and commit tuple originally
-     * reconstructed from the workspace. It does not run for input edits,
-     * preparation success, failure, or initial mount. The caller may replace URL
-     * state but must preserve these values; the Tab keeps its selection and needs
-     * no controlled handback or subsequent action.
-     */
     onSelected: (selection: PreparedPullRequest) => void;
-    /**
-     * Applies the exact backend preparation result after the mutation succeeds.
-     *
-     * `prepared` contains the authoritative replacement repository, URL, and two
-     * commits. It never runs for empty input or mutation failure. The caller may
-     * invalidate repository metadata and reconstruct the workspace; accepted state
-     * returns only through that reconstruction because this component deliberately
-     * stores no prepared result, and it may be disposed once the callback returns.
-     */
     onPrepared: (prepared: PreparedPullRequest) => void;
   },
 ): JSX.Element {
@@ -2251,11 +1264,8 @@ function PullRequestTab(
   // Retain capture values only in exact HTTP params. Branch names accompany
   // them for display and URL restoration, and never enter the manifest query.
   let initialSelection: {
-    /** Complete capture inputs sent unchanged to manifest. */
     params: PullRequestDiffParams;
-    /** Prepared target branch retained only for display and browser URLs. */
     base_branch: string;
-    /** Prepared source branch retained only for display and browser URLs. */
     head_branch: string;
   } | null = null;
   if (props.active) {
@@ -2311,12 +1321,6 @@ function PullRequestTab(
   const [selected] = createSignal<typeof initialSelection>(initialSelection);
   const prepare = createMutation(() => ({
     ...api.pullRequest.prepare(),
-    /**
-     * Reports authoritative prepared Pull Request values to the Tab.
-     *
-     * TanStack invokes this only after the backend resolves the URL. The callback
-     * passes the complete result upward without retaining a second prepared value.
-     */
     onSuccess(prepared: PreparedPullRequest) {
       props.onPrepared(prepared);
     },
@@ -2339,12 +1343,6 @@ function PullRequestTab(
     },
   );
 
-  /**
-   * Submits the complete trimmed PR URL to the preparation mutation.
-   *
-   * Empty input is rejected locally as a required interaction field rather than
-   * being sent as a meaningless backend command.
-   */
   function preparePullRequest(): void {
     const selectedUrl = url().trim();
     if (selectedUrl.length === 0) {
@@ -2457,26 +1455,8 @@ function PullRequestTab(
   );
 }
 
-/**
- * Renders preset-kind and subset controls backed by the shared catalog query.
- *
- * Preset ignores global repo but preserves it in App. Catalog defaults remain
- * derived query data until the user selects a subset, and engine stays reactive.
- */
 function PresetTab(
   props: TabProps & {
-    /**
-     * Serializes one catalog-backed subset after selection or later reactivation.
-     *
-     * `presetType` is the exact validated catalog ID and `preset` the exact group
-     * ID selected within it. It does not run while data is missing, a waiting
-     * command targets another catalog, or submission lacks a preset. The caller
-     * may replace browser URL state; the Tab stores matching DiffParams before the
-     * call and requires no controlled handback or later operation.
-     *
-     * @param presetType Validated backend catalog identity.
-     * @param preset Exact selected group identity within that catalog.
-     */
     onSelected: (presetType: PresetType, preset: string) => void;
   },
 ): JSX.Element {
@@ -2517,15 +1497,6 @@ function PresetTab(
     enabled: props.active,
   }));
 
-  /**
-   * Selects the one listed catalog these controls are showing.
-   *
-   * Null while the listing is unknown, and null when the backend offers no
-   * catalog at all. No preset can be selected in either state, and neither is
-   * repaired here. A `preset_type` the listing does not contain is
-   * a broken URL and throws to the surrounding boundary, which is the same
-   * outcome an unsupported value had when the set was compiled in.
-   */
   const activeCatalog = createMemo(() => {
     const listed = catalogs.data;
     if (listed === undefined) {
@@ -2571,16 +1542,6 @@ function PresetTab(
     },
   );
 
-  /**
-   * Completes only an explicitly waiting Preset selection from its live catalog.
-   *
-   * The effect observes active state, the tagged selection, the requested
-   * preset kind, the listed catalog answering it, and the effective catalog
-   * default. Once a concrete catalog and preset both exist it performs the
-   * external URL/selection command and replaces the command with complete
-   * parameters, making itself inert. It creates no external subscription and is
-   * disposed with the eternal Tab.
-   */
   createEffect(
     on(
       [
@@ -2607,13 +1568,6 @@ function PresetTab(
     ),
   );
 
-  /**
-   * Selects and serializes one concrete preset subset for the current kind.
-   *
-   * The value must come from the visible validated catalog; no missing/default
-   * placeholder is stored as user selection. The catalog it belongs to is the
-   * shown one, so callers must not call this before the listing arrives.
-   */
   function selectPreset(preset: string): void {
     const catalog = activeCatalog();
     assert(
@@ -2730,12 +1684,6 @@ function PresetTab(
   );
 }
 
-/**
- * Renders one active Tab's compact metadata state in AppHeader.
- *
- * The query and retry operation remain in the Tab. Portal changes physical DOM
- * placement only; inactive or settled observers contribute no header content.
- */
 function MetadataStatusPortal(props: MetadataStatusPortalProps): JSX.Element {
   return (
     <Show when={props.target} keyed>
@@ -2769,12 +1717,6 @@ function MetadataStatusPortal(props: MetadataStatusPortalProps): JSX.Element {
   );
 }
 
-/**
- * Renders one metadata refresh control with persistent local failure visibility.
- *
- * Fetching disables and rotates the ordinary button. Failure replaces it with a
- * red trigger that opens complete error details; retry occurs only in the popover.
- */
 function MetadataRefresh(props: MetadataRefreshProps): JSX.Element {
   return (
     <Show
@@ -2811,12 +1753,6 @@ function MetadataRefresh(props: MetadataRefreshProps): JSX.Element {
   );
 }
 
-/**
- * Gates the smallest repo-dependent action on shared repository metadata.
- *
- * The rest of the active Tab stays mounted. Users may select or remove a marked
- * repository, and every error remains compact locally with complete popover detail.
- */
 function RepoGate(props: RepoGateProps): JSX.Element {
   const queryClient = useQueryClient();
   const repos = createQuery(() => ({
@@ -2848,12 +1784,6 @@ function RepoGate(props: RepoGateProps): JSX.Element {
   });
   const removeRepo = createMutation(() => ({
     ...api.repos.remove(),
-    /**
-     * Refreshes repository metadata after successful gatekeeper removal.
-     *
-     * TanStack invokes this only after backend success. The callback invalidates
-     * the canonical list; RepoGate derives its next presentation from that query.
-     */
     onSuccess() {
       void queryClient.invalidateQueries({
         queryKey: api.repos.list().queryKey,

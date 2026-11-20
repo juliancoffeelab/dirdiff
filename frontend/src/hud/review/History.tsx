@@ -1,14 +1,3 @@
-/**
- * Renders Snapshot-wide review History from pages, activity, and draft data.
- *
- * History observes the same immutable Thread pages as `ReviewProvider`, reads
- * provider-held post-boundary activity and the application draft document, and
- * creates its own discussion operations against those values. The panel keeps per-Thread expansion and reading
- * position while hidden, and warms newly visible cards over animation frames.
- *
- * The Review provider supplies code navigation and anchored-input operations.
- * Marker state and split placement remain outside History.
- */
 import {
   For,
   Show,
@@ -41,159 +30,35 @@ import { createThreadDiscussion } from "./discussion";
 import { useReviewDrafts, type NewThreadDraft } from "./drafts";
 import { ThreadCard } from "./threadViews";
 
-/**
- * Identity-stable empty array used while History review data is unavailable.
- *
- * `reviewThreads` returns this exact array for every unavailable read, so it
- * does not manufacture a changed source identity before the bounded query
- * loads. `orderedThreads` copies that source only when its memo reruns. This
- * module never mutates the shared empty value.
- */
 const NO_THREADS: readonly ReviewThread[] = [];
 
-/**
- * Defines History's host facts and the provider-owned anchored-UI behaviors.
- *
- * History reaches the bounded query and draft document directly, while the
- * provider supplies shared accepted activity. `closeCommentInputInThread`
- * returns `false` when an in-flight
- * submission blocks the close, and the caller must then abort its action.
- */
 type ReviewHistoryProps = {
-  /**
-   * Displayed Snapshot used to select the Room and current placement context.
-   * New-Thread drafts for other Snapshots remain visible but cannot continue here.
-   */
   snapshotId: ReviewId;
-  /**
-   * Live selected Profile used to match drafts and author discussion writes.
-   * Null preserves readable History while disabling actions that require authorship.
-   */
   profile: StoredProfile | null;
-  /** Successful writes presented beside the immutable activity-bounded pages. */
   acceptedActivities: Accessor<readonly AcceptedReviewActivity[]>;
-  /** Publish one successful History write without changing query data. */
   onAcceptedActivity(activity: AcceptedReviewActivity): void;
-  /**
-   * Current diff layout, which chooses the inline outlet or fixed split host.
-   * Changing it remounts the keyed Portal without resetting History card state.
-   */
   view: DiffViewMode;
-  /**
-   * Parent-owned visibility. False hides the keep-mounted panel, preserving its
-   * scroller, expansion choices, and warmed Thread elements for the next open.
-   */
   historyOpen: boolean;
-  /**
-   * Runs only when the user opens the toggle or closes the panel header, with
-   * the desired visibility. The parent may update its Tab state and must feed
-   * the accepted value back through `historyOpen`; History performs its scroll
-   * restoration or warming only after that prop becomes true.
-   */
   onHistoryOpenChange(open: boolean): void;
-  /**
-   * Reads the ChangeSet's mounted inline outlet whenever layout or mounting
-   * changes. Null withholds the Portal; the parent feeds the connected element
-   * back after its grid mounts, and split layout does not read this accessor.
-   */
   inlineHistoryTarget: Accessor<HTMLElement | null>;
-  /**
-   * Reads the provider's measured top edge for fixed split History. Null hides
-   * that host until geometry is valid; inline layout ignores this value.
-   */
   splitHistoryTop: Accessor<number | null>;
-  /**
-   * Called while rendering a located Thread or draft with its exact File, bay,
-   * side, and line. It returns whether the File lane can navigate there; false
-   * disables the action and no navigation callback follows.
-   */
   canViewThread(point: ThreadCodePoint): boolean;
-  /**
-   * Called only from an enabled History go-to action with the loaded Thread.
-   * History expands the card first; the provider may navigate and open its
-   * anchored Thread panel, whose accepted state returns through the shared query
-   * and provider UI. Unlocated or unloaded destinations never invoke it.
-   */
   viewThreadInCode(thread: ReviewThread): void;
-  /** Report whether an origin-bound Thread's displayed File is loaded. */
   canViewFile(file: ReviewFilePair): boolean;
-  /**
-   * Navigate an origin placement exactly or to its changed File's start.
-   *
-   * @param file Exact origin File pair still present in the displayed manifest.
-   * @param point Origin code point, or null for a File-level historical Thread.
-   * @param useFileStart Whether navigation uses the displayed File start.
-   */
   viewOriginThreadInCode(
     file: ReviewFilePair,
     point: ThreadCodePoint | null,
     useFileStart: boolean,
   ): void;
-  /**
-   * Called only when the user continues a draft bound to this Snapshot and
-   * selected Profile, with the persisted draft and its exact code point. The
-   * provider may navigate and mount the existing input; the draft document then
-   * supplies all accepted edits. Disabled or incompatible drafts do not invoke it.
-   *
-   * @param draft Persisted new-Thread work selected from the History draft card.
-   * @param point Exact File, bay, side, and starting line where it must reopen.
-   */
   continueDraftInCode(draft: NewThreadDraft, point: ThreadCodePoint): void;
-  /**
-   * Called from the header's whole-review control with History's connected input
-   * slot. The provider opens a fresh whole-review Comment input there, or closes
-   * the one already open there; with no selected Profile it only presents the
-   * Profile requirement. The active input returns through the provider's Portal.
-   */
   toggleReviewThreadInput(mount: HTMLElement): void;
-  /**
-   * Called once when the keyed History Portal disposes its whole-review input
-   * slot, which an inline/split view switch does, with that discarded slot. The
-   * provider closes the whole-review input mounted there with ordinary close
-   * semantics, so unfinished text stays a saved draft and the provider holds no
-   * input for a slot that is gone; input mounted elsewhere is unchanged.
-   *
-   * @param mount The History input slot being discarded.
-   */
   closeReviewThreadInput(mount: HTMLElement): void;
-  /**
-   * Called when the user continues a whole-review draft bound to this Snapshot and
-   * selected Profile. The provider reopens that persisted draft's Comment input in
-   * History's connected input slot; the draft document supplies later edits.
-   *
-   * @param draft Persisted whole-review new-Thread work from the Drafts section.
-   * @param mount Connected History slot that receives the input Portal.
-   */
   continueReviewDraft(draft: NewThreadDraft, mount: HTMLElement): void;
-  /**
-   * Called before closing a History card, with that Thread's identity. The
-   * provider may close a Comment editor mounted inside it and returns false when
-   * an in-flight submission forbids closing; History aborts the toggle on false
-   * and otherwise updates its own expansion state.
-   */
   closeCommentInputInThread(threadId: ReviewId): boolean;
-  /**
-   * Called from a draft card's enabled Discard action with the persisted identity.
-   * The provider removes it from storage and returns whether removal succeeded;
-   * accepted absence returns through the shared draft accessor and removes the card.
-   */
   discardNewThreadDraft(draftId: ReviewId): boolean;
-  /**
-   * Called only from the storage-error recovery control after submissions settle.
-   * The provider attempts to remove all stored drafts and closes anchored input
-   * only on success; the context accessors then replace this panel's error and list.
-   */
   clearDrafts(): void;
 };
 
-/**
- * Renders the keep-mounted History host, toggle, and grouped Thread panel.
- *
- * One instance exists per Snapshot review boundary and survives open/close;
- * an inline/split view switch remounts only the keyed Portal. Every write it
- * performs goes through its own discussion instance against the shared
- * authorities.
- */
 export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
   const toast = useToasts();
   const draftContext = useReviewDrafts();
@@ -209,16 +74,13 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
     // inside their ThreadCard and read the draft document directly.
     onSubmitted() {},
   });
-  /** Derives loaded pages and accepted activity for History presentation. */
   const reviewThreads = createMemo<readonly ReviewThread[]>(
     () => reviewThreadList(review.data, props.acceptedActivities()),
     NO_THREADS,
   );
-  /** Reports the greatest count proven by the boundary or visible activities. */
   const totalThreads = (): number =>
     Math.max(review.data?.pages[0]?.total_threads ?? 0, reviewThreads().length);
 
-  /** Refetch the shared page chain through its ordinary query operation. */
   async function reloadThreads(): Promise<void> {
     await review.refetch();
   }
@@ -249,23 +111,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
     deleted: orderedThreads().filter((thread) => thread.state === "deleted"),
   }));
 
-  /**
-   * Binds one canonical History Thread to this panel's discussion instance.
-   *
-   * The keyed iteration supplies replacement Thread values as the query changes.
-   * This component derives that Thread's local expansion, persisted drafts, pending
-   * probes, and anchored navigation behavior before delegating presentation to
-   * ThreadCard. It stores no copy of the Thread and performs no HTTP action outside
-   * the shared discussion instance.
-   */
-  function HistoryThread(historyProps: {
-    /**
-     * Canonical loaded Thread rendered by this keyed History iteration. Query
-     * replacement supplies a new value without transferring ownership to the card.
-     */
-    thread: ReviewThread;
-  }): JSX.Element {
-    /** Reads the latest Thread prop inside card action closures. */
+  function HistoryThread(historyProps: { thread: ReviewThread }): JSX.Element {
     const thread = () => historyProps.thread;
     const point = threadPlacementCodePoint(historyProps.thread);
     const locationSource = historyProps.thread.location_source;
@@ -292,9 +138,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
       historyProps.thread.origin_target.kind === "text"
         ? "This Thread has no placement in the displayed Snapshot. Go to the File start; reload the diff to locate it accurately."
         : null;
-    /** Reads the selected Profile's persisted reply for this Thread. */
     const replyDraft = () => discussion.replyDraftForThread(thread().thread_id);
-    /** Reports whether any Comment in this Thread has a persisted edit input. */
     const hasEditDraft = () =>
       thread().comments.some(
         (comment) =>
@@ -303,7 +147,6 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
             comment.comment_id,
           ) !== null,
       );
-    /** Uses an explicit History choice, otherwise opens active work and open Threads. */
     const expanded = () =>
       expandedThreads().get(thread().thread_id) ??
       (thread().state === "open" || replyDraft() !== null || hasEditDraft());
@@ -559,22 +402,6 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                   // Thread at the top of the viewport pinned while
                   // heights above it change.
                   let warmFrame: number | null = null;
-                  /**
-                   * Warm the next batch of at most eight History Thread cards.
-                   *
-                   * The frame handle is cleared before work begins. A detached
-                   * scroller, closed History, or no remaining unwarmed card ends
-                   * this warming run without rescheduling. Before adding warmed
-                   * classes, the function records the first Thread crossing the
-                   * viewport top and its offset from `scrollTop`; after the batch
-                   * changes heights, it corrects `scrollTop` so that same anchor
-                   * stays at the same visible position. The handle stays null
-                   * after an early stop or completion. More than eight pending
-                   * cards replace it with the next frame handle before returning.
-                   * The surrounding effect may start a later run when History
-                   * reopens or `orderedThreads` changes, and Portal cleanup
-                   * cancels any frame still pending.
-                   */
                   const warmBatch = () => {
                     warmFrame = null;
                     // A hidden panel must not warm: warmed Threads
@@ -674,7 +501,6 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                         // History's own input slot.
                         const target =
                           draft.target.kind === "text" ? draft.target : null;
-                        /** Requires this panel's current Profile and Snapshot bindings. */
                         const continuable = () =>
                           draft.profile_id === discussion.profileId() &&
                           draft.snapshot_id === props.snapshotId;

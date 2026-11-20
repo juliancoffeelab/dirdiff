@@ -1,11 +1,3 @@
-"""Expose persistent review discussions and agent batches.
-
-The facade publishes the review contracts and operations used outside this
-package. Shared contracts, bound Thread behavior, Snapshot placement, and
-agent batches live in separate sibling modules. SQL, Snapshot
-publication, and HTTP serialization remain outside this package.
-"""
-
 from dirdiff.review.base import (
     AddComment,
     BatchComment,

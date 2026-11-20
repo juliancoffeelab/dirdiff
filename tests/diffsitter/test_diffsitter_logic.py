@@ -1,12 +1,3 @@
-"""Check the Diffsitter engine's local decisions, warnings, and rejections.
-
-These tests drive the public engine and row builder. Rows for identical,
-empty, absent, unsupported, and whitespace-only inputs are decided locally or
-by the real executable's diagnosis; corrupted copies of real cached JSON must
-be rejected rather than rendered plausibly; real Unicode coordinates must land
-on the characters Diffsitter addressed.
-"""
-
 import copy
 import os
 from collections import Counter
@@ -27,10 +18,8 @@ from dirdiff.engines import (
 __all__: list[str] = []
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
-"""Source pairs whose cached Diffsitter output feeds corruption and offset tests."""
 
 UNICODE_PRESET = "typescript/unicode-byte-offsets-are-not-character-offsets"
-"""Preset whose new side is a string literal of multi-byte curly quotes."""
 
 
 @pytest.mark.parametrize(
@@ -45,16 +34,6 @@ UNICODE_PRESET = "typescript/unicode-byte-offsets-are-not-character-offsets"
 def test_unsupported_language_uses_unified_diff_with_notice(
     old_hint: str | None, new_hint: str | None
 ) -> None:
-    """The real executable's unsupported diagnosis yields text rows and a warning.
-
-    Mixed hints stay unsupported when either side lacks a grammar, and a
-    missing hint is not silently given an extension.
-
-    # Parameters
-
-    - `old_hint`: Old-side path hint passed through unchanged.
-    - `new_hint`: New-side path hint passed through unchanged.
-    """
     result = DiffsitterDiffEngine().render_diff(
         old=DiffSide(exists=True, text="old\ncontext\n", path_hint=old_hint),
         new=DiffSide(exists=True, text="new\ncontext\n", path_hint=new_hint),
@@ -94,12 +73,6 @@ def test_unsupported_language_uses_unified_diff_with_notice(
 
 
 def test_identical_texts_never_run_the_executable() -> None:
-    """Identical documents render as equal rows even with an unsupported hint.
-
-    The unsupported hint would produce a warning if Diffsitter ran, so its
-    absence proves the local shortcut. A trailing carriage return stays on its
-    line and the missing final newline does not create a phantom line.
-    """
     text = "one\r\ntwo\n\nthree"
     result = DiffsitterDiffEngine().render_diff(
         old=DiffSide(exists=True, text=text, path_hint="a.unsupported-dirdiff"),
@@ -142,17 +115,6 @@ def test_identical_texts_never_run_the_executable() -> None:
 def test_one_sided_documents_render_locally(
     old: DiffSide, new: DiffSide
 ) -> None:
-    """Absent or empty sides yield one-sided rows without running Diffsitter.
-
-    Unsupported hints would otherwise trigger the warning. An existing empty
-    file and an absent file render identically: the other side is entirely
-    inserted or deleted, blank lines included.
-
-    # Parameters
-
-    - `old`: Old side, absent or empty in half the cases.
-    - `new`: New side, absent or empty in the other half.
-    """
     result = DiffsitterDiffEngine().render_diff(old=old, new=new)
     assert "engine_warning" not in result
     inserted = old.text in (None, "")
@@ -179,12 +141,6 @@ def test_one_sided_documents_render_locally(
 
 
 def test_whitespace_only_change_reports_empty_result() -> None:
-    """Diffsitter strips whitespace, so a spacing-only edit has no entries.
-
-    The engine must not present differing texts as equal: the unified diff
-    shows the two spellings as a deletion and an insertion under the
-    `diffsitter_empty_result` warning, and no tokens are invented.
-    """
     result = DiffsitterDiffEngine().render_diff(
         old=DiffSide(exists=True, text="x = 1\ny = 2\n", path_hint="old.py"),
         new=DiffSide(exists=True, text="x  =  1\ny = 2\n", path_hint="new.py"),
@@ -208,11 +164,6 @@ def test_whitespace_only_change_reports_empty_result() -> None:
 
 
 def test_configured_missing_executable_is_an_error(tmp_path: Path) -> None:
-    """An explicit executable path that does not exist is never replaced by PATH.
-
-    Identical texts would skip the executable, so the inputs differ. The
-    environment is restored afterwards because it is process-global.
-    """
     previous = os.environ.get("DIRDIFF_DIFFSITTER_BIN")
     os.environ["DIRDIFF_DIFFSITTER_BIN"] = str(tmp_path / "missing-diffsitter")
     try:
@@ -229,15 +180,6 @@ def test_configured_missing_executable_is_an_error(tmp_path: Path) -> None:
 
 
 def test_unicode_byte_columns_land_on_the_addressed_characters() -> None:
-    """Real multi-byte coordinates highlight the curly quotes, not shifted bytes.
-
-    The new literal starts with `“` (three UTF-8 bytes) right after the ASCII
-    prefix; a character-offset reading of the byte columns would paint the
-    wrong characters or fail to slice. The old side loses `p`, `l`, `n` of
-    `plain` while `a` and `i` survive as unchanged context. The local unified
-    alignment never pairs differing lines, so each side is its own equal row
-    carrying the reported changed and unchanged token facts.
-    """
     preset = PRESETS_ROOT / UNICODE_PRESET
     left, right = next(preset.glob("old.*")), next(preset.glob("new.*"))
     rows = build_diffsitter_rows_from_json(
@@ -355,16 +297,6 @@ def test_unicode_byte_columns_land_on_the_addressed_characters() -> None:
 def test_corrupted_real_output_is_rejected(
     corrupt: Callable[[DiffsitterJson], None],
 ) -> None:
-    """Coordinates or text the source cannot satisfy raise instead of rendering.
-
-    Each mutation is applied to a deep copy of real cached output whose first
-    new entry is the three-byte `“`, so a shift of one byte lands inside a
-    grapheme and a duplicated entry violates the ascending-column contract.
-
-    # Parameters
-
-    - `corrupt`: In-place mutation of the copied Diffsitter report.
-    """
     preset = PRESETS_ROOT / UNICODE_PRESET
     left, right = next(preset.glob("old.*")), next(preset.glob("new.*"))
     facts = copy.deepcopy(
@@ -388,13 +320,6 @@ def test_corrupted_real_output_is_rejected(
 
 
 def test_engine_result_matches_builder_rows_and_counts() -> None:
-    """The public engine reproduces the builder's rows and counts them faithfully.
-
-    The rust preset wraps a call over several lines, so the local alignment
-    leaves one-sided new rows beside rows that carry tokens; the ones Diffsitter
-    never mentioned stay equal. The engine adds nothing beyond the builder's
-    rows plus a summary derived independently from reported token facts.
-    """
     preset = (
         PRESETS_ROOT / "rust/rust-range-tail-after-wrap-should-stay-right-only"
     )

@@ -1,12 +1,3 @@
-"""Check Diffsitter row building against real presets and generated sources.
-
-Real presets in Diffsitter-supported languages prove that every reported
-grapheme reappears as exactly one token at the byte position Diffsitter named,
-in the order the source dictates, with nothing merged, dropped, or reordered.
-Generated sources check the local line alignment and the byte-to-character
-token slicing on Unicode and carriage returns without running the executable.
-"""
-
 from pathlib import Path
 
 import pytest
@@ -20,31 +11,18 @@ from dirdiff.rendering import highlight_lines_for_path, weave_decorated_parts
 __all__: list[str] = []
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
-"""Readable source pairs shared with the Difftastic corpus and the HUD."""
 
 SUPPORTED_SUFFIXES = {".py", ".rs", ".ts", ".tsx", ".ml"}
-"""Preset suffixes Diffsitter 0.9 parses without a fallback command.
-
-Presets with other suffixes exercise the unsupported-language warning in the
-behavior tests instead of the row builder.
-"""
 
 SUPPORTED_PRESETS = sorted(
     preset
     for preset in PRESETS_ROOT.glob("*/*")
     if next(preset.glob("old.*")).suffix in SUPPORTED_SUFFIXES
 )
-"""Every corpus pair Diffsitter can compare, in a stable order."""
 
 
 @pytest.mark.parametrize("preset", SUPPORTED_PRESETS, ids=str)
 def test_sources_survive_alignment_and_decoration(preset: Path) -> None:
-    """Every source line occurs once in order and every character keeps its status.
-
-    Reconstruction is checked byte-for-byte against the original text rather
-    than through `splitlines`, so a carriage return or a missing final newline
-    cannot hide behind a lenient comparison.
-    """
     left = next(preset.glob("old.*"))
     right = next(preset.glob("new.*"))
     left_text = left.read_bytes().decode()
@@ -118,14 +96,6 @@ def test_sources_survive_alignment_and_decoration(preset: Path) -> None:
 
 @pytest.mark.parametrize("preset", SUPPORTED_PRESETS, ids=str)
 def test_preset_tokens_replay_every_diffsitter_entry(preset: Path) -> None:
-    """Changed tokens are exactly Diffsitter's entries at their byte columns.
-
-    The oracle sorts raw entries by coordinate and compares them with the
-    changed tokens read off the rows in display order, including the byte
-    offset each token starts at. Any merged, dropped, duplicated, or displaced
-    grapheme breaks the equality. It also records that Diffsitter never reports
-    whitespace, the fact that lets one-sided rows without tokens stay equal.
-    """
     left = next(preset.glob("old.*"))
     right = next(preset.glob("new.*"))
     facts = tool_json(
@@ -211,18 +181,6 @@ def test_preset_tokens_replay_every_diffsitter_entry(preset: Path) -> None:
 def test_empty_reports_align_every_line_once_without_reordering(
     left: list[str], right: list[str]
 ) -> None:
-    """Local alignment pairs identical lines and keeps each side's order.
-
-    With no entries the builder is the pure alignment step. Paired rows must
-    show identical text, every line number appears exactly once ascending, and
-    one-sided rows without tokens follow the Difftastic rule: unchanged
-    context stays equal unless the line has no visible text at all.
-
-    # Parameters
-
-    - `left`: Generated old-side lines, allowing blanks, repeats, and `\\r`.
-    - `right`: Generated new-side lines with the same alphabet.
-    """
     left_text = "".join(line + "\n" for line in left)
     right_text = "".join(line + "\n" for line in right)
     # tool-json: synthetic an entry-free report isolates the alignment step
@@ -271,22 +229,6 @@ def test_empty_reports_align_every_line_once_without_reordering(
 def test_byte_columns_slice_unicode_graphemes_exactly(
     line: str, picks: list[bool], old_side: bool
 ) -> None:
-    """Entries addressed by UTF-8 byte columns become tokens of the right characters.
-
-    The oracle chooses which non-whitespace characters Diffsitter would report,
-    encodes their byte columns the way tree-sitter does, and requires the
-    changed tokens to be those exact characters with unchanged gaps between
-    them. Multi-byte characters and an embedded carriage return must not shift
-    any token. Hunk splitting must not matter, so half the entries go into a
-    second hunk for the same line.
-
-    # Parameters
-
-    - `line`: One generated source line mixing ASCII, Cyrillic, astral, and
-      combining-free accented characters with tabs and `\\r`.
-    - `picks`: Whether each character position is reported as an entry.
-    - `old_side`: Whether the entries belong to the `Old` or the `New` side.
-    """
     chosen = [
         (index, character)
         for index, (character, pick) in enumerate(

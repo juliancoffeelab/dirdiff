@@ -1,15 +1,3 @@
-/**
- * Contains jsdom rendering tests for Tabs without selected repository.
- *
- * Tests drive transitions through TabStrip with real Solid, Toast, and query
- * lifetimes.
- * API fixtures must satisfy the validated backend contracts.
- * Assert active controls, repository gates, emitted selections, and absence
- * of reported errors.
- *
- * File rendering stays outside this module; ChangeSet must fail the test
- * if a repository-gated Tab mounts it.
- */
 import "@testing-library/jest-dom/vitest";
 import {
   cleanup,
@@ -30,18 +18,7 @@ import { TabStrip, Tabs, type TabId } from "../src/hud/Tabs";
 // boundary without rendering file content.
 vi.mock("../src/hud/changeSet/ChangeSet", () => ({
   ChangeSet: (props: {
-    /**
-     * Complete selection passed to the mocked ChangeSet boundary by a Tab.
-     *
-     * The mock inspects only its discriminant because file rendering is outside
-     * this suite; every repository-backed value must fail immediately.
-     */
     params: {
-      /**
-       * Tab workflow that constructed this selected parameter entity.
-       *
-       * Only `preset` is permitted to cross this mock in repository-less tests.
-       */
       tab: string;
     };
   }) => {

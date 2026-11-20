@@ -1,27 +1,3 @@
-"""Report module helpers and inaccurate module interfaces.
-
-## Public interface
-
-Flake8 loads `HelperTopologyPlugin`. It emits HLP001 for one-use private
-helpers, HLP002 when all references sit below one outer function, and HLP003
-when a local `TypeIs` predicate is separated from its narrowed type. HLP004,
-HLP005, and HLP006 require `__all__` to match the repository-observed module
-interface exactly and forbid private-looking exports. HLP007 restricts
-production package imports: package-internal code imports only `base.py`, while
-external code imports only through the package facade. Source and lint modules
-must declare that interface; pytest modules participate without boilerplate.
-
-## Purpose and boundaries
-
-The plugin combines each file's AST with Python's symbol table for lexical
-helper placement and builds one cached index of Python imports and declared
-entrypoints for interface checks. Literal `__all__` exports, tests, `main`,
-decorated functions, `TypeIs` predicates, and functions longer than ten lines
-stay outside the helper-placement rule. The plugin does not infer hypothetical
-external consumers, edit source, or decide whether a separately documented
-exception is worthwhile.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -33,34 +9,14 @@ from pathlib import Path
 from typing import override
 
 INLINE_CODE = "HLP001"
-"""Diagnostic for an eligible module helper with one external reference.
-
-Recursive self-references do not count. The message asks for inlining or local
-nesting beside the sole caller.
-"""
 NEST_CODE = "HLP002"
-"""Diagnostic for a helper whose external references share one outer function.
-
-The common lexical container can retain the helper without exposing a module
-binding.
-"""
 COLOCATE_CODE = "HLP003"
-"""Diagnostic for a local `TypeIs` predicate separated from its narrowed type.
-
-Standalone string documentation immediately after the type remains part of the
-allowed adjacency.
-"""
 MISSING_EXPORT_CODE = "HLP004"
-"""Diagnostic for missing `__all__` or a repo-used name absent from it."""
 UNUSED_EXPORT_CODE = "HLP005"
-"""Diagnostic for an exported name with no repo-observed external use."""
 PRIVATE_EXPORT_CODE = "HLP006"
-"""Diagnostic for an underscore-prefixed name listed in `__all__`."""
 PACKAGE_IMPORT_CODE = "HLP007"
-"""Diagnostic for bypassing a package boundary or private implementation root."""
 
 type _InterfaceDiagnostic = tuple[int, int, str]
-"""One line, column, and complete HLP interface diagnostic for one file."""
 
 __all__ = ["HelperTopologyPlugin"]
 
@@ -69,43 +25,8 @@ __all__ = ["HelperTopologyPlugin"]
 def _project_interface_diagnostics(
     project_root: Path,
 ) -> dict[Path, tuple[_InterfaceDiagnostic, ...]]:
-    """Index the repository once and return exact-interface diagnostics by file.
-
-    The index covers the Python roots passed by the Makefile and excludes the
-    preset source fixtures excluded by Flake8. Static direct imports, qualified
-    module access, facade re-exports, Python module-and-name strings, and the
-    corresponding declarations in .flake8 and pyproject.toml count as external
-    uses. A package facade receives no exemption. Test modules remain callers
-    and providers, but pytest discovery does not require them to declare an
-    otherwise empty interface.
-
-    # Parameters
-
-    - project_root: Repository root containing .flake8, src, tests, and lints.
-
-    # Returns
-
-    - `Keys`: Resolved paths for every indexed Python file.
-    - `Values`: Immutable, source-ordered diagnostic tuples; a file without
-      interface errors maps to an empty tuple.
-
-    # Failures
-
-    Missing roots, unreadable source, invalid Python, duplicate module names,
-    non-literal __all__, and duplicate exports fail the lint rather than
-    producing an incomplete interface index.
-    """
 
     def module_parts(path: Path) -> tuple[str, ...]:
-        """Return the import path components assigned to one indexed file.
-
-        # Returns
-
-        - `Leading items`: Importable parent packages, including `tests` for
-          files under that root.
-        - `Final item`: Module stem, omitted when the file is a package
-          `__init__.py`.
-        """
         source_root = project_root / "src"
         tests_root = project_root / "tests"
         lints_root = project_root / "lints"
@@ -493,32 +414,10 @@ def _project_interface_diagnostics(
 
 
 class HelperTopologyPlugin:
-    """Expose helper-topology diagnostics through Flake8.
-
-    Flake8 supplies a parsed module and the path to the identical source. The
-    plugin retains those inputs until `run()` reads the source for lexical
-    symbol resolution. The first plugin instance also builds the cached
-    repository interface index used by HLP004 through HLP007.
-
-    # Usage
-
-    Register this class as a Flake8 AST plugin. The file must remain readable and
-    unchanged between construction and `run`.
-    """
-
     name = "dirdiff-helper-topology"
     version = "0.1.0"
 
     def __init__(self, tree: ast.AST, filename: str) -> None:
-        """Bind a parsed module to its readable, unchanged source path.
-
-        # Parameters
-
-        - `tree`: Parsed module supplied by Flake8.
-        - `filename`: Path whose source must still correspond to that AST.
-
-        `run` performs symbol-table resolution later and asserts this pairing.
-        """
         assert isinstance(tree, ast.Module)
         self.tree = tree
         self.filename = filename
@@ -526,28 +425,6 @@ class HelperTopologyPlugin:
     def run(
         self,
     ) -> Iterator[tuple[int, int, str, type[HelperTopologyPlugin]]]:
-        """Yield source-ordered helper and module-interface diagnostics.
-
-        # Usage
-
-        Flake8 iterates the returned tuples after constructing the plugin from
-        one parsed source file.
-
-        # Returns
-
-        - `First`: Source line of the private-helper diagnostic.
-        - `Second`: Zero-based source column.
-        - `Third`: Rule-prefixed diagnostic message.
-        - `Fourth`: This plugin class, as required by Flake8.
-        - `Order`: Diagnostics follow source order; an empty iterator means no
-          helper or module interface violated the topology rules.
-
-        # Failures
-
-        ``filename`` must still contain the source represented by ``tree``.
-        Invalid AST/symbol-table correspondence fails rather than producing
-        diagnostics for a different lexical program.
-        """
         source_path = Path(self.filename).resolve()
         source = source_path.read_text()
         module_table = symtable.symtable(source, self.filename, "exec")
@@ -573,30 +450,12 @@ class HelperTopologyPlugin:
 
 
 class _HelperTopologyVisitor(ast.NodeVisitor):
-    """Collect helper topology from one AST and its matching symbol table.
-
-    The visitor owns the candidate index, scope stacks, resolved references,
-    and resulting diagnostics for one traversal. It recognizes only lexical
-    module bindings and must not infer imports, runtime aliases, or references
-    in other modules.
-    """
-
     def __init__(
         self,
         *,
         module: ast.Module,
         module_table: symtable.SymbolTable,
     ) -> None:
-        """Index eligible declarations and initialize one traversal's state.
-
-        ``module_table`` must describe the exact source parsed into ``module``;
-        traversal asserts when their lexical scopes cannot be paired.
-
-        # Parameters
-
-        - `module`: Parsed module whose declarations and references are visited.
-        - `module_table`: Compiler symbol table built from the same source text.
-        """
         public_names: set[str] = set()
         type_is_names: set[str] = set()
         typing_modules: set[str] = set()
@@ -737,12 +596,6 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
 
     @override
     def visit_Module(self, node: ast.Module) -> None:
-        """Traverse the module, then classify each indexed helper's references.
-
-        One external reference produces HLP001. Multiple references under one
-        outer function produce HLP002. Results, including HLP003, are sorted by
-        declaration line before publication.
-        """
         for statement in node.body:
             self.visit(statement)
 
@@ -779,11 +632,6 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
 
     @override
     def visit_Name(self, node: ast.Name) -> None:
-        """Count a load only when lexical resolution reaches an indexed helper.
-
-        Local shadowing, inlined comprehension targets, and recursive references
-        do not count. Each accepted reference retains its outermost function.
-        """
         if (
             not isinstance(node.ctx, ast.Load)
             or node.id not in self._candidates
@@ -815,31 +663,16 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
 
     @override
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        """Traverse a synchronous declaration with compiler-accurate scoping.
-
-        `_visit_named_function` handles signature expressions in the parent and
-        statements in the function's claimed symbol table.
-        """
         self._visit_named_function(node)
 
     @override
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        """Traverse an async declaration under ordinary named-function scoping.
-
-        Async execution semantics do not change how helper names resolve, so the
-        shared named-function traversal applies.
-        """
         self._visit_named_function(node)
 
     def _visit_named_function(
         self,
         node: ast.FunctionDef | ast.AsyncFunctionDef,
     ) -> None:
-        """Traverse signature syntax outside and body syntax inside one function.
-
-        The matching compiler table and function are pushed only for the body.
-        Both stacks must return to their prior state before this call completes.
-        """
         for decorator in node.decorator_list:
             self.visit(decorator)
         for default in node.args.defaults:
@@ -885,11 +718,6 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
 
     @override
     def visit_Lambda(self, node: ast.Lambda) -> None:
-        """Traverse lambda defaults in the parent and its body in lambda scope.
-
-        The claimed compiler table covers only the body expression and is removed
-        immediately afterward.
-        """
         for default in node.args.defaults:
             self.visit(default)
         for keyword_default in node.args.kw_defaults:
@@ -908,11 +736,6 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
 
     @override
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        """Traverse class inputs in the parent and declarations in class scope.
-
-        Decorators, bases, keywords, and type parameters resolve before the class
-        table is pushed. The table remains active for every body statement.
-        """
         for decorator in node.decorator_list:
             self.visit(decorator)
         for base in node.bases:
@@ -935,11 +758,6 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
 
     @override
     def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
-        """Traverse the first iterable outside and the rest in generator scope.
-
-        Later iterables, targets, filters, and the result expression all use the
-        claimed `genexpr` compiler table.
-        """
         first_generator = node.generators[0]
         self.visit(first_generator.iter)
         table = self._take_child_table(
@@ -960,26 +778,14 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
 
     @override
     def visit_ListComp(self, node: ast.ListComp) -> None:
-        """Traverse an inlined list comprehension without counting target names.
-
-        Its result expression is visited after generator bindings are indexed.
-        """
         self._visit_inlined_comprehension(node, values=(node.elt,))
 
     @override
     def visit_SetComp(self, node: ast.SetComp) -> None:
-        """Traverse an inlined set comprehension without counting target names.
-
-        Its result expression is visited after generator bindings are indexed.
-        """
         self._visit_inlined_comprehension(node, values=(node.elt,))
 
     @override
     def visit_DictComp(self, node: ast.DictComp) -> None:
-        """Traverse both dict result expressions under isolated target bindings.
-
-        The key and value are visited after every generator and filter.
-        """
         self._visit_inlined_comprehension(node, values=(node.key, node.value))
 
     def _visit_inlined_comprehension(
@@ -988,16 +794,6 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
         *,
         values: tuple[ast.expr, ...],
     ) -> None:
-        """Traverse Python 3.14's inlined comprehension binding region.
-
-        # Parameters
-
-        - `node`: List, set, or dict comprehension whose targets remain local.
-        - `values`: Result expressions visited after generator bindings exist.
-
-        The first iterable runs outside the isolated target-name region, matching
-        compiler scoping. The binding stack is removed before this call returns.
-        """
         first_generator = node.generators[0]
         self.visit(first_generator.iter)
         bindings: set[str] = set()
@@ -1026,17 +822,6 @@ class _HelperTopologyVisitor(ast.NodeVisitor):
         line: int,
         table_type: symtable.SymbolTableType,
     ) -> symtable.SymbolTable:
-        """Claim the compiler table matching one AST lexical-scope node.
-
-        # Parameters
-
-        - `name`: Compiler scope name expected for the AST node.
-        - `line`: Declaration line used to distinguish same-named scopes.
-        - `table_type`: Function, class, or comprehension scope kind required.
-
-        A table can be claimed once. Missing or ambiguous matches fail the
-        AST/source correspondence assertion.
-        """
         parent = self._table_stack[-1]
         candidates = [
             child
@@ -1079,22 +864,6 @@ def _type_is_target_name(
     type_is_names: set[str],
     typing_modules: set[str],
 ) -> str | None:
-    """Return the direct name in a resolved `TypeIs[T]` annotation.
-
-    # Parameters
-
-    - `annotation`: Return annotation to inspect, if the function has one.
-    - `type_is_names`: Directly imported names known to mean `TypeIs`.
-    - `typing_modules`: Imported module aliases that may qualify `TypeIs`.
-
-    Subscript arguments more complex than a direct local name return `None`.
-
-    # Returns
-
-    - `str`: The direct local target name inside a resolved `TypeIs[T]`.
-    - `None`: The annotation is not a resolved `TypeIs`, or its target is not a
-      direct name. The caller must not treat it as a narrowing helper target.
-    """
     if not _is_type_is_annotation(
         annotation,
         type_is_names=type_is_names,
@@ -1113,17 +882,6 @@ def _is_type_is_annotation(
     type_is_names: set[str],
     typing_modules: set[str],
 ) -> bool:
-    """Recognize `TypeIs` only when its constructor import resolves.
-
-    # Parameters
-
-    - `annotation`: Return annotation syntax to inspect.
-    - `type_is_names`: Direct import names bound to `TypeIs`.
-    - `typing_modules`: Module aliases bound to `typing` variants.
-
-    An unrelated local named `TypeIs` does not satisfy this syntactic import
-    boundary.
-    """
     if not isinstance(annotation, ast.Subscript):
         return False
     constructor = annotation.value
@@ -1138,11 +896,6 @@ def _is_type_is_annotation(
 
 
 def _is_string_expression(statement: ast.stmt) -> bool:
-    """Recognize a standalone string that may document a preceding type alias.
-
-    HLP003 skips any consecutive matches while finding the declaration directly
-    before a local `TypeIs` predicate.
-    """
     return (
         isinstance(statement, ast.Expr)
         and isinstance(statement.value, ast.Constant)

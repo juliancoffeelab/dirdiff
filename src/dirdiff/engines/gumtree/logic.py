@@ -1,18 +1,3 @@
-"""Align source lines and retain GumTree's exact edit and move ranges.
-
-`GumTreeJson` and `is_gumtree_json` expose validated subprocess facts.
-`build_gumtree_rows_from_json` consumes raw GumTree JSON for its exact
-source pair. `GumTreeDiffEngine` supplies that JSON through the subprocess
-adapter and builds unified-diff rows locally for absent sides or unsupported
-languages.
-
-Unchanged lines anchor alignment; changed gaps pair in source order. GumTree
-alone classifies inline edits and move endpoints. The private driver contains
-executable discovery, temporary inputs, and raw JSON validation. This module
-retains no workspace files, syntax decoration, folds, HTTP state, or persistent
-data.
-"""
-
 from __future__ import annotations
 
 import re
@@ -59,43 +44,22 @@ __all__ = [
 
 @dataclass(frozen=True)
 class _Line:
-    """Exact displayed line and its absolute character start, excluding CR/LF.
-
-    Source order supplies its one-based line number. Empty lines are real
-    lines; terminators advance the next start without becoming visible tokens.
-    """
-
     start: int
-    """Inclusive Python character offset in the complete source document."""
 
     text: str
-    """Exact displayed source slice; line terminators are excluded."""
 
 
 @dataclass(frozen=True)
 class _Decoration:
-    """Nonempty action interval with deterministic precedence and move facts.
-
-    Offsets address the complete supplied Python string. Narrower actions win
-    token status; edits beat equally wide moves, then input order breaks ties.
-    A move's endpoints remain
-    available independently of an edited descendant's winning status.
-    """
-
     start: int
-    """Inclusive source character offset, validated against the supplied text."""
 
     end: int
-    """Exclusive source character offset, strictly greater than start."""
 
     status: InlineTokenStatus
-    """GumTree action classification, independent of the row relationship."""
 
     ordinal: int
-    """Input action order, breaking ties after span width and edit priority."""
 
     move: PairedMove | None
-    """Both endpoints for a move action; other actions have no move of their own."""
 
 
 def build_gumtree_rows_from_json(
@@ -106,27 +70,8 @@ def build_gumtree_rows_from_json(
     left_path_hint: str,
     right_path_hint: str,
 ) -> list[DiffEngineRow]:
-    """Return lossless, ordered rows from exact GumTree source facts.
-
-    Filename hints select the generator coordinate convention. External UTF-16
-    and tree-sitter offsets are converted to exact Python character positions.
-    Every action range must be in bounds, and moves and updates require a
-    one-to-one destination mapping. Invalid facts assert at this boundary;
-    ambiguous external Unicode coordinates raise `DirdiffError`.
-    Unchanged complete lines anchor alignment, excluding moved or edited lines.
-    Changed gaps pair by position without inventing textual token changes.
-
-    # Parameters
-
-    - `diff_json`: Validated raw GumTree matches and actions for this source pair.
-    - `left_text`: Complete, unnormalized old source supplied to GumTree.
-    - `right_text`: Complete, unnormalized new source supplied to GumTree.
-    - `left_path_hint`: Old filename selecting the generator offset convention.
-    - `right_path_hint`: New filename under the same parser-selection contract.
-    """
 
     def lines(text: str) -> list[_Line]:
-        """Split one complete source while retaining exact character starts."""
         result: list[_Line] = []
         cursor = 0
         for line in text.splitlines(keepends=True):
@@ -141,24 +86,6 @@ def build_gumtree_rows_from_json(
     def source_offsets(
         text: str, path_hint: str
     ) -> dict[int, list[int]] | None:
-        """Invert the selected generator's source coordinates without guessing.
-
-        Tree-sitter-ng sums prior UTF-16 line lengths plus normalized LF, then
-        adds a UTF-8 byte column. Its coordinates can collide across lines.
-        YAML addresses Unicode characters; other bundled generators address
-        Java UTF-16 strings. Each map retains
-        every candidate so a collision cannot silently pick the wrong line.
-
-        # Parameters
-
-        - `text`: Complete original source, including its exact line terminators.
-        - `path_hint`: Parser-selecting filename passed to the subprocess adapter.
-
-        # Returns
-
-        - A map from each valid external character boundary to all source positions.
-        - `None`: External offsets already equal Python character offsets.
-        """
         suffix = Path(path_hint).suffix
         if suffix in {".yaml", ".yml"}:
             return None
@@ -219,19 +146,6 @@ def build_gumtree_rows_from_json(
     def source_range(
         tree: str, text: str, offsets: dict[int, list[int]] | None
     ) -> tuple[int, int]:
-        """Read a terminal character interval and reject impossible source facts.
-
-        # Parameters
-
-        - `tree`: GumTree tree spelling with its terminal half-open range.
-        - `text`: Exact source addressed by this tree.
-        - `offsets`: Boundary map for that source, or None for identical units.
-
-        # Returns
-
-        - `First`: Inclusive Python character offset.
-        - `Second`: Exclusive Python character offset in the same source.
-        """
         match = re.search(r"\[(\d+),(\d+)\]\s*$", tree)
         assert match is not None, f"GumTree tree has no range: {tree!r}"
         raw_start, raw_end = map(int, match.groups())
@@ -253,14 +167,6 @@ def build_gumtree_rows_from_json(
         return start, end
 
     def move_span(start: int, end: int, starts: list[int]) -> MoveSpan:
-        """Express one nonempty move in bay-local Unicode line coordinates.
-
-        # Parameters
-
-        - `start`: Validated inclusive character offset of the move.
-        - `end`: Validated exclusive character offset of the move.
-        - `starts`: Ordered character starts for the same source's display lines.
-        """
         start_index = bisect_right(starts, start) - 1
         end_index = bisect_right(starts, end) - 1
         assert start_index >= 0 and end_index >= start_index
@@ -409,18 +315,6 @@ def build_gumtree_rows_from_json(
 def _tokens_for_lines(
     lines: list[_Line], ranges: list[_Decoration]
 ) -> list[list[InlineToken]]:
-    """Partition one source side at action boundaries without rescanning actions.
-
-    Two local heaps track the narrowest active action and containing move.
-    They live only for this source walk. Sorted endpoints and lazy expiry cost
-    O((lines + actions) log(lines + actions) + tokens log(actions + 1)).
-    Adjacent slices merge only when both status and move identity agree.
-
-    # Parameters
-
-    - `lines`: Complete source-ordered display lines with absolute starts.
-    - `ranges`: Validated action intervals in that same source's coordinates.
-    """
     ranges = sorted(ranges, key=lambda item: item.start)
     boundaries = sorted(
         {point for item in ranges for point in (item.start, item.end)}
@@ -489,20 +383,7 @@ def _tokens_for_lines(
 @final
 @dataclass
 class GumTreeDiffEngine(DiffEngineProtocol):
-    """Structural renderer backed by GumTree JSON ranges.
-
-    The engine compares already-loaded source texts. Path hints select the
-    parser and its offset convention; they never authorize a source read.
-    Missing sides produce complete insertion or deletion rows. Unsupported
-    languages and ambiguous source offsets use a local unified diff with a
-    visible engine warning.
-
-    The engine retains only its matcher selection. It locates the GumTree executable itself when a
-    render needs one, so callers do not supply an executable path.
-    """
-
     matcher: GumTreeMatcher
-    """Exact upstream matcher used for syntax-node correspondence."""
 
     @override
     def render_diff(
@@ -511,27 +392,6 @@ class GumTreeDiffEngine(DiffEngineProtocol):
         old: DiffSide,
         new: DiffSide,
     ) -> DiffEngineResult:
-        """Render a dirdiff engine result from loaded source sides.
-
-        When both sides exist, GumTree JSON ranges drive the row decorations.
-        When one side is absent, every displayed line on the present side is a
-        whole-line insertion or deletion.
-
-        # Parameters
-
-        - `old`: Already-loaded old source and its optional parser hint.
-        - `new`: Already-loaded new source under the same contract.
-
-        # Usage
-
-        Obtain this renderer through `dirdiff.engines.engine` and normally let
-        `dirdiff.formats.Composer` call it for a text bay.
-
-        # Failures
-
-        Propagates `DirdiffError` for executable and parser failures and
-        `AssertionError` for GumTree facts that contradict the supplied source.
-        """
 
         def _unified_diff_rows(
             *,
@@ -540,21 +400,6 @@ class GumTreeDiffEngine(DiffEngineProtocol):
             left_label: str,
             right_label: str,
         ) -> list[DiffEngineRow]:
-            """Return textual rows when GumTree cannot produce structural rows.
-
-            The caller supplies both complete text sides and their display labels.
-            This operation parses Python's unified-diff output directly into the
-            complete neutral engine rows consumed directly by rendering. Identical
-            inputs produce no patch hunks, so they are emitted explicitly as equal
-            rows rather than mistaken for empty documents.
-
-            # Parameters
-
-            - `left_text`: Complete old text passed to `unified_diff`.
-            - `right_text`: Complete new text passed to `unified_diff`.
-            - `left_label`: Old-side header label for the temporary patch.
-            - `right_label`: New-side header label for the temporary patch.
-            """
             left_lines = left_text.splitlines()
             right_lines = right_text.splitlines()
             if left_lines == right_lines:
@@ -708,18 +553,6 @@ class GumTreeDiffEngine(DiffEngineProtocol):
         left_path_hint: str,
         right_path_hint: str,
     ) -> GumTreeJson:
-        """Run GumTree for tests and the public renderer entrypoint.
-
-        The method exists so behavior tests can inspect the same raw JSON that
-        powers rendering without duplicating executable discovery.
-
-        # Parameters
-
-        - `left_text`: Complete old source for GumTree.
-        - `right_text`: Complete new source for GumTree.
-        - `left_path_hint`: Old source name used for parser selection.
-        - `right_path_hint`: New source name used for parser selection.
-        """
 
         return run_gumtree_json(
             matcher=self.matcher,
@@ -732,11 +565,6 @@ class GumTreeDiffEngine(DiffEngineProtocol):
 
 
 def _summary(rows: list[DiffEngineRow]) -> DiffSummary:
-    """Count semantic row classifications once per aligned position.
-
-    Structural context remains unchanged even when its text wraps differently;
-    textual fallback rows already carry their unified-diff classifications.
-    """
     summary: DiffSummary = {
         "changed_lines": 0,
         "modified_lines": 0,
@@ -792,10 +620,4 @@ def _summary(rows: list[DiffEngineRow]) -> DiffSummary:
     return summary
 
 
-class GumTreeAmbiguousOffsetsError(DirdiffError):
-    """A consumed GumTree range maps to multiple Unicode source positions.
-
-    Raw row construction rejects these coordinates. The engine catches this
-    specific failure and returns unified-diff rows with an explanatory warning.
-    Other invalid source facts are not represented by this exception.
-    """
+class GumTreeAmbiguousOffsetsError(DirdiffError): ...

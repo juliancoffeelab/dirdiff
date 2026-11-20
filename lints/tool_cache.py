@@ -1,12 +1,3 @@
-"""Check explicit third-party JSON cache usage in engine tests.
-
-Flake8 loads `ToolCachePlugin`. It checks literal key spelling, conflicting
-literal ToolText inputs, direct subprocess adapters outside the shared cache,
-and large handwritten Difftastic facts without a synthetic-input explanation.
-It reads test source without importing it or running engines. Cross-file facts
-are collected once per Flake8 process; dynamic inputs remain runtime checks.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -18,63 +9,24 @@ from typing import ClassVar
 __all__ = ["ToolCachePlugin"]
 
 type LiteralPair = tuple[tuple[str, str], tuple[str, str]]
-"""Exact left/right inline text and filename pairs established from literals."""
 
 type CacheCall = tuple[str, str, LiteralPair, str, int, int]
-"""Engine, key, literal inputs, filename, line and column of one static call."""
 
 
 class ToolCachePlugin:
-    """Report cache contract violations that source syntax proves.
-
-    Each instance retains Flake8's AST and filename. The process-wide inventory
-    contains only literal calls from test source, never tool results. Calls
-    through dynamic wrappers or variable inputs may escape conflict detection;
-    their input hashes must still agree at runtime.
-    """
-
     name = "dirdiff-tool-cache"
     version = "0.1.0"
     _inventory: ClassVar[list[CacheCall] | None] = None
-    """Literal source facts read once per worker, independent of visit order."""
 
     def __init__(self, tree: ast.AST, filename: str) -> None:
-        """Retain the parsed module and its source path for one Flake8 pass.
-
-        # Parameters
-
-        - `tree`: Flake8's parsed Python module, never executed.
-        - `filename`: Source path used for diagnostics and synthetic comments.
-        """
         self.tree = tree
         self.filename = filename
 
     def run(self) -> Iterator[tuple[int, int, str, type[ToolCachePlugin]]]:
-        """Yield TJC diagnostics at statically invalid calls in this module.
-
-        TJC001 rejects key spelling, TJC002 conflicting literal inputs,
-        TJC003 uncached JSON execution, and TJC004 large synthetic JSON without
-        a nearby `# tool-json: synthetic <reason>` explanation. No code runs.
-
-        # Returns
-
-        - `Location`: Source line and zero-based column of each invalid call.
-        - `Diagnostic`: TJC message and plugin type consumed by Flake8.
-        """
         if "tests" not in Path(self.filename).parts:
             return
 
         def calls(tree: ast.AST, filename: str) -> list[CacheCall]:
-            """Collect direct imported tool_json calls with fully literal inputs.
-
-            Unknown expressions contribute no fact. In particular, differing
-            Path spellings do not prove differing input contents.
-
-            # Parameters
-
-            - `tree`: Parsed test source from which literal calls are collected.
-            - `filename`: Diagnostic path attached to each established fact.
-            """
             aliases = {
                 alias.asname or alias.name: alias.name
                 for node in ast.walk(tree)

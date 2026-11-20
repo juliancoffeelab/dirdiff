@@ -1,19 +1,3 @@
-"""Expose the HTTP boundary used by separately running agents.
-
-ExternalAgentRoutes keeps the agent wire models, the plain-text failure
-contract, and every /api/agent/* handler together. It translates between agent
-entities (Tab descriptors, repository paths, roles) and the Room review
-operations that the browser also uses.
-
-Instances retain only constructor-injected application interfaces and immutable
-resource configuration. This module does not implement an integrated agent, own
-review state, render the HUD, or construct the FastAPI application.
-
-The boundary mirrors the browser and gates nothing: any Profile may act on any
-Thread, a role is stated per action instead of stored, and every read is
-addressed by the ids the previous response returned.
-"""
-
 import asyncio
 import logging
 import time
@@ -114,7 +98,6 @@ from dirdiff.util import JsonValue, Some
 __all__ = ["ExternalAgentRoutes"]
 
 LOGGER = logging.getLogger(__name__)
-"""Record unexpected failures at this HTTP boundary."""
 
 _AGENT_ROUTE_PATHS = frozenset(
     {
@@ -129,286 +112,86 @@ _AGENT_ROUTE_PATHS = frozenset(
         "/api/agent/actions",
     }
 )
-"""Exact endpoint templates whose failures use the agent plain-text contract.
-
-The validation and HTTP exception handlers compare Starlette's matched route
-template, not the concrete URL, so parameterized Thread paths remain covered.
-"""
 
 _PAGE_LIMIT_MAX = 100
-"""Largest page or batch size any agent listing endpoint accepts."""
 
 _WAIT_TIMEOUT_MAX = 540
-"""Longest `wait` hold in seconds (nine minutes), below common 10 minute proxy
-and tool timeouts so a held call is never cut off by its caller."""
 
 _WAIT_POLL_SECONDS = 0.25
-"""Interval at which a held `wait` re-reads the repository's newest activity id.
-
-Each poll is one small indexed read; no worker thread is held between polls."""
 
 _TITLE_MAX = 120
-"""Longest Thread title in characters, including the truncation ellipsis."""
 
 
 class AgentBranch(ApiModel):
-    """Name one symbolic branch in an agent Branch Review Tab.
-
-    `remote=None` selects a local branch; a remote name keeps the two parts
-    structured for repository resolution.
-
-    The value is not an arbitrary Git ref or resolved commit.
-    """
-
     remote: str | None
-    """Remote namespace containing `name`, when one is selected.
-
-    `None` makes the branch local. A present value is passed separately to the
-    repository and must not be joined with the branch into an arbitrary ref string.
-    """
 
     name: str = Field(min_length=1)
-    """Symbolic branch name within the selected local or remote namespace.
-
-    It must be non-empty. Resolution happens during capture; this value does
-    not promise an immutable commit or accept an absent branch.
-    """
 
 
 class AgentHeadTab(ApiModel):
-    """Ask the agent API to capture the worktree against a named baseline.
-
-    Capture validates `repo_path` against the registry and applies the HEAD
-    Tab correspondence law: the Room is the one keyed on `baseline`, so the
-    same descriptor keeps reaching the same Room after HEAD advances.
-
-    The model carries no Snapshot identity.
-    """
-
     kind: Literal["head"]
-    """Select HEAD-versus-worktree capture for agent review.
-
-    Only the literal `head` is valid. `repo_path` and `baseline` are the
-    complete Tab input.
-    """
 
     repo_path: str = Field(min_length=1)
-    """Exact workspace path of an already active repository mark.
-
-    Capture looks it up without creating a mark. The non-empty string must
-    match the stored path; a merely readable unregistered directory is invalid.
-    """
 
     baseline: str = Field(min_length=1)
-    """Full baseline commit id the Head Room is keyed on.
-
-    `onboard` fills the repository's current HEAD commit (or the empty-tree id
-    for an unborn HEAD); `reviews` and `capture` return the Room's original
-    baseline. Capture compares the live worktree against exactly this commit,
-    so it must name a commit of the repository or its empty tree.
-    """
 
 
 class AgentRefsTab(ApiModel):
-    """Ask the agent API to capture two explicit repository sides.
-
-    Capture validates the marked repository and normalizes `left` and
-    `right` through its repository before capture.
-
-    The values are side names, not display labels or guaranteed commits.
-    """
-
     kind: Literal["refs"]
-    """Select capture of the two explicitly named repository sides.
-
-    Only the literal `refs` is valid. It requires both `left` and `right` and
-    does not apply Branch Review merge-base semantics.
-    """
 
     repo_path: str = Field(min_length=1)
-    """Exact workspace path of an already active repository mark.
-
-    Capture looks it up without creating a mark. The path selects the
-    repository that normalizes both side names.
-    """
 
     left: str = Field(min_length=1)
-    """Non-empty repository side name for the left capture input.
-
-    The selected repository normalizes and loads it. The caller must not
-    assume the value is already an immutable commit.
-    """
 
     right: str = Field(min_length=1)
-    """Non-empty repository side name for the right capture input.
-
-    It is interpreted by the same repository as `left`; the ordered pair defines
-    the ordered Tab sides and must not be reversed during continuation.
-    """
 
 
 class AgentBranchReviewTab(ApiModel):
-    """Ask the agent API to capture one Branch Review Tab.
-
-    Capture resolves the structured base and review branches to immutable
-    commits, then applies Branch Review correspondence.
-
-    This request keeps symbolic selections only; it does not let callers supply
-    arbitrary merge-base commits.
-    """
-
     kind: Literal["branch-review"]
-    """Select Branch Review resolution and capture.
-
-    Only the literal `branch-review` is valid. It requires structured `base`
-    and `review` selections. Source setup prepares capture sides using their
-    merge base.
-    """
 
     repo_path: str = Field(min_length=1)
-    """Exact workspace path of an already active repository mark.
-
-    The mark selects the repository that resolves both symbolic branch selections.
-    Capture does not register an unmarked path.
-    """
 
     base: AgentBranch
-    """Symbolic base branch used to establish the review baseline.
-
-    Capture resolves it together with `review`; callers provide no merge-base
-    commit and must keep the symbolic selection.
-    """
 
     review: AgentBranch
-    """Symbolic branch containing the changes under review.
-
-    Capture resolves it with `base` and retains the structured selection as
-    part of the Tab context. It is not a presentation label.
-    """
 
 
 class AgentPullRequestTab(ApiModel):
-    """Ask the agent API to prepare and capture one Pull Request.
-
-    Capture matches the URL to a marked repository, fetches the supported
-    forge refs, and captures the prepared immutable commits.
-
-    The model does not accept a repository path or caller-supplied commits.
-    """
-
     kind: Literal["pull-request"]
-    """Select forge Pull Request preparation before capture.
-
-    Only the literal `pull-request` is valid. The URL supplies repository and
-    refs, so this variant accepts no workspace path or caller-selected commits.
-    """
 
     url: str = Field(min_length=1)
-    """Pull Request or Merge Request URL to prepare for review.
-
-    Preparation canonicalizes it, matches its base repository to an active
-    mark, fetches the required refs, and returns immutable capture commits.
-    """
 
 
 AgentReviewTab = Annotated[
     AgentHeadTab | AgentRefsTab | AgentBranchReviewTab | AgentPullRequestTab,
     Field(discriminator="kind"),
 ]
-"""Describe one complete Tab the agent API can capture.
-
-- `AgentHeadTab` compares a named baseline commit and the worktree.
-- `AgentRefsTab` compares explicit sides.
-- `AgentBranchReviewTab` resolves symbolic branches.
-- `AgentPullRequestTab` prepares a supported forge URL.
-
-Capture and `reviews` use this descriptor. Preset Tabs are not part of
-the current agent boundary.
-"""
 
 
 class AgentOnboardResponse(ApiModel):
-    """Return everything needed to enter one supported agent workflow.
-
-    The copied onboarding URL selects the running dirdiff server and one
-    complete HUD Tab. This response translates that selection to the Tab
-    descriptor `capture` accepts and publishes the installed instruction files
-    for the three agent roles. It creates no Profile, Room, Snapshot, or review
-    activity.
-    """
-
     dirdiff_url: str = Field(min_length=1)
-    """Absolute origin of the dirdiff server that returned this response.
-
-    Agent command references use this value as `DD_URL`. It contains no endpoint
-    path, Tab parameters, credentials, or browser-only state.
-    """
 
     project_id: int | None = Field(default=None, ge=1)
-    """Repository Mark id of the selected Tab, as `reviews`, `activity`, and
-    `wait` take it; `None` for a Pull Request Tab, whose repository is only
-    known after `capture` (which returns it)."""
 
     tab: AgentReviewTab
-    """Complete Tab descriptor reconstructed from the copied HUD selection.
-
-    Repository-backed variants contain the marked repository's exact path rather
-    than its browser-only numeric id. The value can be sent unchanged as the
-    `tab` of a `capture` body.
-    """
 
     skill_paths: list[str] = Field(min_length=3, max_length=3)
-    """Absolute paths to the review, round, and babysit skill entry files.
-
-    The order is `review-patch`, `round-review`, then `babysit-patch`. Every path
-    names a validated regular `SKILL.md` in this running installation.
-    """
 
     next_step: str = Field(min_length=1)
-    """Plain-text instructions for an agent that has read only this response.
-
-    Gives the `dirdiff agent init` command with this request's full URL filled
-    in as `--onboard-url` and placeholders for what the agent must supply, says
-    which `skill_paths` entry fits which role, and names the `dirdiff agent` CLI
-    as the supported way to use the API. It carries no state beyond that text.
-    """
 
 
 class AgentProfileRequest(ApiModel):
-    """Register or update the Profile bound to one agent UUID.
-
-    The call is idempotent on `agent_uuid`: the first call creates an ordinary
-    Profile, later calls with the same UUID return the same Profile and replace
-    its name, model, and harness. The request grants no role.
-    """
-
     agent_uuid: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Agent-chosen stable identity, kept across restarts of the agent.
-
-    A canonical hyphenated UUID is accepted and stored in its compact lowercase
-    form.
-    """
 
     name: str = Field(min_length=1)
-    """Unique, nonblank display name without surrounding whitespace.
-
-    A name already used by a different Profile is an error.
-    """
 
     model: str = Field(min_length=1)
-    """Model the agent reports, shown next to its Comments."""
 
     harness: str = Field(min_length=1)
-    """Program driving the agent, shown next to its Comments."""
 
     @field_validator("agent_uuid", mode="before")
     @classmethod
     def normalize_agent_uuid(cls, value: JsonValue) -> JsonValue:
-        """Normalize a canonical hyphenated UUID to the stored compact form.
-
-        Pydantic then applies the compact lowercase pattern, so malformed
-        values remain ordinary validation failures.
-        """
         if isinstance(value, str) and len(value) == 36:
             try:
                 return UUID(value).hex
@@ -419,16 +202,6 @@ class AgentProfileRequest(ApiModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, value: str) -> str:
-        """Accept an exact nonblank name or reject the request.
-
-        The value is returned unchanged; trimming would make the stored name
-        differ from the one the agent sent.
-
-        # Failures
-
-        - Raises `ValueError` when the name is blank or has surrounding
-          whitespace.
-        """
         if value != value.strip() or value.strip() == "":
             raise ValueError("Invalid agent name.")
         return value
@@ -436,249 +209,112 @@ class AgentProfileRequest(ApiModel):
     @field_validator("model", "harness")
     @classmethod
     def validate_label(cls, value: str) -> str:
-        """Reject a blank model or harness.
-
-        # Failures
-
-        - Raises `ValueError` when the value is only whitespace.
-        """
         if value.strip() == "":
             raise ValueError("Value must not be blank.")
         return value
 
 
 class AgentProfileResponse(ApiModel):
-    """Return the Profile bound to an agent UUID after registration."""
-
     profile_id: int = Field(gt=0)
-    """Durable Profile id sent as `profile_id` with every action batch."""
 
     name: str
-    """Current display name."""
 
     model: str
-    """Current model."""
 
     harness: str
-    """Current harness."""
 
 
 class AgentCaptureRequest(ApiModel):
-    """Capture one Tab and return its Snapshot, exactly as the browser would.
-
-    The body is the Tab descriptor that `onboard` and `reviews` return. The
-    Tab is resolved by the same code that backs the browser manifest, so the
-    same descriptor addresses the same Room.
-    """
-
     tab: AgentReviewTab
-    """Complete Tab descriptor to capture."""
 
 
 class AgentManifestFile(ApiModel):
-    """Describe one captured File pair of a Snapshot.
-
-    Both repository paths are relative to the repository root. The absolute
-    paths locate the captured bytes on disk, read-only.
-    """
-
     left_path: str | None
-    """Repository path of the left side, `None` when the left side is absent."""
 
     right_path: str | None
-    """Repository path of the right side, `None` when the right side is absent."""
 
     change_type: Literal["modify", "add", "delete", "rename", "copy"]
-    """Kind of change between the sides."""
 
     capture_error: str | None
-    """Why a side could not be captured, or `None` for a clean capture.
-
-    A File with an error stays in the manifest; its captured bytes are
-    dirdiff's placeholder, not source.
-    """
 
     left_file: str | None
-    """Absolute path of the captured left side, `None` when it is absent."""
 
     right_file: str | None
-    """Absolute path of the captured right side, `None` when it is absent."""
 
 
 class AgentCaptureResponse(ApiModel):
-    """Return the captured Snapshot of one Tab and its File manifest."""
-
     project_id: int = Field(gt=0)
-    """Repository Mark id; the value `reviews`, `activity`, and `wait` take."""
 
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Snapshot key to send with Thread reads and `create-thread` actions."""
 
     tab: AgentReviewTab
-    """Descriptor of the Room the capture landed in, as `reviews` lists it.
-
-    A Head descriptor carries the Room's original baseline commit. Keep this
-    value and send it unchanged to capture again in the same Room.
-    """
 
     snapshot_path: str = Field(min_length=1)
-    """Absolute directory holding the captured files, read-only evidence."""
 
     latest_activity_id: int = Field(ge=0)
-    """Greatest authored activity id of the whole repository right now.
-
-    Pass it as `after` to `activity` or `wait` to hear only about later
-    actions. 0 means no authored action exists yet.
-    """
 
     files: list[AgentManifestFile]
-    """Every captured File pair in Snapshot order."""
 
 
 class AgentAuthor(ApiModel):
-    """Identify who wrote or did something, human or agent."""
-
     profile_id: int = Field(gt=0)
-    """Durable Profile id."""
 
     name: str
-    """Current display name of the Profile."""
 
     is_agent: bool
-    """Whether the Profile was registered through `POST /api/agent/profile`."""
 
     model: str | None
-    """Reported model; `None` for humans and for agents registered before it
-    was recorded."""
 
     harness: str | None
-    """Reported harness; `None` for humans and for agents registered before it
-    was recorded."""
 
 
 class AgentComment(ApiModel):
-    """Expose one Comment of a Thread, deleted ones as tombstones."""
-
     comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Stable Comment id."""
 
     author: AgentAuthor
-    """Profile that wrote the Comment."""
 
     body: str | None
-    """Current text, `None` once the Comment is deleted."""
 
     deleted: bool
-    """Whether the Comment is a tombstone; it keeps its position."""
 
     revision: int = Field(ge=0)
-    """Edit count; grows with every edit or deletion."""
 
     created_at: datetime
-    """Creation time in UTC."""
 
     updated_at: datetime
-    """Time of the latest edit or deletion in UTC; equals `created_at` before
-    any change."""
 
 
 class AgentCommentPreview(ApiModel):
-    """Bound one Comment body for summary lists."""
-
     body: str | None
-    """Text cut to 256 characters (ending in an ellipsis when cut), or `None`
-    for a deleted Comment."""
 
     deleted: bool
-    """Whether the Comment is a tombstone."""
 
     truncated: bool
-    """Whether `body` was cut; read the Thread for the full text."""
 
 
 class AgentBayRange(ApiModel):
-    """Address one bay of a File and an inclusive line range inside it.
-
-    `bay_key` is the public composed bay key, and the line numbers are
-    local to that bay rather than to the captured File. An ordinary text
-    File composes the single `flatfile` bay spanning the whole File, so
-    there the two coincide; a composed File such as a notebook has one bay
-    per cell, where they do not. A reader that drops the key, or a writer that
-    counts lines in the wrong text, addresses the wrong code.
-
-    Agents derive both values from the captured bytes they already read: an
-    ordinary File is `flatfile` and its own lines, and a notebook cell is keyed
-    by the `id` in the `.ipynb` with the lines of that cell's joined `source`.
-    This is the one placement coordinate the agent boundary speaks, in both
-    directions.
-    """
-
     bay_key: str = Field(min_length=1)
-    """Public composed-bay key containing the selected lines.
-
-    The key is meaningful with the action's captured File. The agent must obtain
-    it from the format contract and must not substitute a frame or File name.
-    """
 
     start_line: int = Field(ge=1)
-    """First selected source line within `bay_key`.
-
-    It is one-based and inclusive. The value must not exceed `end_line`, and it
-    is never a rendered File-wide row number.
-    """
 
     end_line: int = Field(ge=1)
-    """Last selected source line within `bay_key`.
-
-    It is one-based and inclusive. Equal endpoints select a single line; Room
-    rejects a value outside the composed bay rather than clamping it.
-    """
 
     @model_validator(mode="after")
     def validate_order(self) -> Self:
-        """Enforce the inclusive line ordering of an agent bay range.
-
-        `LineRange` checks the relationship after Pydantic has bounded both
-        endpoints. Bay existence and content bounds remain Room's responsibility.
-
-        # Usage
-
-        Pydantic invokes this callback after validating both line fields. Callers
-        construct `AgentBayRange`; they do not call the validator directly.
-
-        # Failures
-
-        - Raises `ValueError` when `end_line` precedes `start_line`.
-        """
         LineRange(self.start_line, self.end_line)
         return self
 
 
 class AgentLocation(ApiModel):
-    """Name the repository code a Thread is about.
-
-    The path is a repository-relative path, not a captured path on disk. A
-    review-scoped Thread has no location at all, so wherever a location is
-    optional, `None` means the whole review.
-    """
-
     path: str
-    """Repository-relative path of the File side the Thread is on."""
 
     side: Literal["left", "right"]
-    """Side of the diff the lines belong to."""
 
     bay_key: str | None
-    """Composed bay holding the lines; `None` for a historical File-level
-    Thread, which names no bay."""
 
     start_line: int | None = Field(default=None, ge=1)
-    """First line, one-based and inclusive within the bay, or `None` when no
-    range is known."""
 
     end_line: int | None = Field(default=None, ge=1)
-    """Last line, one-based and inclusive within the bay, or `None` when no
-    range is known."""
 
 
 AgentOutdatedReason = Literal[
@@ -688,174 +324,96 @@ AgentOutdatedReason = Literal[
     "file_missing",
     "file_unreadable",
 ]
-"""Why a Thread's original lines cannot be shown in the read Snapshot.
-
-`region_changed` still lands on moved lines; the others do not land on the
-original lines. Absent means the original lines are intact."""
 
 AgentStatus = Literal["open", "resolved", "deleted"]
-"""Lifecycle state of a Thread."""
 
 AgentWaiting = Literal["author", "reviewer", "both", "none"]
-"""Role a Thread currently waits on.
-
-`both` appears only for Threads whose latest state came from a browser action;
-count it toward each role. `none` means resolved or deleted."""
 
 
 class AgentThreadSummary(ApiModel):
-    """Summarize one Thread for a listing."""
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Stable Thread id."""
 
     status: AgentStatus
-    """Lifecycle state."""
 
     waiting_on: AgentWaiting
-    """Role the Thread waits on."""
 
     title: str | None
-    """First line of the first Comment, cut to 120 characters; `None` when that
-    Comment was deleted."""
 
     location: AgentLocation | None
-    """Where the Thread sits in the listed Snapshot; `None` for a
-    review-scoped Thread."""
 
     outdated_reason: AgentOutdatedReason | None
-    """Why the original lines are not intact in the listed Snapshot."""
 
     comment_count: int = Field(ge=1)
-    """Number of Comments including tombstones."""
 
     first_comment: AgentCommentPreview
-    """Bounded first Comment."""
 
     latest_comment: AgentCommentPreview
-    """Bounded latest Comment."""
 
     latest_activity_id: int = Field(ge=1)
-    """Activity id of the Thread's newest authored action."""
 
 
 class AgentPage[AgentPageItem](ApiModel):
-    """Wrap one bounded page of a listing."""
-
     items: list[AgentPageItem]
-    """Values of this page in the endpoint's stable order."""
 
     page: int = Field(ge=1)
-    """One-based page number."""
 
     limit: int = Field(ge=1)
-    """Requested page capacity, at most 100."""
 
     total: int = Field(ge=0)
-    """Count of all matching values across pages."""
 
     has_more: bool
-    """Whether a following page exists."""
 
 
 class AgentThreadPage(AgentPage[AgentThreadSummary]):
-    """One page of the Room's Thread listing, fixed by an activity pivot.
-
-    The first page chooses `through_activity_id`; every later page must send it
-    back so membership, order, and total cannot shift while the caller pages.
-    """
-
     through_activity_id: int = Field(ge=0)
-    """Inclusive append-only activity pivot this page was read at.
-
-    Page one sets it to the Room's greatest current activity; repeat it
-    unchanged as the request parameter on every later page.
-    """
 
 
 class AgentThread(ApiModel):
-    """Expose one Thread with a page of its Comments."""
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Stable Thread id."""
 
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Snapshot the Thread was created in; `location` and
-    `original_excerpt` describe that Snapshot."""
 
     status: AgentStatus
-    """Lifecycle state."""
 
     waiting_on: AgentWaiting
-    """Role the Thread waits on."""
 
     location: AgentLocation | None
-    """Where the Thread was created; `None` for a review-scoped Thread."""
 
     original_excerpt: ReviewExcerptResponse | None
-    """Source lines around the original selection; `None` when the Thread has
-    no text range (review-scoped or historical File-level)."""
 
     comments: list[AgentComment]
-    """This page of Comments in creation order, tombstones included."""
 
     page: int = Field(ge=1)
-    """One-based Comment page number."""
 
     limit: int = Field(ge=1)
-    """Requested Comment page capacity, at most 100."""
 
     total_comments: int = Field(ge=1)
-    """Count of all Comments including tombstones."""
 
     has_more: bool
-    """Whether a following Comment page exists."""
 
 
 class AgentReview(ApiModel):
-    """Summarize the Thread load of one Room of a repository."""
-
     tab: AgentReviewTab
-    """Tab descriptor accepted unchanged by `capture`.
-
-    A Head Room's descriptor carries its original baseline commit, so each Head
-    review is distinguishable and capturing it again selects that same Room
-    even after HEAD advanced."""
 
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Newest Snapshot of the Room."""
 
     open_threads: int = Field(ge=0)
-    """Open Thread count."""
 
     waiting_on_author: int = Field(ge=0)
-    """Open Threads waiting on the author (including `both`)."""
 
     waiting_on_reviewer: int = Field(ge=0)
-    """Open Threads waiting on the reviewer (including `both`)."""
 
 
 class AgentReviewsResponse(ApiModel):
-    """List the Rooms of one repository that have a Snapshot.
-
-    Preset Rooms belong to no repository and never appear.
-    """
-
     reviews: list[AgentReview]
-    """Rooms in creation order."""
 
 
 class AgentEventComment(ApiModel):
-    """Carry the Comment an action created, edited, or deleted."""
-
     comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Comment id."""
 
     author: AgentAuthor
-    """Profile that performed the action on the Comment."""
 
     body: str | None
-    """Text the action wrote; `None` for a deletion."""
 
 
 AgentActionKind = Literal[
@@ -867,97 +425,57 @@ AgentActionKind = Literal[
     "delete-comment",
     "delete-thread",
 ]
-"""Kind of an authored action, named as in the `actions` request."""
 
 
 class AgentActivityEvent(ApiModel):
-    """Describe one authored action completely, without further reads."""
-
     activity_id: int = Field(ge=1)
-    """Increasing id of the action across the whole database."""
 
     created_at: datetime
-    """Time of the action in UTC."""
 
     tab: AgentReviewTab
-    """Tab descriptor of the review the Thread belongs to."""
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Thread the action touched."""
 
     title: str | None
-    """First line of the Thread's first Comment as originally written, cut to
-    120 characters."""
 
     location: AgentLocation | None
-    """Where the Thread was created; `None` for a review-scoped Thread."""
 
     action: AgentActionKind
-    """What the action did."""
 
     author: AgentAuthor
-    """Profile that performed the action."""
 
     comment: AgentEventComment | None
-    """Comment written, edited, or deleted by the action, if any."""
 
     status: AgentStatus
-    """Thread status right after the action."""
 
     waiting_on: AgentWaiting
-    """Role the Thread waited on right after the action."""
 
 
 class AgentActivityResponse(ApiModel):
-    """Return authored actions newer than a cursor, oldest first."""
-
     events: list[AgentActivityEvent]
-    """Actions with `activity_id` greater than `after`, up to `limit`."""
 
     next_after: int = Field(ge=0)
-    """Cursor to send as `after` next: the last event's id, or the request's
-    `after` when `events` is empty."""
 
     has_more: bool
-    """Whether more newer actions exist beyond `events`."""
 
 
 class AgentCreateAction(ApiModel):
-    """Open a Thread on code or on the review as a whole.
-
-    The target fields are validated as a group: sent together they anchor a
-    code Thread, all omitted they make a Thread on the whole review.
-    """
-
     kind: Literal["create-thread"]
-    """Action discriminator."""
 
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Snapshot whose captured code the range refers to."""
 
     role: ReviewRole
-    """Role the actor plays; afterwards the Thread waits on the other role."""
 
     body: str
-    """First Comment text."""
 
     path: str | None = Field(default=None, min_length=1)
-    """Repository-relative path of the File side to comment on."""
 
     side: Literal["left", "right"] | None = None
-    """Side of the diff that `path` names."""
 
     bay: AgentBayRange | None = None
-    """Bay and inclusive one-based line range inside it."""
 
     @model_validator(mode="after")
     def validate_target(self) -> Self:
-        """Require `path`, `side`, and `bay` to be all present or all absent.
-
-        # Failures
-
-        - Raises `ValueError` for a partial target.
-        """
         present = [
             value is not None for value in (self.path, self.side, self.bay)
         ]
@@ -967,87 +485,55 @@ class AgentCreateAction(ApiModel):
 
 
 class AgentCommentAction(ApiModel):
-    """Add a Comment to a Thread in any state except deleted."""
-
     kind: Literal["comment"]
-    """Action discriminator."""
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Thread receiving the Comment."""
 
     role: ReviewRole
-    """Role the actor plays; afterwards the Thread waits on the other role."""
 
     body: str
-    """Comment text."""
 
 
 class AgentResolveAction(ApiModel):
-    """Resolve an open Thread, optionally with a closing Comment."""
-
     kind: Literal["resolve"]
-    """Action discriminator."""
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Thread to resolve; afterwards it waits on nobody."""
 
     body: str | None = None
-    """Optional closing Comment."""
 
 
 class AgentReopenAction(ApiModel):
-    """Reopen a resolved Thread, optionally with a Comment."""
-
     kind: Literal["reopen"]
-    """Action discriminator."""
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Thread to reopen."""
 
     role: ReviewRole
-    """Role the actor plays; afterwards the Thread waits on the other role."""
 
     body: str | None = None
-    """Optional Comment."""
 
 
 class AgentEditCommentAction(ApiModel):
-    """Replace the text of the actor's own Comment."""
-
     kind: Literal["edit-comment"]
-    """Action discriminator."""
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Thread containing the Comment."""
 
     comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Comment to edit; only its author may."""
 
     body: str
-    """Replacement text."""
 
 
 class AgentDeleteCommentAction(ApiModel):
-    """Tombstone a Comment; any Profile may."""
-
     kind: Literal["delete-comment"]
-    """Action discriminator."""
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Thread containing the Comment."""
 
     comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Comment to delete."""
 
 
 class AgentDeleteThreadAction(ApiModel):
-    """Delete a Thread permanently; its history stays readable."""
-
     kind: Literal["delete-thread"]
-    """Action discriminator."""
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Thread to delete; every later action on it is rejected."""
 
 
 AgentAction = Annotated[
@@ -1060,64 +546,34 @@ AgentAction = Annotated[
     | AgentDeleteThreadAction,
     Field(discriminator="kind"),
 ]
-"""One item of an `actions` batch; `kind` selects the variant."""
 
 
 class AgentActionsRequest(ApiModel):
-    """Apply an ordered batch of actions as one Profile, atomically.
-
-    Every item is validated against the state earlier items produce, then all
-    are appended in one transaction or none are. All items must belong to one
-    review (one Room).
-    """
-
     profile_id: int = Field(gt=0)
-    """Profile every item is attributed to."""
 
     actions: list[AgentAction] = Field(min_length=1, max_length=_PAGE_LIMIT_MAX)
-    """One to 100 items, applied in order."""
 
 
 class AgentActionResult(ApiModel):
-    """Report the outcome of one applied item."""
-
     kind: AgentActionKind
-    """Kind of the item, echoed."""
 
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-    """Thread the item created or changed."""
 
     comment_id: str | None
-    """Comment the item created or changed, `None` for bare transitions."""
 
     activity_id: int = Field(ge=1)
-    """Activity id assigned to the item."""
 
     status: AgentStatus
-    """Thread status right after the item."""
 
     waiting_on: AgentWaiting
-    """Role the Thread waits on right after the item."""
 
 
 class AgentActionsResponse(ApiModel):
-    """Return one result per submitted item, in submission order."""
-
     results: list[AgentActionResult]
-    """Outcomes in the order of the request's `actions`."""
 
 
 class ExternalAgentRoutes:
-    """Bind external-agent handlers to their application interfaces.
-
-    One instance retains the repository registry, Profile store, Room service,
-    preset root, and validated installed skill paths used by the agent HTTP
-    entities. Its declarations include the agent-specific framework failure
-    handlers.
-    """
-
     routes = ClassRoutes()
-    """Import-time declarations bound to one route-group instance."""
 
     def __init__(
         self,
@@ -1129,23 +585,6 @@ class ExternalAgentRoutes:
         presets_root: str,
         store_path: Path,
     ) -> None:
-        """Retain the exact interfaces used by external-agent handlers.
-
-        # Parameters
-
-        - `db`: Repository registry used to resolve Tabs and Marks.
-        - `user_profile_store`: Profile and agent binding persistence.
-        - `agent_skills_root`: Directory containing the three installed agent
-          workflow skills exposed by onboarding.
-        - `room_lord`: Room selection and Thread lookup interface.
-        - `presets_root`: Exact Preset catalog root used by Tab preparation.
-        - `store_path`: Configured Snapshot root, matching the RoomLord store;
-          concrete source setup uses it for physical placement checks.
-
-        # Failures
-
-        - Raises when the skill root or any required `SKILL.md` is missing.
-        """
         resolved_skills_root = agent_skills_root.resolve(strict=True)
         skill_paths = tuple(
             (resolved_skills_root / name / "SKILL.md").resolve(strict=True)
@@ -1164,30 +603,11 @@ class ExternalAgentRoutes:
     def agent_failure(
         self, status: HTTPStatus, detail: str
     ) -> PlainTextResponse:
-        """Return one concrete diagnostic for a rejected agent operation.
-
-        # Parameters
-
-        - `status`: Non-success HTTP status matching the rejection boundary.
-        - `detail`: Plain text safe for an agent to report without parsing JSON.
-
-        # Usage
-
-        Agent routes return this value for expected failures instead of raising
-        a JSON-wrapped framework exception.
-        """
         return PlainTextResponse(detail, status_code=status)
 
     def agent_preview(
         self, body: str | None, deleted: bool
     ) -> AgentCommentPreview:
-        """Bound one Comment body to the 256-character preview rule.
-
-        # Parameters
-
-        - `body`: Current Comment text, or `None` for a tombstone.
-        - `deleted`: Whether the Comment is a tombstone.
-        """
         if body is None or len(body) <= 256:
             return AgentCommentPreview(
                 body=body, deleted=deleted, truncated=False
@@ -1197,17 +617,6 @@ class ExternalAgentRoutes:
         )
 
     def agent_title(self, body: str | None) -> str | None:
-        """Cut a Thread's first Comment to its first line, at most 120 chars.
-
-        # Parameters
-
-        - `body`: First Comment text, or `None` when it was deleted.
-
-        # Returns
-
-        - The first line, ending in an ellipsis when it exceeds the limit.
-        - `None`: the first Comment was deleted, so there is no title.
-        """
         if body is None:
             return None
         line = body.strip().split("\n", 1)[0].strip()
@@ -1216,13 +625,6 @@ class ExternalAgentRoutes:
         return f"{line[: _TITLE_MAX - 1]}…"
 
     def agent_comment(self, comment: ReviewCommentView) -> AgentComment:
-        """Translate one review Comment, author facts included.
-
-        # Parameters
-
-        - `comment`: Comment as read from the review layer; its author view
-          already carries the agent facts.
-        """
         author = comment["author"]
         return AgentComment(
             comment_id=comment["comment_id"],
@@ -1244,22 +646,6 @@ class ExternalAgentRoutes:
         self,
         view: ThreadDiscussionView | ThreadSummaryView,
     ) -> tuple[AgentLocation | None, AgentOutdatedReason | None]:
-        """Translate a view's origin and placement to a location and reason.
-
-        The File path and side come from the immutable origin. The lines are
-        the placement's landed range when it kept or moved the region, and the
-        origin's original range otherwise; a lost bay names the replacement
-        bay. A review-scoped Thread has no location and is never outdated.
-
-        # Returns
-
-        - The repository location, or `None` for a review-scoped Thread.
-        - The outdated reason, or `None` when the original lines are intact.
-
-        # Failures
-
-        - Raises `AssertionError` for a placement kind outside the union.
-        """
         origin = view["origin_target"]
         placement = view["placement"]
         if origin["kind"] == "review":
@@ -1311,17 +697,6 @@ class ExternalAgentRoutes:
         )
 
     def tab_descriptor(self, room: Room) -> AgentReviewTab:
-        """Describe a repository Room as the Tab descriptor `capture` accepts.
-
-        The descriptor is rebuilt from the Room's persisted correspondence: a
-        Head Room yields its repository and original baseline, Refs its stored
-        sides, Branch Review its stored branches, and a Pull Request its URL.
-
-        # Failures
-
-        - Raises `AssertionError` for a Preset Room, which has no repository and
-          never reaches this boundary.
-        """
         context = room.capture_context()
         selection = context["selection"]
         if isinstance(selection, PullRequestCaptureSelection):
@@ -1361,20 +736,6 @@ class ExternalAgentRoutes:
     def activity_response(
         self, mark_id: int, after: int, limit: int
     ) -> AgentActivityResponse:
-        """Build self-contained events for authored actions after a cursor.
-
-        # Parameters
-
-        - `mark_id`: Repository whose Rooms are all included.
-        - `after`: Exclusive activity cursor.
-        - `limit`: Maximum events, at most 100.
-
-        # Returns
-
-        Oldest-first events with their review descriptor, Thread title and
-        location, the action, and the Thread's status and waiting role right
-        after it; the cursor for the next call; and whether more remain.
-        """
         records = self.room_lord.mark_activity(mark_id, after, limit + 1)
         has_more = len(records) > limit
         records = records[:limit]
@@ -1472,19 +833,6 @@ class ExternalAgentRoutes:
     def origin_location(
         self, history: ReviewThreadHistory
     ) -> AgentLocation | None:
-        """Describe a Thread's creation target from its raw history.
-
-        # Returns
-
-        - The location of the origin File on the origin side; a historical
-          File-level Thread has no bay or lines.
-        - `None`: the Thread is review-scoped and has no location.
-
-        # Failures
-
-        - Raises `AssertionError` when the origin placement is not a range,
-          File-start, or review-scope placement.
-        """
         placement = history.origin.placement
         if isinstance(placement, ReviewScopePlacement):
             return None
@@ -1524,38 +872,6 @@ class ExternalAgentRoutes:
         review_branch: str | None = Query(default=None, min_length=1),
         pull_request_url: str | None = Query(default=None, min_length=1),
     ) -> AgentOnboardResponse | PlainTextResponse:
-        """Describe one copied supported Tab and its installed agent skills.
-
-        The HUD constructs this URL only from a complete selected Head, Refs,
-        Branch Review, or Pull Request Tab. Repository ids are translated through
-        the active Mark registry; the response returns the Tab descriptor `capture` accepts, the server origin, and exact installed skill entry paths.
-
-        # Parameters
-
-        - `request`: Incoming HTTP entity whose origin becomes `dirdiff_url`.
-        - `tab`: Supported selected HUD Tab discriminating every other parameter.
-        - `project_id`: Active Mark identity required by repository-backed Tabs.
-        - `left`: Exact old side required only by Refs.
-        - `right`: Exact new side required only by Refs.
-        - `base_source`: Local or remote namespace required by Branch Review.
-        - `base_remote`: Remote name required only for a remote base branch.
-        - `base_branch`: Exact symbolic base branch required by Branch Review.
-        - `review_source`: Local or remote namespace required by Branch Review.
-        - `review_remote`: Remote name required only for a remote review branch.
-        - `review_branch`: Exact symbolic review branch required by Branch Review.
-        - `pull_request_url`: Complete Pull Request URL required only by that Tab.
-
-        # Returns
-
-        - `AgentOnboardResponse` for one exact supported parameter variant.
-        - `PlainTextResponse` with the agent error contract when parameters do not
-          describe that variant or the selected Mark is inactive.
-
-        # Failures
-
-        FastAPI rejects malformed scalar values. The handler rejects missing,
-        repeated, extraneous, or cross-variant parameters and inactive Marks.
-        """
         values: dict[str, str | int] = {
             name: value
             for name, value in (
@@ -1574,7 +890,6 @@ class ExternalAgentRoutes:
         }
 
         def require_parameters(required: set[str]) -> None:
-            """Reject parameters outside one exact discriminated Tab variant."""
 
             supplied_query = request.query_params.multi_items()
             supplied_names = {name for name, _value in supplied_query}
@@ -1678,21 +993,6 @@ class ExternalAgentRoutes:
     async def validation_failure(
         self, request: Request, exc: RequestValidationError
     ) -> Response:
-        """Return validation detail at the agent API boundary.
-
-        # Parameters
-
-        - `request`: HTTP entity whose matched route selects the response shape.
-        - `exc`: Pydantic validation failures to bound and serialize.
-
-        Non-agent routes delegate to FastAPI's standard JSON handler.
-
-        # Usage
-
-        FastAPI invokes this handler for request-model validation failures. It
-        selects plain text only for matched agent route templates.
-
-        """
         route = request.scope.get("route")
         if getattr(route, "path", None) in _AGENT_ROUTE_PATHS:
             errors = exc.errors()
@@ -1711,21 +1011,6 @@ class ExternalAgentRoutes:
     async def http_failure(
         self, request: Request, exc: StarletteHTTPException
     ) -> Response:
-        """Return framework failure detail at the agent API boundary.
-
-        # Parameters
-
-        - `request`: HTTP entity whose matched route selects the response shape.
-        - `exc`: Framework status and detail produced by routing or handlers.
-
-        Non-agent routes delegate to FastAPI's standard JSON handler.
-
-        # Usage
-
-        FastAPI invokes this handler for framework HTTP exceptions. It preserves
-        standard JSON outside the agent route set.
-
-        """
         route = request.scope.get("route")
         if getattr(route, "path", None) in _AGENT_ROUTE_PATHS:
             return self.agent_failure(
@@ -1737,17 +1022,6 @@ class ExternalAgentRoutes:
     def agent_profile(
         self, request: AgentProfileRequest
     ) -> AgentProfileResponse | PlainTextResponse:
-        """Register an agent Profile, or update the one bound to its UUID.
-
-        Idempotent on `agent_uuid`: a repeat call returns the same Profile id
-        and replaces its name, model, and harness with the supplied values.
-
-        # Returns
-
-        - `AgentProfileResponse` with the Profile id to send with actions.
-        - `PlainTextResponse` (400) when the name belongs to a different
-          Profile or is invalid; nothing is written.
-        """
         try:
             record = self.user_profile_store.upsert_agent(
                 request.name,
@@ -1768,23 +1042,6 @@ class ExternalAgentRoutes:
     def agent_capture(
         self, request: AgentCaptureRequest
     ) -> AgentCaptureResponse | PlainTextResponse:
-        """Capture a Tab as the browser manifest would and list its Files.
-
-        The Tab is resolved by the same selection code as the browser, so the
-        same descriptor lands in the same Room. Capturing is repeatable: an
-        unchanged tree yields the same Snapshot. Nothing is written into the
-        Snapshot directory.
-
-        # Returns
-
-        - `AgentCaptureResponse` with the Snapshot id and directory, the Room's
-          Tab descriptor, the repository's newest activity id, and every File
-          pair with its change kind, capture error, and absolute captured side
-          paths.
-        - `PlainTextResponse` (400) for an unknown repository, unsupported or
-          invalid Tab input, a Pull Request that cannot be prepared, or a
-          capture failure.
-        """
         try:
             tab = request.tab
             if isinstance(tab, AgentPullRequestTab):
@@ -1811,12 +1068,6 @@ class ExternalAgentRoutes:
                 project_id = matches[0].id
 
                 def branch(value: AgentBranch) -> BranchSelection:
-                    """Translate one explicit API branch to repository input.
-
-                    A missing remote produces the local branch shape; a concrete
-                    remote produces the remote shape with the same symbolic
-                    name. Nothing is resolved here.
-                    """
                     if value.remote is None:
                         return {"source": "local", "branch": value.name}
                     return {
@@ -1907,14 +1158,6 @@ class ExternalAgentRoutes:
     def agent_reviews(
         self, project_id: int = Query(ge=1)
     ) -> AgentReviewsResponse | PlainTextResponse:
-        """List the Rooms of one repository with their open-Thread load.
-
-        # Returns
-
-        - `AgentReviewsResponse` with one entry per Room that has a Snapshot:
-          its Tab descriptor, newest Snapshot id, and open Thread counts.
-        - `PlainTextResponse` (400) for an unknown repository.
-        """
         try:
             if self.db.get(project_id) is None:
                 raise DirdiffError(f"Unknown repository Mark: {project_id}.")
@@ -1945,34 +1188,6 @@ class ExternalAgentRoutes:
         limit: int = Query(default=20, ge=1, le=_PAGE_LIMIT_MAX),
         through_activity_id: int | None = Query(default=None, ge=0),
     ) -> AgentThreadPage | PlainTextResponse:
-        """List the Threads of the Room containing a Snapshot.
-
-        The scope is the whole Room, as in the browser History: `status=all`
-        includes resolved and deleted Threads, and any Snapshot id of the Room
-        works, so an older id still lists every Thread.
-
-        # Parameters
-
-        - `snapshot_id`: Any Snapshot of the Room.
-        - `status`: `open` or `all`.
-        - `page`: One-based page number.
-        - `limit`: Page size, at most 100.
-        - `through_activity_id`: Absent on page one, where the server picks the
-          Room's greatest current activity; every later page repeats the value
-          the response returned, so membership, order, and total stay fixed.
-
-        Locations are read
-        against the given Snapshot.
-
-        # Returns
-
-        - `AgentThreadPage` of summaries, with the concrete
-          `through_activity_id` and each Thread's title, status, waiting role,
-          location, outdated reason, Comment count, previews, and newest
-          activity id.
-        - `PlainTextResponse` (400) for an unknown Snapshot, a first page that
-          sends a pivot, or a later page that omits it.
-        """
         try:
             room = self.room_lord.find_room(snapshot_id)
             if page == 1 and through_activity_id is not None:
@@ -2035,23 +1250,6 @@ class ExternalAgentRoutes:
         page: int = Query(default=1, ge=1),
         limit: int = Query(default=20, ge=1, le=_PAGE_LIMIT_MAX),
     ) -> AgentThread | PlainTextResponse:
-        """Return one Thread by id alone, with a page of its Comments.
-
-        Resolved Threads are readable. Deleted Threads stay readable too, with
-        every Comment tombstoned as recorded.
-
-        # Parameters
-
-        - `thread_id`: Thread to read.
-        - `page`: One-based Comment page number.
-        - `limit`: Comments per page, at most 100.
-
-        # Returns
-
-        - `AgentThread` with its creation location, original excerpt, status,
-          waiting role, and the requested Comment page.
-        - `PlainTextResponse` (400) for an unknown Thread.
-        """
         try:
             room, origin_snapshot = self.room_lord.find_thread_room(thread_id)
             view = room.get_thread(origin_snapshot, thread_id).discussion()
@@ -2095,23 +1293,6 @@ class ExternalAgentRoutes:
         after: int = Query(ge=0),
         limit: int = Query(default=50, ge=1, le=_PAGE_LIMIT_MAX),
     ) -> AgentActivityResponse | PlainTextResponse:
-        """Return authored actions newer than a cursor, across the repository.
-
-        Every Room of the repository is included, ordered by increasing
-        activity id. Each event is self-contained; send `next_after` as `after`
-        in the next call.
-
-        # Parameters
-
-        - `project_id`: Repository (Mark) id.
-        - `after`: Exclusive activity id cursor.
-        - `limit`: Maximum events, at most 100.
-
-        # Returns
-
-        - `AgentActivityResponse`, empty when nothing is newer than `after`.
-        - `PlainTextResponse` (400) for an unknown repository.
-        """
         try:
             if self.db.get(project_id) is None:
                 raise DirdiffError(f"Unknown repository Mark: {project_id}.")
@@ -2128,26 +1309,6 @@ class ExternalAgentRoutes:
         timeout: int = Query(ge=1, le=_WAIT_TIMEOUT_MAX),
         limit: int = Query(default=50, ge=1, le=_PAGE_LIMIT_MAX),
     ) -> AgentActivityResponse | PlainTextResponse:
-        """Hold until an action newer than a cursor exists, then return it.
-
-        Same response as `activity`. When nothing newer than `after` exists the
-        call waits, up to `timeout` seconds (1 to 540), and returns an empty
-        event list if the time runs out. The wait polls the newest activity id
-        with `asyncio.sleep`, so it holds no worker thread.
-
-        # Parameters
-
-        - `project_id`: Repository (Mark) id.
-        - `after`: Exclusive activity id cursor.
-        - `timeout`: Seconds to wait, 1 to 540.
-        - `limit`: Maximum events, at most 100.
-
-        # Returns
-
-        - `AgentActivityResponse`: events as soon as one exists, or empty after
-          `timeout`.
-        - `PlainTextResponse` (400) for an unknown repository.
-        """
         try:
             if self.db.get(project_id) is None:
                 raise DirdiffError(f"Unknown repository Mark: {project_id}.")
@@ -2166,21 +1327,6 @@ class ExternalAgentRoutes:
     def agent_actions(
         self, request: AgentActionsRequest
     ) -> AgentActionsResponse | PlainTextResponse:
-        """Validate and atomically append an ordered batch of actions.
-
-        All items are attributed to `profile_id` and must belong to one Room.
-        Each item is validated against the state earlier items produced; any
-        failure rejects the whole batch and writes nothing. Any Profile may act
-        on any Thread; only a Comment's author edits it, and a deleted Thread
-        rejects everything.
-
-        # Returns
-
-        - `AgentActionsResponse` with one result per item, in order.
-        - `PlainTextResponse` (400) for an unknown Profile, Thread, Comment,
-          Snapshot, or path, an invalid range, an invalid transition, items
-          from different Rooms, or any other rejected item.
-        """
         try:
             author = ProfileAuthor(request.profile_id)
             first = request.actions[0]

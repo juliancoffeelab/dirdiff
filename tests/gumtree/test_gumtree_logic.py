@@ -1,10 +1,3 @@
-"""Check focused GumTree adapter failures and generator offset edge cases.
-
-These examples exercise invalid engine facts, unsupported language handling,
-and exact Unicode literal positions through the public adapter interface.
-They use real executable output where generator behavior matters.
-"""
-
 from pathlib import Path
 
 import pytest
@@ -21,7 +14,6 @@ from dirdiff.engines import (
 __all__: list[str] = []
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "gumtree"
-"""Source pairs used to check exact literal positions for real generators."""
 
 
 @pytest.mark.parametrize(
@@ -46,7 +38,6 @@ PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "gumtree"
     ],
 )
 def test_invalid_engine_facts_are_rejected(facts: GumTreeJson) -> None:
-    """Missing, contradictory, or unknown GumTree facts cannot become plausible rows."""
     with pytest.raises(AssertionError):
         build_gumtree_rows_from_json(
             diff_json=facts,
@@ -58,7 +49,6 @@ def test_invalid_engine_facts_are_rejected(facts: GumTreeJson) -> None:
 
 
 def test_unsupported_language_uses_unified_diff_with_notice() -> None:
-    """The actual executable's missing-generator diagnosis produces usable text rows."""
     result = GumTreeDiffEngine(matcher="gumtree-simple").render_diff(
         old=DiffSide(
             exists=True,
@@ -85,14 +75,6 @@ def test_unsupported_language_uses_unified_diff_with_notice() -> None:
 def test_unicode_offsets_address_the_changed_literal(
     language: str, old_value: str, new_value: str
 ) -> None:
-    """Real generator offsets must highlight the literal after BMP and astral text.
-
-    # Parameters
-
-    - `language`: Preset group selecting one actual generator convention.
-    - `old_value`: Exact changed literal expected in the old source.
-    - `new_value`: Exact changed literal expected in the new source.
-    """
     preset = PRESETS_ROOT / language / "unicode-before-edits"
     left, right = next(preset.glob("old.*")), next(preset.glob("new.*"))
     rows = build_gumtree_rows_from_json(
@@ -128,7 +110,6 @@ def test_unicode_offsets_address_the_changed_literal(
 
 
 def test_ambiguous_unicode_offsets_are_not_guessed() -> None:
-    """Reject ambiguous structural ranges, then render an explicitly warned unified diff."""
     left = 'label = "ї😀"; value = 1\nnext_value = 3\n'
     right = 'label = "ї😀"; value = 2\nnext_value = 4\n'
     facts = tool_json(
@@ -173,7 +154,6 @@ def test_ambiguous_unicode_offsets_are_not_guessed() -> None:
 
 @pytest.mark.parametrize("deleted", [False, True])
 def test_missing_side_produces_complete_textual_rows(deleted: bool) -> None:
-    """Absent files produce local textual rows without requiring an external engine."""
     present = DiffSide(exists=True, text="first\n\nlast\n", path_hint=None)
     absent = DiffSide(exists=False, text=None, path_hint=None)
     result = GumTreeDiffEngine(matcher="gumtree-simple").render_diff(
@@ -192,7 +172,6 @@ def test_missing_side_produces_complete_textual_rows(deleted: bool) -> None:
 
 
 def test_unsupported_identical_sources_keep_context() -> None:
-    """An empty unified patch still represents every line of identical unsupported files."""
     side = DiffSide(
         exists=True,
         text="first\n\nlast\n",

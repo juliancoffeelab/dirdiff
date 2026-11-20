@@ -1,26 +1,5 @@
 // @ts-nocheck
 
-/**
- * Report module-local functions whose reference topology calls for inlining or
- * lexical nesting.
- *
- * The module exports separate ESLint rules for inline, nesting, and one explicit
- * navigation-caller topology. The general rules examine only bindings declared
- * as top-level function declarations or top-level variables initialized with a
- * function. Exported bindings are public interfaces and are outside the rules.
- * PascalCase bindings, `test_*`, `main`, decorated functions, functions whose
- * inclusive source span exceeds ten lines, and type guards placed directly after
- * their module-local type are also outside the rules. For each remaining binding,
- * the rules count resolved read references, excluding references from inside the
- * function itself. One reference produces an inline diagnostic; several
- * references beneath the same outermost function produce a nesting diagnostic.
- * The navigation-specific rule instead proves that `selectHunk` is referenced
- * only by one direct call in each approved operation.
- *
- * The rule owns only per-file analysis state created by ESLint. It does not
- * estimate function size, infer whether a separate semantic contract is useful,
- * alter source, or inspect references outside the current module.
- */
 function helperTopologyRule(diagnosticKind) {
   return {
     meta: {
@@ -41,22 +20,10 @@ function helperTopologyRule(diagnosticKind) {
       },
     },
 
-    /**
-     * Build visitors that analyze resolved lexical bindings in one module.
-     *
-     * @param {import("eslint").Rule.RuleContext} context ESLint's per-file rule
-     * context.
-     */
     create(context) {
       const sourceCode = context.sourceCode;
 
       return {
-        /**
-         * Report candidates once scope construction and reference resolution are
-         * complete.
-         *
-         * @param {import("estree").Program} program Parsed module root.
-         */
         "Program:exit"(program) {
           const moduleScope = sourceCode.scopeManager.scopes.find(
             (scope) => scope.type === "module" && scope.block === program,
@@ -115,18 +82,6 @@ function helperTopologyRule(diagnosticKind) {
             }
           }
 
-          /**
-           * Find the outermost function containing a resolved reference.
-           *
-           * References in callbacks nested under a component belong to the
-           * component, which is the scope into which a shared helper can move.
-           *
-           * @param {import("estree").Identifier} identifier Resolved reference.
-           * # Returns
-           *
-           * - `Function`: the outermost containing function.
-           * - `null`: the reference appears in module-level syntax.
-           */
           function outermostFunction(identifier) {
             let container = null;
             let child = identifier;
@@ -146,16 +101,6 @@ function helperTopologyRule(diagnosticKind) {
             return container;
           }
 
-          /**
-           * Read the simple type named by a genuine `is*` type predicate.
-           *
-           * @param {import("estree").Function} functionNode Candidate function.
-           * @param {string} functionName Candidate binding name.
-           * # Returns
-           *
-           * - `string`: the guarded type name.
-           * - `null`: the function is not a supported type guard.
-           */
           function guardedTypeName(functionNode, functionName) {
             if (!functionName.startsWith("is")) {
               return null;
@@ -173,12 +118,6 @@ function helperTopologyRule(diagnosticKind) {
             return guardedType.typeName.name;
           }
 
-          /**
-           * Report whether a function immediately follows the named type.
-           *
-           * @param {import("estree").Function} functionNode Type guard.
-           * @param {string} guardedTypeName Module-local guarded type name.
-           */
           function followsType(functionNode, guardedTypeName) {
             let statement = functionNode;
             if (functionNode.parent.type === "VariableDeclarator") {
@@ -333,20 +272,6 @@ function helperTopologyRule(diagnosticKind) {
 export const inlineModuleHelperRule = helperTopologyRule("inline");
 export const nestedModuleHelperRule = helperTopologyRule("nest");
 
-/**
- * Enforce the complete direct-caller topology of Navigation's selection write.
- *
- * The rule is scoped to `navigation.tsx` by ESLint configuration. It resolves
- * the module-local `selectHunk` binding, rejects every non-call reference and
- * every call nested beneath an anonymous or unapproved function, and requires
- * exactly one direct call in each approved operation. This makes an added,
- * removed, aliased, wrapped, or duplicated selection path a deterministic lint
- * failure instead of a prose-only invariant.
- *
- * The rule owns only one file's resolved ESLint scope. It does not infer hunk
- * behavior, inspect other modules, or permit configuration to widen the caller
- * set.
- */
 export const selectHunkCallersRule = {
   meta: {
     type: "problem",
@@ -366,12 +291,6 @@ export const selectHunkCallersRule = {
     },
   },
 
-  /**
-   * Build the one-file visitor that validates resolved `selectHunk` references.
-   *
-   * @param {import("eslint").Rule.RuleContext} context ESLint's navigation-file
-   * context.
-   */
   create(context) {
     const sourceCode = context.sourceCode;
     const approvedCallers = [
@@ -384,11 +303,6 @@ export const selectHunkCallersRule = {
     const approvedCallerSet = new Set(approvedCallers);
 
     return {
-      /**
-       * Validate the complete binding only after scope and reference resolution.
-       *
-       * @param {import("estree").Program} program Parsed navigation module root.
-       */
       "Program:exit"(program) {
         const moduleScope = sourceCode.scopeManager.scopes.find(
           (scope) => scope.type === "module" && scope.block === program,
@@ -407,19 +321,6 @@ export const selectHunkCallersRule = {
           return;
         }
 
-        /**
-         * Return the nearest containing function's declared name.
-         *
-         * A call inside a callback or wrapper is deliberately anonymous even if
-         * an approved operation contains that callback farther out: the caller
-         * would no longer be direct.
-         *
-         * @param {import("estree").CallExpression} call Resolved selection call.
-         * # Returns
-         *
-         * - `string`: The nearest containing function declaration's name.
-         * - `null`: The call is module-level or nested in a function expression.
-         */
         function directCallerName(call) {
           let node = call.parent;
           while (node.type !== "Program") {

@@ -1,21 +1,3 @@
-"""Drive stored placement rows through the `b3d8f4a19c26` bay-key migration.
-
-The revision rewrites an `ordinary` placement's key to `flatfile`, strips the
-two dead notebook fields from every stored locator, moves derived File-start
-rows from `region_not_found` to the split `bay_not_found` reason, and leaves
-every other stored shape untouched. Its downgrade refuses while a notebook
-placement exists, because the locator fields it discarded cannot be recovered,
-and otherwise collapses both split shapes back to the pre-split vocabulary,
-dropping a bay-start row's bay coordinate.
-
-Schema parity proves the migrated schema text matches the model; this module
-proves the data moves touch exactly the intended rows, that the refusal leaves
-the database untouched rather than half-downgraded, and that the recreated
-check constraints actually reject the shapes each vocabulary forbids — in
-particular that a NULL reason cannot slip through the bay-start branch via
-SQL's `NULL IN (...)` semantics.
-"""
-
 import json
 from pathlib import Path
 
@@ -28,11 +10,6 @@ from alembic import command
 
 
 def test_bay_key_migration_moves_stored_placements(tmp_path: Path) -> None:
-    """Upgrade re-keys and splits in place; downgrade refuses, then restores.
-
-    The migration must preserve valid rows atomically and never guess how to
-    merge an incompatible post-upgrade bay identity.
-    """
     database_path = tmp_path / "prebay.sqlite"
     config = Config(Path(__file__).parents[2] / "alembic.ini")
     config.attributes["db_path"] = database_path

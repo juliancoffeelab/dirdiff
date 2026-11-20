@@ -1,20 +1,3 @@
-"""Derive and interpret review Thread placements.
-
-## Public interface
-
-`derive_room_threads` computes the immutable placement rows published with a
-new Snapshot. The remaining exported names are package-internal operations used
-to construct Thread origins and interpret persisted placement rows.
-
-## Purpose and boundaries
-
-This module composes captured Files without a diff engine, records private
-structural locators, derives later Snapshot placements, and reconstructs bounded
-origin excerpts. It reads immutable captured Files and returns domain or
-persistence values. It does not mutate Thread action history, expose private
-locators through public views, publish Snapshots, or perform HTTP serialization.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -77,236 +60,65 @@ __all__ = [
 ]
 
 LOGGER = logging.getLogger(__name__)
-"""Report a captured File failure contained by placement derivation."""
 
 
 @dataclass(frozen=True)
 class _Segment:
-    """Name one structural container enclosing a private source region.
-
-    Locator construction records these outermost first; reattachment compares
-    the sequence when choosing candidate regions.
-
-    This value never crosses persistence except inside encoded private locator
-    bytes and never becomes public syntax metadata.
-    """
-
     node_type: str
-    """Nonempty Tree-sitter kind of one eligible enclosing container.
-
-    Reattachment compares it positionally with the other outer-to-inner
-    segments; it is private syntax identity, not public language metadata.
-    """
 
     name: Optional[str]
-    """Declared container name extracted from the grammar, when available.
-
-    `None` means the syntax node exposes no usable name. Matching preserves that
-    absence rather than inventing text from another child.
-    """
 
 
 @dataclass(frozen=True)
 class _Locator:
-    """Retain only the private facts required to find an origin region.
-
-    These are private source coordinates: they never cross the HTTP boundary and
-    the store never interprets them. `RangePlacement` contains one, and the side the
-    coordinates address is the placement's own `side` rather than a field here,
-    because a locator that disagreed with its placement would be unusable.
-
-    The persisted JSON does still carry `side`, and `_locator_of()` requires it to
-    agree. This type is the decoded domain value, not the storage format.
-    """
-
     region_hash: bytes
-    """SHA-256 digest of the exact origin region bytes.
-
-    Derivation uses it to distinguish unchanged structural candidates; the
-    digest is verified against immutable origin content before matching.
-    """
 
     region_start_byte: int
-    """Inclusive byte offset of the region in UTF-8 encoded origin bay text.
-
-    It is interpreted only with `region_end_byte` and the placement's selected
-    side; it is not a public source coordinate.
-    """
 
     region_end_byte: int
-    """Exclusive byte offset of the region in encoded origin bay text.
-
-    It must exceed `region_start_byte` and remain within immutable origin bytes;
-    verification treats disagreement as persisted corruption.
-    """
 
     segments: tuple[_Segment, ...]
-    """Eligible structural ancestry of the origin region, outermost first.
-
-    Candidate relocation requires exact sequence equality. An empty tuple means
-    only the complete-text root supplies a region identity.
-    """
 
 
 @dataclass(frozen=True)
 class _SourceRegion:
-    """Describe one candidate region during private Thread reattachment.
-
-    Structural scanning creates these values from one composed bay side.
-    Matching compares source bytes, line bounds, and enclosing segments against
-    the origin locator.
-
-    It is temporary derivation state, not a public region or persisted record.
-    """
-
     source: bytes
-    """Complete UTF-8 encoded bay-side source containing this candidate.
-
-    The byte offsets slice this shared value for digest comparison; it is
-    operation-local and never becomes persisted review content.
-    """
 
     start_byte: int
-    """Inclusive UTF-8 byte offset at which the candidate region begins.
-
-    It is interpreted against `source` and participates in choosing the
-    smallest containing origin region.
-    """
 
     end_byte: int
-    """Exclusive UTF-8 byte offset at which the candidate region ends.
-
-    It is strictly greater than `start_byte`; their slice is the content hashed
-    for immutable origin matching.
-    """
 
     start_line: int
-    """Positive one-based first line covered by the syntax candidate.
-
-    Selected ranges must begin no earlier than this coordinate for the region
-    to contain them.
-    """
 
     end_line: int
-    """One-based last line covered by the syntax candidate, included.
-
-    The coordinate accounts for parsers whose end point begins a following line
-    and is never earlier than `start_line`.
-    """
 
     segments: tuple[_Segment, ...]
-    """Eligible syntax ancestry used as the candidate's structural identity.
-
-    Reattachment first requires exact equality with the persisted origin
-    sequence before considering the candidate's content digest.
-    """
 
 
 @dataclass(frozen=True)
 class _ComposedBay:
-    """One composed bay's identity and the text review reads on each side.
-
-    This is what review needs from composition and all it needs: the public
-    bay key a target may name, its kind, the text each side holds, and the path
-    hint that selects a parser for structural matching. It carries nothing an
-    engine produced, because `Composer.bays()` has no renderer in reach.
-
-    An image bay reaches review through the same shape. Its text is the one
-    pseudo-line it exposes, reconstructed from the picture's own facts, so a
-    target against it runs through validation, placement, and excerpt reads
-    without a second variant. `kind` is retained because one thing does still
-    depend on it: which line ranges are valid.
-    """
-
     bay_key: str
-    """Public File-local identity emitted by the composer for this bay.
-
-    Targets and placements retain this exact value; review does not derive a
-    parallel key from paths or content.
-    """
 
     kind: Literal["text", "image"]
-    """Composition kind controlling the review coordinate contract.
-
-    Text bays accept ranges within decoded lines. Image bays expose exactly one
-    content-derived pseudo-line and therefore accept only line 1 through 1.
-    """
 
     left_text: Optional[str]
-    """Decoded left source or content-derived media pseudo-line when present.
-
-    `None` means the composed bay has no left side. Review never substitutes
-    right-side content for that absence.
-    """
 
     right_text: Optional[str]
-    """Decoded right source or content-derived media pseudo-line when present.
-
-    `None` means the composed bay has no right side. The text is used for target
-    validation, excerpts, and private relocation only.
-    """
 
     left_hint: Optional[str]
-    """Optional left-side path hint supplied by composition for parser choice.
-
-    Absence delegates to the captured repository path. Media uses a neutral hint
-    so source-language parsers do not interpret its pseudo-line.
-    """
 
     right_hint: Optional[str]
-    """Optional right-side path hint supplied by composition for parser choice.
-
-    It follows the same absence and media rules as `left_hint` and carries no
-    public placement meaning.
-    """
 
     def text_for(self, side: Literal["left", "right"]) -> Optional[str]:
-        """Return the review source for the exact requested bay side.
-
-        `None` reports true side absence. The method performs no substitution,
-        decoding, or validation beyond selecting the matching stored field.
-
-        # Returns
-
-        - `str`: The exact stored review source for the selected side.
-        - `None`: The composed bay has no content on that side. The caller must
-          preserve the absence rather than borrow the other side's text.
-        """
         return self.left_text if side == "left" else self.right_text
 
     def hint_for(self, side: Literal["left", "right"]) -> Optional[str]:
-        """Return the structural parser hint associated with one exact side.
-
-        `None` tells the caller to use the captured repository path; it does not
-        mean that the side itself is absent.
-
-        # Returns
-
-        - `str`: The composition-supplied parser hint for the selected side.
-        - `None`: Composition supplied no override. The caller must use the
-          selected side's captured repository path for parser choice.
-        """
         return self.left_hint if side == "left" else self.right_hint
 
 
 @dataclass
 class ReviewReadCache:
-    """Share composed bay identity across one review read.
-
-    Composing a File's bays decodes both of its sides, so one read covering
-    several Threads against the same File pays that cost once. Review read
-    functions create and discard the cache within one operation.
-
-    It does not persist composed content, cross Snapshot boundaries, or become
-    an authoritative copy of File or Thread state.
-    """
-
     bays: dict[str, dict[str, _ComposedBay]] = field(default_factory=dict)
-    """Read-local composition results indexed by File id and public bay key.
-
-    Entries are added on first composition and reused only within the enclosing
-    review operation. The cache never crosses a Snapshot read or persists bytes.
-    """
 
 
 _ELIGIBLE_NODE_TYPES = frozenset(
@@ -344,12 +156,6 @@ _ELIGIBLE_NODE_TYPES = frozenset(
         "tuple",
     }
 )
-"""Tree-sitter containers that may identify a review origin structurally.
-
-Region extraction records only these nodes as outer-to-inner segments. Leaf
-syntax and punctuation cannot become identity, which keeps relocation tied to
-declared source structures and the whole-text root.
-"""
 
 _LANGUAGES: tuple[tuple[tuple[str, ...], str, str], ...] = (
     ((".py", ".pyi", ".pyw"), "tree_sitter_python", "language"),
@@ -363,20 +169,9 @@ _LANGUAGES: tuple[tuple[tuple[str, ...], str, str], ...] = (
     ((".yaml", ".yml"), "tree_sitter_yaml", "language"),
     ((".md", ".markdown"), "tree_sitter_markdown", "language"),
 )
-"""Ordered path-suffix map for optional Tree-sitter parser selection.
-
-Each entry names accepted lowercase suffixes, an importable language module,
-and its factory. Paths matching no entry use the complete source as one region;
-module loading happens only after a suffix matches.
-"""
 
 
 def file_pair(file: SnapshotFileRecord) -> FilePair:
-    """Convert one captured File record to its exact optional path pair.
-
-    Side absence is preserved and the `FilePair` boundary rechecks canonical
-    path invariants. Physical capture paths and File ids do not escape.
-    """
     return FilePair(
         file.left.map(lambda side: side.repository_path),
         file.right.map(lambda side: side.repository_path),
@@ -386,16 +181,6 @@ def file_pair(file: SnapshotFileRecord) -> FilePair:
 def _file_indexes(
     snapshot: SnapshotRecord,
 ) -> tuple[dict[str, SnapshotFileRecord], dict[FilePair, SnapshotFileRecord]]:
-    """Index a complete loaded Snapshot by File id and exact public pair.
-
-    The two indexes cover every File exactly once. Duplicate ids or path pairs
-    are persisted corruption and fail here before derivation chooses a target.
-
-    # Returns
-
-    - `First`: Every Snapshot File keyed by its durable File id.
-    - `Second`: The same records keyed by exact nullable old/new repository paths.
-    """
     by_id = {file.id: file for file in snapshot.files}
     by_pair = {file_pair(file): file for file in snapshot.files}
     assert len(by_id) == len(by_pair) == len(snapshot.files), (
@@ -405,49 +190,14 @@ def _file_indexes(
 
 
 def _path_hint(file: SnapshotFileRecord, side: Literal["left", "right"]) -> str:
-    """Return the selected side path used only to select a parser.
-
-    # Parameters
-
-    - `file`: Captured pair containing the selected side record.
-    - `side`: Present side whose repository suffix guides parsing.
-    """
     record = file.left if side == "left" else file.right
     return record.must().repository_path
 
 
 @lru_cache(maxsize=3)
 def _regions_for_source(path: str, text: str) -> tuple[_SourceRegion, ...]:
-    """Return candidate structural regions, including the complete text root.
-
-    The process retains only the three most recent exact path/text results.
-    Thread derivation groups equal target sources so repeated placements reuse
-    their current File parse without retaining historical source collections.
-
-    # Parameters
-
-    - `path`: Repository or bay hint used only for language selection.
-    - `text`: Complete decoded bay source to partition losslessly.
-
-    # Returns
-
-    - `Root`: The complete text as the first and always-present candidate region.
-    - `Descendants`: Eligible syntax regions in source traversal order;
-      unsupported paths contribute no descendants.
-    """
 
     def parser_for_path() -> Optional[Parser]:
-        """Load the optional Tree-sitter parser selected by the source suffix.
-
-        It is called once per uncached path/text input. An unsupported suffix
-        returns `None`, which makes the complete text the sole candidate region.
-
-        # Returns
-
-        - `Parser`: A Tree-sitter parser for the first configured suffix match.
-        - `None`: No configured language claims the path. The caller must use
-          the complete text as the sole candidate region.
-        """
         lower = path.lower()
         for suffixes, module_name, attribute in _LANGUAGES:
             if not lower.endswith(suffixes):
@@ -458,19 +208,6 @@ def _regions_for_source(path: str, text: str) -> tuple[_SourceRegion, ...]:
         return None
 
     def node_name(node: Node, source: bytes) -> Optional[str]:
-        """Return a stable declared name when one syntax node exposes it.
-
-        # Parameters
-
-        - `node`: Tree-sitter container whose language may define a name field.
-        - `source`: UTF-8 bytes that the node's byte coordinates index.
-
-        # Returns
-
-        - `str`: The nonblank source text of the node's `name` field.
-        - `None`: The node has no name field or its name is blank. The caller
-          must retain the structural segment without a declared name.
-        """
         name = node.child_by_field_name("name")
         if name is None:
             return None
@@ -478,20 +215,6 @@ def _regions_for_source(path: str, text: str) -> tuple[_SourceRegion, ...]:
         return value if value != "" else None
 
     def eligible_ancestors(node: Node, source: bytes) -> tuple[_Segment, ...]:
-        """Return this node's eligible ancestry in outer-to-inner order.
-
-        # Parameters
-
-        - `node`: Syntax node whose enclosing structural identity is recorded.
-        - `source`: UTF-8 bytes used to recover optional declared names.
-
-        # Returns
-
-        - `Members`: Each eligible ancestor carries its syntax kind and optional
-          declared name.
-        - `Order`: Ancestors run from the outermost eligible node through the
-          supplied node; an empty tuple means no eligible ancestor exists.
-        """
         ancestors: list[Node] = []
         current: Optional[Node] = node
         while current is not None:
@@ -504,17 +227,6 @@ def _regions_for_source(path: str, text: str) -> tuple[_SourceRegion, ...]:
         )
 
     def line_span(node: Node) -> tuple[int, int]:
-        """Convert Tree-sitter points to a positive inclusive line span.
-
-        A node ending at column zero does not include that following line; other
-        end points do. The returned end is never earlier than the start.
-
-        # Returns
-
-        - `First`: The node's positive one-based inclusive starting line.
-        - `Second`: Its positive inclusive final line, with a column-zero end
-          kept on the preceding line and never earlier than the start.
-        """
         start = node.start_point.row + 1
         end = node.end_point.row + (1 if node.end_point.column > 0 else 0)
         return start, max(start, end)
@@ -558,66 +270,12 @@ def _composed_bays(
     file: SnapshotFileRecord,
     cache: ReviewReadCache,
 ) -> dict[str, _ComposedBay]:
-    """Return every bay this File composes into, indexed by public key.
-
-    This is the review bridge. The bay keys a target may name are exactly the
-    keys composition produces, never an independent approximation of what the
-    renderer shows, so validation and rendering cannot disagree about which
-    bays exist. `Composer.bays()` takes a `BayContext`, which carries no
-    renderer, so reconstructing an origin still involves no diff engine.
-
-    Composition is total. Every pair of byte sides reaches the blob terminal,
-    so the one failure this can report is its own: a File whose capture failed
-    retains dirdiff's placeholder text rather than the File's bytes, and reading
-    it as review content would quote a fabrication back to the reviewer. That
-    raises `ReviewError("invalid_target", ...)` carrying the persisted reason.
-    A caller that must survive such a File checks `SnapshotFileRecord.error`
-    before calling; there is nothing else here to catch.
-
-    # Parameters
-
-    - `file`: Captured File whose exact sides composition reads.
-    - `cache`: Read-scoped store reused by Threads addressing the same File.
-
-    # Returns
-
-    - `Keys`: Every public bay key produced by composition for this exact File.
-    - `Values`: Text bays retain decoded sides and parser hints; image bays
-      expose their content-derived pseudo-lines.
-
-    # Failures
-
-    - Raises `ReviewError` with code `invalid_target` when capture recorded a
-      failure for the File. Placeholder error bytes are never composed as
-      reviewable content.
-    - Raises `AssertionError` when retained side bytes disagree with their
-      persisted SHA-256 digest. Reading a missing or inaccessible captured side
-      propagates its filesystem exception.
-    """
     cached = cache.bays.get(file.id)
     if cached is not None:
         return cached
     pair = file_pair(file)
 
     def side_bytes(side: Literal["left", "right"]) -> Option[bytes]:
-        """Read and authenticate one requested captured File side.
-
-        The helper is invoked once per side when this File is first composed.
-        It returns `Nothing` only for true side absence, raises the persisted
-        capture failure for unreadable Files, and asserts digest equality.
-
-        # Returns
-
-        - `Some[bytes]`: Authenticated captured bytes for the requested side.
-        - `Nothing`: The Snapshot File has no record for that side. The caller must
-          preserve true side absence during composition.
-
-        # Failures
-
-        - Raises `ReviewError` when capture recorded a failure for the File.
-        - Raises `AssertionError` when retained bytes no longer match their
-          persisted digest. File reads propagate their I/O failures.
-        """
         record = file.left if side == "left" else file.right
         if not Some.present(record):
             return Nothing()
@@ -630,23 +288,6 @@ def _composed_bays(
         return Some(content)
 
     def pseudo_line(side: MediaSide) -> str:
-        """Render the one line a present image side exposes to review.
-
-        An image bay has no lines, and a target against one is defined to name
-        the single line `1..1`, so review needs exactly one line of text to
-        place that target in and to quote back as its excerpt. It is built
-        from the media side's own media type, size, and digest. This makes it do
-        real work rather than stand in for missing text. When the content
-        changes, the line changes, so the region hash
-        retained at creation stops matching and the Thread is reported
-        outdated, which is precisely what a comment on a replaced image
-        deserves.
-
-        # Returns
-
-        - `str`: One line containing media type, byte size, and SHA-256 digest
-          for the captured image side.
-        """
         ref = media_ref(side)
         return (
             f"{ref['media_type']}, {ref['byte_size']} bytes, "
@@ -654,17 +295,6 @@ def _composed_bays(
         )
 
     def side_link(side: Literal["left", "right"]) -> Option[CapturedLink]:
-        """Read the relationally identified link capture for one File side.
-
-        Side absence and an ordinary captured side both have no symlink row and
-        return `Nothing`. A present row supplies the exact physical paths and
-        digests; malformed or damaged sidecars raise at the format boundary.
-
-        # Returns
-
-        - `Some[CapturedLink]`: Authenticated link facts for the selected side.
-        - `Nothing`: The side is absent or is an ordinary File.
-        """
         selected_side = file.left if side == "left" else file.right
         if not Some.present(selected_side) or not isinstance(
             selected_side.value, SnapshotSymlinkFileSideRecord
@@ -733,21 +363,6 @@ def _selected_bay(
     bay_key: str,
     cache: ReviewReadCache,
 ) -> _ComposedBay:
-    """Return one named bay, requiring it to exist and hold the side.
-
-    # Parameters
-
-    - `file`: Captured File whose composition defines valid bay identity.
-    - `side`: Required present side of the bay.
-    - `bay_key`: Exact public key produced by composition.
-    - `cache`: Read-scoped composed-bay cache.
-
-    # Failures
-
-    - Raises `ReviewError` with code `invalid_target` when composition produced
-      no `bay_key` or when the named bay has no content on `side`.
-    - Propagates capture, digest, and filesystem failures from `_composed_bays`.
-    """
     bay = _composed_bays(file, cache).get(bay_key)
     if bay is None:
         raise ReviewError("invalid_target", "Unknown rendered bay.")
@@ -759,30 +374,6 @@ def _selected_bay(
 
 
 def _locator_of(payload: bytes, *, side: Literal["left", "right"]) -> _Locator:
-    """Decode one persisted locator, proving the payload is well formed.
-
-    `side` is the placement's selected side. The persisted JSON repeats it and must
-    agree, because a locator addressing the other side of its File would search
-    the wrong source. The field set is exact: an unknown or missing key means the
-    payload was written by a revision this code does not understand, and reading
-    it as if it were current would silently mislocate the Thread.
-
-    This proves the payload alone. Whether the coordinates still describe the
-    origin's captured bytes is `_verify_locator()`'s question, because only that
-    caller has the text.
-
-    # Parameters
-
-    - `payload`: Persisted private JSON bytes with the exact supported shape.
-    - `side`: Origin-placement side the repeated persisted value must match.
-
-    # Failures
-
-    - Raises `AssertionError` when the payload is not UTF-8 JSON, is not an
-      object with the exact supported fields, repeats another side, contains an
-      invalid digest or byte range, or has malformed structural segments. These
-      failures identify incompatible or corrupt persisted coordinates.
-    """
     try:
         value = json.loads(payload)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -832,17 +423,6 @@ def _locator_of(payload: bytes, *, side: Literal["left", "right"]) -> _Locator:
 def _locator_bytes(
     locator: _Locator, *, side: Literal["left", "right"]
 ) -> bytes:
-    """Encode one locator in the exact field set `_locator_of()` requires.
-
-    `side` comes from the placement, which is where the decoded type keeps
-    it. The two functions are a pair: a field added here without being accepted
-    there fails every later read of that Thread.
-
-    # Parameters
-
-    - `locator`: Valid private structural coordinate for the origin region.
-    - `side`: Selected placement side written into the storage payload.
-    """
     return json.dumps(
         {
             "side": side,
@@ -862,18 +442,6 @@ def _locator_bytes(
 def _verify_locator(
     placement: RangePlacement, locator: _Locator, *, text: str
 ) -> None:
-    """Prove one origin's locator still identifies its immutable source.
-
-    `text` is the origin side's decoded captured text. The Snapshot File a
-    locator addresses is immutable, so a disagreement here is corruption rather
-    than drift, and the caller has no valid result to fall back to.
-
-    # Parameters
-
-    - `placement`: Origin range whose selected lines must lie in the region.
-    - `locator`: Decoded byte span and digest to verify.
-    - `text`: Exact decoded origin-bay text retained by the Snapshot.
-    """
     source = text.encode()
     assert locator.region_end_byte <= len(source), (
         "private locator byte span exceeds its immutable origin source"
@@ -897,17 +465,6 @@ def _record_of(
     is_origin: bool,
     locator: Optional[_Locator],
 ) -> ReviewThreadRecord:
-    """Attach origin metadata to one already validated placement.
-
-    Private coordinates are encoded only for a current range; the store keeps
-    those bytes opaque and stores the placement's coordinate fields separately.
-
-    # Parameters
-
-    - `placement`: Validated landing variant to retain unchanged.
-    - `is_origin`: Whether this pair is the Thread's unique creation placement.
-    - `locator`: Decoded current-range origin coordinates, otherwise absent.
-    """
     private_locator = None
     if locator is not None:
         assert isinstance(placement, RangePlacement)
@@ -924,31 +481,8 @@ def _derive_record(
     target_files_by_pair: dict[FilePair, SnapshotFileRecord],
     cache: ReviewReadCache,
 ) -> Placement:
-    """Derive one immutable Thread placement directly from its unique origin.
-
-    The caller has already resolved the origin's Snapshot File and decoded the
-    origin's private coordinates. `locator` is required for a range origin and is
-    `None` for a File-start one, which retains none. An origin is never
-    `FileMissingPlacement`, because a discussion is created against a File that
-    exists.
-
-    # Parameters
-
-    - `origin`: Unique immutable range or retained historical File origin.
-    - `locator`: Verified private coordinates required for a range origin.
-    - `origin_file`: Captured File the origin row references.
-    - `target_snapshot_id`: New code universe receiving the derived placement.
-    - `target_files_by_pair`: Target Files indexed by the exact origin pair.
-    - `cache`: Operation-scoped composed-bay cache shared across derivations.
-    """
 
     def file_start(side: Literal["left", "right"]) -> FileStartPlacement:
-        """Build the File-side landing used when the selected side has no bay.
-
-        It is invoked only after a matching target File has been found and
-        composition supplied no bay containing that side. The result records
-        `bay_not_found` and retains the origin side without inventing a key.
-        """
         assert target_file is not None
         return FileStartPlacement(
             thread_id=origin.thread_id,
@@ -1098,13 +632,6 @@ def origin_target_view(
     origin: RangePlacement | FileStartPlacement,
     file: SnapshotFileRecord,
 ) -> ReviewOriginView:
-    """Reconstruct the immutable public creation target from retained facts.
-
-    # Parameters
-
-    - `origin`: Proven range or historical File-start origin placement.
-    - `file`: Exact captured origin File providing its public path pair.
-    """
     origin_pair = file_pair(file)
     pair: ReviewFilePairView = {
         "left_path": origin_pair.left_path.get(),
@@ -1130,28 +657,6 @@ def build_original_excerpt(
     origin_file: SnapshotFileRecord,
     cache: ReviewReadCache,
 ) -> ReviewExcerptView:
-    """Return the selected origin lines with three surrounding lines.
-
-    Creation calls this before persistence so every accepted text target can
-    satisfy the mandatory Thread response. Thread reads call the same operation
-    so the response cannot drift from the creation boundary. Absolute line
-    coordinates identify the selected subrange inside this bounded selected-
-    side source without involving a diff renderer or line alignment.
-
-    # Parameters
-
-    - `origin`: Immutable selected range and bay coordinate.
-    - `origin_file`: Captured File retaining the selected side bytes.
-    - `cache`: Read-scoped composition shared with other Thread views.
-
-    # Failures
-
-    - Raises `ReviewError` with code `invalid_target` when the origin bay or side
-      is absent or the selected end line exceeds the original bay text.
-    - Raises `AssertionError` if `_selected_bay` returns a bay without the side
-      it just required. Capture and filesystem failures propagate while the bay
-      is composed.
-    """
 
     selected_start = origin.start_line
     selected_end = origin.end_line
@@ -1194,34 +699,6 @@ def derive_room_threads(
     identity: RoomIdentity,
     target_snapshot: SnapshotRecord,
 ) -> tuple[ReviewThreadRecord, ...]:
-    """Place only Room Threads absent from one target Snapshot.
-
-    # Parameters
-
-    - `database`: Persistence supplying missing origins and referenced Files.
-    - `identity`: Room whose complete discussion set is considered.
-    - `target_snapshot`: Fully captured new Snapshot receiving placements.
-
-    The function returns immutable rows for publication and writes nothing.
-
-    # Usage
-
-    Call during publication of a genuinely new Snapshot, after its complete
-    File records exist in memory and before the database publication. Pass the
-    returned rows to `RoomStore.publish` with that same Snapshot.
-
-    # Returns
-
-    - `Members`: One immutable target-Snapshot placement for each discussion
-      missing there; discussions already placed in the Snapshot are absent.
-    - `Order`: Placements follow File pair, side, bay, and Thread id so adjacent
-      derivations can reuse source parses.
-
-    # Failures
-
-    - Raises `AssertionError` when an origin File is missing, a derived placement
-      contradicts the target Snapshot, or persisted origin data is malformed.
-    """
     origins = {
         origin.placement.thread_id: origin
         for origin in database.review_origins_missing(
@@ -1339,55 +816,10 @@ def _origin_record(
     file: SnapshotFileRecord,
     cache: ReviewReadCache,
 ) -> tuple[RangePlacement, _Locator]:
-    """Build one unique origin and the private coordinates that retain it.
-
-    The coordinates are returned beside the placement rather than inside it,
-    because only persistence and later derivation read them.
-
-    # Parameters
-
-    - `command`: Validated new-Thread target and generated identities.
-    - `snapshot_id`: Exact immutable Snapshot in which the origin is created.
-    - `file`: Captured File matching the command's exact path pair.
-    - `cache`: Operation-scoped composition shared with excerpt validation.
-
-    # Returns
-
-    - `First`: The immutable public origin coordinates in the selected Snapshot
-      File and bay.
-    - `Second`: Private region hash, byte bounds, and structural segments used
-      only to derive later placements.
-
-    # Failures
-
-    - Raises `ReviewError` with code `invalid_target` when the bay or selected
-      side is absent, a non-text bay is addressed by anything except `1..1`, the
-      range exceeds the bay text, or no source region contains the range.
-    - Raises `AssertionError` if a bay accepted for the selected side yields no
-      text. Capture, digest, and filesystem failures propagate from composition.
-    """
 
     def origin_region(
         path: str, text: str, selected: LineRange
     ) -> _SourceRegion:
-        """Choose the smallest source region containing the selected range.
-
-        # Parameters
-
-        - `path`: Selected bay hint used for structural parser choice.
-        - `text`: Complete selected-side bay source.
-        - `selected`: Positive bay-local range that the region must contain.
-
-        # Usage
-
-        Call only after composition has selected the exact bay-side text. The
-        returned region becomes part of the immutable origin locator.
-
-        # Failures
-
-        - Raises `ReviewError` when the range exceeds the source or no parser
-          region contains it.
-        """
         line_count = len(text.splitlines())
         if selected.end_line > line_count:
             raise ReviewError(
@@ -1468,39 +900,6 @@ def plan_thread_creation(
     target_file: Optional[SnapshotFileRecord],
     cache: ReviewReadCache,
 ) -> tuple[tuple[ReviewThreadRecord, ...], ReviewActionInput]:
-    """Validate and build immutable rows for one new discussion.
-
-    The caller holds the Room write lock and supplies the focused lookup
-    result for the command's target pair; `None` means the pair named no
-    captured File and is rejected here, so the absence check lives in one
-    place. This operation performs no insert so one or several planned
-    creations can join a larger database transaction.
-
-    # Parameters
-
-    - `command`: New discussion identities, author, target, and first Comment.
-    - `created_at`: One serialized UTC time shared by the first action.
-    - `snapshot_id`: Exact origin Snapshot key in persistence form.
-    - `target_file`: Focused pair lookup result, or `None` when absent.
-    - `cache`: Operation-scoped composition reused by target validation and
-      original-excerpt proof.
-
-    # Returns
-
-    - `First`: The one origin placement row, wrapped for the persistence API that
-      also accepts derived placement collections.
-    - `Second`: Sequence-zero Thread creation and first Comment, using the same
-      identities and timestamp as the validated command.
-
-    # Failures
-
-    - Raises `ReviewError` with code `invalid_target` when the target File is
-      absent, the first Comment is blank, or the target bay, side, or range is
-      not reviewable in the origin Snapshot.
-    - Propagates capture, digest, filesystem, and persisted-data failures from
-      origin construction and mandatory excerpt proof. No row has been inserted
-      when validation fails.
-    """
     # The absence rejection precedes body validation: callers historically
     # resolved the target before planning, so a doubly-invalid creation
     # reports the absent File, not the blank body.

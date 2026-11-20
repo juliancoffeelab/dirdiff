@@ -1,23 +1,3 @@
-"""Prepare Git refs and read one selected Git Tab's File sides.
-
-## Public interface
-
-`GitRepository` resolves refs and Branch Review sides without exposing File
-storage. `GitChangeSource` lists and loads the Files selected by prepared sides.
-`ref_choices` and `preferred_review_selection` turn one metadata read into
-Branch Review picker values.
-
-## Purpose and boundaries
-
-Git is the VCS implemented by this source.
-The source returns materialized bytes; RoomLord decides Snapshot identity and
-publication. This module does not decode formats, render content, or download
-LFS objects.
-
-*Implementation detail:* Private storage handles Git output, batch object
-loading, and local Git LFS pointers.
-"""
-
 from __future__ import annotations
 
 import os
@@ -63,44 +43,19 @@ __all__ = [
 ]
 
 _LARGE_CHANGED_LINES_LAZY_THRESHOLD = 5000
-"""Changed-line count above which Git-backed Files start lazy.
-
-`list_changes` compares each tracked File's numstat additions plus removals against
-this strict threshold. Binary Files have no numeric count and are unaffected.
-"""
 
 SYMLINK_MODE = "120000"
-"""Git mode identifying raw link payloads during parsing and LFS inspection."""
 
 GITLINK_MODE = "160000"
-"""Git's tree mode for a gitlink: a submodule or embedded repository entry.
-
-A gitlink names one commit of another repository and has no blob. Git storage
-loads such a side as that commit id, so the mode never leaves `_GitWorkspace`
-and is translated into semantic repository-reference properties at discovery.
-"""
 
 _LFS_POINTER_RE = re.compile(
     rb"version (https://(?:git-lfs|hawser)\.github\.com/spec/v[0-9]+)\n"
     rb"((?:ext-[0-9]+-[a-z0-9.-]+ sha256:[0-9a-f]{64}\n)*)"
     rb"oid sha256:([0-9a-f]{64})\nsize (0|[1-9][0-9]*)\n"
 )
-"""Recognize complete SHA-256 pointers before deciding whether to expand them.
-
-Groups hold the version URL, extension lines, object id, and declared size.
-Only canonical v1 without extensions is expanded; other recognized versions
-and transformations fail explicitly. Nonmatching bytes remain raw File content,
-including text that merely starts with an LFS version line. Callers limit
-pointer inspection to files smaller than 1024 bytes and preserve raw links.
-"""
 
 
 def _properties_for_mode(mode: str) -> FileProperties:
-    """Translate Git's closed entry-mode set at the storage boundary.
-
-    Raw listing records and reached-path inspection both use this mapping.
-    Unsupported Git modes assert rather than becoming invented File kinds.
-    """
     assert mode in {"100644", "100755", "120000", "160000"}
     return FileProperties(
         "symbolic_link"
@@ -113,11 +68,6 @@ def _properties_for_mode(mode: str) -> FileProperties:
 
 
 def _local_default_base_branch_name(metadata: RefMetadata) -> str:
-    """Choose a conventional local base when no remotes are configured.
-
-    `main` takes precedence over `master`. An empty result means neither branch
-    appears in the supplied metadata snapshot.
-    """
     if "main" in metadata["local_branches"]:
         return "main"
     if "master" in metadata["local_branches"]:
@@ -126,12 +76,6 @@ def _local_default_base_branch_name(metadata: RefMetadata) -> str:
 
 
 def _default_branch_review_remote_name(metadata: RefMetadata) -> str:
-    """Choose the remote used to derive the initial Branch Review base.
-
-    The current branch's upstream wins, then `origin`, then the sole configured
-    remote. Multiple remaining choices produce an empty result for the HUD to
-    reject instead of inventing a remote.
-    """
     upstream = metadata["upstreams"].get(metadata["current_branch"], "")
     for remote_name in sorted(metadata["remote_names"], key=len, reverse=True):
         if upstream.startswith(f"{remote_name}/"):
@@ -144,17 +88,6 @@ def _default_branch_review_remote_name(metadata: RefMetadata) -> str:
 
 
 def ref_choices(metadata: RefMetadata) -> RefChoices:
-    """Shape one metadata snapshot into `/api/repo-refs` control choices.
-
-    # Usage
-
-    Pass the value from `dirdiff.change_source.GitRepository.read_ref_metadata`. The server shares that
-    same value with default-selection derivation so both controls describe one
-    caller operation.
-
-    The typed record must contain every `RefMetadata` field. This function
-    performs no I/O and has no expected domain failures.
-    """
     return {
         "builtins": ["HEAD", "index", "worktree"],
         "local_branches": list(metadata["local_branches"]),
@@ -172,29 +105,6 @@ def ref_choices(metadata: RefMetadata) -> RefChoices:
 def preferred_review_selection(
     metadata: RefMetadata, *, base_selection: DefaultBaseSelection
 ) -> BranchSelection:
-    """Choose the initial review branch relative to the selected base.
-
-    Pure derivation from one metadata snapshot. Callers pass the base
-    actually shown to the user (the saved main branch or the derived
-    default) so the review choice never defaults to the base itself.
-
-    # Parameters
-
-    - `metadata`: One repository observation shared with base selection.
-    - `base_selection`: `Ok` containing the saved or inferred base, or `Err`
-      containing the heuristic failure shown by the HUD.
-
-    # Usage
-
-    Pass the same metadata used to choose `base_selection`. The server publishes
-    the result as the initial review-side control value.
-
-    # Returns
-
-    - With no branch metadata, an empty local branch selection.
-    - Otherwise, a populated local branch selection. If every branch matches
-      the base, the result may name that branch.
-    """
     branch_names = metadata["local_branches"]
     if branch_names == []:
         return {"source": "local", "branch": ""}
@@ -216,41 +126,11 @@ def preferred_review_selection(
 
 
 class _GitWorkspace(WorkspaceStorageProtocol):
-    """Expose one Git repository through `WorkspaceStorageProtocol`.
-
-    # Usage
-
-    Construct it with `discover`, normalize user input with `normalize_side`,
-    then pass those sides to `list_changes`. Load the returned path sides with
-    `load_version` or `load_versions`. Branch Review uses
-    `read_ref_metadata`, `default_base_selection`, and
-    `resolve_branch_diff_sides` before source capture.
-
-    The instance stores its repository and command directories. It does not
-    cache Git state, change refs, publish Snapshots, or classify file formats.
-    """
-
     def __init__(self, repo_root: Path | None) -> None:
-        """Bind storage to an exact Git root, or absence after discovery."""
         self._repo_root = repo_root.resolve() if repo_root is not None else None
 
     @property
     def repo_root(self) -> Path | None:
-        """The Git worktree root supplied to this repository storage, if any.
-
-        Uses a stored variable, never changes and never does any work.
-
-        # Usage
-        You will want to construct `_GitWorkspace` using `_GitWorkspace.discover`
-        class method. It uses explicit `repo_root` when provided, or calls git
-        to infer a repository root when omitted.
-
-        Then you can just access the field.
-
-        # Returns
-        - An absolute path to the repository root.
-        - `None` if we we failed to find repository root.
-        """
         # TODO: probably extremely unsafe.
         # We must ensure that `_GitWorkspace.discover` returns a real root we
         # expect, and asserts invalid combinations.
@@ -264,28 +144,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         *,
         repo_root: Path | None = None,
     ) -> _GitWorkspace:
-        """Discover a Git repository from an explicit root or working directory.
-
-        # Parameters
-
-        - `cwd`: Directory in which implicit Git repository discovery runs.
-        - `repo_root`: Explicit repository root that skips Git discovery.
-
-        # Usage
-
-        Server and test setup normally pass `cwd` and let Git find the worktree.
-        Pass `repo_root` only when the caller already selected the repository.
-
-        # Returns
-
-        A storage instance bound to the selected root. Failed implicit
-        discovery returns an instance with `repo_root=None`, not an exception.
-
-        # Failures
-
-        - Filesystem resolution or process-launch failures propagate from
-          `Path.resolve` or `subprocess.run`.
-        """
         working_dir = (cwd or Path.cwd()).resolve()
         if repo_root is not None:
             return cls(Path(repo_root).expanduser().resolve())
@@ -310,22 +168,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         *,
         check: bool = True,
     ) -> subprocess.CompletedProcess[bytes]:
-        """Run Git at this storage's selected root and return bytes.
-
-        # Parameters
-
-        - `args`: Git arguments after the executable name.
-        - `check`: Whether a nonzero exit raises `subprocess.CalledProcessError`.
-
-        # Returns
-
-        - `stdout` and `stderr` contain the process's complete captured byte
-          streams without decoding.
-        - `returncode` is zero after a checked invocation succeeds. With
-          `check=False`, it retains Git's nonzero status for the caller to test.
-
-        A missing repository raises `DirdiffError` before starting a process.
-        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
@@ -341,23 +183,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         *,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
-        """Run Git at this storage's selected root and return decoded text.
-
-        # Parameters
-
-        - `args`: Git arguments after the executable name.
-        - `check`: Whether a nonzero exit raises `subprocess.CalledProcessError`.
-
-        # Returns
-
-        - `stdout` and `stderr` contain the complete streams decoded through
-          Python's text-mode subprocess handling.
-        - `returncode` is zero after a checked invocation succeeds. With
-          `check=False`, it retains Git's nonzero status for the caller to test.
-
-        The subprocess uses Python's text decoding. A missing repository raises
-        `DirdiffError` before starting it.
-        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         return subprocess.run(
@@ -369,21 +194,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         )
 
     def normalize_side(self, raw_side: str) -> SideName:
-        """Normalize a built-in side or verify an explicit commit-like Git ref.
-
-        Whitespace is stripped. Built-in sides need no repository, while custom
-        refs require one and must resolve through `rev-parse`.
-
-        # Usage
-
-        Normalize each user-facing side once, then pass the result back to this
-        storage's listing and loading methods.
-
-        # Failures
-
-        - Blank input, a custom ref without a repository, or an unknown ref
-          raises `DirdiffError`.
-        """
         side = raw_side.strip()
         if side == "":
             raise DirdiffError("Diff side is required.")
@@ -404,13 +214,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         return side
 
     def empty_tree_id(self) -> str:
-        """Return the repository-format empty-tree hash without writing an object.
-
-        # Failures
-
-        - Process-launch or decoding failures raise; an empty answer from Git
-          is an assertion failure.
-        """
         empty_tree = self._run_git_text(
             ["hash-object", "-t", "tree", os.devnull]
         ).stdout.strip()
@@ -418,27 +221,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         return empty_tree
 
     def commit_id(self, side: SideName, *, allow_unborn: bool = False) -> str:
-        """Return a commit id, or the empty-tree hash for allowed unborn HEAD.
-
-        The empty-tree hash uses the repository's object format and does not
-        write an object.
-
-        # Parameters
-
-        - `side`: Commit-like Git side to resolve.
-        - `allow_unborn`: Permit the Head Tab's absent HEAD as Empty.
-
-        # Usage
-
-        Concrete source setup uses this after side normalization to replace
-        a symbolic commit-like side with immutable identity.
-
-        # Failures
-
-        - Blank input, mutable `index` or `worktree`, a missing repository,
-          and unknown or non-commit refs raise `DirdiffError`, except an
-          allowed unresolved HEAD.
-        """
         normalized = side.strip()
         if normalized == "":
             raise DirdiffError("Diff side is required.")
@@ -458,27 +240,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         return commit_id
 
     def read_ref_metadata(self) -> RefMetadata:
-        """Read the branch and remote metadata used by one caller operation.
-
-        Two Git reads (`remote` and one `for-each-ref` across `refs/heads`
-        and `refs/remotes`, whose `%(HEAD)` marker also identifies the
-        current branch) produce every value the branch-control derivations
-        need. Callers share the returned value between default and choice
-        derivation instead of repeating those reads. Repository state can change
-        between the two Git commands; this method does not lock the repository.
-
-        # Usage
-
-        Read once per defaults or choices operation, then pass the returned
-        record to `default_base_selection`, `preferred_review_selection`, and
-        `ref_choices` as needed.
-
-        # Failures
-
-        - Without a repository, or when either non-checking Git probe fails,
-          the affected fields are empty rather than exceptional.
-        - Process-launch and decoding failures still propagate.
-        """
         if self.repo_root is None:
             return {
                 "current_branch": "",
@@ -573,23 +334,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
     def default_base_selection(
         self, metadata: RefMetadata
     ) -> DefaultBaseSelection:
-        """Choose the initial branch-review base from one metadata snapshot.
-
-        # Usage
-
-        Pass a fresh `read_ref_metadata` result. The server stores or publishes
-        the returned selection before deriving the preferred review side.
-
-        # Failures
-
-        - If metadata cannot identify one safe base, return
-          `Err({"kind": "error", "error": "heuristic_fail"})`.
-        - When a remote lacks a local HEAD symbolic ref, `git remote show` may
-          contact the network; command failure also produces the error result.
-        - A caller-supplied metadata record naming remotes on storage without
-          a repository raises `DirdiffError` when that remote lookup is
-          needed.
-        """
         if metadata["remote_names"] != []:
             default_remote = _default_branch_review_remote_name(metadata)
             if default_remote == "":
@@ -615,11 +359,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         return Ok({"source": "local", "branch": base_branch})
 
     def _remote_show_head_branch_name(self, remote_name: str) -> str:
-        """Ask a remote for its HEAD branch when no local symbolic ref exists.
-
-        `git remote show` may contact the network. Command failure, absent output,
-        and Git's `(unknown)` marker all produce an empty result.
-        """
         result = self._run_git_text(
             ["remote", "show", remote_name],
             check=False,
@@ -640,31 +379,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         base_selection: BranchSelection,
         review_selection: BranchSelection,
     ) -> tuple[str, str, str, str]:
-        """Resolve branch labels once into immutable capture commits.
-
-        # Parameters
-
-        - `base_selection`: Local or remote base branch selected by the caller.
-        - `review_selection`: Local or remote branch whose changes are reviewed.
-
-        # Usage
-
-        Branch Review capture calls this after the HUD supplies two structured
-        selections. Use the returned labels for presentation and the two commit
-        ids for immutable capture.
-
-        # Returns
-
-        - First, the base display label preserving its local or remote spelling.
-        - Second, the immutable merge-base commit used as capture's left side.
-        - Third, the review display label preserving its selected spelling.
-        - Fourth, the immutable review-head commit used as capture's right side.
-
-        # Failures
-
-        - Missing repositories, unresolved refs, non-commit targets, and
-          branches without a merge base raise `DirdiffError`.
-        """
         base_name = base_selection["branch"]
         base_branch = (
             base_name
@@ -730,24 +444,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         self,
         output: bytes,
     ) -> tuple[dict[str, tuple[int, int]], int | None, int | None]:
-        """Return authoritative per-path counts from Git's NUL output.
-
-        Rename records use an empty path in the count token followed by old and
-        new paths; the result is keyed by the new path used by manifest. Binary
-        records are absent from the mapping and make both aggregate totals
-        unavailable. Malformed records raise `DirdiffError`; invalid UTF-8 paths
-        raise `UnicodeDecodeError`.
-
-        # Returns
-
-        - First, per-path counts keyed by the manifest's current path. In each
-          mapping value, the first item is added lines and the second is removed
-          lines; binary paths are absent.
-        - Second, total additions over all records, or `None` when any binary
-          record prevents Git from supplying complete line totals.
-        - Third, total removals over all records, or `None` under that same
-          binary condition. Both totals always have equal presence.
-        """
         tokens = output.split(b"\0")
         if tokens != [] and tokens[-1] == b"":
             tokens = tokens[:-1]
@@ -796,13 +492,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         )
 
     def _list_untracked_worktree_paths(self) -> list[ListedPath]:
-        """List untracked, non-ignored worktree Files as right-only additions.
-
-        Git's NUL-delimited path order is preserved. An untracked embedded
-        repository is listed like any other entry, with gitlink mode. A missing
-        repository or Git command failure propagates instead of returning an
-        incomplete list.
-        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
 
@@ -840,39 +529,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         right: SideName,
         show_untracked: bool = False,
     ) -> ListedChanges:
-        """Return Git-changed paths and aggregate tracked line counts.
-
-        `show_untracked` applies when the worktree is the right side. The left
-        side may already be a frozen commit id supplied by source setup;
-        callers must not need to retain the symbolic `HEAD` spelling merely to
-        include untracked worktree files.
-
-        # Parameters
-
-        - `left`: Normalized Git side used as the left input.
-        - `right`: Normalized Git side used as the right input.
-        - `show_untracked`: Whether a right-side worktree adds untracked Files.
-
-        # Usage
-
-        Pass sides normalized by this instance. `SourceFiles` uses the returned
-        properties and object ids to acquire exactly the observed versions.
-
-        # Returns
-
-        - `ListedChanges.paths` contains Git changes and any selected untracked
-          Files in presentation order.
-        - `ListedChanges.added_lines` and `removed_lines` contain tracked totals
-          or are both absent when complete counts are unavailable.
-
-        *Implementation detail:* Git numstat supplies tracked line totals; a
-        binary record makes both totals unavailable.
-
-        # Failures
-
-        - A missing repository, failed Git command, malformed raw or numstat
-          output, or invalid UTF-8 path raises.
-        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         if left == right:
@@ -911,17 +567,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         # Git emits every raw record before the numstat section. Each record
         # supplies both paths and storage facts for one complete ListedPath.
         def object_id_or_none(raw: bytes) -> str | None:
-            """Decode a raw Git object id when that File side has an object.
-
-            Git writes an all-zero field for an absent or worktree-only object;
-            that sentinel becomes `None`. Other fields must be ASCII object ids.
-
-            # Returns
-
-            - The decoded object id for a stored Git object.
-            - `None`: Git supplied its all-zero sentinel, so this absent or
-              worktree-only side has no stored object id for capture to retain.
-            """
             text = raw.decode("ascii")
             return None if set(text) <= {"0"} else text
 
@@ -1032,22 +677,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
     @override
     def normalize_repo_path(self, raw_path: str) -> str:
-        """Normalize the relative POSIX spelling used by Git File operations.
-
-        Blank, directory-shaped, absolute, and repo-escaping paths raise
-        `DirdiffError`. Inner `.` and `..` components are collapsed so link
-        targets receive one canonical repository identity before loop checks.
-
-        # Usage
-
-        Pass paths returned by Git or formed while following a repository link.
-        The returned spelling is safe to use as a literal Git path.
-
-        # Failures
-
-        - Missing repository state and the rejected shapes above raise
-          `DirdiffError`.
-        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         if raw_path.strip() == "":
@@ -1067,26 +696,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         return normalized
 
     def file_mode(self, path: str, side: SideName) -> str:
-        """Return one normalized path's Git-compatible File mode.
-
-        Worktree inspection uses `lstat`, so a link is classified without
-        following it. A worktree directory holding a `.git` entry is an
-        embedded repository and reports gitlink mode `160000`. Index and tree
-        sides ask Git for the exact literal path and report its recorded mode,
-        including a gitlink; plain directories, missing paths, and malformed
-        output are refused.
-
-        # Parameters
-
-        - `path`: Normalized repository path to inspect without following it.
-        - `side`: Worktree, index, or Git tree/ref containing the path.
-
-        # Failures
-
-        - Raises `DirdiffError` when the path does not identify a regular
-          file, executable file, symbolic link, or gitlink on the selected
-          side.
-        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         normalized = self.normalize_repo_path(path)
@@ -1158,39 +767,10 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
     @override
     def file_properties(self, path: str, side: SideName) -> FileProperties:
-        """Return semantic properties for one reached Git path without following links.
-
-        # Parameters
-
-        - `path`: Canonical listed or reached repository path.
-        - `side`: Selected Git state containing that path.
-
-        Missing or unsupported entries raise `DirdiffError` through Git mode
-        inspection. Raw Git modes remain private to this implementation.
-        """
         return _properties_for_mode(self.file_mode(path, side))
 
     @override
     def file_size(self, path: str, side: SideName) -> int:
-        """Return materialized size without loading a File's LFS payload.
-
-        Worktree inspection uses `lstat`, so regular-file size does not follow
-        links; link size is the byte length of Git's raw link payload. Index and
-        tree sides ask `cat-file --batch-check` for blob metadata. Small regular
-        blobs are inspected for an LFS pointer; its declared size is verified
-        against the actual payload when content is loaded. Links stay raw. A
-        gitlink reports the length of its commit id line on every side.
-
-        # Parameters
-
-        - `path`: Normalized repository path to inspect without reading it.
-        - `side`: Worktree, index, or Git tree/ref containing the path.
-
-        # Failures
-
-        - Missing repository state, missing paths, unsupported File kinds,
-          non-blob Git objects, and malformed Git output raise `DirdiffError`.
-        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         normalized = self.normalize_repo_path(path)
@@ -1297,32 +877,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
     @override
     def load_version(self, path: str, side: SideName) -> bytes:
-        """Return materialized contents from the worktree, index, or a Git tree.
-
-        On every side, a symlink loads as Git records it, a blob holding the raw
-        link target. A gitlink loads as its referenced commit id, one text
-        line. Regular LFS pointers load their size-checked local objects.
-        This delegates to the batch operation so both entry points share the
-        same storage and failure rules.
-
-        # Parameters
-
-        - `path`: Normalized repository path reported by `list_changes` or reached
-          through a captured link.
-        - `side`: Worktree, index, or Git tree/ref to read from.
-
-        # Usage
-
-        Load a present side path from this repository storage. Capture may use
-        `load_versions` instead when several outer sides are needed.
-
-        # Failures
-
-        - Missing repository state, missing or plain-directory worktree
-          content, unreadable regular-file bytes or links, an embedded
-          repository without a HEAD commit, and non-blob, non-gitlink or
-          absent Git objects raise `DirdiffError`.
-        """
         result = self.load_versions(((path, side, None, None),))[0]
         return result.or_raise()
 
@@ -1330,46 +884,6 @@ class _GitWorkspace(WorkspaceStorageProtocol):
     def load_versions(
         self, sides: tuple[StorageFile, ...]
     ) -> tuple[Result[bytes, DirdiffError], ...]:
-        """Load captured sides with one Git object-content subprocess.
-
-        Worktree bytes are read directly. Listed immutable sides use their
-        exact observed object ids in one `cat-file --batch` invocation, even
-        when the index has changed. Unlisted inputs use path expressions.
-        Discovered properties preserve raw links; only unlisted LFS candidates
-        need additional batched mode inspection through literal pathspecs.
-        Regular LFS pointers load local objects after bounded size checks.
-        Storage configuration is read once per batch containing LFS content;
-        no downloading, filters, or worktree writes occur.
-
-        A gitlink side loads as its referenced commit id followed by a newline,
-        the exact content Git records for that entry. A worktree embedded
-        repository reads its own HEAD through its explicit Git directory; a
-        tree or index gitlink takes the id from the tree record, because the
-        referenced commit is usually absent from this repository's objects.
-        Nothing inside the referenced repository is read.
-
-        # Usage
-
-        Source observation supplies `dirdiff.change_source.base.StorageFile`
-        values with canonical paths, selected states, discovered properties,
-        and any exact object ids.
-        Reached or raw unlisted reads leave the last two facts absent.
-
-        # Returns
-
-        - Each item corresponds to one input side, preserving input order so
-          capture can attach each result without another identity key.
-        - An `Ok[bytes]` item holds exact content for that File side.
-        - An `Err[DirdiffError]` item describes only that unavailable side;
-          successful sibling results remain available.
-
-        # Failures
-
-        - Missing individual sides become `Err[DirdiffError]` values in input
-          order.
-        - Missing repository state, batch-process failure, or malformed batch
-          output raises `DirdiffError` for the complete operation.
-        """
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         # None marks an unfilled batch slot; every input must produce a Result.
@@ -1748,184 +1262,35 @@ class _GitWorkspace(WorkspaceStorageProtocol):
 
 
 class GitRepository:
-    """Prepare Git revision inputs and picker choices for a selected repository.
-
-    # Usage
-
-    Obtain an instance with `discover` or construct one from a known repository
-    root. Picker callers read `read_ref_metadata` once, then pass that record to
-    `ref_choices`, `default_base_selection`, and `preferred_review_selection`.
-
-    Capture setup validates revision controls with `normalize_side` and freezes
-    commit-backed selections with `commit_id`. Branch Review uses
-    `resolve_branch_diff_sides` to prepare both commits together. Pass the resulting
-    commits or explicit `index`/`worktree` sides to `GitChangeSource`.
-
-    The instance keeps the repository location, not a selected Tab or an observation.
-    Preparation reads current Git state as needed; the instance does not retain
-    ref metadata between calls.
-    """
-
     def __init__(self, repo_root: Path | None) -> None:
-        """Bind ref preparation to a supplied repository location.
-
-        # Parameters
-
-        - `repo_root`: Repository root, or `None` after a failed implicit
-          discovery. Direct construction does not inspect Git state; later
-          operations that require a repository report its absence.
-        """
         self._workspace = _GitWorkspace(repo_root)
 
     @classmethod
     def discover(
         cls, cwd: Path | None = None, *, repo_root: Path | None = None
     ) -> GitRepository:
-        """Discover a Git worktree or bind an explicit root.
-
-        # Parameters
-
-        - `cwd`: Directory in which implicit `git rev-parse` runs. Without it,
-          discovery starts in the process working directory.
-        - `repo_root`: Explicit root that skips the Git discovery command.
-
-        # Returns
-
-        - `GitRepository` with an absolute root when discovery succeeds or an
-          explicit root was supplied.
-        - `GitRepository` with `repo_root=None` when implicit discovery finds
-          no worktree. Callers needing capture must reject that state.
-
-        # Failures
-
-        - Filesystem resolution and process-launch failures propagate.
-        """
         workspace = _GitWorkspace.discover(cwd=cwd, repo_root=repo_root)
         return cls(workspace.repo_root)
 
     @property
     def repo_root(self) -> Path | None:
-        """Return the stable absolute root without filesystem work.
-
-        Git-specific callers can use the selected or discovered location for
-        source construction. The value cannot change after construction.
-
-        # Returns
-
-        - `Path`: Absolute selected or discovered Git worktree root.
-        - `None`: Implicit discovery found no Git worktree. Access itself does
-          not fail or probe the filesystem.
-        """
         return self._workspace.repo_root
 
     def normalize_side(self, raw_side: str) -> SideName:
-        """Validate a revision control and return its trimmed spelling.
-
-        # Parameters
-
-        - `raw_side`: `HEAD`, `index`, `worktree`, or a Git ref resolving to a commit.
-          Leading and trailing whitespace is removed.
-
-        # Usage
-
-        Validate each Refs control before source construction. Commit-backed controls
-        still need `commit_id` to freeze their contents; the returned spelling can move
-        as Git refs change. `index` and `worktree` can be supplied directly to
-        `GitChangeSource`.
-
-        # Returns
-
-        The validated spelling, not its resolved object id. Built-in sides are accepted
-        without checking their current availability.
-
-        # Failures
-
-        - Blank or unknown refs raise `DirdiffError`.
-        - A custom ref without a repository raises `DirdiffError`.
-        - Process-launch failures propagate.
-        """
         return self._workspace.normalize_side(raw_side)
 
     def empty_tree_id(self) -> str:
-        """Return the repository-format empty-tree id; it writes no Git object.
-
-        # Usage
-
-        A Head review of an unborn HEAD records this id as its baseline, so
-        callers use it to recognize that baseline before validating any other
-        baseline with `commit_id`.
-
-        # Failures
-
-        - Process-launch or decoding failures propagate.
-        """
         return self._workspace.empty_tree_id()
 
     def commit_id(self, side: SideName, *, allow_unborn: bool = False) -> str:
-        """Freeze a commit-backed revision control to its complete object id.
-
-        # Parameters
-
-        - `side`: Commit-backed Git ref or id to freeze. Whitespace is stripped.
-        - `allow_unborn`: Allow unresolved `HEAD` and return the repository-format
-          empty-tree id for an empty baseline. Other missing refs still fail.
-
-        # Usage
-
-        Call after validating revision controls, then construct `GitChangeSource` with
-        the returned immutable id. Do not call for explicit `index` or `worktree` sides.
-
-        # Returns
-
-        A complete commit id, or the empty-tree id for allowed unresolved `HEAD`.
-        Computing that empty-tree id writes no Git object.
-
-        # Failures
-
-        - Blank input, `index`, `worktree`, or an absent repository raises `DirdiffError`.
-        - An unknown or non-commit ref raises `DirdiffError`, except allowed unresolved
-          `HEAD`.
-        - Process-launch or decoding failures propagate.
-        """
         return self._workspace.commit_id(side, allow_unborn=allow_unborn)
 
     def read_ref_metadata(self) -> RefMetadata:
-        """Read current Git choices for revision and Branch Review controls.
-
-        # Usage
-
-        Use one returned record for `ref_choices`, `default_base_selection`, and
-        `preferred_review_selection`, so those derivations share the same metadata.
-        A new call reads Git again; the object does not refresh an earlier record.
-
-        # Returns
-
-        A `RefMetadata` with local branches, named remotes, remote branches, current
-        branch, upstream, and locally known default-branch facts. Without a repository,
-        all fields are empty. A failed non-checking Git probe leaves its affected fields
-        empty. The underlying reads can observe different moments if Git changes.
-
-        # Failures
-
-        - Process-launch and decoding failures propagate.
-        """
         return self._workspace.read_ref_metadata()
 
     def default_base_selection(
         self, metadata: RefMetadata
     ) -> DefaultBaseSelection:
-        """Choose a Branch Review base from one `read_ref_metadata` result.
-
-        A remote without a locally known default branch may require
-        `git remote show` and can contact the network. When no safe base is
-        known, the result is the explicit `heuristic_fail` variant.
-
-        # Returns
-
-        - `Ok` contains the suggested local or named-remote base branch.
-        - `Err` contains `heuristic_fail` when no safe default could be chosen;
-          the picker must leave that choice to the user.
-        """
         return self._workspace.default_base_selection(metadata)
 
     def resolve_branch_diff_sides(
@@ -1934,25 +1299,6 @@ class GitRepository:
         base_selection: BranchSelection,
         review_selection: BranchSelection,
     ) -> tuple[str, str, str, str]:
-        """Freeze symbolic Branch Review selections to labels and commits.
-
-        # Parameters
-
-        - `base_selection`: Local or named-remote base branch.
-        - `review_selection`: Local or named-remote reviewed branch.
-
-        # Returns
-
-        - First, the selected base label for the HUD.
-        - Second, the complete merge-base commit for capture's left side.
-        - Third, the selected review label for the HUD.
-        - Fourth, the complete review-head commit for capture's right side.
-
-        # Failures
-
-        - Missing branches, missing history, and absent merge base raise
-          `DirdiffError`.
-        """
         return self._workspace.resolve_branch_diff_sides(
             base_selection=base_selection,
             review_selection=review_selection,
@@ -1960,52 +1306,6 @@ class GitRepository:
 
 
 class GitChangeSource(ChangeSourceProtocol):
-    """Observe one selected Git Tab and supply its exact File data.
-
-    Implements `dirdiff.change_source.ChangeSourceProtocol`. See that protocol
-    for the observation-to-load workflow, result ordering, and source lifetime.
-
-    # Usage
-
-    Here `root` is the selected repository root, and `left_ref` and `right_ref`
-    are selected commit-backed revision controls. The active Mark for that root
-    supplies `mark_id` to RoomLord:
-
-    ```python
-    from dirdiff.change_source import GitChangeSource, GitRepository
-    from dirdiff.room_lord import RevisionsCaptureSelection
-
-    repository = GitRepository(root)
-    left = repository.commit_id(repository.normalize_side(left_ref))
-    right = repository.commit_id(repository.normalize_side(right_ref))
-    source = GitChangeSource(
-        root,
-        left=left,
-        right=right,
-        show_untracked=False,
-        max_link_target_bytes=1024 * 1024,
-    )
-    selection = RevisionsCaptureSelection(left, right)
-    left_label, right_label = left, right
-    ```
-
-    Pass this source to `dirdiff.room_lord.RoomLord.corresponding_room` with
-    this matching `selection`, the active `mark_id`, and these labels. Direct source
-    consumers call `changes()` before `load()` as documented by the protocol.
-
-    # Git materialization
-
-    Git modes and object addresses stay private. The public properties describe
-    regular Files, symbolic links, and references to another repository revision.
-    A repository reference supplies that revision as readable data without
-    reading the other repository's Files.
-
-    Canonical supported LFS pointers in regular Files expand from local storage.
-    No LFS download or filter runs. Content identities trust Git and the local
-    LFS store's content-addressed objects. If a listed object is unavailable when
-    acquired, the result has a distinct failure identity.
-    """
-
     def __init__(
         self,
         repo_root: Path,
@@ -2015,32 +1315,6 @@ class GitChangeSource(ChangeSourceProtocol):
         show_untracked: bool,
         max_link_target_bytes: int,
     ) -> None:
-        """Bind prepared Git sides and materialization policy for one capture.
-
-        # Parameters
-
-        - `repo_root`: Root of the repository selected for this Tab.
-        - `left`: Complete lowercase commit id, unborn-HEAD empty-tree id,
-          `index`, or `worktree` for the left source slot.
-        - `right`: Prepared input under the same contract for the right slot.
-        - `show_untracked`: Include extra untracked Files when the right side is
-          `worktree`. They do not contribute to tracked aggregate line totals.
-        - `max_link_target_bytes`: Nonnegative size limit for the reached
-          non-link target, checked before and after reading. Outer content and
-          raw link payloads are unbounded.
-
-        # Usage
-
-        Use `GitRepository.commit_id` to freeze commit-like ref spellings.
-        Construction normalizes the root but does not discover Files or verify
-        object availability. Call `changes()` to establish the observation.
-
-        # Failures
-
-        - An unprepared ref spelling or negative bound raises
-          `AssertionError`.
-        - Filesystem path-resolution failures propagate.
-        """
         for side in (left, right):
             assert side in {"index", "worktree"} or (
                 len(side) in {40, 64}
@@ -2056,30 +1330,6 @@ class GitChangeSource(ChangeSourceProtocol):
 
     @override
     def changes(self) -> WorkspaceChanges:
-        """Observe Git's affected Files with complete public side facts.
-
-        # Usage
-
-        Call before `load()`. The returned records describe this observation
-        even if the worktree or index later changes. Callers use the shared
-        `dirdiff.change_source.ChangeSourceProtocol.changes` contract without
-        scheduling storage reads themselves.
-
-        # Returns
-
-        A `dirdiff.change_source.WorkspaceChanges` with Git's File classification
-        and semantic properties. Tracked aggregate totals are present unless a
-        binary record prevents complete totals. Extra untracked Files leave
-        those totals unchanged. Repeated successful calls return the same record.
-
-        # Failures
-
-        - Git command failures raise `dirdiff.engines.DirdiffError`.
-        - Invalid parsed invariants raise `AssertionError`.
-        - Unexpected decoding or parsing failures propagate.
-        - Expected individual outer read failures and link target diagnoses
-          remain contained under the shared protocol contract.
-        """
         if self._files is None:
             self._files = SourceFiles(
                 self._workspace,
@@ -2097,41 +1347,5 @@ class GitChangeSource(ChangeSourceProtocol):
 
     @override
     def load(self, files: Sequence[FileChange]) -> Sequence[LoadedFile]:
-        """Supply paired data from this Git observation.
-
-        # Parameters
-
-        - `files`: Exact File records from this source's successful `changes()`;
-          membership and ordering follow
-          `dirdiff.change_source.ChangeSourceProtocol.load`.
-
-        # Usage
-
-        Listed index entries retain their observed contents even if the index
-        later changes. Already acquired worktree bytes and link facts are
-        returned without rereading. Missing local LFS objects include manual
-        fetch hints; this operation does not fetch them.
-
-        # Returns
-
-        A sequence of `dirdiff.change_source.LoadedFile` in input order, each
-        retaining its exact observed File and named side outcomes. Present sides
-        have these content outcomes:
-
-        - `bytes` for successful acquisition of the observed version.
-        - `dirdiff.engines.DirdiffError` for that side's expected acquisition
-          failure, with a final failure identity and no link facts.
-
-        The shared protocol documents identity changes, duplicate inputs, and
-        successful link walks that stop with a target diagnosis.
-
-        # Failures
-
-        - Calling before successful observation or passing invalid File
-          records asserts.
-        - A Git failure that prevents loading the submitted Files raises
-          `dirdiff.engines.DirdiffError`.
-        - Unexpected storage failures propagate.
-        """
         assert self._files is not None, "changes() must precede load()"
         return self._files.load(files)

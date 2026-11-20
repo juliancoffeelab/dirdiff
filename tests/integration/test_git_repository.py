@@ -1,11 +1,3 @@
-"""Integration checks for repository path and ref loading.
-
-These tests use real Git repositories to verify rename detection and explicit
-remote-ref comparisons through the backend/service boundary.  They should keep
-Git setup local to temporary directories and assert public diff-path contracts,
-not private command strings.
-"""
-
 import hashlib
 import os
 import subprocess
@@ -20,11 +12,6 @@ from dirdiff.util import Ok, Some
 
 
 def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
-    """Git rename detection preserves both paths as one File identity.
-
-    A worktree move with unchanged bytes must not degrade into independent
-    deletion and addition entries.
-    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )
@@ -90,11 +77,6 @@ def test_detects_git_reported_repo_renames(tmp_path: Path) -> None:
 
 
 def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
-    """Remote Branch Review selections retain their configured remote names.
-
-    Resolution uses the explicitly selected remote ref and rejects the bare
-    branch spelling, preventing an ambiguous local or remote choice.
-    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -251,11 +233,6 @@ def test_branch_review_uses_explicit_remote_refs(tmp_path: Path) -> None:
 def test_ref_choices_use_configured_remote_names_with_slashes(
     tmp_path: Path,
 ) -> None:
-    """Ref discovery separates a slash-containing remote from its branch name.
-
-    The structured choice retains `team/origin` as one configured remote rather
-    than assuming the first path component is always the remote.
-    """
     subprocess.run(
         ["git", "init", "-b", "main"],
         cwd=tmp_path,
@@ -329,11 +306,6 @@ def test_ref_choices_use_configured_remote_names_with_slashes(
 
 
 def test_numstat_parser_reads_changed_rename_records(tmp_path: Path) -> None:
-    """NUL-delimited rename counts attach to the new repository path.
-
-    Git emits old and new names after one numeric record. The parser must consume
-    both while counting additions and removals once.
-    """
     repository = GitRepository(tmp_path)
 
     counts = repository._workspace._parse_numstat_output(
@@ -346,11 +318,6 @@ def test_numstat_parser_reads_changed_rename_records(tmp_path: Path) -> None:
 def test_batch_loads_literal_paths_without_argv_pathspecs(
     tmp_path: Path,
 ) -> None:
-    """Load exact tree/index names, arbitrary bytes, and per-File misses.
-
-    Repository reads must preserve byte content and path identity while containing
-    an absent File to that individual lookup.
-    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )
@@ -445,14 +412,6 @@ def test_batch_loads_literal_paths_without_argv_pathspecs(
 
 
 def test_worktree_symlinks_load_as_git_records_them(tmp_path: Path) -> None:
-    """Symlinks load as blobs holding the raw link target on every side.
-
-    A worktree symlink pointing at a directory previously crashed loading
-    because the reader followed the link; Git itself records only the target
-    string. The old tree side, an untracked directory symlink, and a broken
-    symlink must all load the exact target and compare against the committed
-    target string.
-    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )
@@ -539,14 +498,6 @@ def test_worktree_symlinks_load_as_git_records_them(tmp_path: Path) -> None:
 def test_lfs_pointers_load_as_their_objects_from_the_local_store(
     tmp_path: Path,
 ) -> None:
-    """Load local LFS payloads without changing Git identities or raw links.
-
-    Real committed pointers exercise single and batch loading on tree, index,
-    and worktree sides. Missing, wrong-sized, or unreadable objects and pointers
-    with extensions produce ordinary loading errors. Pointer-like text and symlinks
-    stay raw. Storage configuration applies to existing backend instances.
-    No Git LFS installation, network access, or filters are required.
-    """
     subprocess.run(
         ["git", "init"], cwd=tmp_path, check=True, capture_output=True
     )
@@ -801,14 +752,6 @@ def test_lfs_pointers_load_as_their_objects_from_the_local_store(
 
 
 def test_submodule_sides_load_as_their_commit_ids(tmp_path: Path) -> None:
-    """A submodule lists with mode 160000 and each side loads one commit id.
-
-    The submodule's commits live only under `.git/modules`, so tree and index
-    sides cannot be read as objects of the outer repository. Moving the
-    submodule to another commit changes the worktree side; staging that move
-    changes the index side; content changes inside the submodule alone are not
-    an outer change.
-    """
     inner = tmp_path / "inner"
     outer = tmp_path / "outer"
     inner.mkdir()
@@ -927,11 +870,6 @@ def test_submodule_sides_load_as_their_commit_ids(tmp_path: Path) -> None:
 def test_submodule_replaced_by_a_regular_file_loads_both_sides(
     tmp_path: Path,
 ) -> None:
-    """A path that was a submodule and became a file changes mode and content.
-
-    The tree side is a gitlink whose commit the outer repository does not have,
-    the worktree side is an ordinary file, and both load through one batch.
-    """
     inner = tmp_path / "inner"
     outer = tmp_path / "outer"
     inner.mkdir()
@@ -1005,13 +943,6 @@ def test_submodule_replaced_by_a_regular_file_loads_both_sides(
 def test_untracked_embedded_repositories_list_as_gitlinks(
     tmp_path: Path,
 ) -> None:
-    """Untracked directories holding a repository are one gitlink entry each.
-
-    Git lists them with a trailing slash instead of descending into them. Such
-    an entry loads as the embedded HEAD commit id, and an embedded repository
-    without any commit fails to load, exactly as `git add` refuses it. An
-    ordinary untracked directory still lists by its files.
-    """
     for cwd, args in (
         (tmp_path, ["init", "-q"]),
         (tmp_path, ["config", "user.name", "Test User"]),

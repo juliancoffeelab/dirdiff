@@ -1,22 +1,3 @@
-"""Adversarial tests for the Files whose content is bytes rather than lines.
-
-These pin what `Composer` decides about content this project shows rather than
-diffs: which Files become an `image` bay, which fall through to the `blob`
-terminal, what each side's reference says about the bytes behind it, and the
-guarantee that no captured byte ever reaches a payload. They exercise the real
-classification, not a stub, and they use the real preset fixtures where the
-question is whether actual captured content survives composition unchanged.
-
-Only the picture is a kind of its own. What is *known* about bytes — media type,
-size, digest — is text, so an image File composes a facts bay beside its picture
-and a blob File composes that facts bay alone. These tests therefore read a blob
-File's media type out of its rendered rows, which is where a reviewer reads it.
-
-The `unchanged` cases matter more than they look: a bay whose two sides are
-byte-identical must say so, because that is what stops an untouched picture from
-taking a navigation stop in a File the reviewer has no reason to visit.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -39,13 +20,6 @@ from dirdiff.util import Some, maybe
 
 
 def test_image_pair_composes_picture_metadata_and_facts_bays() -> None:
-    """A `.png` pair composes picture, parsed metadata, and byte facts.
-
-    Each side's reference must describe the exact bytes handed in, because the
-    reviewer decides whether the picture changed by comparing the two digests
-    before either picture has finished loading. The facts bay repeats them as
-    rows, which is what makes the digest commentable.
-    """
     context = ComposeContext.build(
         left_path=maybe("logo.png"),
         right_path=maybe("logo.png"),
@@ -109,13 +83,6 @@ def test_image_pair_composes_picture_metadata_and_facts_bays() -> None:
 
 
 def test_byte_identical_media_sides_are_unchanged() -> None:
-    """Two equal sides are `unchanged`, for an image and for a blob File.
-
-    Both sides are present and both are shown, which is precisely why this must
-    not be reported as a change: the whole-File rule reads the bytes, not the
-    presence, and an untouched asset dragged along by a wide diff must take no
-    navigation stop.
-    """
     same_image = b"\x89PNG\r\n\x1a\nidentical"
     image_context = ComposeContext.build(
         left_path=maybe("icon.png"),
@@ -152,13 +119,6 @@ def test_byte_identical_media_sides_are_unchanged() -> None:
 
 
 def test_added_and_removed_images_carry_exactly_one_side() -> None:
-    """An uncaptured side is `None`, never a reference to empty bytes.
-
-    A zero-byte reference would tell the widget there is something to fetch and
-    the endpoint there is something to serve. Absence is a different fact from
-    emptiness and stays one all the way to the wire — including in the facts
-    bay, where an absent side states no facts rather than stating zeroes.
-    """
     added_context = ComposeContext.build(
         left_path=maybe(None),
         right_path=maybe("new-asset.webp"),
@@ -210,13 +170,6 @@ def test_added_and_removed_images_carry_exactly_one_side() -> None:
 
 
 def test_image_classification_reads_the_path_and_not_the_bytes() -> None:
-    """A `.png` holding readable text still composes as an image.
-
-    This is the documented consequence of classifying by extension: what the
-    repository calls the file is what the reviewer is shown it as. The test
-    exists so the tradeoff is visible and a future sniffing implementation has
-    to change it deliberately rather than discover it.
-    """
     context = ComposeContext.build(
         left_path=maybe("mislabelled.png"),
         right_path=maybe("mislabelled.png"),
@@ -237,11 +190,6 @@ def test_image_classification_reads_the_path_and_not_the_bytes() -> None:
 
 
 def test_extension_matching_ignores_case_and_pairs_jpg_with_jpeg() -> None:
-    """`.JPG` and `.jpeg` are the same media type, whatever the case.
-
-    A repository that shouts its filenames is not a repository of binary
-    files, and two spellings of one format must not serve two `Content-Type`s.
-    """
     shouted_context = ComposeContext.build(
         left_path=maybe("PHOTO.JPG"),
         right_path=maybe("PHOTO.JPG"),
@@ -274,13 +222,6 @@ def test_extension_matching_ignores_case_and_pairs_jpg_with_jpeg() -> None:
 
 
 def test_svg_is_diffed_as_the_text_it_is() -> None:
-    """An `.svg` pair composes a flatfile bay, not an `image` one.
-
-    SVG is source: a reviewer changing a path's `d` attribute wants the two
-    lines side by side, not two pictures to compare by eye. It is left off the
-    image list for that reason, so it must reach the flatfile step and be
-    diffed there.
-    """
     context = ComposeContext.build(
         left_path=maybe("chart.svg"),
         right_path=maybe("chart.svg"),
@@ -300,12 +241,6 @@ def test_svg_is_diffed_as_the_text_it_is() -> None:
 
 
 def test_an_unlisted_image_format_reaches_the_blob_terminal() -> None:
-    """A `.tiff` pair is composed as a blob, never as a broken picture.
-
-    The list of image types is what the browser displays natively. A format
-    outside it must not be handed to an `<img>` that would fail to decode it;
-    the facts the blob bay states still answer whether the content changed.
-    """
     context = ComposeContext.build(
         left_path=maybe("scan.tiff"),
         right_path=maybe("scan.tiff"),
@@ -327,12 +262,6 @@ def test_an_unlisted_image_format_reaches_the_blob_terminal() -> None:
 
 
 def test_a_file_that_is_an_image_on_one_side_only_is_not_an_image() -> None:
-    """A picture replaced by unreadable bytes composes one blob bay.
-
-    Both sides must claim an image type, because a File is one classification:
-    half an image bay would mean displaying a picture beside a side the widget
-    cannot show, which reports a format change as a missing file.
-    """
     context = ComposeContext.build(
         left_path=maybe("asset.png"),
         right_path=maybe("asset.dat"),
@@ -368,12 +297,6 @@ def test_a_file_that_is_an_image_on_one_side_only_is_not_an_image() -> None:
 
 
 def test_a_file_captured_on_neither_side_is_not_an_image() -> None:
-    """Two absent sides compose no picture, whatever the paths claim.
-
-    There is nothing to show and nothing for the endpoint to serve, so the
-    File takes the ordinary route rather than producing an image bay with two
-    absent sides.
-    """
     context = ComposeContext.build(
         left_path=maybe("ghost.png"),
         right_path=maybe("ghost.png"),
@@ -390,14 +313,6 @@ def test_a_file_captured_on_neither_side_is_not_an_image() -> None:
 
 
 def test_bays_yields_an_image_bay_holding_the_exact_captured_bytes() -> None:
-    """`bays()` hands the media endpoint the bytes it must serve, unaltered.
-
-    The endpoint has no other way in: there is one enumeration of a File's
-    bays, and the bytes it carries are the ones capture retained. No
-    transcoding, no re-encoding, no thumbnail. The facts bay beside it holds no
-    bytes at all, which is why the endpoint can refuse everything but the
-    picture.
-    """
     left = bytes(range(256))
     right = bytes(reversed(range(256)))
     produced = list(
@@ -436,14 +351,6 @@ def test_bays_yields_an_image_bay_holding_the_exact_captured_bytes() -> None:
 
 
 def test_a_rendered_image_bay_carries_no_captured_byte() -> None:
-    """The payload describes the content and never contains it.
-
-    An image bay's whole point is that its bytes travel over a separate
-    endpoint, so the serialized side must hold exactly the three describing
-    fields. This is the check that would fail the day someone adds a convenient
-    `data` field to `MediaRef` — or renders the picture's bytes into the facts
-    bay beside it.
-    """
     marker = b"\x00SECRET-CAPTURED-BYTES"
     context = ComposeContext.build(
         left_path=maybe("a.ico"),
@@ -463,13 +370,6 @@ def test_a_rendered_image_bay_carries_no_captured_byte() -> None:
 
 
 def test_a_file_made_of_bytes_reports_only_its_facts_lines() -> None:
-    """A File's line counts are its facts bay's, because facts are its lines.
-
-    No diff engine reads the content itself, so nothing else can contribute:
-    the counts a reviewer sees in the file list are exactly how many stated
-    facts changed. Counting the picture too, or reporting zero for a File whose
-    digest moved, would both misdescribe the change.
-    """
     context = ComposeContext.build(
         left_path=maybe("clip.ogg"),
         right_path=maybe("clip.ogg"),
@@ -496,13 +396,6 @@ def test_a_file_made_of_bytes_reports_only_its_facts_lines() -> None:
 
 
 def test_real_preset_fixtures_compose_to_their_captured_bytes() -> None:
-    """Representative media presets compose the bays their names promise.
-
-    These are real downloaded assets, not constructed byte strings, so this is
-    what proves the sizes and digests a reviewer will read are the sizes and
-    digests of the files on disk. Link cases have their own mode-selected tests
-    and are deliberately outside this path-only media classification check.
-    """
     formats = Path(__file__).parents[1] / "presets" / "formats"
     expectations = {
         ("images", "image-changed"): (

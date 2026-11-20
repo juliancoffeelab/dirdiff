@@ -1,20 +1,3 @@
-"""Provide bound persistent review Threads and ordinary review writes.
-
-## Public interface
-
-`Thread` is the bound discussion handle re-exported by `dirdiff.review`.
-The module also exposes Snapshot placement derivation and the ordered agent
-batch operation assembled from its private leaves.
-
-## Purpose and boundaries
-
-This module reduces append-only actions into discussion views and applies
-single-Thread Comment and lifecycle operations under the Room write lock. It
-coordinates placement and the agent batch because only this module may import
-`_thread`. It does not publish Snapshot contents or serialize HTTP
-entities.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -104,70 +87,21 @@ __all__ = [
 
 @dataclass
 class _CommentState:
-    """Reduce immutable Comment actions into one current Comment view.
-
-    Discussion materialization creates this private mutable value on Comment creation,
-    then applies edits or deletion in sequence before exporting
-    `ReviewCommentView`.
-
-    It exists only during one read and is not persisted or shared between
-    Threads.
-    """
-
     comment_id: str
-    """Stable global identity of the Comment being materialized.
-
-    It keys this mutable state while every edit and deletion retains the same
-    sequence entry.
-    """
 
     sequence: int
-    """Zero-based Comment creation position assigned during reduction.
-
-    Later mutations do not reorder this state, so exported views remain in
-    durable discussion order.
-    """
 
     profile_id: int
-    """Durable identity of the Profile that originally authored the Comment.
-
-    Action reduction uses it for edit authorization invariants and resolves the current
-    display name only when exporting the public view.
-    """
 
     revision: int
-    """Current zero-based Comment version accumulated by action reduction.
-
-    It starts at creation and increments once for every accepted edit or
-    tombstone action that targets this Comment.
-    """
 
     body: Optional[str]
-    """Latest Comment text, or `None` after a tombstone action.
-
-    Before deletion every assigned value is nonblank because persisted action
-    validation treats a blank body as corruption.
-    """
 
     deleted: bool
-    """Whether the action sequence has terminally tombstoned this Comment.
-
-    Once true, later edit or deletion actions violate persisted history rather
-    than reviving or deleting the Comment again.
-    """
 
     created_at: str
-    """Immutable serialized UTC time from the Comment creation action.
-
-    Export converts it to `datetime`; later actions never replace this value.
-    """
 
     updated_at: str
-    """Serialized UTC time of the latest applied edit or deletion.
-
-    It begins equal to `created_at` and changes only when this Comment is the
-    target of a mutating action.
-    """
 
 
 def fold_actions(
@@ -178,32 +112,6 @@ def fold_actions(
     Literal["author", "reviewer", "both", "none"],
     list[ReviewCommentView],
 ]:
-    """Reduce ordered authored actions into current discussion state.
-
-    # Parameters
-
-    - `actions`: Complete contiguous sequence beginning with Thread creation.
-    - `profiles`: Current Profile records for every action author.
-
-    # Usage
-
-    Pass the complete persisted history and every referenced current Profile.
-    Use the returned state, attention, revision, and Comments as the
-    authoritative current discussion; do not merge them with cached values.
-
-    # Returns
-
-    - `First`: The discussion status after the last action.
-    - `Second`: The attention value after the last action.
-    - `Third`: Comments in creation order, including deleted Comments as
-      tombstones with their final revision and timestamps.
-
-    # Failures
-
-    - Raises `AssertionError` when creation, transition, revision, body, or
-      attribution facts form an impossible persisted history. Reduction never
-      repairs or skips incomplete actions.
-    """
 
     assert actions != () and actions[0].payload.kind == "thread-created"
     assert [action.sequence for action in actions] == list(
@@ -315,52 +223,6 @@ def append_review_action(
     tuple[ReviewActionInput, ...],
     dict[int, ReviewProfileRecord],
 ]:
-    """Validate and append one action without loading captured Snapshot Files.
-
-    Returns the appended authoritative action sequence and current Profiles;
-    the caller that reports an update view folds them itself, so this write
-    builds nothing its other caller discards.
-
-    # Parameters
-
-    - `database`: Persistence used for authoritative Profile and action reads
-      and the final append.
-    - `snapshot_id`: Exact placement through which the Thread is addressed.
-    - `thread_id`: Existing live discussion receiving the action.
-    - `operation_id`: Fresh backend-generated identity for this accepted write.
-    - `author`: Existing Profile attributed to the action.
-    - `kind`: Comment or lifecycle transition to validate against current state.
-    - `comment_id`: New or existing Comment identity for kinds that create,
-      edit, or delete a Comment, otherwise `None`.
-    - `body`: Nonblank Comment text for creating or editing, optional text for
-      lifecycle actions, or `None` when that kind carries no body.
-    - `comment_attention`: Whether a new Comment preserves attention or alerts
-      both roles.
-    - `lock_path`: Cross-process Room write lock shared with publication.
-    - `thread_lock`: In-process Room write lock held for the same lifetime.
-
-    # Usage
-
-    Call through a bound `Thread` while holding no external database session.
-    Supply a fresh operation id and the exact command fields for one operation;
-    this function acquires the Room locks and reloads current state before the
-    append.
-
-    # Returns
-
-    - `First`: The complete prior action history with the accepted action
-      appended at the next contiguous sequence number.
-    - `Second`: Current Profiles for every author in that returned history,
-      keyed by Profile id.
-
-    # Failures
-
-    - Raises `ReviewError` when the author or Thread is missing, the Thread is
-      deleted, the expected lifecycle transition is invalid, a Comment is
-      missing or already deleted, or the operation violates authorship rules.
-    - Raises `AssertionError` for an impossible internal operation shape or
-      persisted history.
-    """
     with room_write_lock(thread_lock, lock_path):
         profile_id = author.profile_id
         profile = validate_author(database, author)
@@ -466,47 +328,14 @@ def append_review_action(
 
 @dataclass
 class _ThreadFiles:
-    """Hold the Snapshot File records one bound Thread locates code against.
-
-    `origin_file` is the origin Snapshot File behind the discussion;
-    `selected_file` is the selected-Snapshot File the placement locates, or
-    `None` for a file-missing placement whose absence the loading read has
-    verified. The cache bounds repeated captured-text reads for excerpts.
-    """
-
     origin_file: SnapshotFileRecord
-    """Authenticated captured File referenced by the immutable origin row.
-
-    It supplies the public path pair and, for full reads, original bay content.
-    The record may belong to an earlier Snapshot than the bound handle.
-    """
 
     selected_file: Optional[SnapshotFileRecord]
-    """Authenticated File referenced by the selected placement, when located.
-
-    `None` is valid for explicit file-missing and file-unreadable placements;
-    located variants require a record whose pair equals `origin_file`.
-    """
 
     cache: ReviewReadCache
-    """Composition cache shared by handles hydrated in the same read operation.
-
-    It avoids decoding a File twice while building views and is discarded with
-    the bound handles; it is never authoritative state.
-    """
 
 
 class Thread:
-    """Operate on one live discussion through one exact Snapshot.
-
-    The bound keys are immutable. The object is a lightweight handle: reads
-    that interpret placement load their Snapshot Files on first use, while
-    writes never load Files at all. Every write reloads authoritative actions
-    under the Room publication lock, validates the requested action, appends
-    it, and returns the bounded authoritative update view the HTTP boundary
-    reports.
-    """
-
     def __init__(
         self,
         *,
@@ -523,29 +352,6 @@ class Thread:
         files: Optional[_ThreadFiles],
         location_source: ThreadLocationSourceView,
     ) -> None:
-        """Bind one Thread to its placement and optionally preloaded Files.
-
-        `files` carries the referenced Snapshot Files when the caller already
-        loaded them in bulk; `None` defers that single focused read to the
-        first placement-interpreting read on this handle.
-
-        # Parameters
-
-        - `database`: Store used for fresh actions and deferred File hydration.
-        - `identity`: Room boundary that limits every deferred read.
-        - `snapshot_id`: Exact selected placement bound for this handle's life.
-        - `thread_id`: Stable discussion identity bound for this handle's life.
-        - `lock_path`: Cross-process Room write lock used by methods that append.
-        - `thread_lock`: In-process lock paired with `lock_path`.
-        - `placement`: Validated selected-Snapshot placement with its origin metadata.
-        - `origin`: Unique immutable origin row for the discussion.
-        - `actions`: Complete ordered action sequence at construction time.
-        - `profiles`: Current records for every author in `actions`.
-        - `files`: Already validated referenced Files and shared cache, or
-          `None` to load them only when a read interprets placement.
-        - `location_source`: Whether the placement belongs to the displayed
-          Snapshot or is the origin used for a Thread created later.
-        """
         self.snapshot_id = snapshot_id
         self.thread_id = thread_id
         self._database = database
@@ -573,44 +379,15 @@ class Thread:
     ) -> tuple[
         Placement, RangePlacement | FileStartPlacement | ReviewScopePlacement
     ]:
-        """Return the proven selected placement and unique immutable origin.
-
-        Both values were validated by the store and narrowed during handle
-        construction, so callers need not repeat discriminator narrowing.
-
-        # Returns
-
-        - `First`: The Thread's placement in the bound Snapshot.
-        - `Second`: Its immutable origin placement, narrowed to the three valid
-          origin shapes.
-        """
         return self._placement, self._origin
 
     def _actions(self) -> tuple[ReviewActionInput, ...]:
-        """Return the handle's current complete contiguous action sequence.
-
-        Construction and accepted writes keep this tuple authoritative for the
-        handle. A missing creation action is persisted corruption and fails.
-
-        # Returns
-
-        - `Members`: The handle's complete action records, beginning with Thread
-          creation and including every accepted later write.
-        - `Order`: Records form contiguous sequence order; an empty history is
-          persisted corruption and raises instead of returning.
-        """
         assert self._action_records != (), (
             "persisted Thread has no first Comment"
         )
         return self._action_records
 
     def _located_files(self) -> _ThreadFiles:
-        """Load and retain the placement's Snapshot Files on first use.
-
-        Handles constructed without preloaded Files pay this one focused read
-        the first time a read interprets placement; the same read doubles as
-        the file-missing absence proof. Writes never call this.
-        """
         if self._files is None:
             placement, origin = self._records()
             assert not isinstance(origin, ReviewScopePlacement), (
@@ -659,20 +436,6 @@ class Thread:
         return self._files
 
     def _placement_view(self) -> ThreadPlacementView:
-        """Fold placement facts into the public placement.
-
-        The returned shape names one derivation outcome and states only what
-        the origin does not: the File pair and side are the origin's in every
-        variant, and the bay is the origin's in all but a `bay-lost` landing,
-        which names the bay derivation chose instead. `region-kept` and
-        `whole-file` report nothing wrong; the six others are the complete
-        public outdated vocabulary, one name per state.
-
-        The two unlocated variants state nothing but their kind. For the
-        absent File the File-loading read has already verified no
-        selected-Snapshot File carries the origin pair, so absence there is an
-        invariant, not a substitute.
-        """
         placement, origin = self._records()
         if isinstance(placement, ReviewScopePlacement):
             return {"kind": "review-scope"}
@@ -748,24 +511,6 @@ class Thread:
                 raise AssertionError("handled before File loading")
 
     def discussion(self) -> ThreadDiscussionView:
-        """Fold the complete discussion with its bounded original excerpt.
-
-        The excerpt travels inside the origin it is cut from, so a File-level
-        origin carries none. Index-style callers read the placement for where
-        the Thread landed, and explicitly render that File when it reports
-        `region-changed`.
-
-        # Usage
-
-        Use this for a complete Thread page or browser response. It may read
-        captured File contents to build the origin excerpt; use `summary` when
-        discovery facts are enough.
-
-        # Failures
-
-        - Raises `AssertionError` when persisted placement, origin, File, or
-          action data cannot form one valid discussion.
-        """
         _placement, origin = self._records()
         actions = self._actions()
         state, attention, comments = fold_actions(actions, self._profiles)
@@ -798,24 +543,6 @@ class Thread:
         )
 
     def summary(self) -> ThreadSummaryView:
-        """Materialize discovery facts without reading any captured text.
-
-        The same action reduction and placement checks as `discussion`, minus the
-        original-excerpt construction and the complete Comment list. The
-        origin still travels: it is where the File pair, bay, and side a
-        caller needs to name captured code are stated.
-
-        # Usage
-
-        Use this for Thread indexes and agent discovery pages. Call
-        `discussion` only after the caller selects a Thread and needs Comments
-        or original source context.
-
-        # Failures
-
-        - Raises `AssertionError` when persisted placement, origin, or action
-          data cannot form one valid summary.
-        """
         actions = self._actions()
         state, attention, comments = fold_actions(actions, self._profiles)
         assert comments != [], "persisted Thread folded to zero Comments"
@@ -855,18 +582,6 @@ class Thread:
         body: Optional[str],
         comment_attention: Literal["inert", "alert"],
     ) -> ThreadUpdateView:
-        """Validate, append, and return the write's bounded update view.
-
-        # Parameters
-
-        - `operation_id`: Fresh identity for the one attempted append.
-        - `author`: Existing Profile whose permissions are checked.
-        - `kind`: Exact Comment or lifecycle transition to perform.
-        - `comment_id`: Affected Comment identity, or `None` for a body-less
-          Thread lifecycle action.
-        - `body`: New Comment text when the transition carries one.
-        - `comment_attention`: Attention rule used only for Comment creation.
-        """
         actions, profiles = append_review_action(
             database=self._database,
             snapshot_id=self.snapshot_id,
@@ -912,28 +627,6 @@ class Thread:
         *,
         attention: Literal["inert", "alert"],
     ) -> ThreadUpdateView:
-        """Append one Comment and return the authoritative update view.
-
-        `attention` is the posting instrument: `alert` raises both-role
-        attention with the new Comment, `inert` leaves current attention
-        unchanged.
-
-        # Parameters
-
-        - `command`: Fresh Comment identity, existing author, and nonblank body.
-        - `attention`: Instrument-specific attention transition for this append.
-
-        # Usage
-
-        Create `AddComment` with a fresh operation and Comment id. Choose
-        `alert` for an ordinary reply and `inert` only when another instrument
-        controls attention for the same logical action.
-
-        # Failures
-
-        - Raises `ReviewError` when the author is missing, the body is blank, an
-          id is reused, or the Thread is deleted.
-        """
         return self._append(
             operation_id=command.operation_id,
             author=command.author,
@@ -946,27 +639,6 @@ class Thread:
     def edit_comment(
         self, comment_id: UUID, command: EditComment
     ) -> ThreadUpdateView:
-        """Edit one authored Comment and return the update view.
-
-        # Parameters
-
-        - `comment_id`: Existing non-deleted Comment to replace.
-        - `command`: Acting author, fresh operation id, and nonblank replacement
-          body. Only the original author may edit; the current revision is
-          loaded by the Thread rather than supplied by the caller.
-
-        # Usage
-
-        Bind the Thread through the Comment's Snapshot placement, then pass the
-        target Comment id and a fresh operation id. The returned Comment carries
-        the newly assigned revision.
-
-        # Failures
-
-        - Raises `ReviewError` when the Comment or author is missing, the body is
-          blank, the Comment is deleted, the actor is not its original author,
-          or the Thread is deleted.
-        """
         return self._append(
             operation_id=command.operation_id,
             author=command.author,
@@ -979,25 +651,6 @@ class Thread:
     def delete_comment(
         self, comment_id: UUID, command: DeleteComment
     ) -> ThreadUpdateView:
-        """Tombstone one Comment and retain the acting Profile attribution.
-
-        # Parameters
-
-        - `comment_id`: Existing non-deleted Comment to tombstone.
-        - `command`: Acting Profile and fresh operation id. The Thread loads the
-          current revision; the actor need not be the original author.
-
-        # Usage
-
-        Bind the Thread through the Comment's Snapshot placement and pass a
-        fresh operation id. Use the returned tombstone and revision instead of
-        mutating a previously read Comment locally.
-
-        # Failures
-
-        - Raises `ReviewError` when the Comment or actor is missing, the Comment
-          is already deleted, an id is reused, or the Thread is deleted.
-        """
         return self._append(
             operation_id=command.operation_id,
             author=command.author,
@@ -1008,23 +661,6 @@ class Thread:
         )
 
     def resolve(self, command: ChangeThreadState) -> ThreadUpdateView:
-        """Resolve this bound open Thread and return its authoritative outcome.
-
-        The command may include a paired nonblank explanation Comment. The
-        method reloads current actions under the Room lock, rejects any non-open
-        state, appends atomically, then returns state, attention, revision, and
-        the optional created Comment.
-
-        # Usage
-
-        A reviewer uses this on an open bound Thread. Supply a fresh operation
-        id and either both explanation fields or neither.
-
-        # Failures
-
-        - Raises `ReviewError` when the author is missing, the Thread is not
-          open, explanation fields are invalid, or an identity is reused.
-        """
         return self._append(
             operation_id=command.operation_id,
             author=command.author,
@@ -1035,22 +671,6 @@ class Thread:
         )
 
     def reopen(self, command: ChangeThreadState) -> ThreadUpdateView:
-        """Reopen this bound resolved Thread and return its authoritative outcome.
-
-        A paired explanation Comment is optional. Current actions are reloaded
-        under the Room lock; any state other than resolved fails before append,
-        and an accepted transition sets attention to both roles.
-
-        # Usage
-
-        Use this on a resolved bound Thread. Supply a fresh operation id and,
-        when explaining the reopen, both a fresh Comment id and nonblank body.
-
-        # Failures
-
-        - Raises `ReviewError` when the author is missing, the Thread is not
-          resolved, explanation fields are invalid, or an identity is reused.
-        """
         return self._append(
             operation_id=command.operation_id,
             author=command.author,
@@ -1061,23 +681,6 @@ class Thread:
         )
 
     def delete(self, command: ChangeThreadState) -> ThreadUpdateView:
-        """Record terminal deletion of this bound live Thread.
-
-        The command must carry no Comment id or body. Current history is
-        revalidated under the Room lock, the deletion action is appended with
-        attention `none`, and later writes through the Thread are rejected.
-
-        # Usage
-
-        Use this exceptional reviewer instrument only when the whole Thread
-        must become a retained terminal tombstone. Supply a fresh operation id
-        and no explanation fields.
-
-        # Failures
-
-        - Raises `ReviewError` when the author is missing, the Thread is already
-          deleted, explanation fields are present, or an identity is reused.
-        """
         assert command.comment_id is None, (
             "Thread deletion never carries a Comment."
         )
@@ -1105,45 +708,6 @@ def thread_objects(
     scope: Literal["snapshot", "room"],
     through_activity_id: Optional[int],
 ) -> tuple[tuple[Thread, ...], int, int]:
-    """Bulk-hydrate one bounded Snapshot or Room Thread page.
-
-    # Parameters
-
-    - `database`: Room persistence supplying the bounded relational page.
-    - `identity`: Room containing the selected Snapshot and discussions.
-    - `snapshot_id`: Displayed code universe used for Room lookup and current
-      placement selection.
-    - `lock_path`: Cross-process write lock carried by returned handles.
-    - `thread_lock`: In-process write lock carried by returned handles.
-    - `offset`: Zero-based number of ordered matching Threads to skip.
-    - `limit`: Positive maximum number of Threads to return.
-    - `state`: Include every lifecycle state or only open discussions.
-    - `attention`: Optional agent-role attention filter.
-    - `scope`: Require a selected-Snapshot placement or include every Room
-      Thread for browser History.
-    - `through_activity_id`: Inclusive stable page pivot, or `None` to choose
-      the current Room boundary with this persistence read.
-
-    # Usage
-
-    Room paging calls this once per page. Retain the returned concrete activity
-    pivot and pass it to later pages so every `Thread` reflects the same bounded
-    action history.
-
-    # Returns
-
-    - `First`: Bound Thread handles in the store's page order. A Room Thread
-      without a displayed placement is bound through its origin Snapshot.
-    - `Second`: Total Threads matching the filters, independent of page length.
-    - `Third`: The concrete inclusive activity pivot used for this page and any
-      continuation pages.
-
-    # Failures
-
-    - Raises `DirdiffError` when the Snapshot does not belong to the Room.
-    - Raises `AssertionError` when persisted placements, origins, actions,
-      Profiles, or referenced Files are incomplete or contradictory.
-    """
     result = database.review_threads(
         identity,
         snapshot_id.hex,
@@ -1180,57 +744,15 @@ def _bind_threads(
     lock_path: Path,
     thread_lock: Lock,
 ) -> tuple[Thread, ...]:
-    """Bind hydrated Thread rows to exactly the Files they reference.
-
-    One focused store read loads every referenced origin File, every located
-    selected-Snapshot File, and the file-missing absence proof, replacing the
-    former complete-Snapshot loads and thrown-away indexes.
-
-    # Parameters
-
-    - `database`: Persistence used for the one focused File hydration.
-    - `identity`: Room identity carried by every returned handle.
-    - `snapshot_id`: Exact placement Snapshot selected by the page.
-    - `data`: Complete mutually consistent rows returned by one store read.
-    - `lock_path`: Cross-process write lock carried by returned handles.
-    - `thread_lock`: In-process write lock carried by returned handles.
-
-    # Returns
-
-    - `Members`: One bound handle per origin in `data`, each carrying its exact
-      selected placement, origin, action history, Profiles, and focused Files.
-    - `Order and sharing`: Handles preserve persistence order and share one
-      read-scoped composed-bay cache.
-    """
 
     def same_captured_file(
         origin_file: SnapshotFileRecord,
         displayed_file: SnapshotFileRecord,
     ) -> bool:
-        """Compare captured File contents without comparing capture identities.
-
-        Repository paths and content digests prove ordinary sides. Symlink
-        metadata and target digests prove link sides without comparing their
-        Snapshot-specific physical paths. Capture errors always make the
-        displayed File unusable rather than equal.
-
-        # Parameters
-
-        - `origin_file`: File captured with the Thread's origin Snapshot.
-        - `displayed_file`: Corresponding File in the displayed Snapshot.
-        """
 
         def side_identity(
             side: Option[SnapshotFileSideRecord],
         ) -> Option[tuple[str, bytes, tuple[bytes, bytes | None] | None]]:
-            """Return captured identity components independently of storage paths.
-
-            # Returns
-
-            - `Some`: A present side's repository path, raw digest, and optional link
-              metadata/target digests; stopped traversal has no target digest.
-            - `Nothing` means the File has no captured side in this slot.
-            """
             if not Some.present(side):
                 return Nothing()
             record = side.value
@@ -1420,33 +942,6 @@ def get_thread(
     lock_path: Path,
     thread_lock: Lock,
 ) -> Thread:
-    """Return one exact bound Thread or report that it does not exist.
-
-    The returned handle carries placement and the authored actions; it loads its
-    Snapshot Files only when a read interprets placement, so write-only
-    callers never pay for File hydration.
-
-    # Parameters
-
-    - `database`: Persistence used to load the focused discussion.
-    - `identity`: Room that must contain the Snapshot and Thread origin.
-    - `snapshot_id`: Exact placement to bind.
-    - `thread_id`: Stable discussion identity to bind.
-    - `lock_path`: Cross-process write lock carried by the handle.
-    - `thread_lock`: In-process write lock carried by the handle.
-
-    # Usage
-
-    Use this for a focused discussion read or write after the Room and Snapshot
-    are known. The handle remains bound to that placement for its lifetime.
-
-    # Failures
-
-    - Raises `ReviewError` when the Snapshot is unknown in the Room or the
-      Thread has no placement in that Snapshot.
-    - Raises `AssertionError` when persisted discussion rows violate review
-      invariants.
-    """
     result = database.review_thread(
         identity,
         snapshot_id.hex,
@@ -1489,32 +984,6 @@ def create_thread(
     lock_path: Path,
     thread_lock: Lock,
 ) -> Thread:
-    """Create one discussion in its immutable origin Snapshot.
-
-    # Parameters
-
-    - `database`: Persistence for Profile validation, focused File lookup, and
-      the atomic origin/action insert.
-    - `identity`: Room that must contain the origin Snapshot.
-    - `snapshot_id`: Exact Snapshot whose selected range becomes the origin.
-    - `command`: Fresh identities, author, valid target, and first Comment.
-    - `lock_path`: Cross-process Room write lock shared with publication.
-    - `thread_lock`: In-process Room write lock held for the same lifetime.
-
-    # Usage
-
-    Construct the command from a validated public target and fresh Thread,
-    Comment, and operation ids. Call through `Room.create_thread`, which supplies
-    the Room identity and shared locks.
-
-    # Failures
-
-    - Raises `ReviewError` when the Snapshot or Profile is missing, the target
-      File or bay cannot be reviewed, the range is invalid, or an identity has
-      already been used.
-    - Raises `AssertionError` when captured or persisted data violates an
-      internal review invariant.
-    """
 
     with room_write_lock(thread_lock, lock_path):
         profile = validate_author(database, command.author)
@@ -1583,47 +1052,6 @@ def apply_review_batch(
     lock_path: Path,
     thread_lock: Lock,
 ) -> tuple[ReviewBatchResult, ...]:
-    """Validate and apply one ordered multi-Thread batch atomically.
-
-    Every semantic check runs while holding the same Room lock used by browser
-    writes. Only after all items are valid are their placement and action rows
-    inserted in one database transaction. Later items observe earlier ones in
-    memory, including Threads the batch itself creates.
-
-    # Parameters
-
-    - `database`: Persistence used for set-based validation and one final write.
-    - `identity`: Room containing every addressed Thread and Snapshot.
-    - `batch`: Ordered non-empty items. Creations name their own origin
-      Snapshot; an item addressing an existing Thread is recorded against that
-      Thread's origin Snapshot, which always places it.
-    - `lock_path`: Cross-process Room write lock shared with publication.
-    - `thread_lock`: In-process Room write lock held for the complete batch.
-
-    # Usage
-
-    Call through `Room.apply_review_batch`. Any Profile may perform any item;
-    role is stated by the item, never read from the Profile. After a Comment,
-    creation, or reopen in role R the Thread waits on the other role; after a
-    resolve or deletion it waits on nobody; edits and Comment deletions keep the
-    waiting role. Results preserve input order.
-
-    # Returns
-
-    - One `ReviewBatchResult` per item, in input order.
-    - Each result names the Thread, the created or changed Comment (if any),
-      the authored activity id, and the Thread's status and attention after
-      that item.
-
-    # Failures
-
-    - Raises `ReviewError` when the batch is empty, an addressed Thread or
-      Comment is unknown or belongs to another Room, a Thread is deleted, a
-      transition is invalid for the in-memory state, a non-author edits, or a
-      target is invalid. Nothing is written on failure.
-    - Raises `DirdiffError` for a Snapshot outside the Room.
-    - Raises `AssertionError` when persistence contradicts review invariants.
-    """
     if batch == ():
         raise ReviewError("invalid_target", "Review batch cannot be empty.")
     with room_write_lock(thread_lock, lock_path):
@@ -1731,7 +1159,6 @@ def apply_review_batch(
         def waits_after(
             role: ReviewRole,
         ) -> Literal["author", "reviewer"]:
-            """Return the role a Thread waits on after `role` acted."""
             return "reviewer" if role == "author" else "author"
 
         for item in batch:

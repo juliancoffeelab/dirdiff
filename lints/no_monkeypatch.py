@@ -1,18 +1,3 @@
-"""Reject monkeypatching in Python tests.
-
-## Public interface
-
-Flake8 loads `NoMonkeypatchPlugin`, which emits `NMP001` for
-`unittest.mock.patch` use and pytest's `monkeypatch` fixture.
-
-## Purpose and boundaries
-
-Tests must exercise explicit interfaces rather than replace production
-attributes at runtime. This lint inspects source syntax only. It does not ban
-ordinary mock objects, HTTP PATCH methods, decorators named `patch` on unrelated
-objects, or runtime state established through an explicit project interface.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -23,46 +8,16 @@ __all__ = ["NoMonkeypatchPlugin"]
 
 
 class NoMonkeypatchPlugin:
-    """Report statically identifiable monkeypatching in test modules.
-
-    Flake8 supplies one parsed module and filename per instance. The plugin
-    recognizes imported `unittest.mock.patch` calls, calls through an imported
-    `unittest.mock` module alias, and test functions that request pytest's
-    `monkeypatch` fixture. It holds no cross-file state.
-    """
-
     name = "dirdiff-no-monkeypatch"
     version = "0.1.0"
 
     def __init__(self, tree: ast.AST, filename: str) -> None:
-        """Retain one Flake8 syntax tree and its source filename.
-
-        `tree` is inspected without execution. `filename` limits the rule to
-        files below `tests`, so application symbols with similar names remain
-        outside this test-policy lint.
-
-        # Parameters
-
-        - `tree`: Parsed Python module supplied by Flake8.
-        - `filename`: Source path used to restrict the lint to tests.
-        """
         self.tree = tree
         self.filename = filename
 
     def run(
         self,
     ) -> Iterator[tuple[int, int, str, type[NoMonkeypatchPlugin]]]:
-        """Yield `NMP001` for each forbidden fixture or patch call.
-
-        Imports are resolved only far enough to distinguish
-        `unittest.mock.patch` from unrelated methods named `patch`. Aliases are
-        supported. Dynamic import tricks are outside this static contract.
-
-        # Returns
-
-        - `Location`: Source line and zero-based column of a forbidden use.
-        - `Diagnostic`: `NMP001` message and plugin type consumed by Flake8.
-        """
         if "tests" not in Path(self.filename).parts:
             return
 

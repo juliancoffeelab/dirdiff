@@ -1,14 +1,3 @@
-/**
- * Renders the ChangeSet FileTree from canonical file state and shared expansion.
- *
- * File and directory rows preserve manifest order. Directory reachability derives
- * from the same file expansion used by FileCards, while progressive statistics
- * come from current lane states and render-mode markers come from mounted cards.
- * The tree may scroll only its own groups container to reveal the selected file.
- *
- * Expansion remains in `ChangeSet`, backend data remains in the file lane, and
- * page movement remains an explicit Navigation operation.
- */
 import {
   For,
   Show,
@@ -36,46 +25,13 @@ import {
 } from "./fileLane";
 import { useNavigation } from "../navigation";
 
-/**
- * Describes the line statistics FileTree can progressively display.
- *
- * Null means the current file state genuinely lacks that statistic. The tree
- * renders this absence explicitly and never treats it as zero.
- */
 type TreeLineStats = {
-  /** Added-line total, or null while any contributing file lacks that fact. */
   added: number | null;
-  /** Modified-line total, or null for Husk, failure, or deferred metadata. */
   modified: number | null;
-  /** Removed-line total, or null while any contributing file lacks that fact. */
   removed: number | null;
-  /** Moved-line total, or null for states that expose no move calculation. */
   moved: number | null;
 };
 
-/**
- * Calculates directory expansion from current descendant file reachability.
- *
- * Explicit file expansion is authoritative. Unresolved HuskFiles remain
- * reachable so sequential loading cannot collapse and reopen the directory hierarchy, while
- * LazyFiles remain reachable for their visible plank unless explicitly collapsed.
- * Every directory receives one result, including an empty directory.
- *
- * @param nodes Immutable manifest siblings traversed in backend order.
- * @param stateForFile Called once for every visited manifest leaf with that
- * exact `ManifestFile`. It returns the leaf's current canonical lane state;
- * the calculation reads expansion defaults from the result after the callback
- * completes. The callback must not mutate the manifest or expansion map.
- * @param fileExpansion Explicit ChangeSet values keyed by manifest File pair.
- *
- * # Returns
- *
- * - Each key is one manifest directory path, including nested and empty
- *   directories. File paths do not appear as keys.
- * - Each value reports whether that directory's subtree contains a reachable
- *   File after applying explicit File expansion and lane defaults. FileTree
- *   uses the value directly as the directory's expansion state.
- */
 export function calculateDirectoryExpansion(
   nodes: readonly ManifestNode[],
   stateForFile: (file: ManifestFile) => FileState,
@@ -83,12 +39,6 @@ export function calculateDirectoryExpansion(
 ): ReadonlyMap<string, boolean> {
   const result = new Map<string, boolean>();
 
-  /**
-   * Visits one ordered sibling collection and reports subtree reachability.
-   *
-   * The traversal evaluates every child even after finding a reachable file so
-   * nested directory entries are always complete in the returned map.
-   */
   function visit(children: readonly ManifestNode[]): boolean {
     let hasReachableFile = false;
     for (const child of children) {
@@ -117,102 +67,25 @@ export function calculateDirectoryExpansion(
   return result;
 }
 
-/**
- * Describes FileCard-local render modes calculated solely for FileTree markers.
- *
- * Keys are immutable manifest file indices and values mirror the current
- * `data-file-render` attributes. The map is disposable presentation data: it
- * must not control virtualization, navigation, selection, or ChangeSet state.
- */
 type FileTreeRenderModes = ReadonlyMap<number, "rich" | "virtual">;
 
-/**
- * Defines all reactive presentation and expansion inputs for the private FileTree.
- *
- * The tree receives one immutable manifest, current FileCard states, the stable
- * ChangeSet DOM root, calculated directory reachability, workspace FileTree
- * visibility, and ChangeSet-owned file expansion. Its callbacks may change only
- * tree visibility or file expansion. FileTree stores no query, backend data,
- * hunk selection, navigation, or independent expansion authority.
- */
 type FileTreeProps = {
-  /**
-   * Returns the connected ChangeSet root whose FileCards expose render modes.
-   * FileTree reads it once when open content mounts; the root must remain valid
-   * until that content unmounts and must contain this snapshot's stable cards.
-   */
   changeSetRoot: Accessor<HTMLElement>;
-  /** Immutable manifest hierarchy rendered without sorting or filtering. */
   tree: readonly ManifestNode[];
-  /**
-   * Returns current canonical lane states in the same manifest order as `tree`.
-   * Rows call it reactively after query transitions. Callers must not mutate the
-   * returned array or retain it as separate FileTree state.
-   */
   states: Accessor<readonly FileState[]>;
-  /** Current workspace sidebar visibility; false unmounts FileTreeContent. */
   open: boolean;
-  /** Layout mode controlling whether the closed sidebar shell remains present. */
   view: DiffViewMode;
-  /**
-   * Returns the DOM-mirrored selected file index, or null before selection.
-   * The open tree reads it for highlighting and private sidebar scrolling only;
-   * hunk changes inside the same file must not create a different result.
-   */
   selectedFileIndex: Accessor<number | null>;
-  /**
-   * Returns descendant reachability for every manifest directory.
-   * FileTree calls it during rendering and highlighted-row reachability checks;
-   * the map is recalculated by ChangeSet from shared canonical file state.
-   */
   directoryExpansion: Accessor<ReadonlyMap<string, boolean>>;
-  /**
-   * Returns ChangeSet's explicit per-file expansion map without copying it.
-   * File rows consult it after FullFile transitions and callbacks; absence at a
-   * key delegates to `fileExpanded` rather than authoring a tree default.
-   */
   fileExpansion: Accessor<Readonly<Record<string, boolean | undefined>>>;
-  /**
-   * Replaces workspace sidebar visibility with `open` after the tree toggle.
-   * The caller stores the accepted value and returns it through `open`; private
-   * row scrolling and file-name navigation never invoke this callback.
-   */
   onOpenChange: (open: boolean) => void;
-  /**
-   * Applies one expansion value to every descendant file of `directory`.
-   *
-   * FileTree invokes it only from that directory's square, before Solid reruns
-   * reachability. The caller writes the descendant set into its shared
-   * expansion store and returns the result through `fileExpansion`.
-   *
-   * @param directory Exact immutable manifest directory whose descendants change.
-   * @param expanded Complete desired value for every descendant file.
-   */
   onDirectoryExpandedChange: (
     directory: ManifestDirectory,
     expanded: boolean,
   ) => void;
-  /**
-   * Replaces one FullFile's explicit expansion after its square is activated.
-   *
-   * The caller stores `expanded` under `file`'s pair key and returns the result
-   * through `fileExpansion`. Husk and Lazy markers never invoke this callback.
-   *
-   * @param file Exact immutable manifest leaf selected in the tree.
-   * @param expanded Complete desired FileCard expansion value.
-   */
   onFileExpandedChange: (file: ManifestFile, expanded: boolean) => void;
 };
 
-/**
- * Renders the manifest tree, current shared expansion, and private highlighted-row scroll.
- *
- * Directory squares bulk-update descendant file expansion and FullFile squares
- * update one file. Name buttons invoke the enclosing selecting FileTree
- * Navigation operation. The component may calculate current FileCard render
- * modes and scroll its own `.file-tree-groups`, but it never calls selection
- * directly, loads files, expands a row for visibility, or moves the main page.
- */
 export function FileTree(props: FileTreeProps): JSX.Element {
   const navigation = useNavigation();
   const toast = useToasts();
@@ -221,12 +94,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
     files.map((file, index) => [manifestEntryKey(file.entry), index]),
   );
 
-  /**
-   * Resolves one manifest file to its required manifest-order file index.
-   *
-   * FileTree highlighting and progressive state lookup share this exact index.
-   * Missing identity violates the immutable manifest ordering and throws.
-   */
   const indexForFile = (file: ManifestFile): number => {
     return expect(
       indexByKey.get(manifestEntryKey(file.entry)),
@@ -234,13 +101,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
     );
   };
 
-  /**
-   * Sends one manifest file to the enclosing selecting Navigation operation.
-   *
-   * File and directory name buttons share this path. Rejection becomes the
-   * ordinary dramatic Toast while Navigation remains the only code that selects
-   * and moves the main page; this function never expands, collapses, or fetches.
-   */
   function navigateToFile(file: ManifestFile): void {
     void navigation
       .navigate({ kind: "file", fileIndex: indexForFile(file) })
@@ -248,12 +108,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
         toast.showError("File navigation failed", error),
       );
   }
-  /**
-   * Resolves one manifest file to the exact shared ChangeSet file state.
-   *
-   * Missing indices or states violate the required parallel manifest/state
-   * ordering and throw rather than producing an incomplete tree row.
-   */
   const stateForFile = (file: ManifestFile): FileState => {
     const index = indexForFile(file);
     return expect(
@@ -264,16 +118,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
 
   const ancestorPathsByFileIndex = new Map<number, readonly string[]>();
 
-  /**
-   * Indexes the immutable directory chain containing every manifest file.
-   *
-   * Paths retain outermost-to-innermost order. The private sidebar-scroll effect
-   * uses them only to distinguish a legitimately absent collapsed row from a
-   * missing row that violates the manifest-rendering contract.
-   *
-   * @param nodes Immutable sibling collection at the current directory depth.
-   * @param ancestors Outer-to-inner paths already traversed before `nodes`.
-   */
   function indexAncestorPaths(
     nodes: readonly ManifestNode[],
     ancestors: readonly string[],
@@ -288,33 +132,11 @@ export function FileTree(props: FileTreeProps): JSX.Element {
   }
   indexAncestorPaths(props.tree, []);
 
-  /**
-   * Renders one reactive directory row and its currently expanded descendants.
-   *
-   * The square is the sole expansion button and invokes the shared ChangeSet
-   * bulk file action. The separate name button selects and navigates to the
-   * directory's first manifest file without loading or changing expansion, and
-   * remains disabled while that first file is a Husk because a Husk (and most
-   * importantly adjacent Husks) does not have stable layout.
-   */
   function FileTreeDirectory(rowProps: {
-    /** Immutable directory rendered by this recursive row instance. */
     directory: ManifestDirectory;
-    /** Zero-based nesting level written into the row's CSS depth variable. */
     depth: number;
-    /**
-     * Reads the current disposable FileCard DOM-mode map for descendant markers.
-     * The directory forwards the same accessor unchanged; it never samples or
-     * stores a second map and never uses it to choose renderer state.
-     */
     renderModes: Accessor<FileTreeRenderModes>;
   }): JSX.Element {
-    /**
-     * Reads the one shared directory-expansion value used by tree and FileCards.
-     *
-     * An absent entry means initially expanded. The accessor never writes a
-     * default into ChangeSet state or retains a second directory authority.
-     */
     const expanded = () => {
       const current = props.directoryExpansion().get(rowProps.directory.path);
       return expect(
@@ -382,43 +204,13 @@ export function FileTree(props: FileTreeProps): JSX.Element {
     );
   }
 
-  /**
-   * Renders one file row from current FileCard and ChangeSet presentation.
-   *
-   * The row exposes selected-file highlighting and current statistics. A
-   * FullFile square invokes the shared file-expansion action; Husk and Lazy
-   * markers remain inert. The separate name button invokes selecting file
-   * navigation and remains disabled while this file is a Husk because a Husk
-   * (and most importantly adjacent Husks) does not have stable layout. An
-   * expanded FullFile in virtual DOM render mode must display `V` instead of the
-   * filled visibility marker.
-   */
   function FileTreeFile(rowProps: {
-    /** Immutable manifest leaf whose canonical state this row reads. */
     file: ManifestFile;
-    /** Zero-based nesting level written into the row's CSS depth variable. */
     depth: number;
-    /**
-     * Reads current FileCard DOM modes when calculating this row's V marker.
-     * Attribute observation replaces the map after renderer transitions; the
-     * row must not write it or use it to navigate or expand the FileCard.
-     */
     renderModes: Accessor<FileTreeRenderModes>;
   }): JSX.Element {
     const fileIndex = indexForFile(rowProps.file);
-    /**
-     * Reads the current FileCard presentation at this immutable manifest index.
-     *
-     * The accessor preserves ChangeSet's canonical state ordering and must not
-     * cache a Husk, Lazy, or Full result across reactive query transitions.
-     */
     const state = () => stateForFile(rowProps.file);
-    /**
-     * Calculates the marker's current rich-body visibility.
-     *
-     * Husk and Lazy rows always display an empty FileTree marker. FullFile reads
-     * the shared expansion authority; this calculation never changes FileCard.
-     */
     const expanded = () => {
       const current = state();
       if (current.state !== "full") {
@@ -426,12 +218,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
       }
       return fileExpanded(rowProps.file, current, props.fileExpansion());
     };
-    /**
-     * Reports whether an expanded FullFile currently exposes virtual DOM.
-     *
-     * The value comes only from FileTree's disposable DOM calculation and must
-     * not be used to choose or change the owning FileCard's render mode.
-     */
     const virtualized = () =>
       expanded() && rowProps.renderModes().get(fileIndex) === "virtual";
     const highlighted = createMemo(
@@ -453,22 +239,10 @@ export function FileTree(props: FileTreeProps): JSX.Element {
         }
       }
     })();
-    /**
-     * Reports the localized error presentation that must override reason colors.
-     *
-     * Ordinary Husk and Full states are never error-flavoured by this accessor.
-     */
     const isError = () => {
       const current = state();
       return current.state === "lazy" && current.file.kind === "error";
     };
-    /**
-     * Preserves LazyFile's established border until explicit fetching completes.
-     *
-     * Manifest-lazy files temporarily render as Husk while their query fetches;
-     * they remain visually Lazy in FileTree. A hydrated FullFile deliberately
-     * drops the Lazy border while retaining only its approved reason color.
-     */
     const styledAsLazy = () => {
       const current = state();
       return (
@@ -476,12 +250,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
         (current.state === "husk" && rowProps.file.entry.lazy !== null)
       );
     };
-    /**
-     * Resolves the non-error Lazy reason whose color survives FullFile hydration.
-     *
-     * Error-flavoured LazyFile deliberately returns null so critical error color
-     * wins. Full and fetching states fall back to immutable manifest metadata.
-     */
     const lazyReason = () => {
       const current = state();
       if (current.state === "lazy" && current.file.kind === "error") {
@@ -552,23 +320,9 @@ export function FileTree(props: FileTreeProps): JSX.Element {
     );
   }
 
-  /**
-   * Dispatches one immutable manifest node to its reactive row component.
-   *
-   * Recursion preserves exact backend order and directory depth. The dispatcher
-   * stores no state and exists only as the structural boundary shared by the root
-   * and nested directory lists.
-   */
   function FileTreeNode(nodeProps: {
-    /** Immutable manifest node dispatched without changing backend order. */
     node: ManifestNode;
-    /** Current recursive nesting level passed unchanged to the row component. */
     depth: number;
-    /**
-     * Reads the shared DOM mode map used by every recursive row in this mount.
-     * The dispatcher forwards the accessor without calling it, preserving one
-     * reactive observation point in the concrete file row.
-     */
     renderModes: Accessor<FileTreeRenderModes>;
   }): JSX.Element {
     if (nodeProps.node.type === "directory") {
@@ -589,14 +343,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
     );
   }
 
-  /**
-   * Maintains the open FileTree DOM calculation and private highlighted-row scroll.
-   *
-   * Mounting scans the authoritative stable FileCards and observes only local
-   * render-mode attribute changes. Disposal disconnects the observer and drops
-   * the map. The selection effect changes only this component's scroll container
-   * and treats rows below collapsed ancestors as legitimately absent.
-   */
   function FileTreeContent(): JSX.Element {
     let groups!: HTMLDivElement;
     const [renderModes, setRenderModes] = createSignal<FileTreeRenderModes>(
@@ -604,14 +350,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
     );
     const highlightedFileIndex = createMemo(() => props.selectedFileIndex());
 
-    /**
-     * Reports whether the highlighted row currently has every ancestor mounted.
-     *
-     * This memo deliberately reduces the complete directory-expansion map to
-     * one boolean for the highlighted file. Unrelated Husk-to-Full state changes
-     * may replace that map, but an unchanged boolean must not make the private
-     * scrolling effect overwrite the user's manual FileTree scroll position.
-     */
     const highlightedRowReachable = createMemo(() => {
       const fileIndex = highlightedFileIndex();
       if (fileIndex === null) {
@@ -648,13 +386,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
       const root = props.changeSetRoot();
       assert(root.isConnected, "FileTree requires a mounted ChangeSet root.");
 
-      /**
-       * Reads current FullFile render modes from authoritative stable FileCards.
-       *
-       * Missing mode attributes are valid for Husk, Lazy, and failed renderer
-       * states. Present attributes and indices must be exact; malformed or
-       * duplicate values are DOM-contract violations and throw immediately.
-       */
       function readRenderModes(): FileTreeRenderModes {
         const modes = new Map<number, "rich" | "virtual">();
         for (const card of root.querySelectorAll<HTMLElement>(
@@ -793,17 +524,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
   );
 }
 
-/**
- * Resolves one file's expansion from explicit ChangeSet state or FullFile data.
- *
- * Explicit user state always wins. LazyFiles begin expanded because their body
- * contains the only explicit-load affordance. A first FullFile result supplies
- * its backend default expansion; queued HuskFiles remain collapsed.
- *
- * @param file Immutable manifest leaf providing the expansion key.
- * @param state Current canonical lane state for that same leaf.
- * @param expansion ChangeSet's explicit choices, where absence delegates.
- */
 export function fileExpanded(
   file: ManifestFile,
   state: FileState,
@@ -822,12 +542,6 @@ export function fileExpanded(
   return false;
 }
 
-/**
- * Derives FileTree line statistics from one shared FileCard state.
- *
- * Full and deferred values expose only their actual backend fields. Husk and
- * error states remain unknown rather than manufacturing zeros.
- */
 function treeStatistics(state: FileState): TreeLineStats {
   if (state.state === "full") {
     return {
@@ -848,26 +562,8 @@ function treeStatistics(state: FileState): TreeLineStats {
   return { added: null, modified: null, removed: null, moved: null };
 }
 
-/**
- * Adds progressive FileTree statistics without converting unknowns to numbers.
- *
- * Each metric is null when any participating file lacks it; otherwise exact
- * values are summed. The aggregate is presentation-only and never cached.
- */
 function sumTreeStatistics(states: readonly FileState[]): TreeLineStats {
   const stats = states.map(treeStatistics);
-  /**
-   * Sums one statistic only when every contributing file knows its value.
-   *
-   * Null propagates as unknown instead of becoming zero, preserving progressive
-   * FileTree semantics for queued and failed files.
-   *
-   * # Returns
-   *
-   * - The sum when every participating File supplies this statistic.
-   * - `null`: At least one File lacks the statistic. The directory row must
-   *   display the aggregate as unknown rather than as a partial total.
-   */
   const sum = (values: (number | null)[]): number | null => {
     let total = 0;
     for (const value of values) {
@@ -886,16 +582,7 @@ function sumTreeStatistics(states: readonly FileState[]): TreeLineStats {
   };
 }
 
-/**
- * Renders the four established progressive statistics in one FileTree row.
- *
- * Unknown values remain question marks in the tree only. File headers use their
- * own stricter omission rules and do not call this component.
- */
-function TreeStatistics(props: {
-  /** Final progressive values for this exact file or directory row. */
-  stats: TreeLineStats;
-}): JSX.Element {
+function TreeStatistics(props: { stats: TreeLineStats }): JSX.Element {
   return (
     <span class="file-tree-line-stats">
       <span class="added">+ {props.stats.added ?? "?"}</span>
@@ -906,17 +593,8 @@ function TreeStatistics(props: {
   );
 }
 
-/**
- * Renders one inert FileTree expansion or local virtualization marker.
- *
- * `visible` produces the established filled square and `virtualized` produces
- * `V`. Callers must not set both. The marker has no interaction, accessible
- * name, expansion state, or virtualization decision.
- */
 function TreeVisibilityIndicator(props: {
-  /** True paints the rich expanded marker; `virtualized` must then be false. */
   visible: boolean;
-  /** True paints V for expanded virtual DOM; `visible` must then be false. */
   virtualized: boolean;
 }): JSX.Element {
   const virtualized = createMemo(() => {

@@ -1,20 +1,3 @@
-"""Build manifest trees and lazy-File metadata from source path facts.
-
-## Public interface
-
-`build_repo_manifest_for_paths` turns captured `ManifestPath` records into the
-manifest consumed by the HUD. `build_lazy_info_for_paths` selects the deferred
-Files from those same records. The File-kind helpers translate source change
-metadata into the public tracking classification.
-
-## Purpose and boundaries
-
-This module is the one place that applies manifest ordering, directory
-compaction, File counters, and initial lazy policy. It consumes path metadata
-only. It must not load or render File contents, select an engine, or attach the
-Snapshot id added by the HTTP boundary.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -39,40 +22,19 @@ from dirdiff.util import Option, Some
 
 @dataclass(frozen=True)
 class ManifestPath:
-    """Present captured File paths and metadata to manifest builders.
-
-    # Usage
-
-    A response builder constructs these records from
-    `dirdiff.room_lord.Room.manifested` results, deriving the display label from the
-    path pair. Pass the records to `build_repo_manifest_for_paths` or
-    `build_lazy_info_for_paths`. They address retained Files for display and lazy
-    policy, not live source reads.
-    """
-
     left_path: Option[str]
-    """Persisted repository-local left path, absent for an added File."""
 
     right_path: Option[str]
-    """Persisted repository-local right path, absent for a deleted File."""
 
     display_name: str
-    """Source File label for display; side paths address the captured File."""
 
     change_type: Literal["modify", "add", "delete", "rename", "copy"]
-    """Persisted source relationship used for manifest status and counts."""
 
     lazy_reason_override: LazyReason | None
-    """Persisted source policy, absent when manifest policy decides laziness."""
 
     untracked: bool
-    """Whether the File is untracked by the selected VCS.
-
-    *Implementation detail:* preset fixture Files report false because VCS
-    tracking does not apply."""
 
     def __post_init__(self) -> None:
-        """Require one present path for a displayed File."""
         assert Some.present(self.left_path) or Some.present(self.right_path)
 
 
@@ -91,11 +53,6 @@ GENERATED_FILES = frozenset(
         "yarn.lock",
     }
 )
-"""Case-folded lockfile names that manifest construction defers by default.
-
-`_lazy_reason_for_repo_entry` compares only the final component of either side
-path. A source's explicit lazy reason takes precedence over this classification.
-"""
 FILE_STATUS_BY_CHANGE_TYPE: dict[
     Literal["modify", "add", "delete", "rename", "copy"], FileStatus
 ] = {
@@ -105,12 +62,6 @@ FILE_STATUS_BY_CHANGE_TYPE: dict[
     "rename": "renamed",
     "copy": "copied",
 }
-"""Translate source change relationships to the public File status vocabulary.
-
-Both eager manifest entries and focused lazy File responses use this complete
-mapping. An unsupported source change type is a contract violation and raises
-`KeyError` rather than producing substitute metadata.
-"""
 
 __all__ = [
     "ManifestPath",
@@ -122,22 +73,6 @@ __all__ = [
 
 
 def file_kind_for_repo_entry(entry: ManifestPath) -> RepoFileKind:
-    """Encode one source File pair with its tracking classification.
-
-    Untracked entries select the untracked variant. Every tracked entry maps
-    its change relationship through the complete source status table.
-
-    # Usage
-
-    Manifest and lazy-info builders call this for each `ManifestPath`. Preserve
-    the untracked discriminator instead of inferring VCS tracking from the change
-    type or missing side.
-
-    # Failures
-
-    - A tracked entry with a change type outside the declared `ManifestPath`
-      contract raises `KeyError`.
-    """
     if entry.untracked:
         return {"type": "untracked"}
     return {
@@ -151,25 +86,6 @@ def file_kind_for_change_type(
     *,
     file_kind: Literal["tracked", "untracked"] | None = None,
 ) -> RepoFileKind:
-    """Encode captured change metadata in the manifest File-kind contract.
-
-    # Parameters
-
-    - `change_type`: Captured source relationship between the File sides.
-    - `file_kind`: VCS tracking override; `untracked` omits source status metadata.
-
-    The default and explicit `tracked` cases require a recognized change type.
-
-    # Usage
-
-    The focused File endpoint calls this when converting captured Room metadata
-    back to the same tracking classification published by the manifest. Pass
-    `untracked` explicitly when the captured File is untracked.
-
-    # Failures
-
-    - A tracked value with an unsupported `change_type` raises `KeyError`.
-    """
     if file_kind == "untracked":
         return {"type": "untracked"}
     return {
@@ -179,24 +95,8 @@ def file_kind_for_change_type(
 
 
 def _lazy_reason_for_repo_entry(entry: ManifestPath) -> LazyReason | None:
-    """Derive the initial loading policy for one source File pair.
-
-    An explicit source reason wins, followed by untracked, deleted, and known
-    generated-file classifications. `None` leaves the File eager.
-
-    # Returns
-
-    - A lazy reason that permits capture to defer this File.
-    - `None`: No lazy rule applies, so capture must load the File's present
-      sides immediately.
-    """
 
     def _looks_generated_path(path: Option[str]) -> bool:
-        """Match a present path's case-folded basename against known lockfiles.
-
-        Directory components do not affect this policy. An absent side cannot
-        establish generated status on its own.
-        """
         return (
             Some.present(path)
             and PurePosixPath(path.value).name.casefold() in GENERATED_FILES
@@ -216,11 +116,6 @@ def _lazy_reason_for_repo_entry(entry: ManifestPath) -> LazyReason | None:
 
 
 def _empty_repo_summary() -> RepoManifestSummary:
-    """Create the mutable starting summary for one manifest build.
-
-    File counters and skipped Files start at zero. Aggregate line totals start
-    absent and are replaced together from source or Snapshot metadata.
-    """
     return {
         "changed_files": 0,
         "added_files": 0,
@@ -235,16 +130,6 @@ def _empty_repo_summary() -> RepoManifestSummary:
 def _to_lazy_info_file_entry(
     entry: ManifestPath, lazy: LazyReason
 ) -> LazyInfoFile:
-    """Expose enough metadata for the frontend to render unloaded file rows.
-
-    The caller supplies the entry's already-derived lazy reason so the
-    listing derives it once per entry, for the predicate and the value.
-
-    # Parameters
-
-    - `entry`: Source File pair whose metadata is exposed without contents.
-    - `lazy`: Concrete reason already derived for that exact entry.
-    """
     return {
         "left_path": entry.left_path.get(),
         "right_path": entry.right_path.get(),
@@ -264,26 +149,6 @@ def _insert_tree_entry(
     parts: list[str],
     file_entry: RepoManifestFileEntry,
 ) -> None:
-    """Mutate the tree while preserving directory identity by path.
-
-    `directories` indexes every created directory node by its full path, so
-    inserting a path costs one dictionary lookup per ancestor instead of a
-    linear scan of its sibling level, which measured quadratic at wide
-    directories. The caller owns the index for exactly one tree build.
-
-    # Parameters
-
-    - `root_entries`: Mutable roots of the manifest tree under construction.
-    - `directories`: Full-path index shared for this one tree build.
-    - `parts`: Non-empty repository path components ending in a File name.
-    - `file_entry`: Manifest payload stored at the new leaf.
-
-    # Failures
-
-    - Raises `ValueError` when `parts` is empty.
-      The check happens before either mutable input changes, so the partial
-      tree and its directory index remain unchanged.
-    """
     if parts == []:
         raise ValueError("Cannot insert an empty manifest tree path.")
     entries = root_entries
@@ -309,11 +174,6 @@ def _insert_tree_entry(
 def _root_files_last(
     entries: list[RepoManifestTreeEntry],
 ) -> list[RepoManifestTreeEntry]:
-    """Order each tree level for `_build_repo_manifest_tree`.
-
-    Directory entries stay before file entries so root files render last in the
-    frontend tree and flat depth-first file list.
-    """
     directory_entries: list[RepoManifestDirectoryNode] = []
     file_entries: list[RepoManifestFileNode] = []
     for entry in entries:
@@ -328,14 +188,6 @@ def _root_files_last(
 def _compact_single_directory_chains(
     entries: list[RepoManifestTreeEntry],
 ) -> list[RepoManifestTreeEntry]:
-    """Collapse directory chains that contain no branching choice.
-
-    Used by `_build_repo_manifest_tree` after root-file ordering.
-
-    `frontend -> src -> App.tsx` becomes `frontend/src -> App.tsx` so API
-    consumers get a tree shaped around meaningful choices rather than every
-    path segment.
-    """
     compacted_entries: list[RepoManifestTreeEntry] = []
     for entry in entries:
         if entry["type"] != "directory":
@@ -362,19 +214,6 @@ def _compact_single_directory_chains(
 def _build_repo_manifest_tree(
     entries: list[ManifestPath],
 ) -> list[RepoManifestTreeEntry]:
-    """Build the ordered, compact directory tree consumed by the File sidebar.
-
-    Each File uses its right path when present and otherwise its left path.
-    Every valid pair becomes one leaf before directory ordering and compaction.
-
-    # Failures
-
-    - Raises `ValueError` when an entry has neither path, or when its selected
-      path has no repository components and `_insert_tree_entry` cannot create
-      a File leaf.
-      `build_repo_manifest_for_paths` propagates either error to its caller
-      rather than returning a partial tree.
-    """
     tree_entries: list[RepoManifestTreeEntry] = []
     directories: dict[str, RepoManifestDirectoryNode] = {}
     for entry in entries:
@@ -414,31 +253,6 @@ def build_repo_manifest_for_paths(
     added_lines: int | None,
     removed_lines: int | None,
 ) -> RepoManifest:
-    """Build a manifest from captured paths and aggregate Snapshot metadata.
-
-    # Parameters
-
-    - `left_label`: Human-readable label for the captured left side.
-    - `right_label`: Human-readable label for the captured right side.
-    - `paths`: Captured File pairs in the order used to construct the tree.
-    - `added_lines`: Source-wide added-line total, or `None` if unavailable.
-    - `removed_lines`: Source-wide removed-line total, or `None` if unavailable.
-
-    Added and removed totals must either both exist or both be absent. They are
-    source metadata and are not recomputed from rendered bays.
-
-    # Usage
-
-    The manifest endpoint passes the labels and File records retained by one
-    Snapshot. Reuse the same `paths` with `build_lazy_info_for_paths` so eager
-    and deferred responses apply one lazy policy and File-kind mapping.
-
-    # Failures
-
-    - Mismatched line-total presence raises `AssertionError`.
-    - A File with neither side path raises `ValueError`.
-    - An unsupported tracked change type raises `KeyError`.
-    """
     assert (added_lines is None) == (removed_lines is None), (
         "manifest line counts must have equal presence"
     )
@@ -468,22 +282,6 @@ def build_lazy_info_for_paths(
     *,
     paths: list[ManifestPath] | tuple[ManifestPath, ...],
 ) -> LazyInfo:
-    """Return placeholder metadata for only the paths classified as lazy.
-
-    Input order is preserved. Each reason is derived once and supplied to the
-    output record; eager paths do not appear in the result.
-
-    # Usage
-
-    Call this with the captured paths used for the manifest, after filtering to
-    the current Snapshot. The HTTP boundary attaches the Snapshot id and
-    validates the result.
-
-    # Failures
-
-    - A lazy tracked entry with a change type outside the `ManifestPath`
-      contract raises `KeyError` while its File kind is built.
-    """
     files: list[LazyInfoFile] = []
 
     for entry in paths:

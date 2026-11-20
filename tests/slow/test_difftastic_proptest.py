@@ -1,13 +1,3 @@
-"""Property checks for Difftastic rows over the complete preset corpus.
-
-The tests in this module run every difftastic preset, including `borked`
-fixtures, through the same row builder and assert broad invariants: source
-text is preserved, one-sided rows are not pure unchanged context, and
-replacement tokens stay paired sensibly.  Golden snapshots cover exact output
-for non-borked presets; this file guards shape and token consistency across
-the full preset corpus.
-"""
-
 import re
 from hashlib import sha256
 from pathlib import Path
@@ -28,81 +18,28 @@ from dirdiff.formats import try_decode_text
 from dirdiff.util import Ok
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "diff"
-"""Complete Difftastic source-pair corpus, including intentionally hard cases.
-
-Unlike golden tests, these invariants include the `borked` group because exact
-appearance is irrelevant to source preservation and token consistency.
-"""
 REPO_ROOT = Path(__file__).resolve().parents[2]
-"""Current checkout used to replay the worktree patch through preset invariants.
-
-The dynamic corpus is additional coverage for code under active development;
-it does not replace stable checked-in fixtures.
-"""
 Side = Literal["left", "right"]
-"""Difftastic source side inspected by replay and span-order assertions.
-
-The value selects coordinated row and token fields only. It does not describe
-which side changed or whether a row is paired.
-"""
 
 
 class PresetCase(TypedDict):
-    """Required source paths and explicit cache identity for preset invariants.
-
-    Stable fixtures forbid changed inputs. The worktree test supplies its
-    materialized pair to the same checks with explicit replacement permission.
-    """
-
     old_path: Path
-    """Old source file, read exactly with its basename as parser hint."""
     new_path: Path
-    """New source file under the same exact-text contract."""
     cache_key: str
-    """Stable identity for this input pair, independent of temporary paths."""
     allow_mismatches: bool
-    """Whether changed inputs may replace an existing valid cache entry."""
 
 
 class WorktreeCase(TypedDict):
-    """Captured worktree source pair and its required changing-input policy.
-
-    Git capture supplies exact source and path facts. Repeated runs may replace
-    stale inputs for the same changed File, without hiding malformed entries.
-    """
-
     display_name: str
-    """Backend File name used as the readable pytest case identity."""
     left_name: str
-    """Old parser hint, using the display name when that side is absent."""
     right_name: str
-    """New parser hint, using the display name when that side is absent."""
     left_text: str
-    """Exact decoded old content; an absent side contributes empty text."""
     right_text: str
-    """Exact decoded new content; an absent side contributes empty text."""
     cache_key: str
-    """Stable identity for this input pair, independent of temporary paths."""
     allow_mismatches: bool
-    """Whether changed inputs may replace an existing valid cache entry."""
 
 
 def _preset_cases() -> list[PresetCase]:
-    """Return every unambiguous preset pair with a stable shared cache key.
-
-    Both paths must exist exactly once. Stable fixtures forbid hash mismatches;
-    their key is shared with golden and focused checks of the same source pair.
-
-    # Usage
-
-    Use as the parameter list for properties that need every checked-in preset
-    pair, including fixtures Difftastic cannot compare structurally.
-
-    # Failures
-
-    Raises `AssertionError` when a preset contains an ambiguous number of old or
-    new files.
-    """
     cases: list[PresetCase] = []
     for preset_dir in sorted(PRESETS_ROOT.glob("*/*")):
         if not preset_dir.is_dir():
@@ -123,26 +60,6 @@ def _preset_cases() -> list[PresetCase]:
 
 
 def _current_diff_cases() -> list[WorktreeCase]:
-    """Build replay cases from changed text Files in the current worktree.
-
-    The helper compares HEAD with worktree including untracked Files, loads an
-    absent side as empty bytes, and skips acquisition failures, non-text content,
-    and equal pairs such as pure renames. Each result contains display name,
-    left and right parser names, then decoded left and right text, in source
-    presentation order. An empty changed-file listing returns an empty parameter
-    list.
-
-    # Usage
-
-    Use as an additional property-test parameter source when local changed Files
-    should be checked without replacing the stable preset corpus.
-
-    # Returns
-
-    A sequence of cases containing source texts, parser names, display name,
-    and cache policy. Cases retain source presentation order; equal, non-text,
-    and acquisition-failed pairs are absent.
-    """
     head_id = GitRepository(REPO_ROOT).commit_id("HEAD", allow_unborn=True)
     source = GitChangeSource(
         REPO_ROOT,
@@ -204,27 +121,6 @@ def _current_diff_cases() -> list[WorktreeCase]:
 def _difftastic_rows_for_preset(
     case: PresetCase,
 ) -> tuple[list[DiffEngineRow], str, str]:
-    """Build one fixture through raw Difftastic without textual degradation.
-
-    Empty or degraded structural output remains visible to the property test;
-    this helper deliberately does not substitute unified text rows.
-
-    # Parameters
-
-    - `case`: Required source paths, cache key, and mismatch policy.
-
-    # Usage
-
-    Property tests call this when they need to distinguish Difftastic's raw
-    structural result from the engine's textual degraded result.
-
-    # Returns
-
-    - `First`: Raw Difftastic rows before the engine substitutes a textual
-      degraded result.
-    - `Second`: Exact old fixture text supplied to Difftastic.
-    - `Third`: Exact new fixture text supplied to Difftastic.
-    """
     old_path, new_path = case["old_path"], case["new_path"]
     old_text = old_path.read_bytes().decode("utf-8")
     new_text = new_path.read_bytes().decode("utf-8")
@@ -246,30 +142,6 @@ def _difftastic_rows_for_preset(
 def _text_without_difftastic_ignored_trailing_commas(
     source_path: Path, source_text: str
 ) -> str:
-    """Remove punctuation that difftastic deliberately omits from JSON.
-
-    Difftastic marks language-specific trailing commas as ignorable before
-    emitting change positions.  The replay invariant compares concrete text,
-    so it must normalize the same punctuation away before it asks whether the
-    remaining status stream can reconstruct the target.
-
-    Sad but true.
-
-    # Parameters
-
-    - `source_path`: Parser-selecting fixture path for language-specific rules.
-    - `source_text`: Exact text from which ignored comma bytes are removed.
-
-    # Usage
-
-    Replay checks apply this to the exact source before comparing it with
-    Difftastic token text for languages whose parser omits trailing commas.
-
-    # Failures
-
-    Raises `AssertionError` when a Difftastic-reported byte position does not
-    address the comma expected in the supplied source.
-    """
     match source_path.suffix:
         case ".py":
             language = Language(tree_sitter_python.language())
@@ -356,32 +228,12 @@ def _text_without_difftastic_ignored_trailing_commas(
 def test_difftastic_preset_tokens_stay_in_source_order(
     case: PresetCase,
 ) -> None:
-    """This test verifies that for both old source and new source, the output
-    on the left and on the right has all tokens in full, and in the same order
-    as they were in the original sources.
-
-    # Parameters
-
-    - `case`: Required source paths, cache key, and mismatch policy.
-    """
 
     def _side_rendered_text(
         rows: list[DiffEngineRow],
         *,
         side: Side,
     ) -> str:
-        """Join source-side row text in rendered order.
-
-        # Parameters
-
-        - `rows`: Complete projected row sequence.
-        - `side`: Source side whose present rows are joined.
-
-        # Usage
-
-        The enclosing property test calls this for each side before comparing
-        the rendered line sequence with the original source.
-        """
         if side == "left":
             return "\n".join(
                 row["left_text"] for row in rows if row["left_no"] is not None
@@ -391,12 +243,6 @@ def test_difftastic_preset_tokens_stay_in_source_order(
         )
 
     def _token_atoms(text: str) -> list[str]:
-        """Reduce exact token text to atoms safe for subsequence comparison.
-
-        Whitespace is deliberately absent because Difftastic may partition it
-        differently. Identifier, numeric, and punctuation order must still be a
-        subsequence of the corresponding original source.
-        """
         return re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|\S", text)
 
     rows, old_text, new_text = _difftastic_rows_for_preset(case)
@@ -436,15 +282,6 @@ def test_difftastic_preset_tokens_stay_in_source_order(
 def test_difftastic_preset_token_spans_match_difftastic_json(
     case: PresetCase,
 ) -> None:
-    """Match every projected changed character to Difftastic's byte ranges.
-
-    The original source converts external byte columns to character offsets;
-    diagnostics identify any missing or extra changed character by line.
-
-    # Parameters
-
-    - `case`: Required source paths, cache key, and mismatch policy.
-    """
     old_path, new_path = case["old_path"], case["new_path"]
     old_text = old_path.read_bytes().decode("utf-8")
     new_text = new_path.read_bytes().decode("utf-8")
@@ -552,12 +389,6 @@ def test_difftastic_preset_token_spans_match_difftastic_json(
 def test_difftastic_preset_line_status_matches_token_statuses(
     case: PresetCase,
 ) -> None:
-    """Derive each projected row status from its actual token classifications.
-
-    # Parameters
-
-    - `case`: Required source paths, cache key, and mismatch policy.
-    """
     rows, _, _ = _difftastic_rows_for_preset(case)
 
     diagnostics: list[tuple[int, str, str, list[str]]] = []
@@ -600,12 +431,6 @@ def test_difftastic_preset_line_status_matches_token_statuses(
 def test_difftastic_preset_line_alignment_matches_difftastic(
     case: PresetCase,
 ) -> None:
-    """Preserve Difftastic's complete line alignment after phantom removal.
-
-    # Parameters
-
-    - `case`: Required source paths, cache key, and mismatch policy.
-    """
     old_path, new_path = case["old_path"], case["new_path"]
     old_text = old_path.read_bytes().decode("utf-8")
     new_text = new_path.read_bytes().decode("utf-8")
@@ -645,12 +470,6 @@ def test_difftastic_preset_line_alignment_matches_difftastic(
 def test_difftastic_preset_diff_replays_both_directions(
     case: PresetCase,
 ) -> None:
-    """Token statuses must replay either source file into the other.
-
-    # Parameters
-
-    - `case`: Required source paths, cache key, and mismatch policy.
-    """
     old_path, new_path = case["old_path"], case["new_path"]
 
     def replay(
@@ -661,26 +480,6 @@ def test_difftastic_preset_diff_replays_both_directions(
         target_changed: set[str],
         direction: str,
     ) -> None:
-        """Run the complete replay invariant in one direction.
-
-        # Parameters
-
-        - `source_side`: Side providing shared token text.
-        - `target_side`: Side reconstructed by the edit script.
-        - `source_changed`: Statuses discarded from the source during replay.
-        - `target_changed`: Statuses copied from the target during replay.
-        - `direction`: Human-readable direction included in failures.
-
-        # Usage
-
-        The bidirectional property calls this once per direction with the
-        corresponding changed-status vocabulary.
-
-        # Failures
-
-        Raises `AssertionError` when token status cannot replay the target or
-        when shared text disagrees between sides.
-        """
 
         # Stage 1: collect difftastic statuses as non-whitespace characters.
         side_parts: dict[Side, list[tuple[str, str]]] = {
@@ -855,16 +654,6 @@ def test_difftastic_current_diff_matches_preset_invariants(
     case: WorktreeCase,
     tmp_path: Path,
 ) -> None:
-    """Run every preset invariant against each readable current File change.
-
-    The test materializes temporary old/new files so existing helpers exercise
-    their real path-based parser selection without altering the checkout.
-
-    # Parameters
-
-    - `case`: Display name, side names, and decoded source texts from Git.
-    - `tmp_path`: Pytest directory used for the materialized source pair.
-    """
     display_name = case["display_name"]
     left_name, right_name = case["left_name"], case["right_name"]
     left_text, right_text = case["left_text"], case["right_text"]

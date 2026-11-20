@@ -1,20 +1,3 @@
-"""Composition of browser-displayable image Files.
-
-## Public interface
-
-`image_media_type` recognizes the supported path extensions. `image_bays`
-yields the picture bytes, parsed dimensions and EXIF as text, and the shared
-byte facts in a stable order. A metadata decode failure is contained to the
-metadata bay and reported there.
-
-## Purpose and boundaries
-
-The picture, its parsed metadata, and its byte identity answer different review
-questions, so the builder emits separate bays for them. Pillow reads metadata
-only. The exact captured image bytes remain unchanged for browser display, and
-`Composer` reduces them to references before serialization.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -57,36 +40,9 @@ _IMAGE_MEDIA_TYPES = {
     ".png": "image/png",
     ".webp": "image/webp",
 }
-"""The extensions this project treats as images, and what each one is.
-
-Deliberately a closed list of what browsers display natively without a decoder
-of ours. `image/svg+xml` is absent and stays absent: an SVG is
-author-controlled markup that the frontend would have to execute to display,
-which is the security question `formats.md` records for HTML outputs, and it
-is also perfectly readable as text. A flatfile diff of an SVG tells a reviewer
-more than a picture of it does.
-"""
 
 
 def image_media_type(path: str) -> Option[str]:
-    """Return the media type this path claims to be, or `Nothing` if not an image.
-
-    Classification is by filename extension, matched case-insensitively. That is
-    what the repository asserts the file is, and for a review tool showing a
-    reviewer what a repository contains it is the honest answer: a `.png` whose
-    bytes are a JPEG is a fact about the repository, not about this function.
-
-    # Usage
-
-    `Composer.bays` calls this for each present path. Pass a returned media type
-    to `image_bays`; `Nothing` leaves the path available to later classifiers.
-
-    # Returns
-
-    - `Some[str]`: The browser-native media type declared by the path's image suffix.
-    - `Nothing`: The path has no supported image suffix. The caller
-      must continue format classification.
-    """
     # TODO: extension matching is the simple answer and it is wrong for a file
     # with no extension, a file whose extension lies, and every format not on
     # the list above. Reading the leading magic bytes would settle the first
@@ -108,83 +64,11 @@ def image_bays(
     left_media_type: Option[str],
     right_media_type: Option[str],
 ) -> Iterator[Bay]:
-    """Yield the picture, parsed metadata, and byte-facts bays for an image File.
-
-    The two media types are the ones classification already derived from the two
-    paths, passed in rather than derived again, so what was classified and what
-    is served cannot disagree. A present side requires its media type: a side
-    whose path did not name an image is not an image File, and classification
-    must not have called this.
-
-    All three bays follow the whole-File rule for `change`, and read it from
-    different content on purpose. The picture's is read from the exact bytes, so
-    two byte-identical sides are `unchanged` and the bay takes no navigation
-    stop. The facts bay derives its change from the facts text, which changes
-    whenever the content changes. The digest is total. This result is also more
-    accurate for a rename that changes only the declared media type. The type
-    row reads as changed while the picture reads unchanged.
-
-    # Parameters
-
-    - `left`: Captured old image bytes, or `Nothing` for an absent side.
-    - `right`: Captured new image bytes under the same convention.
-    - `context`: Paths and labels for the resulting image and text bays.
-    - `left_media_type`: Type already concluded from the old path. Required
-      whenever `left` is present.
-    - `right_media_type`: Type already concluded from the new path. Required
-      whenever `right` is present.
-
-    # Usage
-
-    `Composer.bays` calls this only after every present path has an image media
-    type. Iterate all three bays in order; media serving uses the first bay's
-    exact bytes, while composition renders the two text attachments.
-
-    # Returns
-
-    - `Yielded bays`: The picture bay, metadata text bay, and byte-facts text bay
-      all describe the same two captured sides.
-    - `Order`: Picture comes first for media serving, followed by metadata and
-      byte facts for ordinary text rendering.
-
-    # Failures
-
-    Raises `AssertionError` when a present byte side lacks its classified media
-    type. Expected Pillow and EXIF damage is returned as bay warnings rather
-    than raised.
-    """
 
     def metadata(
         side: Option[MediaSide],
         side_label: str,
     ) -> tuple[Option[str], tuple[BayWarning, ...]]:
-        """Read bounded dimensions and EXIF text for one captured image side.
-
-        Failure to open or read the image returns an empty text side with a
-        visible warning, damaging this attachment only. An individual EXIF
-        value that cannot be rendered is omitted with a warning scoped to that
-        value. Oversized EXIF values become their length and digest rather than
-        entering the diff verbatim.
-
-        # Parameters
-
-        - `side`: Captured bytes and declared type, or `Nothing` when absent.
-        - `side_label`: Reviewer-facing side name used in warning messages.
-
-        # Usage
-
-        `image_bays` calls this once per side before constructing the metadata
-        text bay. Preserve returned warnings beside the text from that side.
-
-        # Returns
-
-        - `First`: Dimension and EXIF rows for a readable side; an unreadable
-          present image returns `""` and a warning.
-        - `Nothing`: The first item is absent when the File has no side here, so the
-          metadata bay must preserve side absence.
-        - `Second`: Warnings for unreadable metadata or omitted EXIF values, in
-          discovery order.
-        """
         if not Some.present(side):
             return Nothing(), ()
         try:

@@ -1,47 +1,3 @@
-"""Present and absent values with typed transformations and explicit narrowing.
-
-Inspired by famous type from ML, `Option[T]` is the union of `Some[T]` and
-`Nothing`.
-The goal is to take the monadic conveniences while maintaing largely pythonic
-APIs.
-
-# Usage
-## Creation
-- Construct the variants directly
-- Use `maybe` at a nullable boundary.
-- `Some.when` accepts a condition and an eager value
-- `Some.then` calls a factory only when its condition is true.
-- `Some.then_bind` supplies an explicit tuple of arguments to that conditional
-callback.
-
-## Transformations
-- `Option.map` takes a value and a callable and transforms the underlying value
-if present.
-- `Option.map_bind` additionally supplies an explicit tuple of callback
-arguments after the payload, without capturing those values in a closure.
-- `Option.and_then` aka `flat_map` or monadic `bind` is the same, but its
-callable itself returns `Option`, which `and_then` will swallow.
-
-## Extraction
-- `Option.get` will just convert your value into Python's `T | None`
-- `Option.get_or` allows you to supply the default fallback.
-- `Option.map_or` transforms a present payload and extracts it, or returns an
-eager default when absent.
-- `Option.must` will raise if the value isn't `Some`
-
-## Narrowing
-You can just pattern match, since `Option` is just a union, or use
-`Some.present` to achieve the same thing, but also return a boolean.
-
-# Implementation details
-The wrappers are immutable.
-- `Some` retains its payload by reference without copying or freezing it
-- Nothing retains no payload.
-
-These types perform no I/O, catch no callback failures, and assign no domain
-meaning to absence.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -54,36 +10,10 @@ __all__ = ["Nothing", "Option", "Some", "maybe"]
 @final
 @dataclass(frozen=True, slots=True)
 class Some[T]:
-    """A present payload of type T.
-
-    # Note on nesting
-
-    `Some(None)` counts as present and distinct from Nothing().
-
-    Nullable extraction with `get()` or `get_map()` will obviously erase this
-    distinction.
-    """
-
     value: T
-    """The exact required payload, retained without copying."""
 
     @staticmethod
     def when[U](condition: bool, value: U) -> Option[U]:
-        """Retain an eager value when the condition holds.
-
-        The caller evaluates `value` before this call, even when the condition
-        is false. Use `then` when producing the value must be conditional.
-
-        # Parameters
-
-        - `condition`: Whether to retain the supplied value.
-        - `value`: Already evaluated payload; callables are retained as values.
-
-        # Returns
-
-        - `Some[U]`: The supplied value when the condition is true.
-        - `Nothing`: Absence when the condition is false.
-        """
         return Some(value) if condition else Nothing()
 
     @staticmethod
@@ -175,13 +105,6 @@ class Some[T]:
 
     @staticmethod
     def present[U](option: Option[U]) -> TypeIs[Some[U]]:
-        """Test presence and narrow the explicit argument to Some[U].
-
-        # Returns
-
-        - True: The argument is Some, with a required payload of type U.
-        - False: The argument is Nothing, with no payload.
-        """
         return isinstance(option, Some)
 
     def map[U](self, function: Callable[[T], U]) -> Some[U]:
@@ -271,15 +194,9 @@ class Some[T]:
         return function(self.value)
 
     def must(self) -> T:
-        """Return the required payload unchanged."""
         return self.value
 
     def get_or[U](self, _default: U) -> T:
-        """Escape the Option API where the consumer accepts an absence default.
-
-        This variant supplies its payload. The default is eager, so the caller
-        evaluates it before the call even though it is unused here.
-        """
         return self.value
 
     def map_or[U, V](self, _default: V, function: Callable[[T], U]) -> U:
@@ -303,11 +220,6 @@ class Some[T]:
         return function(self.value)
 
     def get(self) -> T:
-        """Escape the Option API into a nullable receiving contract.
-
-        Use when the next consumer represents absence with None. Keep `map` or
-        `and_then` for transformations that should continue carrying an Option.
-        """
         return self.value
 
     def get_map[U](self, function: Callable[[T], U]) -> U:
@@ -329,28 +241,13 @@ class Some[T]:
         return function(self.value)
 
     def __bool__(self) -> Never:
-        """Reject implicit truth testing; use `Some.present` to inspect presence."""
         raise TypeError("use Some.present()")
 
 
 @final
 @dataclass(frozen=True, slots=True)
 class Nothing:
-    """Absence with no payload and no mutable state.
-
-    The variant is independent of the potential payload's type and must not be
-    subclassed. Mapping and chaining skip their callbacks. Absence must not
-    replace a diagnosed failure.
-    """
-
     def map[U](self, _function: Callable[[Never], U]) -> Nothing:
-        """Preserve absence without invoking the callback.
-
-        # Returns
-
-        - `Nothing`: This absent value, unchanged.
-        - `Some[U]`: Not possible for `Nothing.map`.
-        """
         return self
 
     def map_bind[U, *Args](
@@ -358,26 +255,9 @@ class Nothing:
         _arguments: tuple[*Args],
         _function: Callable[[Never, *Args], U],
     ) -> Nothing:
-        """Preserve absence without invoking a callback with additional inputs.
-
-        This is the absent case of `map_bind`. Supplied arguments have already
-        been evaluated by the caller; this variant retains none of them.
-
-        # Returns
-
-        - `Nothing`: This absent value, unchanged.
-        - `Some[U]`: Not possible for `Nothing.map_bind`.
-        """
         return self
 
     def and_then[U](self, _function: Callable[[Never], Option[U]]) -> Nothing:
-        """Preserve absence without invoking the Option-returning callback.
-
-        # Returns
-
-        - `Nothing`: This absent value, unchanged.
-        - `Some[U]`: Not possible for `Nothing.and_then`.
-        """
         return self
 
     def must(self) -> Never:
@@ -396,48 +276,22 @@ class Nothing:
         raise AssertionError("cannot unwrap Nothing")
 
     def get_or[U](self, default: U) -> U:
-        """Escape the Option API using the caller's accepted absence default.
-
-        The default is eager and returned unchanged, so a callable is a value
-        rather than a factory. Choose a default valid for the next consumer.
-        """
         return default
 
     def map_or[U, V](self, default: V, _function: Callable[[Never], U]) -> V:
-        """Escape to a default-accepting consumer without mapping absence.
-
-        Return the eager default unchanged and skip the function. This is the
-        absent case of `map(function).get_or(default)`.
-        """
         return default
 
     def get(self) -> None:
-        """Escape the Option API into a nullable receiving contract.
-
-        Supply None for a consumer that represents absence that way, rather
-        than continuing to propagate Nothing through optional transformations.
-        """
         return None
 
     def get_map[U](self, _function: Callable[[Never], U]) -> None:
-        """Escape to a nullable consumer without mapping an absent payload.
-
-        This is the absent case of `map(...).get()`: skip the callback and supply
-        None at the receiving boundary.
-        """
         return None
 
     def __bool__(self) -> Never:
-        """Reject implicit truth testing; use `Some.present` to inspect presence."""
         raise TypeError("use Some.present()")
 
 
 type Option[T] = Some[T] | Nothing
-"""A present T or explicit absence, with a shared transformation interface.
-
-Narrow with `Some.present`, or match the variants directly. This alias is an
-annotation, not a constructor; it cannot represent errors outside its two variants.
-"""
 
 
 def maybe[T](value: T | None) -> Option[T]:

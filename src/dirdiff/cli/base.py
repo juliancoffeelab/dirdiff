@@ -1,22 +1,3 @@
-"""Define the `dirdiff` terminal commands.
-
-## Public interface
-
-`main` invokes the Typer application used by both the installed console script
-and `python -m dirdiff`. The root command opens a Head Tab. The `refs` and
-`branch` subcommands select other initial Tabs, while `mark` edits the local
-repository registry. `agent` mounts the review-agent commands defined in
-`dirdiff.cli._base.agent_commands`.
-
-## Purpose and boundaries
-
-This module defines command spelling, parses terminal input, and builds
-`RuntimeConfig`. Repository-mark operations and server and browser process
-lifetime live in the private `_base` implementation package. The command layer
-must not define HTTP routes, workspace loading, diff rendering, or frontend
-behavior.
-"""
-
 from __future__ import annotations
 
 import json
@@ -66,28 +47,10 @@ cli_app = typer.Typer(
     rich_markup_mode=None,
     help="Open the dirdiff browser UI.",
 )
-"""Process-lifetime Typer application used by both console entrypoints.
-
-Decorators below register the root startup callback and subcommands on this
-exact instance during import. `main` invokes it once; importing the module does
-not parse arguments or start the app.
-"""
 cli_app.add_typer(agent_app, name="agent")
 
 
 def configure_logging() -> None:
-    """Configure process logging before launching command work.
-
-    Normal CLI runs keep framework logs quiet.  `DIRDIFF_DEBUG_PERF=1` opts
-    into more verbose application logging without introducing another command
-    line flag.
-
-    # Usage
-
-    Each command handler calls this immediately before doing command work.
-    `logging.basicConfig` leaves an already-configured root handler intact; the
-    uvicorn logger levels are set on every call.
-    """
 
     logging.basicConfig(
         level=logging.INFO
@@ -101,19 +64,6 @@ def configure_logging() -> None:
 
 
 def _installation() -> tuple[InstallationMode, Path]:
-    """Classify this installation and locate its default Preset corpus.
-
-    An editable directory installation is development; wheel, archive, VCS,
-    non-editable directory, and index installations are release. Malformed
-    installed metadata raises instead of selecting a mode. Development uses the
-    canonical checkout `tests/presets`; release uses package data in the
-    installed distribution.
-
-    # Returns
-
-    - First, the installation mode used for process topology and state paths.
-    - Second, the absolute default Preset root for that installation.
-    """
 
     try:
         installed_distribution = distribution("dirdiff")
@@ -565,21 +515,5 @@ def mark(
 
 
 def main() -> None:
-    """Run the Typer application used by the console entrypoint.
-
-    `pyproject.toml` points the `dirdiff` script at this function.  Keeping
-    the wrapper tiny makes the package importable without launching anything.
-
-    # Usage
-
-    The installed `dirdiff` script and `python -m dirdiff` call this function.
-    Importers should use the package interfaces for application work rather
-    than invoking the command parser in-process.
-
-    # Failures
-
-    Typer parameter errors and every selected command failure propagate through
-    this boundary using Typer's normal command-line exit behavior.
-    """
 
     cli_app()

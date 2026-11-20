@@ -1,14 +1,3 @@
-/**
- * Manages browser Profile selection and the selected Profile's preferences UI.
- *
- * `Profile` owns its menu and form state. Successful identity operations validate
- * and persist the complete Profile before reporting it to `App`; logout removes
- * that persisted identity first. Preferences remain canonical query data and the
- * modal keeps only its current editable input.
- *
- * Profile identity does not enter workspace URLs, and preferences are never
- * copied into application or workspace state.
- */
 import {
   Show,
   createEffect,
@@ -32,319 +21,77 @@ import { Checkbox } from "../comp/Checkbox";
 import { ErrorPopover, useToasts } from "../comp/Toasts";
 import { assert, expect } from "../utils";
 
-/**
- * Names the browser record containing the last confirmed Profile identity.
- *
- * The version is part of the persisted format boundary. Readers validate the
- * associated value strictly; this module neither searches older keys nor repairs
- * malformed content.
- */
 const PROFILE_STORAGE_KEY = "dirdiff:v1:profile";
 
-/**
- * Validates the complete identity allowed across the backend, App, and storage boundaries.
- *
- * Strict validation keeps preferences and undeclared data out of the persisted
- * record. A value must have a positive database ID and a nonempty username before
- * it can become the selected Profile.
- */
 const StoredProfileSchema = z.strictObject({
-  /** Positive backend identity used by Profile and preference operations. */
   id: z.number().int().positive(),
-  /** Non-empty backend-confirmed name displayed as the selected Profile. */
   username: z.string().min(1),
 });
 
-/**
- * Represents the selected profile identity persisted by this browser.
- *
- * It is exactly the validated backend profile shape. Canonical preferences and
- * transient menu state are excluded because they have separate storage locations
- * and lifetimes.
- */
 export type StoredProfile = z.infer<typeof StoredProfileSchema>;
 
-/**
- * Defines the complete inputs and profile-selection operations supplied by App.
- *
- * App provides the selected identity or explicit null. Successful mutations and
- * login, creation, rename, and logout return complete selection changes;
- * Profile performs persistence before notifying App and never exposes partial
- * username input.
- */
 type ProfileProps = {
-  /**
-   * Returns the absolute onboarding URL for the current complete supported Tab.
-   *
-   * `null` disables the copy action for Preset and incomplete workflows. Profile
-   * reads the accessor only for presentation and explicit clipboard activation.
-   *
-   * # Returns
-   *
-   * - Absolute onboarding endpoint copied by explicit activation.
-   * - `null` when the action must remain disabled for the current Tab.
-   */
   agentOnboardUrl: () => string | null;
-  /**
-   * Confirmed Profile identity controlled by App, or genuine absence.
-   *
-   * Profile reads the current value for display, rename, preferences, and logout;
-   * it does not retain a second selected identity after a callback.
-   */
   selected: StoredProfile | null;
-  /**
-   * Mounted AppHeader destination for compact preference-query status.
-   *
-   * `null` before header registration suppresses only Portal presentation. The
-   * selected Profile's canonical preferences observer remains mounted.
-   */
   metadataTarget: HTMLElement | null;
-  /**
-   * Accepts the exact backend Profile after login, registration, or rename succeeds.
-   *
-   * Profile first validates and writes that identity to localStorage, then invokes
-   * this callback before closing the workflow. It does not run for submission
-   * failure, cancellation, preferences changes, or logout. The caller may update
-   * application state and must pass the accepted identity back through `selected`
-   * for the mounted control to reflect it.
-   */
   onSelected: (profile: StoredProfile) => void;
-  /**
-   * Reports an explicit logout after the persisted identity has been removed.
-   *
-   * The callback receives no replacement Profile and does not run for menu
-   * dismissal or failed mutations. The caller must clear its controlled
-   * `selected` value; after the callback returns, Profile closes the menu.
-   */
   onForgotten: () => void;
 };
 
-/**
- * Represents every mutually exclusive local presentation state of Profile.
- *
- * Username and preferences variants contain their complete editable input.
- * Backend pending and error state deliberately remains in TanStack observers.
- */
 type ProfileUiState =
   | {
-      /**
-       * No Profile popup or modal is rendered.
-       *
-       * Document dismissal listeners are inactive in this state.
-       */
       view: "closed";
     }
   | {
-      /**
-       * The choice menu is open without an active username operation.
-       *
-       * The next action either closes it or replaces this state with one workflow.
-       */
       view: "menu";
     }
   | {
-      /**
-       * The username form will select an existing exact-name Profile.
-       *
-       * Submission addresses the login mutation and never creates a new identity.
-       */
       view: "login";
-      /**
-       * Current local username text submitted unchanged to the login mutation.
-       *
-       * Failed submission retains it for correction or explicit retry.
-       */
       input: string;
     }
   | {
-      /**
-       * The username form will register a new Profile.
-       *
-       * Submission cannot select an existing exact-name identity through this arm.
-       */
       view: "create";
-      /**
-       * Current local username text submitted unchanged to registration.
-       *
-       * Failed submission retains it for correction or explicit retry.
-       */
       input: string;
     }
   | {
-      /**
-       * The username form will rename the currently selected Profile.
-       *
-       * Entering this state requires a selected identity whose ID remains authoritative.
-       */
       view: "rename";
-      /**
-       * Current local username text, initially seeded from the selected identity.
-       *
-       * Editing changes only this transient value until backend success.
-       */
       input: string;
     }
   | {
-      /**
-       * The selected Profile's preferences modal replaces the menu presentation.
-       *
-       * The modal may exist only while the controlled selected identity is present.
-       */
       view: "preferences";
     };
 
-/**
- * Defines the required inputs of the private preferences dialog.
- *
- * This dialog edits a concrete Profile's preferences. Anonymous engine options
- * use the header control. Closing does not change Profile identity.
- */
 type PreferencesModalProps = {
-  /**
-   * Concrete selected identity whose ID addresses the canonical preferences query.
-   *
-   * The keyed caller fixes this Profile for the modal's mounted lifetime; identity
-   * changes replace the modal instead of redirecting its observer.
-   */
   profile: StoredProfile;
-  /**
-   * Closes this modal after backdrop, Close, Escape, Cancel, or successful save.
-   *
-   * It does not run for interaction inside the dialog, loading, or save failure.
-   * The caller may replace modal state and restore trigger focus; once invoked,
-   * the modal and its document listener are disposed.
-   */
   onClose: () => void;
 };
 
-/**
- * Represents the complete observable state of one profile's preferences query.
- *
- * Pending and failed variants contain no preferences entity, so retained query
- * data cannot keep the editor alive after a failed load or refetch. Available is
- * the only variant from which PreferencesEditor may be constructed.
- */
 type PreferencesState =
   | {
-      /**
-       * The canonical query has not produced a current preferences entity.
-       *
-       * No editor or retained value may be read from this arm.
-       */
       state: "pending";
     }
   | {
-      /**
-       * The current observation failed, so the editor must not use retained data.
-       *
-       * The dialog exposes the failure and explicit refetch instead.
-       */
       state: "failed";
-      /**
-       * Exact query failure shown by the dialog's retryable error presentation.
-       *
-       * This derived arm retains the canonical preferences query observer's
-       * failure without wrapping or copying it.
-       */
       error: Error;
     }
   | {
-      /**
-       * A validated current preferences entity is available to mount the editor.
-       *
-       * This is the only arm permitted to expose editable values.
-       */
       state: "available";
-      /**
-       * Complete backend value used to seed one editor lifetime.
-       *
-       * Later edits remain local until backend-confirmed save.
-       */
       preferences: Preferences;
     };
 
-/**
- * Defines the required inputs of the private editable preferences form.
- *
- * The validated backend entity seeds component-local input exactly once. A
- * concrete profile is required to address the save mutation and cache entry.
- */
 type PreferencesEditorProps = {
-  /**
-   * Selected identity whose ID addresses both save input and cache publication.
-   *
-   * It remains fixed for this editor mount; the preferences value comes from the
-   * canonical query addressed by the same ID.
-   */
   profile: StoredProfile;
-  /**
-   * Validated backend preferences used once to seed local editable controls.
-   *
-   * Later cache changes do not overwrite edits in this mounted form; remounting
-   * creates a new editing lifetime from the newly supplied entity.
-   */
   preferences: Preferences;
-  /**
-   * Ends editing after Cancel or a backend-confirmed save.
-   *
-   * Failed and pending saves do not invoke it. The caller may close the modal and
-   * restore focus; successful save publishes canonical cache data first.
-   */
   onClose: () => void;
 };
 
-/**
- * Loads the explicitly persisted selected profile for application startup.
- *
- * The operation reads the browser record once and returns `null` only when the
- * key is absent. It performs no backend lookup and does not clear or repair a
- * malformed record.
- *
- * # Usage
- *
- * `App` calls this while creating its selected-Profile signal. Later identity
- * changes arrive through `Profile` callbacks instead of repeated storage reads.
- *
- * # Returns
- *
- * - `StoredProfile`: The validated identity stored under the selected-Profile
- *   key.
- * - `null`: The key is absent. Startup must keep Profile selection empty until
- *   an explicit login or creation action succeeds.
- *
- * # Failures
- *
- * Storage access, JSON decoding, and strict Profile validation failures propagate
- * to the application boundary rather than creating a substitute identity.
- */
 export function loadStoredProfile(): StoredProfile | null {
   const raw = window.localStorage.getItem(PROFILE_STORAGE_KEY);
   return raw === null ? null : StoredProfileSchema.parse(JSON.parse(raw));
 }
 
-/**
- * Renders the profile trigger, menu, username workflow, and preferences dialog.
- *
- * The caller stores only selected identity. Profile stores all transient
- * interaction state, performs backend mutations, persists confirmed identity
- * explicitly, and reports complete selection changes only after successful
- * backend responses.
- */
 export function Profile(props: ProfileProps): JSX.Element {
   const toast = useToasts();
-  /**
-   * Replaces the browser's selected-profile record with one validated identity.
-   *
-   * Callers provide a complete backend-confirmed profile. The operation does not
-   * persist preferences or update reactive App state by itself.
-   *
-   * @param profile Complete backend-confirmed identity to persist.
-   *
-   * # Failures
-   *
-   * Strict validation and localStorage write failures propagate before the caller
-   * can report the identity to App.
-   */
   function storeProfile(profile: StoredProfile): void {
     window.localStorage.setItem(
       PROFILE_STORAGE_KEY,
@@ -358,21 +105,6 @@ export function Profile(props: ProfileProps): JSX.Element {
 
   const loginProfile = createMutation(() => ({
     ...api.profile.login(),
-    /**
-     * Applies the existing Profile returned by successful login.
-     *
-     * TanStack invokes this only after the backend accepts the exact-name login.
-     * The callback validates and persists the complete identity, reports it to
-     * App, and then closes the transient username workflow. Login failure and
-     * cancellation never enter this callback.
-     *
-     * @param profile Existing Profile returned by the accepted login mutation.
-     *
-     * # Failures
-     *
-     * Persistence or `onSelected` failure becomes this mutation's error before the
-     * workflow closes, so the mounted form presents it through the same observer.
-     */
     onSuccess(profile: UserProfile) {
       storeProfile(profile);
       props.onSelected(profile);
@@ -381,19 +113,6 @@ export function Profile(props: ProfileProps): JSX.Element {
   }));
   const registerProfile = createMutation(() => ({
     ...api.profile.register(),
-    /**
-     * Applies the authoritative profile returned by successful registration.
-     *
-     * TanStack invokes this only after backend success. The callback persists the
-     * complete identity, reports it to App, and closes the transient workflow.
-     *
-     * @param profile Newly registered Profile returned by the backend.
-     *
-     * # Failures
-     *
-     * Persistence or `onSelected` failure becomes this mutation's error before the
-     * workflow closes, so the mounted form presents it through the same observer.
-     */
     onSuccess(profile: UserProfile) {
       storeProfile(profile);
       props.onSelected(profile);
@@ -402,19 +121,6 @@ export function Profile(props: ProfileProps): JSX.Element {
   }));
   const renameProfile = createMutation(() => ({
     ...api.profile.rename(),
-    /**
-     * Applies the authoritative profile returned by a successful rename.
-     *
-     * TanStack invokes this only after backend success. The callback replaces
-     * persisted and App-selected identity together, then closes the workflow.
-     *
-     * @param profile Renamed Profile returned by the accepted mutation.
-     *
-     * # Failures
-     *
-     * Persistence or `onSelected` failure becomes this mutation's error before the
-     * workflow closes, so the mounted form presents it through the same observer.
-     */
     onSuccess(profile: UserProfile) {
       storeProfile(profile);
       props.onSelected(profile);
@@ -422,14 +128,6 @@ export function Profile(props: ProfileProps): JSX.Element {
     },
   }));
 
-  /**
-   * Synchronizes the open profile-menu lifetime with document dismissal events.
-   *
-   * The effect explicitly tracks only the UI view. Entering the menu or a
-   * username action installs one listener pair; leaving those states or
-   * disposing Profile removes that pair before any later installation. The
-   * preferences dialog handles Escape locally and is deliberately excluded.
-   */
   createEffect(
     on(
       () => ui().view,
@@ -438,11 +136,6 @@ export function Profile(props: ProfileProps): JSX.Element {
           return;
         }
 
-        /**
-         * Dismisses the menu when pointer interaction leaves its complete root.
-         *
-         * It discards only transient menu/input state and never changes profile data.
-         */
         function dismissOutside(event: PointerEvent): void {
           const target = event.target;
           if (target instanceof Node && !root.contains(target)) {
@@ -450,11 +143,6 @@ export function Profile(props: ProfileProps): JSX.Element {
           }
         }
 
-        /**
-         * Dismisses the menu on Escape and restores focus to the profile trigger.
-         *
-         * Other keys remain available to the active form and menu controls.
-         */
         function dismissWithKeyboard(event: KeyboardEvent): void {
           if (event.key === "Escape") {
             setUi({ view: "closed" });
@@ -472,26 +160,6 @@ export function Profile(props: ProfileProps): JSX.Element {
     ),
   );
 
-  /**
-   * Submits the explicit login, creation, or rename action selected by the user.
-   *
-   * The current editor arm chooses exactly one mutation and supplies its input
-   * unchanged. Login and creation use only the typed name. Rename combines that
-   * name with the currently controlled Profile identity. Backend rejection and
-   * success-publication failure remain on the selected mutation observer, leaving
-   * the editor and its input mounted.
-   *
-   * # Usage
-   *
-   * The username form and its retry control call this only in `login`, `create`,
-   * or `rename` state. The form disables its controls while that mutation reports
-   * pending.
-   *
-   * # Failures
-   *
-   * Calling outside a username editor throws. Rename also throws when App has not
-   * supplied the selected Profile required to address the mutation.
-   */
   function submitUsername(): void {
     const state = ui();
     assert(
@@ -516,31 +184,6 @@ export function Profile(props: ProfileProps): JSX.Element {
     }
   }
 
-  /**
-   * Returns the mutation for the explicit username action currently presented.
-   *
-   * The username form reads this observer for pending, error, retry, and action
-   * labels. It returns the same mutation that `submitUsername` starts for the
-   * current editor arm and never chooses a default action.
-   *
-   * # Usage
-   *
-   * Call only while rendering the login, creation, or rename form.
-   *
-   * # Returns
-   *
-   * - Login view returns the existing login mutation, whose status and retry
-   *   belong to username lookup.
-   * - Creation view returns the existing registration mutation, whose status
-   *   and retry belong to creating the entered username.
-   * - Rename view returns the existing rename mutation, whose status and retry
-   *   belong to changing the selected Profile. The form reads only the returned
-   *   action and never combines state from the other two.
-   *
-   * # Failures
-   *
-   * Other Profile views throw because they do not have a username mutation.
-   */
   function activeProfileMutation():
     | typeof loginProfile
     | typeof registerProfile
@@ -558,12 +201,6 @@ export function Profile(props: ProfileProps): JSX.Element {
     assert(false, "Profile mutation requires a username action.");
   }
 
-  /**
-   * Returns the complete username input from the active editor state.
-   *
-   * Rendering the username form outside that state is a programming error and
-   * throws instead of substituting an empty value.
-   */
   function usernameInput(): string {
     const state = ui();
     assert(
@@ -805,36 +442,11 @@ export function Profile(props: ProfileProps): JSX.Element {
   );
 }
 
-/**
- * Defines the selected identity and mounted Header outlet used for preference
- * status presentation.
- *
- * The outlet is genuinely null before AppHeader mounts it. The query remains
- * inside Profile regardless of physical status placement.
- */
 type ProfilePreferencesStatusProps = {
-  /**
-   * Selected identity or anonymous absence, fixing the preference query key.
-   *
-   * The query follows explicit Profile selection, including logout.
-   */
   profile: StoredProfile | null;
-  /**
-   * Current AppHeader Portal destination, or null before it is registered.
-   *
-   * Absence suppresses compact status rendering only; it does not disable or
-   * relocate the canonical query observer.
-   */
   metadataTarget: HTMLElement | null;
 };
 
-/**
- * Observes selected-profile preferences and renders compact state in AppHeader.
- *
- * Preferences warm as soon as a profile is selected, matching the established
- * shell lifecycle. The component exposes no query data and portals only the
- * compact presentation; the dialog observes the same canonical cached query.
- */
 function ProfilePreferencesStatus(
   props: ProfilePreferencesStatusProps,
 ): JSX.Element {
@@ -872,13 +484,6 @@ function ProfilePreferencesStatus(
   );
 }
 
-/**
- * Renders and performs backend interaction for one selected profile's preferences.
- *
- * Opening observes the exact profile query. Saving writes only the backend-
- * confirmed response into that same cache entry. Errors remain compact in the
- * dialog and open complete details with explicit retry.
- */
 function PreferencesModal(props: PreferencesModalProps): JSX.Element {
   const preferences = createQuery(() => ({
     ...api.profile.preferences(props.profile.id),
@@ -907,19 +512,7 @@ function PreferencesModal(props: PreferencesModalProps): JSX.Element {
     return current.state === "available" ? current.preferences : null;
   });
 
-  /**
-   * Binds Escape dismissal to the exact mounted lifetime of this modal.
-   *
-   * PreferencesModal exists only while the dialog is open, so a one-shot,
-   * non-tracking mount hook is sufficient. Its cleanup removes the document
-   * listener when the conditional modal closes or is otherwise disposed.
-   */
   onMount(() => {
-    /**
-     * Closes the preferences dialog on Escape through the supplied callback.
-     *
-     * Other keys remain available to the checkbox and form controls.
-     */
     function dismissWithKeyboard(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         props.onClose();
@@ -976,13 +569,6 @@ function PreferencesModal(props: PreferencesModalProps): JSX.Element {
   );
 }
 
-/**
- * Renders the editable form for one already-loaded preferences entity.
- *
- * The backend value seeds one component-local checkbox at mount. The editor
- * performs no prop synchronization and writes only a confirmed mutation result
- * into the canonical preferences cache before closing.
- */
 function PreferencesEditor(props: PreferencesEditorProps): JSX.Element {
   const queryClient = useQueryClient();
   const [aggressiveFolds, setAggressiveFolds] = createSignal(
@@ -992,12 +578,6 @@ function PreferencesEditor(props: PreferencesEditorProps): JSX.Element {
     api.profile.savePreferences(queryClient),
   );
 
-  /**
-   * Submits the complete preferences entity for this required profile.
-   *
-   * The current checkbox value is sent without optimistic cache mutation. A
-   * successful backend result closes the dialog through the mutation callback.
-   */
   function submitPreferences(): void {
     savePreferences.mutate(
       {

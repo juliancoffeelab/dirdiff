@@ -1,27 +1,3 @@
-"""Build dirdiff engine rows from Diffsitter's reported graphemes.
-
-## Public interface
-
-`DiffsitterDiffEngine` implements the common engine protocol on top of the
-`diffsitter` executable. `build_diffsitter_rows_from_json` turns one validated
-`DiffsitterJson` result plus the exact source pair into neutral engine rows,
-and `DiffsitterJson` with `is_diffsitter_json` expose the raw validated shape
-for consumers such as the test JSON cache.
-
-## Purpose and boundaries
-
-Diffsitter reports which graphemes of each document have no match in the
-other; it reports no alignment, replacement, or move. This module therefore
-aligns physical lines locally with `difflib.unified_diff`, maps every `Old`
-entry to one `delete` token and every `New` entry to one `insert` token, and
-derives row status from those tokens. It never merges graphemes, infers a
-replacement, or reads syntax kinds. The supplied source strings decide every
-displayed character; Diffsitter's coordinates are validated against them and
-rejected on disagreement. The private driver contains executable discovery,
-temporary inputs, and raw JSON validation. This module retains no workspace
-files, syntax decoration, folds, or HTTP state.
-"""
-
 from __future__ import annotations
 
 import re
@@ -52,37 +28,10 @@ __all__ = [
 ]
 
 type DiffsitterRowStatus = Literal["equal", "insert", "delete"]
-"""Row statuses Diffsitter row building can produce.
-
-- `equal` carries every mixed or partially unchanged token partition.
-- `delete` and `insert` require every token in a nonempty row to have that
-  status, or represent a one-sided blank line whose presence is the change.
-
-Diffsitter reports no replacement or move relationships, so neither public
-status appears.
-"""
 type DiffsitterTokenStatus = Literal["unchanged", "insert", "delete"]
-"""Classification of one exact text slice while building Diffsitter rows.
-
-- `unchanged` fills the gaps around reported entries.
-- `delete` is every `Old` entry; `insert` is every `New` entry.
-
-Diffsitter reports no pairing between entries, so `replace` tokens are never
-produced.
-"""
 
 
 def _source_lines(text: str) -> list[str]:
-    """Split one document into the lines Diffsitter positions address.
-
-    Tree-sitter counts rows by `\\n` only, so a carriage return stays inside
-    its line. The empty element after a trailing newline is not a source line
-    and is dropped.
-
-    # Parameters
-
-    - `text`: Complete source text of one side.
-    """
     lines = text.split("\n")
     if lines != [] and lines[-1] == "":
         lines.pop()
@@ -93,27 +42,6 @@ def _aligned_line_pairs(
     left_lines: list[str],
     right_lines: list[str],
 ) -> list[tuple[int | None, int | None]]:
-    """Align two line sequences into physical row pairs with `unified_diff`.
-
-    Every line index of both sides appears exactly once, in ascending order,
-    either paired with the identical line on the other side or alone. The
-    result carries zero-based indices only; token and row status are decided
-    by the caller. Identical sequences produce no patch hunks, so they are
-    paired explicitly rather than mistaken for empty documents.
-
-    # Parameters
-
-    - `left_lines`: Old-side source lines from `_source_lines`.
-    - `right_lines`: New-side source lines from `_source_lines`.
-
-    # Returns
-
-    - Each element is one physical row in display order.
-    - The first item of a pair is the zero-based old line index, or `None`
-      when the row is new-only.
-    - The second item is the zero-based new line index, or `None` when the
-      row is old-only.
-    """
     if left_lines == right_lines:
         return [(index, index) for index in range(len(left_lines))]
     patch_lines = unified_diff(
@@ -169,26 +97,6 @@ def _row_status(
     left_tokens: list[InlineToken],
     right_tokens: list[InlineToken],
 ) -> DiffsitterRowStatus:
-    """Derive one row's status from its tokens with the Difftastic rule.
-
-    A nonempty row whose every token is deleted or inserted keeps that status,
-    including whitespace tokens. Every other token mixture is `equal`; the
-    inline facts carry its changes without inventing a replacement relationship.
-    A row without any tokens is unchanged context, except a one-sided line with
-    no non-whitespace content, which
-    Diffsitter cannot report at all because it strips whitespace and whose
-    very presence is the change, so it renders as its side's insertion or
-    deletion. Token statuses are read, never altered.
-
-    # Parameters
-
-    - `left_no`: Old-side line number, or `None` for a new-only row.
-    - `right_no`: New-side line number, or `None` for an old-only row.
-    - `left_text`: Exact old-side row text, empty when absent.
-    - `right_text`: Exact new-side row text, empty when absent.
-    - `left_tokens`: Old-side token partition, if Diffsitter reported entries.
-    - `right_tokens`: New-side token partition, if Diffsitter reported entries.
-    """
     tokens = left_tokens + right_tokens
     if tokens == []:
         if left_no is not None and right_no is None and left_text.strip() == "":
@@ -213,35 +121,6 @@ def build_diffsitter_rows_from_json(
     left_text: str,
     right_text: str,
 ) -> list[DiffEngineRow]:
-    """Build complete aligned engine rows from one Diffsitter result.
-
-    The echoed documents must equal the supplied texts. Physical rows come
-    from a local unified diff of the `\\n`-split lines, so every source line
-    of both sides appears exactly once in order. Each reported entry becomes
-    one token on the row holding its line: `Old` entries are `delete` tokens
-    and `New` entries are `insert` tokens, in Diffsitter's reported order,
-    with unchanged gaps between them. Row status follows the Difftastic rule
-    over those tokens. Lines without entries carry no tokens.
-
-    # Parameters
-
-    - `diff_json`: Validated Diffsitter output for exactly this text pair.
-    - `left_text`: Complete old source the JSON describes.
-    - `right_text`: Complete new source the JSON describes.
-
-    # Usage
-
-    `DiffsitterDiffEngine` calls this after deciding that Diffsitter reported
-    at least one entry. Tests call it with cached JSON to check the mapping
-    without running the executable.
-
-    # Failures
-
-    Raises `DirdiffError` when an echoed document differs from the supplied
-    text, a line or column lies outside the source, an entry spans rows,
-    entries on one line overlap or run backwards, or entry text disagrees
-    with the addressed source bytes.
-    """
     if diff_json["old"]["text"] != left_text:
         raise DirdiffError(
             "Diffsitter echoed an old document that differs from the "
@@ -260,31 +139,6 @@ def build_diffsitter_rows_from_json(
         source_lines: list[str],
         status: DiffsitterTokenStatus,
     ) -> dict[int, list[InlineToken]]:
-        """Partition every line with entries on one side into tokens.
-
-        Entries are consumed in reported order across all hunks of `side`.
-        Each entry becomes one token with `status`; every non-empty gap
-        before, between, and after entries becomes one `unchanged` token, so
-        the tokens of a line concatenate to that exact line. Lines without
-        entries are absent from the result.
-
-        # Parameters
-
-        - `side`: Hunk variant selecting which document's entries to read.
-        - `source_lines`: Exact `\\n`-split lines of that document.
-        - `status`: Token status every entry of this side receives.
-
-        # Returns
-
-        - Keys are zero-based indices of the lines with at least one hunk
-          record on this side.
-        - Values are that line's complete token partition, or an empty list
-          when the record carried no entries.
-
-        # Failures
-
-        Raises `DirdiffError` for any coordinate the source cannot satisfy.
-        """
         label = "old" if side == "Old" else "new"
         tokens: dict[int, list[InlineToken]] = {}
         # Byte offset just after the last consumed entry of each line.
@@ -405,18 +259,6 @@ def build_diffsitter_rows_from_json(
 
 @final
 class DiffsitterDiffEngine(DiffEngineProtocol):
-    """Compare text through Diffsitter's grapheme-level edit report.
-
-    Path hints select each side's grammar through the temporary filename and
-    are never read as files. Empty or absent sides and identical texts are
-    rendered locally without running the executable. An unsupported language
-    or a report without edits for differing texts produces unified-diff rows
-    with the corresponding warning.
-
-    The engine holds no state. Obtain it through `engine()` when selecting an
-    engine by name.
-    """
-
     def _run_diffsitter_json(
         self,
         *,
@@ -425,18 +267,6 @@ class DiffsitterDiffEngine(DiffEngineProtocol):
         left_path_hint: str | None,
         right_path_hint: str | None,
     ) -> DiffsitterJson:
-        """Run Diffsitter for one already-loaded text pair.
-
-        The method exists so behavior tests can cache the same raw JSON that
-        powers rendering without duplicating executable discovery.
-
-        # Parameters
-
-        - `left_text`: Complete old source for Diffsitter.
-        - `right_text`: Complete new source for Diffsitter.
-        - `left_path_hint`: Optional old name used for grammar selection.
-        - `right_path_hint`: Optional new name used for grammar selection.
-        """
         return run_diffsitter_json(
             left_text=left_text,
             right_text=right_text,
@@ -451,26 +281,6 @@ class DiffsitterDiffEngine(DiffEngineProtocol):
         old: DiffSide,
         new: DiffSide,
     ) -> DiffEngineResult:
-        """Render the supplied sides with Diffsitter's grapheme edits.
-
-        When both texts are non-empty and differ, Diffsitter runs and
-        `build_diffsitter_rows_from_json` maps its entries onto locally aligned
-        rows. Otherwise the rows are local: an empty or absent side yields
-        one-sided rows and identical texts yield equal rows, both without a
-        warning. An unsupported language yields unified-diff rows with the
-        `diffsitter_unsupported_language` warning; differing texts without
-        any reported entry yield them with `diffsitter_empty_result`.
-
-        # Parameters
-
-        - `old`: Already-loaded old text and path hint used for grammar selection.
-        - `new`: Already-loaded new text and path hint used for grammar selection.
-
-        # Failures
-
-        Propagates `DirdiffError` for missing executables, other process
-        failures, malformed JSON, and coordinates the source cannot satisfy.
-        """
         assert old.exists == (old.text is not None)
         assert new.exists == (new.text is not None)
         assert old.exists or new.exists

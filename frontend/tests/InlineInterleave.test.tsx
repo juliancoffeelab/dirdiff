@@ -1,10 +1,3 @@
-/**
- * Inline view interleaving of Git word-diff rows.
- *
- * Mounts the real TextDiffGrid with one equal row whose sides split the shared
- * text differently, as the backend weave produces once an insertion sits
- * between two unchanged records on one side only.
- */
 import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, expect, test, vi } from "vitest";
 import type { DiffRow } from "../src/api/api";
@@ -63,9 +56,7 @@ test("inline interleave splits a merged shared part around an insertion", () => 
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      /** Fixed test geometry does not emit resize notifications. */
       observe() {}
-      /** The stub retains no subscriptions to release. */
       disconnect() {}
     },
   );

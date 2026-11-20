@@ -1,11 +1,3 @@
-"""Check `Composer` with ordinary text and rejected text bytes.
-
-The tests pin the flatfile frame and bay shape, bay-local hunk indexes, captured
-side existence, and blob termination after decoding rejection. Engine-free
-cases verify that `bays()` exposes identity and decoded content without running
-a renderer. Full composition uses the real text engine and enrichment path.
-"""
-
 from __future__ import annotations
 
 from dirdiff.engines import TextDiffEngine
@@ -21,12 +13,6 @@ from dirdiff.util import maybe
 
 
 def test_plain_modification_is_one_frame_one_flatfile_bay() -> None:
-    """Keep a plain text modification in the total flatfile composition shape.
-
-    The result must have one heading-less frame and the stable flatfile bay key,
-    with both paths and text kind intact. It must not acquire notebook/image
-    chrome merely because its contents differ.
-    """
     context = ComposeContext.build(
         left_path=maybe("m.py"),
         right_path=maybe("m.py"),
@@ -57,12 +43,6 @@ def test_plain_modification_is_one_frame_one_flatfile_bay() -> None:
 
 
 def test_hunk_indexes_are_gapless_and_mark_only_run_starts() -> None:
-    """Assign navigation identity once per separated changed-row run.
-
-    The two edits in the fixture must produce indexes zero and one on their
-    first rows only. Equal continuation rows and later rows in the same run
-    carry `None`; no File-wide renumbering is allowed.
-    """
     context = ComposeContext.build(
         left_path=maybe("m.txt"),
         right_path=maybe("m.txt"),
@@ -84,12 +64,6 @@ def test_hunk_indexes_are_gapless_and_mark_only_run_starts() -> None:
 
 
 def test_identical_content_has_no_hunks() -> None:
-    """Keep byte-identical flatfile rows outside the hunk sequence.
-
-    The composed text bay still exists and replays both sides, but its hunk
-    count is zero and every row omits hunk identity. Equality must not create a
-    synthetic navigation stop.
-    """
     context = ComposeContext.build(
         left_path=maybe("s.txt"),
         right_path=maybe("s.txt"),
@@ -107,12 +81,6 @@ def test_identical_content_has_no_hunks() -> None:
 
 
 def test_added_file_has_left_absent_and_right_present() -> None:
-    """Derive added-File side existence from captured inputs, not rendered rows.
-
-    A missing left byte side must remain absent in the composed summary while
-    the right side exists. The text builder may render insertion rows but those
-    rows are not the authority for File existence.
-    """
     context = ComposeContext.build(
         left_path=maybe(None),
         right_path=maybe("n.txt"),
@@ -126,12 +94,6 @@ def test_added_file_has_left_absent_and_right_present() -> None:
 
 
 def test_deleted_file_has_right_absent() -> None:
-    """Derive deleted-File side existence directly from captured inputs.
-
-    The left side remains present and the missing right side remains false in
-    the summary. Composition must not infer presence from labels, paths, or
-    deletion rows.
-    """
     context = ComposeContext.build(
         left_path=maybe("g.txt"),
         right_path=maybe(None),
@@ -145,12 +107,6 @@ def test_deleted_file_has_right_absent() -> None:
 
 
 def test_summary_aggregates_bay_stats_for_single_bay() -> None:
-    """Forward one flatfile bay's exact engine line totals to the File summary.
-
-    Modified, added, removed, and moved counts must agree with the rendered bay
-    without recounting display rows differently. Side-existence facts remain a
-    separate captured-input calculation.
-    """
     context = ComposeContext.build(
         left_path=maybe("a.txt"),
         right_path=maybe("a.txt"),
@@ -175,13 +131,6 @@ def test_summary_aggregates_bay_stats_for_single_bay() -> None:
 
 
 def test_one_binary_side_sends_the_whole_file_to_the_blob_terminal() -> None:
-    """A NUL byte on either side composes the blob bay rather than raising.
-
-    Both sides go, not just the offending one: a File is one classification, and
-    diffing readable text against a digest would compare two different things.
-    The blob bay is `text` — its rows are the facts known about the bytes — so
-    what a reviewer reads is the size and digest changing, line by line.
-    """
     context = ComposeContext.build(
         left_path=maybe("b.bin"),
         right_path=maybe("b.bin"),
@@ -229,11 +178,6 @@ def test_one_binary_side_sends_the_whole_file_to_the_blob_terminal() -> None:
 
 
 def test_bays_is_engine_free_and_yields_decoded_sides() -> None:
-    """`bays()` enumerates identity and decoded content without a renderer.
-
-    It takes a `BayContext`, which carries no renderer, so review validation
-    can recompute bay keys and read origin content with no engine in reach.
-    """
     context = BayContext(
         left_path=maybe("c.py"),
         right_path=maybe("c.py"),

@@ -1,11 +1,3 @@
-"""Integration coverage for FastAPI diff endpoints against real Git repos.
-
-These tests create temporary repositories, register them through the normal
-store layer, and exercise HTTP routes through `TestClient`.  They are allowed
-to use local Git subprocesses and disposable SQLite files, but they should not
-mock backend loading or bypass request/response contracts.
-"""
-
 import base64
 import hashlib
 import json
@@ -31,18 +23,6 @@ from dirdiff.util import JsonValue
 
 
 def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
-    """Create a real API client and active Mark for one disposable repository.
-
-    `repo_path` is the reviewed worktree. Database and Snapshot storage are
-    placed beside it, preserving the production rule that dirdiff state cannot
-    become worktree input. The caller receives the Mark id for manifest calls.
-
-    # Returns
-
-    - `First`: A client bound to the real application and disposable Room storage
-      beside the repository.
-    - `Second`: The active repository Mark id accepted by manifest endpoints.
-    """
     # Persistent dirdiff state is not valid worktree input. Keep this API
     # fixture outside the reviewed repository, as production configuration must.
     engine = open_sqlite_engine(
@@ -77,16 +57,6 @@ def create_repo_client(repo_path: Path) -> tuple[TestClient, int]:
 
 
 def run_git(cwd: Path, *args: str) -> None:
-    """Run one Git command while building integration-test repositories.
-
-    # Parameters
-
-    - `cwd`: Disposable repository or parent directory in which Git runs.
-    - `args`: Exact Git arguments after the executable name.
-
-    Nonzero exit fails the test and captured output remains attached to the
-    exception.
-    """
     subprocess.run(
         ["git", *args],
         cwd=cwd,
@@ -96,13 +66,6 @@ def run_git(cwd: Path, *args: str) -> None:
 
 
 def create_committed_repo(repo_path: Path, *, branch: str) -> None:
-    """Create a one-commit Git repo used as a local or remote test source.
-
-    # Parameters
-
-    - `repo_path`: Existing empty directory to initialize and mutate.
-    - `branch`: Exact initial branch name needed by the scenario.
-    """
     run_git(repo_path, "init", "-b", branch)
     run_git(repo_path, "config", "user.name", "Test User")
     run_git(repo_path, "config", "user.email", "test@example.com")
@@ -120,16 +83,6 @@ def clone_test_remote(
     worktree_name: str = "worktree",
     branch: str = "master",
 ) -> Path:
-    """Create a bare remote from a source repo and return a normal clone.
-
-    # Parameters
-
-    - `tmp_path`: Empty test root receiving all three repositories.
-    - `source_name`: Directory for the committed source repository.
-    - `bare_name`: Directory for the bare remote clone.
-    - `worktree_name`: Directory for the ordinary returned clone.
-    - `branch`: Initial source branch advertised by the remote.
-    """
     source_repo = tmp_path / source_name
     source_repo.mkdir()
     create_committed_repo(source_repo, branch=branch)
@@ -139,10 +92,6 @@ def clone_test_remote(
 
 
 def clone_test_remote_with_unknown_head(tmp_path: Path) -> Path:
-    """Create a clone whose remote cannot report a default branch.
-
-    The fixture isolates default-discovery failure without substituting a guessed ref.
-    """
     source_repo = tmp_path / "remote-source"
     source_repo.mkdir()
     create_committed_repo(source_repo, branch="main")
@@ -162,10 +111,6 @@ def clone_test_remote_with_unknown_head(tmp_path: Path) -> Path:
 def test_historical_file_review_migration_never_reads_captured_text(
     tmp_path: Path,
 ) -> None:
-    """Retain empty, binary, and non-UTF8 File origins without fabrication.
-
-    Review reads must preserve each valid File-level origin and never invent text coordinates.
-    """
     database_path = tmp_path / "legacy.sqlite"
     config = Config(Path(__file__).parents[2] / "alembic.ini")
     config.attributes["db_path"] = database_path
@@ -384,10 +329,6 @@ def test_historical_file_review_migration_never_reads_captured_text(
 def test_repo_defaults_base_to_remote_and_review_to_local(
     tmp_path: Path,
 ) -> None:
-    """Repository defaults expose structured Branch Review choices without legacy refs.
-
-    The HTTP contract keeps source, remote, and branch separate for frontend controls.
-    """
     repo_path = clone_test_remote(tmp_path)
     run_git(repo_path, "config", "user.name", "Test User")
     run_git(repo_path, "config", "user.email", "test@example.com")
@@ -420,12 +361,6 @@ def test_repo_defaults_base_to_remote_and_review_to_local(
 def test_browser_can_edit_a_comment_twice_then_delete_it(
     tmp_path: Path,
 ) -> None:
-    """Comment lookup remains singular after its append-only history grows.
-
-    The first edit adds another action carrying the stable Comment id. A second
-    edit and later deletion must still locate the creation action's Thread
-    instead of treating those history rows as competing Comment identities.
-    """
     create_committed_repo(tmp_path, branch="main")
     (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
     client, _project_id = create_repo_client(tmp_path)
@@ -522,10 +457,6 @@ def test_browser_can_edit_a_comment_twice_then_delete_it(
 def test_repo_main_branch_save_overrides_repo_defaults(
     tmp_path: Path,
 ) -> None:
-    """A saved repository main branch controls future Branch Review base defaults.
-
-    Persistence must win over rediscovery while remaining a symbolic structured choice.
-    """
     repo_path = clone_test_remote(tmp_path)
     client, project_id = create_repo_client(repo_path)
 
@@ -552,10 +483,6 @@ def test_repo_main_branch_save_overrides_repo_defaults(
 
 
 def test_repo_refs_returns_ref_choices_without_defaults(tmp_path: Path) -> None:
-    """Repository refs expose autocomplete metadata separately from defaults.
-
-    Listing available choices must not silently change the saved Branch Review base.
-    """
     repo_path = clone_test_remote(tmp_path)
     client, project_id = create_repo_client(repo_path)
 
@@ -576,10 +503,6 @@ def test_repo_refs_returns_ref_choices_without_defaults(tmp_path: Path) -> None:
 def test_repo_main_branch_save_rejects_remote_without_remote_name(
     tmp_path: Path,
 ) -> None:
-    """Remote main-branch saves require both remote and branch fields.
-
-    Partial symbolic configuration is rejected rather than repaired with an invented value.
-    """
     repo_path = clone_test_remote(tmp_path)
     client, project_id = create_repo_client(repo_path)
 
@@ -601,10 +524,6 @@ def test_repo_main_branch_save_rejects_remote_without_remote_name(
 
 
 def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
-    """User preferences are keyed by Profile identity, not table position.
-
-    Reads and writes for one Profile must leave every other Profile's complete row unchanged.
-    """
     create_committed_repo(tmp_path, branch="main")
     client, _project_id = create_repo_client(tmp_path)
 
@@ -703,10 +622,6 @@ def test_preferences_are_scoped_to_user_profile(tmp_path: Path) -> None:
 def test_repo_defaults_reports_unresolved_base_when_remote_head_is_missing(
     tmp_path: Path,
 ) -> None:
-    """Remote defaults fail when local and remote HEAD discovery both fail.
-
-    The endpoint must expose the missing contract instead of choosing an unrelated branch.
-    """
     repo_path = clone_test_remote_with_unknown_head(tmp_path)
     client, project_id = create_repo_client(repo_path)
 
@@ -725,10 +640,6 @@ def test_repo_defaults_reports_unresolved_base_when_remote_head_is_missing(
 def test_repo_defaults_uses_remote_show_when_local_remote_head_is_missing(
     tmp_path: Path,
 ) -> None:
-    """Remote defaults use `git remote show` when origin/HEAD is absent.
-
-    The discovered symbolic branch remains paired with its remote in the structured result.
-    """
     repo_path = clone_test_remote(tmp_path, branch="main")
     run_git(repo_path, "remote", "set-head", "origin", "-d")
     client, project_id = create_repo_client(repo_path)
@@ -749,10 +660,6 @@ def test_repo_defaults_uses_remote_show_when_local_remote_head_is_missing(
 def test_repo_defaults_prefers_current_branch_upstream_remote(
     tmp_path: Path,
 ) -> None:
-    """Default remote follows the current branch upstream before origin.
-
-    This preserves repository-specific tracking configuration rather than privileging a name.
-    """
     origin_worktree = clone_test_remote(
         tmp_path,
         source_name="origin-source",
@@ -798,10 +705,6 @@ def test_repo_defaults_prefers_current_branch_upstream_remote(
 def test_repo_defaults_local_only_repo_to_main(
     tmp_path: Path,
 ) -> None:
-    """Local-only defaults use main/master policy, not current HEAD guessing.
-
-    An arbitrary checked-out feature branch must not become the implicit review base.
-    """
     create_committed_repo(tmp_path, branch="main")
     run_git(tmp_path, "checkout", "-b", "feature")
     client, project_id = create_repo_client(tmp_path)
@@ -821,10 +724,6 @@ def test_repo_defaults_local_only_repo_to_main(
 def test_branch_review_query_validation_returns_unprocessable_entity(
     tmp_path: Path,
 ) -> None:
-    """Branch Review selection validation returns 422, not an uncaught 500.
-
-    Invalid structured choices are caller errors and must not escape the HTTP boundary.
-    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -857,13 +756,6 @@ def test_branch_review_query_validation_returns_unprocessable_entity(
 def test_file_diff_endpoint_returns_full_generated_file_rows(
     tmp_path: Path,
 ) -> None:
-    """A generated-file policy delays loading without truncating later rows.
-
-    The manifest marks a changed lockfile lazy. An explicit File diff then
-    renders its complete captured contents, proving laziness is presentation
-    policy rather than content loss. The engine parameter accepts the current
-    object-shaped configuration.
-    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -1004,10 +896,6 @@ def test_file_diff_endpoint_returns_full_generated_file_rows(
 def test_preset_manifest_and_file_diff_do_not_require_a_mark(
     tmp_path: Path,
 ) -> None:
-    """Preset mode is a checked-in fixture workflow, not a marked-repository workflow.
-
-    Its endpoint must not require or expose a repository registration identity.
-    """
     engine = open_sqlite_engine(
         tmp_path / "dirdiff.sqlite", Path(__file__).parents[2] / "alembic.ini"
     )
@@ -1101,10 +989,6 @@ def test_preset_manifest_and_file_diff_do_not_require_a_mark(
 
 
 def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
-    """Every preset catalog is repository-less despite using different fixture roots.
-
-    Catalog selection changes fixture discovery only, never repository registry state.
-    """
     engine = open_sqlite_engine(
         tmp_path / "dirdiff.sqlite", Path(__file__).parents[2] / "alembic.ini"
     )
@@ -1149,10 +1033,6 @@ def test_all_preset_catalogs_load_without_project_id(tmp_path: Path) -> None:
 
 
 def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
-    """Preset metadata models lazy placement without giant fixture Files.
-
-    Explicit fixture metadata must drive the same manifest contract as size-based deferral.
-    """
     engine = open_sqlite_engine(
         tmp_path / "dirdiff.sqlite", Path(__file__).parents[2] / "alembic.ini"
     )
@@ -1201,10 +1081,6 @@ def test_scroll_preset_can_force_compact_files_lazy(tmp_path: Path) -> None:
 def test_preset_manifest_validates_required_preset_fields(
     tmp_path: Path,
 ) -> None:
-    """Repository-less preset loading still validates preset-specific inputs.
-
-    Removing repository dependencies must not weaken catalog or fixture identity checks.
-    """
     engine = open_sqlite_engine(
         tmp_path / "dirdiff.sqlite", Path(__file__).parents[2] / "alembic.ini"
     )
@@ -1251,11 +1127,6 @@ def test_preset_manifest_validates_required_preset_fields(
 def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
     tmp_path: Path,
 ) -> None:
-    """A deleted File keeps only its left identity and deferred-load reason.
-
-    This guards the HTTP tree shape for a genuinely absent worktree side; the
-    manifest must not invent a right path or require content rendering.
-    """
     subprocess.run(
         ["git", "init", "-b", "master"],
         cwd=tmp_path,
@@ -1324,10 +1195,6 @@ def test_repo_manifest_endpoint_returns_minimal_deleted_file_entry(
 
 
 def test_agent_batch_applies_set_reads_across_threads(tmp_path: Path) -> None:
-    """One agent batch addressing several Threads folds and persists atomically.
-
-    Every accepted action must observe prior actions in order, with no partial publication.
-    """
     create_committed_repo(tmp_path, branch="main")
     (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
     client, project_id = create_repo_client(tmp_path)
@@ -1482,16 +1349,6 @@ def test_agent_batch_applies_set_reads_across_threads(tmp_path: Path) -> None:
 def test_agent_profile_is_idempotent_and_normalizes_hyphenated_uuid(
     tmp_path: Path,
 ) -> None:
-    """Canonical UUID input shares one registration identity with compact hex.
-
-    Registering the hyphenated spelling and then the stored compact form must
-    return one Profile whose name, model, and harness follow the latest call,
-    while a name already used by another Profile is rejected as plain text.
-
-    # Parameters
-
-    - `tmp_path`: Isolated marked repository and database root.
-    """
     create_committed_repo(tmp_path, branch="main")
     client, _project_id = create_repo_client(tmp_path)
 
@@ -1537,10 +1394,6 @@ def test_agent_profile_is_idempotent_and_normalizes_hyphenated_uuid(
 
 
 def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
-    """A batch with one invalid action leaves zero review rows behind.
-
-    Validation and persistence share one transaction so earlier valid actions cannot leak.
-    """
     create_committed_repo(tmp_path, branch="main")
     (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
     client, _project_id = create_repo_client(tmp_path)
@@ -1615,11 +1468,6 @@ def test_agent_batch_failure_commits_no_rows(tmp_path: Path) -> None:
 def test_agent_batch_with_absent_paths_is_rejected(
     tmp_path: Path,
 ) -> None:
-    """A batch naming absent repository paths is rejected with a path error.
-
-    The contract leaves unspecified which invalid item's error is reported;
-    the assertions below record the route's current choice, not a promise.
-    """
     create_committed_repo(tmp_path, branch="main")
     (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
     client, _project_id = create_repo_client(tmp_path)
@@ -1720,11 +1568,6 @@ def test_agent_batch_with_absent_paths_is_rejected(
 def test_agent_addresses_a_notebook_cell_bay_in_both_directions(
     tmp_path: Path,
 ) -> None:
-    """An agent names a cell bay on write and reads the same one back.
-
-    Public bay identity must survive persistence without being reduced to a
-    File-level target.
-    """
     cell: dict[str, JsonValue] = {
         "cell_type": "code",
         "id": "stable-cell",
@@ -1901,14 +1744,6 @@ def test_agent_addresses_a_notebook_cell_bay_in_both_directions(
 def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
     tmp_path: Path,
 ) -> None:
-    """Each derivation stores its landing: origin bay, first bay, File start.
-
-    One notebook Thread rides through every landing the placement matrix
-    names. The worktree mutates between captures — the origin's cell is
-    deleted, rewritten, the notebook is corrupted to non-JSON, to non-UTF-8
-    bytes, emptied of cells, and finally removed — and each capture's stored
-    placement must be exactly the shape derivation promised for that loss.
-    """
     cell_a: dict[str, JsonValue] = {
         "cell_type": "code",
         "id": "cell-a",
@@ -2165,23 +2000,6 @@ def test_lost_bay_and_lost_region_threads_land_on_stored_bay_starts(
 def test_unreadable_file_lands_its_thread_without_hiding_the_others(
     tmp_path: Path,
 ) -> None:
-    """An uncapturable File reports why, and costs the Snapshot nothing else.
-
-    A capture failure persists an `error` on the File and fills its capture
-    directory with dirdiff's placeholder text, so composing it would quote a
-    fabrication back to the reviewer. Derivation must therefore land that
-    File's Thread with no code location at all, naming `file_unreadable` — not
-    the `bay_not_found` a lost bay would report, and not a File start whose
-    side record digests dirdiff's own prose — while every other Thread in the
-    same Snapshot keeps its exact range.
-
-    The unreadable side is an untracked worktree file the process cannot open.
-    That is the reachable shape of the failure: only object-id-less sides are
-    read eagerly, and `git ls-files --others` lists an untracked file by its
-    stat alone, so listing succeeds and the read that follows is the one thing
-    that fails. A tracked file would abort the whole capture inside `git diff`
-    instead, which is a different contract and not this one.
-    """
     if os.geteuid() == 0:
         pytest.skip("root reads a mode-000 file, so no capture can fail")
     create_committed_repo(tmp_path, branch="main")
@@ -2294,13 +2112,6 @@ def test_unreadable_file_lands_its_thread_without_hiding_the_others(
 
 
 def test_symlink_loop_stops_before_loading_a_link_twice(tmp_path: Path) -> None:
-    """Capture one finite synthetic target from a real repository link loop.
-
-    Each visited link must appear exactly once and the repeated path must become
-    the immediate terminal diagnosis. Reaching through the API proves the
-    iterative walk, Snapshot sidecars, and composer agree; a timeout-based test
-    would only prove that an arbitrary limit eventually fired.
-    """
     create_committed_repo(tmp_path, branch="main")
     (tmp_path / "old-target.txt").write_text("old target\n", encoding="utf-8")
     os.symlink("old-target.txt", tmp_path / "portal")
@@ -2367,14 +2178,6 @@ def test_symlink_loop_stops_before_loading_a_link_twice(tmp_path: Path) -> None:
 def test_file_media_serves_captured_symlink_target_images(
     tmp_path: Path,
 ) -> None:
-    """Serve image targets only through relationally named link sidecars.
-
-    The media coordinate belongs to the outer link File, while its response is
-    the exact final target bytes retained during capture. Changing the live
-    targets after the manifest must not alter either answer. Moving the right
-    sidecars away from their publication names and updating only their database
-    paths proves readers use relational authority rather than filename probes.
-    """
     fixtures = Path(__file__).parents[1] / "presets" / "formats" / "images"
     old_png = (fixtures / "image-changed" / "old.png").read_bytes()
     new_png = (fixtures / "image-changed" / "new.png").read_bytes()
@@ -2504,13 +2307,6 @@ def test_file_media_serves_captured_symlink_target_images(
 
 
 def test_symlink_target_cannot_escape_the_repository(tmp_path: Path) -> None:
-    """Stop a real worktree link before it can read a parent-directory File.
-
-    The outside File deliberately exists and contains recognizable bytes. The
-    composed result must retain only the raw link and explicit jail diagnosis,
-    proving failure came from the repository boundary rather than a missing
-    target that happened to be harmless.
-    """
     outside = tmp_path.parent / f"{tmp_path.name}-outside-secret.txt"
     outside.write_text("DO NOT CAPTURE THIS\n", encoding="utf-8")
     create_committed_repo(tmp_path, branch="main")
@@ -2579,21 +2375,6 @@ def test_symlink_target_cannot_escape_the_repository(tmp_path: Path) -> None:
 def test_lfs_capture_contains_errors_and_recovers(
     tmp_path: Path, failed_side: str, damage: str
 ) -> None:
-    """Store deferred LFS errors per File and recover without poisoning reuse.
-
-    Both sides have committed Git identities, so their loads are deferred.
-    A failed side must retain its diagnostic while its successful sibling and
-    unrelated File remain intact. Repeating the failure reuses its Snapshot;
-    restoring the object creates a successful Snapshot that remains readable
-    and reusable after local LFS objects disappear. HTTP media must serve the
-    captured payload bytes, never the committed pointers.
-
-    # Parameters
-
-    - `tmp_path`: Disposable repository directory; database and captures live beside it.
-    - `failed_side`: Left or right committed image side whose local object fails loading.
-    - `damage`: Remove the object or give it the wrong size before capture.
-    """
     formats = Path(__file__).parents[1] / "presets" / "formats"
     payloads = {
         "left": (formats / "images/image-changed/old.png").read_bytes(),
@@ -2698,15 +2479,6 @@ def test_lfs_capture_contains_errors_and_recovers(
 
 
 def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
-    """Serve the captured bytes themselves, and refuse what there are none of.
-
-    The whole point of the endpoint is that the reviewer sees the picture the
-    Snapshot holds, so the assertions compare the response body against the
-    fixture on disk byte for byte rather than checking a length or a prefix.
-    The refusals matter just as much: a side that was never captured and a
-    File that composes no media at all must both be errors, because either one
-    answered with empty bytes would render as a broken image.
-    """
     formats = Path(__file__).parents[1] / "presets" / "formats"
     old_png = (formats / "images" / "image-changed" / "old.png").read_bytes()
     new_png = (formats / "images" / "image-changed" / "new.png").read_bytes()
@@ -2898,13 +2670,6 @@ def test_file_media_serves_each_captured_side_exactly(tmp_path: Path) -> None:
 def test_file_media_selects_a_notebook_image_by_bay_key(
     tmp_path: Path,
 ) -> None:
-    """Serve each embedded PNG from the exact output bay that named it.
-
-    One notebook contains two image outputs whose bytes swap across sides. The
-    File pair and side are therefore insufficient by construction: only the bay
-    key distinguishes the correct response. The route also refuses a missing or
-    unknown key instead of choosing the first image.
-    """
     fixtures = Path(__file__).parents[1] / "presets" / "formats" / "images"
     first_png = (fixtures / "image-changed" / "old.png").read_bytes()
     second_png = (fixtures / "image-changed" / "new.png").read_bytes()
@@ -3065,15 +2830,6 @@ def test_file_media_selects_a_notebook_image_by_bay_key(
 def test_agent_addresses_an_image_bay_by_its_single_pseudo_line(
     tmp_path: Path,
 ) -> None:
-    """A non-text bay accepts `1..1` and nothing else.
-
-    The one line it exposes is not source: it is the sentence describing the
-    captured bytes, so a Thread on a picture stores an excerpt that still says
-    something when the picture is gone. Every other range names a line that
-    does not exist, and must be refused rather than clamped -- a stale target
-    from a Snapshot where the File was text would otherwise land silently on
-    the digest sentence.
-    """
     fixtures = Path(__file__).parents[1] / "presets" / "formats" / "images"
     old_png = (fixtures / "image-changed" / "old.png").read_bytes()
     new_png = (fixtures / "image-changed" / "new.png").read_bytes()
@@ -3211,14 +2967,6 @@ def test_agent_addresses_an_image_bay_by_its_single_pseudo_line(
 def test_gitlinks_review_as_commit_ids_through_the_head_tab(
     tmp_path: Path,
 ) -> None:
-    """A moved submodule and an untracked embedded repository review as text.
-
-    The HEAD Tab captures the tracked submodule eagerly and the untracked
-    embedded repository lazily on its first diff. Each side must compose as
-    the single line holding the commit id Git records for it, and no file from
-    inside either repository may reach the review. Nothing outside the Git
-    backend knows these entries are gitlinks.
-    """
     inner = tmp_path / "inner"
     outer = tmp_path / "outer"
     inner.mkdir()
@@ -3320,12 +3068,6 @@ def test_gitlinks_review_as_commit_ids_through_the_head_tab(
 
 
 def test_symlink_to_a_submodule_captures_its_commit_id(tmp_path: Path) -> None:
-    """A link whose target is a submodule resolves to the commit id line.
-
-    The capture walk asks the backend for the target's mode and size before
-    loading it, so a gitlink target must pass size inspection on a committed
-    tree side and in the worktree, where the submodule directory is real.
-    """
     inner = tmp_path / "inner"
     outer = tmp_path / "outer"
     inner.mkdir()

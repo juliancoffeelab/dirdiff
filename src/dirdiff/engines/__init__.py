@@ -1,19 +1,3 @@
-"""Diff engines for already-loaded text.
-
-Import the common input, row, warning, and result contracts from
-`dirdiff.engines`. `engine()` selects the implementation named by an
-`EngineConfig`; concrete classes used directly elsewhere in the repository are
-also part of this facade.
-
-## Purpose and boundaries
-
-Every engine compares the text in two supplied `DiffSide` values and returns
-the same neutral row representation. This lets composition change comparison
-strategy without changing its downstream flow. Engines never load workspace
-content or decide its format, and display enrichment adds folds and syntax only
-after comparison.
-"""
-
 from dirdiff.engines.base import (
     DiffEngineProtocol,
     DiffEngineResult,
@@ -66,17 +50,6 @@ from dirdiff.engines.tokendiff import TokenDiffEngine
 
 
 def engine(config: EngineConfig) -> DiffEngineProtocol:
-    """Return the renderer that `config` selects.
-
-    Every validated configuration maps to one renderer, which holds no workspace
-    or HTTP state. Callers construct one per use and hand it already-loaded `DiffSide` values.
-
-    # Usage
-
-    Select the renderer after validating an `EngineConfig`, then pass it to
-    `dirdiff.formats.ComposeContext.build`. Composition invokes
-    `DiffEngineProtocol.render_diff` for each text bay.
-    """
     match config:
         case GitEngineConfig(
             algorithm=algorithm,

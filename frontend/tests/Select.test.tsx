@@ -1,11 +1,3 @@
-/**
- * Contains jsdom rendering tests for Select's caller-visible contract.
- *
- * Tests exercise the real Solid component through accessible controls and
- * observable callbacks. Add cases for selection, dismissal, focus, and disabled
- * behavior. Do not inspect Solid state, duplicate the popup algorithm, or assert
- * generated markup and styling.
- */
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 import { afterEach, expect, test } from "vitest";

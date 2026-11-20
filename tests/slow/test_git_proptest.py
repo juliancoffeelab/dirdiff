@@ -1,18 +1,3 @@
-"""Compare the Git row adapter with sources and real Git preset output.
-
-The tests expose independent engine invariants: physical-line rows replay every
-Git preset exactly, word rows preserve each source's ordered split words and
-reproduce Git's exact color body, changed-row classification reproduces Git's
-controlled color facts, and generated whitespace mutations preserve Git's
-``--ignore-space-change`` behavior. Word-diff row status is independently
-derived from all its tokens.
-Each oracle invokes Git separately from ``GitDiffEngine`` and never calls the
-adapter's private patch parser.
-
-This module owns no fixtures or caches.  It does not test ANSI syntax in
-isolation, frontend rendering, preference persistence, or Git's choice of diff.
-"""
-
 import re
 import subprocess
 import tempfile
@@ -38,35 +23,15 @@ from dirdiff.rendering import enrich_rows_for_display
 __all__: list[str] = []
 
 PRESETS_ROOT = Path(__file__).parents[1] / "presets" / "git"
-"""Readable Git source pairs used as the complete preset corpus."""
 
 PRESETS = sorted(PRESETS_ROOT.glob("*/*"))
-"""Every Git preset directory in stable pytest display order."""
 
 WORD_DIFF_PRESETS = sorted(
     [*PRESETS, *(Path(__file__).parents[1] / "presets" / "diff").glob("*/*")]
 )
-"""Git and Difftastic source pairs used by the Git word-body oracle."""
 
 
 def git_word_diff_body_from_result(result: DiffEngineResult) -> str:
-    """Serialize public rows as Git's controlled color-word hunk body.
-
-    Each decorated public row becomes exactly one Git display line. New-side
-    whitespace separates aligned words, deleted words precede inserted words,
-    and a changed span continuing onto the next row colors its leading
-    whitespace. The conversion is pure and cannot repair engine alignment.
-
-    # Parameters
-
-    - `result`: Complete public result returned by ``render_diff()`` in Git word
-      mode. Its decorated rows must already preserve Git's display lines.
-
-    # Returns
-
-    The concatenated color-word hunk bodies, including their exact ANSI escapes,
-    spaces, and newlines, but excluding file metadata and `@@` headers.
-    """
     body: list[str] = []
     continuing_status: InlineTokenStatus | None = None
     for row in result["rows"]:
@@ -212,17 +177,6 @@ def test_git_preset_diff_replays_both_directions(
     preset: Path,
     algorithm: GitAlgorithm,
 ) -> None:
-    """Ordinary Git row statuses replay either source into the other.
-
-    Equal, inserted, deleted, and one-sided moved rows form a line edit script.
-    The test first translates every row into an operation, then independently
-    applies that operation stream in both directions before comparing text.
-
-    # Parameters
-
-    - `preset`: Readable old and new source pair being replayed.
-    - `algorithm`: Exact Git line-matching algorithm used for the edit script.
-    """
 
     # Stage 1: render the preset into Git's complete ordered row stream.
     old_path = next(preset.glob("old.*"))
@@ -309,17 +263,6 @@ def test_git_preset_word_diff_replays_both_directions(
     preset: Path,
     algorithm: GitAlgorithm,
 ) -> None:
-    """Porcelain word rows preserve every source word in order.
-
-    Git's configured word regex discards physical line and whitespace spelling.
-    Undecorated source gaps and patch-backed token fragments must still contain
-    every non-whitespace source word exactly once and in source order.
-
-    # Parameters
-
-    - `preset`: Readable old and new source pair being replayed.
-    - `algorithm`: Exact Git line-matching algorithm used for the edit script.
-    """
 
     # Stage 1: render the preset into porcelain-backed word rows.
     old_path = next(preset.glob("old.*"))
@@ -381,18 +324,6 @@ def test_git_preset_word_diff_round_trips_color_body(
     preset: Path,
     tmp_path: Path,
 ) -> None:
-    """Public word rows round-trip to Git's exact color-word hunk body.
-
-    One Git invocation renders the original preset. The engine independently
-    renders porcelain into public rows, and the round-trip function converts
-    only that result back through Git's color-word format. After file metadata
-    and hunk headers are excluded, the bodies must match verbatim.
-
-    # Parameters
-
-    - `preset`: Readable source pair supplied to Git and the engine.
-    - `tmp_path`: Isolated directory containing the direct Git source files.
-    """
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     old_text = old_path.read_text()
@@ -465,17 +396,6 @@ def test_git_preset_word_diff_row_status_preserves_complete_token_facts(
     preset: Path,
     algorithm: GitAlgorithm,
 ) -> None:
-    """Every word-diff row status must preserve its complete token facts.
-
-    A nonempty row whose every token, including whitespace, is inserted or
-    deleted keeps that status. Every other token mixture remains equal because
-    Git did not report a replacement relationship.
-
-    # Parameters
-
-    - `preset`: Readable source pair supplying real Git word classifications.
-    - `algorithm`: Git line-matching algorithm used to construct the rows.
-    """
 
     # Stage 1: render the preset into porcelain-backed word rows.
     old_path = next(preset.glob("old.*"))
@@ -543,18 +463,6 @@ def test_git_preset_line_alignment_matches_git_patch(
     algorithm: GitAlgorithm,
     tmp_path: Path,
 ) -> None:
-    """Every adapter coordinate pair must equal Git's complete line alignment.
-
-    A separate zero-context Git invocation supplies changed coordinates.  The
-    test expands the gaps between its hunks into paired equal coordinates, then
-    compares that independent sequence with every adapter row.
-
-    # Parameters
-
-    - `preset`: Readable source pair supplied to Git and the adapter.
-    - `algorithm`: Exact Git line-matching algorithm used by both invocations.
-    - `tmp_path`: Isolated directory containing the oracle's source files.
-    """
 
     # Stage 1: load the preset and materialize it for the independent Git call.
     old_path = next(preset.glob("old.*"))
@@ -660,20 +568,6 @@ def test_git_preset_changed_rows_match_git_patch(
     color_moved_ws: GitColorMovedWs,
     tmp_path: Path,
 ) -> None:
-    """Every changed adapter row must reproduce one exact Git patch fact.
-
-    A separate zero-context Git invocation uses reserved color slots as a
-    machine-readable status alphabet.  Its prefix, coordinate, source text,
-    move group, and dimmed bit are compared as one changed-row fact with the
-    adapter result.
-
-    # Parameters
-
-    - `preset`: Readable source pair supplied to Git and the adapter.
-    - `color_moved`: Exact Git move-classification mode used by both.
-    - `color_moved_ws`: Exact move-whitespace policy used by both.
-    - `tmp_path`: Isolated directory containing the oracle's source files.
-    """
 
     # Stage 1: load the preset and materialize it for the independent Git call.
     old_path = next(preset.glob("old.*"))
@@ -863,24 +757,6 @@ def test_git_preset_ignore_space_change_matches_whitespace_mutation(
     reverse: bool,
     algorithm: GitAlgorithm,
 ) -> None:
-    """Git ``-b`` ignores generated whitespace while preserving both spellings.
-
-    Every existing horizontal-whitespace run in one preset source receives a
-    different nonempty spelling, and lines without trailing whitespace may
-    receive it.  One fixed non-whitespace sentinel, placed and directed by
-    Hypothesis, forces a real hunk.  A separate Git invocation determines the
-    complete alignment; the adapter must return that alignment with exact text
-    from both generated sources and no other changed row.
-
-    # Parameters
-
-    - `preset`: Readable pair supplying the source corpus.
-    - `source_side`: Old or new preset File independently used as the source.
-    - `data`: Hypothesis choices for every source-local whitespace mutation.
-    - `insertion_position`: Generated sentinel position reduced to source bounds.
-    - `reverse`: Whether the sentinel and mutations appear on the old side.
-    - `algorithm`: Git line-matching algorithm used by both invocations.
-    """
 
     # Stage 0: generate ignored whitespace changes plus one inserted line.
     source_path = next(preset.glob(f"{source_side}.*"))
@@ -1072,24 +948,6 @@ def test_git_preset_word_diff_ignore_space_change_replays_whitespace_mutation(
     reverse: bool,
     algorithm: GitAlgorithm,
 ) -> None:
-    """Combined-mode rows preserve generated source words in order.
-
-    Hypothesis changes every horizontal-whitespace run in one preset source,
-    may add trailing whitespace, and inserts a non-whitespace edit into one
-    physical line so Git must emit a word hunk. Git may discard the exact
-    whitespace spelling, but its patch fragments must retain every word from
-    both generated sources exactly once and in order.
-
-    # Parameters
-
-    - `preset`: Readable pair supplying the source corpus.
-    - `source_side`: Old or new preset File independently used as the source.
-    - `data`: Hypothesis choices for every source-local whitespace mutation.
-    - `line_position`: Generated line containing the non-whitespace edit.
-    - `character_position`: Generated insertion point within that line.
-    - `reverse`: Whether the generated source appears on the old side.
-    - `algorithm`: Git line-matching algorithm used for the word diff.
-    """
 
     # Stage 0: generate ignored whitespace changes plus one real word edit.
     source_path = next(preset.glob(f"{source_side}.*"))
@@ -1197,23 +1055,6 @@ def test_git_preset_word_diff_ignore_space_change_reproduces_color_word_stream(
     reverse: bool,
     algorithm: GitAlgorithm,
 ) -> None:
-    """Combined-mode rows reproduce an independent Git color word stream.
-
-    Hypothesis changes horizontal and trailing whitespace throughout one preset
-    source, then inserts a real word edit into one physical line. A separate
-    ``--word-diff=color --ignore-space-change`` invocation supplies the word
-    facts that the adapter's ordered line queues must reproduce.
-
-    # Parameters
-
-    - `preset`: Readable pair supplying the source corpus.
-    - `source_side`: Old or new preset File independently used as the source.
-    - `data`: Hypothesis choices for every source-local whitespace mutation.
-    - `line_position`: Generated line containing the non-whitespace edit.
-    - `character_position`: Generated insertion point within that line.
-    - `reverse`: Whether the generated source appears on the old side.
-    - `algorithm`: Git line-matching algorithm used by both invocations.
-    """
 
     # Stage 0: generate ignored whitespace changes plus one real word edit.
     source_path = next(preset.glob(f"{source_side}.*"))

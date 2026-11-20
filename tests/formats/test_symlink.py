@@ -1,11 +1,3 @@
-"""Check symbolic-link composition from immutable captured link facts.
-
-The tests exercise the two-bay contract directly: the outer link shows only its
-payload, nested links move into synthetic target text, failed walks diagnose
-there, and notebook targets flatten without outputs. Repository traversal itself
-is covered through the real Git API integration test.
-"""
-
 from __future__ import annotations
 
 import json
@@ -17,12 +9,6 @@ from dirdiff.util import maybe
 
 
 def test_link_payload_precedes_one_collapsed_text_target() -> None:
-    """Show raw outer payloads before one synthetic target comparison.
-
-    The direct bay contains no repository path or arrow. The target bay keeps
-    each nested link behind a comment wall, uses its link-specific coordinate,
-    and remains collapsed without losing the reached text.
-    """
     composed = Composer().compose(
         maybe(b"before-hop"),
         maybe(b"after-hop"),
@@ -76,11 +62,6 @@ def test_link_payload_precedes_one_collapsed_text_target() -> None:
 
 
 def test_broken_link_puts_diagnosis_in_synthetic_target() -> None:
-    """Keep the raw payload clean and diagnose failure in the target bay.
-
-    Missing bytes must not become empty target content or contaminate the outer
-    link's exact payload with repository paths and arrows.
-    """
     composed = Composer().compose(
         maybe(b"missing-before"),
         maybe(b"missing-after"),
@@ -123,12 +104,6 @@ def test_broken_link_puts_diagnosis_in_synthetic_target() -> None:
 
 
 def test_notebook_target_flattens_cells_and_omits_outputs() -> None:
-    """Compose a reached notebook as one reviewable script-like target bay.
-
-    Code stays executable-looking, prose is commented below a typed wall, and
-    output records never enter the synthetic text. The target must still be one
-    bay rather than reproducing notebook cell frames inside the link File.
-    """
     old_notebook = json.dumps(
         {
             "cells": [

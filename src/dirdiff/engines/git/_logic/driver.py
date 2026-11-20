@@ -1,19 +1,3 @@
-"""Run `git diff --no-index` over supplied text.
-
-## Public interface
-
-`run_git_no_index_diff` returns either a controlled colored unified patch or a
-porcelain word patch for two strings.
-
-## Purpose and boundaries
-
-No-index mode gives any loaded text pair Git's diff algorithm without tying the
-engine to a repository. Path hints name temporary files but never authorize a
-filesystem read. Repository refs and File loading therefore remain in
-`dirdiff.change_source`; row construction and engine behavior remain in
-`dirdiff.engines.git.logic`.
-"""
-
 from __future__ import annotations
 
 import os
@@ -61,23 +45,12 @@ _GIT_DIFF_DRIVER_SUFFIXES: dict[str, tuple[str, ...]] = {
     "scheme": (".scm", ".ss"),
     "tex": (".tex", ".sty", ".cls"),
 }
-"""File suffixes that select each of Git's built-in diff drivers.
-
-Git ships these drivers but no mapping from paths to them; a repository names
-its drivers in `.gitattributes`. The language word boundary writes this table
-as an attributes file so `--no-index` mode reaches the same drivers by the
-temporary file's suffix. `.m` goes to MATLAB rather than Objective-C, which
-keeps `.mm`. A suffix absent here, or a driver name this Git does not know,
-leaves Git on its whitespace boundary. Drivers also supply `xfuncname`, which
-only changes the function context after each hunk header.
-"""
 
 _GIT_DIFF_DRIVER_ATTRIBUTES = "".join(
     f"*{suffix} diff={driver}\n"
     for driver, suffixes in _GIT_DIFF_DRIVER_SUFFIXES.items()
     for suffix in suffixes
 )
-"""Attributes-file text naming a driver per suffix, built once per process."""
 
 
 def run_git_no_index_diff(
@@ -93,53 +66,8 @@ def run_git_no_index_diff(
     left_path_hint: str | None,
     right_path_hint: str | None,
 ) -> str:
-    """Run `git diff --no-index` for one already-loaded text pair.
-
-    Git no-index mode exits with `0` when files are equal and `1` when a
-    diff exists, so both are successful engine outcomes.  Other exit codes are
-    surfaced as `DirdiffError` because they mean Git failed to produce a
-    trustworthy patch.
-
-    The patch depends only on the parameters below.  Git runs without the
-    user's global and system configuration, without configuration injected
-    through the environment, and without the user's or system's attributes
-    file, so the same inputs produce the same patch on every machine.  The
-    temporary directory is not a repository, so no repository configuration
-    or attributes apply either.
-
-    # Parameters
-
-    - `algorithm`: Validated line-matching choice, overriding Git configuration.
-    - `word_diff`: Ask Git for machine-readable word classifications.
-    - `word_boundary`: How Git splits words; ignored unless `word_diff`.
-    - `ignore_space_change`: Pass `--ignore-space-change` when enabled.
-    - `color_moved`: Exact move-color mode to apply.
-    - `color_moved_ws`: Whitespace policy used only for move detection.
-    - `left_text`: Complete old text written to Git's left temporary file.
-    - `right_text`: Complete new text written to Git's right temporary file.
-    - `left_path_hint`: Optional old path used only to choose a useful suffix.
-    - `right_path_hint`: Optional new path used only to choose a useful suffix.
-
-    # Usage
-
-    `GitDiffEngine.render_diff` calls this only when both text sides exist.
-    Pass already-loaded text and optional names used solely for temporary-file
-    suffixes.
-
-    # Failures
-
-    Raises `DirdiffError` if Git cannot start or exits without producing a
-    trustworthy no-index result.
-    """
 
     def _temp_file_name(label: str, path_hint: str | None) -> str:
-        """Return a temp filename with a useful suffix for Git headers.
-
-        # Parameters
-
-        - `label`: Internal side name used as the filename stem.
-        - `path_hint`: Optional source name from which to copy the suffix.
-        """
         if path_hint is None:
             return f"{label}.txt"
         suffix = Path(path_hint).suffix

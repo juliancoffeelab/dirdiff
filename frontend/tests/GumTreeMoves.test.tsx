@@ -1,9 +1,3 @@
-/** Move enclosure invariants over generated, real backend fixtures.
- * Only unrelated review bindings and browser geometry are stubbed. The actual
- * TextDiffGrid, row construction, outline construction, and pointer handlers run.
- * Geometry assigns each source character a unit-width cell; screenshots in the
- * live browser verify actual fonts, wrapping, and SVG compositing separately.
- */
 import { cleanup, render, fireEvent } from "@solidjs/testing-library";
 import { afterEach, expect, test, vi } from "vitest";
 import type { DiffRow } from "../src/api/api";
@@ -31,7 +25,6 @@ vi.mock("../src/comp/Toasts", async (importOriginal) => ({
   useToasts: () => ({ showError: vi.fn() }),
 }));
 
-/** Every fixture mirrors tests/presets/gumtree/<language>/<case>. */
 const fixtures = import.meta.glob<string>("./fixtures/gumtree/*/*.json", {
   eager: true,
   query: "?raw",
@@ -105,9 +98,7 @@ test.each(
     vi.stubGlobal(
       "ResizeObserver",
       class {
-        /** Fixed test geometry does not emit resize notifications. */
         observe() {}
-        /** The geometry stub retains no subscriptions to release. */
         disconnect() {}
       },
     );

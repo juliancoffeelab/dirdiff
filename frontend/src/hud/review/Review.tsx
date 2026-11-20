@@ -1,15 +1,3 @@
-/**
- * Coordinates review markers, anchored inputs, and History for one Snapshot.
- *
- * `ReviewProvider` observes the canonical Thread set, derives line-marker
- * descriptions, registers connected renderer anchors, and holds the single active
- * anchored input or Thread panel. Persisted input comes from the application draft
- * document, while discussion operations present accepted post-boundary writes
- * beside the immutable query pages.
- *
- * Renderers retain their own rows and Files. Review never selects hunks or follows
- * scrolling, and Profile identity remains controlled by the application.
- */
 import {
   batch,
   createContext,
@@ -52,168 +40,49 @@ import { createThreadDiscussion } from "./discussion";
 import { ReviewHistory } from "./History";
 import { CommentInput, InlineThreadPanel } from "./threadViews";
 
-/**
- * Identity-stable empty array used while review data is unavailable.
- *
- * `reviewThreads` returns this exact array for every empty read. Creating a new
- * array there would make `markerRevision` treat unchanged Thread state as
- * changed. This module never mutates the array.
- */
 const NO_THREADS: readonly ReviewThread[] = [];
 
-/**
- * Binds one rendered text grid to the exact Snapshot, File pair, and composed bay
- * that produced it. Renderers pass this identity back for marker reads and actions;
- * it carries no rendered content or writable review state.
- */
 export type ReviewTextGridBinding = {
-  /**
-   * Snapshot that produced the rendered grid. Activation asserts it matches the
-   * provider so a retained renderer cannot write into another review boundary.
-   */
   snapshot_id: ReviewId;
-  /**
-   * Manifest File pair used to encode backend review targets for either side.
-   * Nullable side paths remain part of marker identity and are not display labels.
-   */
   file: ReviewFilePair;
-  /**
-   * Composed text bay whose stable key distinguishes this grid within the File.
-   * The binding carries identity only, never renderer content or mutable row state.
-   */
   bay: ReviewTextBay;
 };
 
-/**
- * Holds one derived marker index for the current query and draft revision.
- *
- * The provider rebuilds it from canonical Threads and persisted drafts. Renderers
- * read its grouped line facts but never update it or treat it as another authority.
- */
 type ReviewMarkerIndex = {
-  /**
-   * Whether loaded persisted Threads may contribute enabled marker controls.
-   * False retains draft markers but disables every resulting line action.
-   */
   persistedAvailable: boolean;
-  /**
-   * Persisted Threads grouped by exact rendered line after placement. Threads with
-   * no code point are intentionally absent and remain available through History.
-   */
   lineThreads: ReadonlyMap<string, readonly ReviewThread[]>;
-  /**
-   * New-Thread draft identities grouped by their selected starting line. Ranges
-   * contribute one marker at the start rather than a duplicate on every selected line.
-   */
   lineDraftIds: ReadonlyMap<string, readonly ReviewId[]>;
-  /**
-   * Fully derived marker presentation for every line containing a Thread or draft.
-   * Lines absent from this map use the availability-dependent shared default.
-   */
   lineStates: ReadonlyMap<string, ReviewMarkerState>;
 };
 
-/**
- * Reduces one persisted new-Thread draft to the identity facts that affect markers.
- * Body changes leave this value equal; moving to another line or replacing the draft
- * identity invalidates the corresponding marker index.
- */
 type ReviewDraftMarker = {
-  /**
-   * Persisted new-Thread draft represented by this derived marker input. Consumers
-   * use it to reopen authoritative draft content rather than copying a body here.
-   */
   draftId: ReviewId;
-  /**
-   * Encoded File, bay, side, and starting line where the draft reopens. It is the
-   * equality key for marker invalidation, not a backend or DOM identifier.
-   */
   lineKey: string;
 };
 
-/**
- * Captures the three identity-stable inputs used to decide whether markers changed.
- * The provider compares tuple members by identity or value and rebuilds the index
- * only when canonical Threads, draft locations, or availability differ.
- */
 type ReviewMarkerRevision = readonly [
   readonly ReviewThread[],
   readonly ReviewDraftMarker[],
   boolean,
 ];
 
-/**
- * Couples the two connected DOM elements required by code-aligned review UI.
- * The provider uses the code cell as a Portal mount and the trigger as the marker
- * identity; renderer cleanup must close uses before detaching either element.
- */
 export type ReviewCodeAnchor = {
-  /**
-   * Connected code cell beside which anchored review presentation mounts. Its
-   * parent must be the exact split side or inline row that receives the Portal.
-   */
   codeCell: HTMLElement;
-  /**
-   * Visible marker button used for identity, toggling, and connection checks.
-   * Renderer cleanup must close anchored UI before this element is discarded.
-   */
   trigger: HTMLButtonElement;
 };
 
-/**
- * Describes the sole active new-Thread input and its current presentation mount.
- * It bridges a transient empty value to the persisted draft document without
- * copying meaningful text into provider state.
- */
 export type ActiveCommentInput = {
-  /**
-   * Stable identity shared by transient and persisted input phases. Submission,
-   * discard, and settlement all address the input through this value.
-   */
   draftId: ReviewId;
-  /**
-   * Transient empty draft until meaningful text is persisted, then null. A null
-   * value requires the identity to resolve exactly once in the shared draft document.
-   */
   input: NewThreadDraft | null;
-  /**
-   * Exact diff row, Thread card element, or History whole-review slot receiving the
-   * input Portal. It is placement state only and does not become an authority for
-   * the draft body.
-   */
   mount: HTMLElement;
-  /**
-   * Source line for code input, or null for an editor opened inside a Thread or
-   * for the whole review in History. Only code anchors participate in
-   * renderer-driven close and same-marker toggling.
-   */
   sourceAnchor: ReviewCodeAnchor | null;
 };
 
-/**
- * Keeps one marker's selected visible Thread identities beside their code line.
- * Query pages and accepted activity supply Thread bodies and state; this value
- * carries only panel selection and the connected anchor needed for presentation.
- */
 export type ActiveThreadPanel = {
-  /**
-   * Canonical Thread identities selected by one state marker at the line. Each
-   * identity must resolve exactly once from the current presented Thread list.
-   */
   threadIds: readonly ReviewId[];
-  /**
-   * Connected line and marker that locate and toggle the shared panel. The renderer
-   * must close the panel before removing either element from its DOM subtree.
-   */
   anchor: ReviewCodeAnchor;
 };
 
-/**
- * Names the line-local action represented by one marker control.
- *
- * `new` creates input, `draft` resumes saved input, and the remaining variants
- * open canonical Threads filtered to the named lifecycle state.
- */
 export type ReviewMarkerKind =
   | "new"
   | "draft"
@@ -221,145 +90,43 @@ export type ReviewMarkerKind =
   | "resolved"
   | "deleted";
 
-/**
- * Describes one marker control without copying the Threads or draft behind it.
- * The discriminant selects creation, draft continuation, or a lifecycle group;
- * only lifecycle groups carry a count and outdated-code warning.
- */
 export type ReviewMarkerDescriptor =
   | {
-      /**
-       * Offers creation when no persisted Thread or draft occupies the line. When
-       * disabled by its enclosing state, it communicates query unavailability only.
-       */
       kind: "new";
     }
   | {
-      /**
-       * Reopens persisted new-Thread work whose selection starts at the line. Multiple
-       * drafts at one line remain an explicit error resolved from History.
-       */
       kind: "draft";
     }
   | {
-      /**
-       * Selects the lifecycle group whose Threads the marker opens. It never combines
-       * states or stands for a draft/new-Thread action.
-       */
       kind: "open" | "resolved" | "deleted";
-      /**
-       * Number of loaded Threads in this state at the exact line. Activation expects
-       * at least one and opens precisely those canonical identities.
-       */
       count: number;
-      /**
-       * Whether at least one represented Thread no longer rests on unchanged code.
-       * The flag affects warning presentation but not whether the marker can open.
-       */
       warning: boolean;
     };
 
-/**
- * Returns the complete marker presentation derived for one rendered line.
- * Consumers render the ordered descriptors but must block every activation while
- * `disabled` says the canonical Thread list is unavailable.
- */
 export type ReviewMarkerState = {
-  /**
-   * Prevents activation while persisted Thread data is not authoritative. Markers
-   * remain descriptive during loading but must not derive actions from stale data.
-   */
   disabled: boolean;
-  /**
-   * Ordered controls rendered for a draft and each populated Thread state. An empty
-   * location instead receives exactly one new-Thread descriptor.
-   */
   markers: readonly ReviewMarkerDescriptor[];
 };
 
-/** Shared enabled default for a loaded line with no persisted review work. */
 const AVAILABLE_NEW_MARKER_STATE: ReviewMarkerState = {
   disabled: false,
   markers: [{ kind: "new" }],
 };
-/** Shared disabled default shown while the canonical review query is unavailable. */
 const DISABLED_NEW_MARKER_STATE: ReviewMarkerState = {
   disabled: true,
   markers: [{ kind: "new" }],
 };
 
-/**
- * Exposes the Snapshot-bound review operations that renderers and FileCard need.
- *
- * Consumers may read derived markers, register connected DOM anchors, and request
- * explicit UI actions. They cannot mutate canonical Threads, persisted drafts, or
- * provider presentation state directly.
- */
 export type ReviewBinding = {
-  /**
-   * Immutable Snapshot identity code renderers copy into their grid bindings.
-   * It binds every activation and marker read to this provider's exact review.
-   */
   snapshotId: ReviewId;
-  /**
-   * Reads the canonical loaded Threads, or the stable empty value before load.
-   * Query publication feeds accepted writes back through later reactive reads;
-   * renderers must not mutate the returned array.
-   */
   threads: Accessor<readonly ReviewThread[]>;
-  /**
-   * Reads the identity-stable tuple of Thread data, draft marker inputs, and
-   * availability. Grids track it to refresh markers only after one of those
-   * authorities changes, never as a writable marker store.
-   */
   markerRevision: Accessor<ReviewMarkerRevision>;
-  /**
-   * Returns the line keys whose marker state changed in the latest revision.
-   *
-   * `null` means no bounded change set exists (first index build or a
-   * persisted-availability flip) and every rendered host must refresh. The
-   * set is valid only for the current `markerRevision` value; grids whose
-   * rows changed independently refresh fully regardless.
-   *
-   * # Returns
-   *
-   * - A set of serialized line keys whose complete marker state may have
-   *   changed in the current revision. The set is bounded to that revision.
-   * - `null`: No bounded delta exists. Every mounted marker host must repaint
-   *   from `markerState`.
-   */
   changedMarkerKeys(): ReadonlySet<string> | null;
-  /**
-   * Called while painting one line, with its grid binding, side, and positive
-   * backend line. It returns the current complete marker state; no UI or data is
-   * changed. Callers must track `markerRevision` and repaint using this result.
-   *
-   * @param binding Snapshot, File, and bay rendered by the caller.
-   * @param side File side containing the marker host.
-   * @param line Positive backend line represented by that host.
-   */
   markerState(
     binding: ReviewTextGridBinding,
     side: "left" | "right",
     line: number,
   ): ReviewMarkerState;
-  /**
-   * Called only when a rendered marker is activated, with the exact grid, side,
-   * line, connected anchor, represented kind, and whether Shift requested range
-   * extension. It may toggle the same UI, extend compatible new-Thread work,
-   * open loaded Threads or a persisted draft, or start empty input; unavailable
-   * data and an in-flight input prevent activation. Accepted drafts and Threads
-   * return through `markerRevision`, while anchored presentation updates before
-   * this call returns. Callers must pass the marker kind currently painted at
-   * that anchor and must not use this operation for navigation or selection.
-   *
-   * @param binding Snapshot, File, and bay rendered by the activating grid.
-   * @param side File side containing the activated marker.
-   * @param line Positive backend line represented by the marker.
-   * @param anchor Connected code cell and exact visible button that was activated.
-   * @param markerKind Current descriptor kind painted on that button.
-   * @param extend Whether Shift requested extension of compatible active input.
-   */
   activateTextCommentInput(
     binding: ReviewTextGridBinding,
     side: "left" | "right",
@@ -368,156 +135,42 @@ export type ReviewBinding = {
     markerKind: ReviewMarkerKind,
     extend: boolean,
   ): void;
-  /**
-   * Called exactly once on mount and once on cleanup for every File header, with
-   * the connected element and corresponding boolean. The provider updates split
-   * History geometry after registration; callers must pair identities and invoke
-   * unmount before discarding the element. It returns no accepted state to render.
-   *
-   * @param header Connected File header identity being registered or released.
-   * @param mounted True for its mount callback and false for the paired cleanup.
-   */
   setFileHeaderMounted(header: HTMLElement, mounted: boolean): void;
-  /**
-   * Called immediately before a renderer removes or replaces nodes in `container`.
-   * The provider synchronously closes anchored input or panels whose trigger is
-   * inside it or already disconnected, while leaving unrelated History editors
-   * intact. Callers may mutate the DOM only after this operation completes.
-   */
   closeAnchoredUi(container: Node): void;
 };
 
-/** Context identity for the one Snapshot-bound renderer review interface. */
 const ReviewContext = createContext<ReviewBinding>();
 
-/**
- * Return the nearest Snapshot-bound renderer interface.
- *
- * FileCard and grid descendants call this only below ReviewProvider. Missing context
- * is an invariant violation and throws rather than returning a disabled substitute.
- */
 export function useReview(): ReviewBinding {
   return expect(useContext(ReviewContext), "Review binding is unavailable.");
 }
 
-/**
- * Defines one Snapshot review boundary and its complete external presentation.
- *
- * The caller supplies the exact Snapshot, selected Profile, History visibility,
- * inline ChangeSet grid position, child File lane, and the sole permitted
- * File-view operation. The provider may observe or write review data but must
- * not store Profile, History, navigation, or File-lane state itself.
- */
 type ReviewProviderProps = {
-  /**
-   * Immutable Snapshot shared by manifest, query, drafts, and renderers. Replacing
-   * it disposes this provider rather than retargeting its anchored state.
-   */
   snapshotId: ReviewId;
-  /**
-   * Current inline or split layout used only for History placement. Code review
-   * anchors remain renderer-provided and are not transformed across view modes.
-   */
   view: DiffViewMode;
-  /**
-   * Parent-owned History visibility retained across Snapshot renderer changes.
-   * Review reads it but does not create a competing local visibility signal.
-   */
   historyOpen: boolean;
-  /**
-   * Runs after the user requests a History open or close with the desired value.
-   * The Tab state holder may store it and must feed the accepted state back through
-   * `historyOpen`; Review does not change History visibility itself.
-   */
   onHistoryOpenChange(open: boolean): void;
-  /**
-   * Live selected Profile, or null. Existing discussions remain readable in either
-   * state; authorship is captured only when an explicit write begins.
-   */
   profile: StoredProfile | null;
-  /**
-   * File lane subtree that consumes the Review binding and registers anchors.
-   * It renders inside the context before provider-owned Portals and History.
-   */
   children: JSX.Element;
-  /**
-   * Reads the mounted inline History outlet supplied by ChangeSetShell. Null
-   * withholds inline History until mount; accepted outlet changes remount only
-   * its keyed Portal, and split layout ignores the accessor.
-   */
   inlineHistoryTarget: Accessor<HTMLElement | null>;
-  /**
-   * Called while presenting a located History item with its exact code point.
-   * It returns whether that File is currently navigable; false disables go-to
-   * and prevents `viewThread` from being called for that control.
-   */
   canViewThread(point: ThreadCodePoint): boolean;
-  /**
-   * Called from enabled History navigation with an exact code point. The ChangeSet
-   * may load and scroll to the line, then returns its connected code cell and
-   * visible marker, or null when navigation was explicitly stopped. Review opens
-   * anchored UI only after the promise resolves; failures are presented as Toasts.
-   *
-   * # Returns
-   *
-   * - A connected code cell and visible marker for the requested Thread point.
-   * - `null`: Navigation stopped before producing an anchor. Review must leave
-   *   the Thread in History instead of opening anchored UI.
-   */
   viewThread(point: ThreadCodePoint): Promise<ReviewCodeAnchor | null>;
-  /** Report whether an origin-bound History Thread's File is loaded. */
   canViewFile(file: ReviewFilePair): boolean;
-  /** Navigate to a loaded File's actual start without opening a marker. */
   viewFileStart(file: ReviewFilePair): Promise<void>;
-  /** Navigate to an exact origin line without requiring a displayed marker. */
   viewOriginThread(point: ThreadCodePoint): Promise<void>;
 };
 
-/**
- * Validates the serialized coordinate shared by marker producers and grid readers.
- * Nullable File paths retain added/deleted-side identity; bay, side, and positive
- * line complete the exact rendered location.
- */
 export const LineMarkerKeySchema = z.tuple([
-  /** Normalized old-side File path, or null when the File lacks that side. */
   z.string().nullable(),
-  /** Normalized new-side File path, or null when the File lacks that side. */
   z.string().nullable(),
-  /** Non-empty composed bay key containing the rendered line. */
   z.string().min(1),
-  /** Captured side on which the rendered line exists. */
   z.enum(["left", "right"]),
-  /** Positive one-based backend line number. */
   z.number().int().positive(),
 ]);
 
-/**
- * Identifies one rendered line: File pair, composed bay key, side, and line.
- *
- * The marker index is keyed by the JSON encoding of this tuple, and TextDiffGrid
- * reads that encoding back to decide which rendered host a changed key names.
- * Encoder and reader live in different modules, so both use this single validated
- * tuple shape instead of maintaining separate positional assumptions.
- */
 export type LineMarkerKey = z.infer<typeof LineMarkerKeySchema>;
 
-/**
- * Owns one exact Snapshot's review observation and Comment inputs and renders History.
- *
- * Snapshot replacement disposes this boundary. File rendering and engine
- * replacement remain below it. It consumes the application-owned draft
- * document, so persisted drafts, query pages, and accepted post-boundary activity
- * survive renderer replacement. Marker indexes are memoized derivations of those
- * values, not another writable store.
- */
 export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
-  /**
-   * Encodes one exact rendered line location for derived marker lookup only.
-   *
-   * @param grid Snapshot, File pair, and composed bay rendered by the caller.
-   * @param side File side containing the rendered line.
-   * @param line Positive backend line number represented by the marker host.
-   */
   function lineMarkerKey(
     grid: ReviewTextGridBinding,
     side: "left" | "right",
@@ -571,7 +224,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     readonly AcceptedReviewActivity[]
   >([]);
 
-  /** Retain one successful post-boundary write for every review presentation. */
   function recordAcceptedActivity(activity: AcceptedReviewActivity): void {
     setAcceptedActivities((current) => [...current, activity]);
   }
@@ -623,7 +275,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   let fileHeaderObserver: ResizeObserver | null = null;
   let splitHistoryFrame: number | null = null;
   let splitHistoryGeometryFailed = false;
-  /** Derives query pages and accepted activity through a stable empty initial value. */
   const reviewThreads = createMemo<readonly ReviewThread[]>(
     () => reviewThreadList(review.data, acceptedActivities()),
     NO_THREADS,
@@ -698,12 +349,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   // index exists. Grids use it to touch only changed hosts.
   let lastChangedKeys: ReadonlySet<string> | null = null;
 
-  /**
-   * Reports whether two derived marker states render identically.
-   *
-   * @param previous Marker presentation retained from the prior index revision.
-   * @param next Marker presentation derived from the current authorities.
-   */
   function markerStatesEqual(
     previous: ReviewMarkerState,
     next: ReviewMarkerState,
@@ -725,23 +370,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     );
   }
 
-  /**
-   * Return the line-marker index for the current authoritative review revision.
-   *
-   * The revision identity combines the canonical Thread array, the
-   * equality-guarded new-Thread draft markers, and persisted-data availability.
-   * The first read of a new identity groups located Threads and draft starting
-   * lines by exact encoded line, then derives draft and lifecycle markers for
-   * each line. Threads without a current code point remain History-only.
-   * Subsequent reads of that identity return the same index object for this
-   * ReviewProvider lifetime.
-   *
-   * `lastChangedKeys` becomes `null` for the first index or an availability
-   * change because even unindexed lines change their default marker state.
-   * Otherwise it becomes the bounded set of added, removed, or visibly changed
-   * line keys. A cached revision without its paired index is an invariant
-   * failure and throws instead of hiding the missing cache entry.
-   */
   function markerIndex(): ReviewMarkerIndex {
     const revision = markerRevision();
     if (revision === cachedMarkerRevision) {
@@ -754,13 +382,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     const lineDraftIds = new Map<string, ReviewId[]>();
     const lineStates = new Map<string, ReviewMarkerState>();
 
-    /**
-     * Appends one item to a derived marker bucket.
-     *
-     * @param map Mutable index being built for this marker revision.
-     * @param key Encoded rendered line receiving the item.
-     * @param item Thread or draft identity derived for that line.
-     */
     function append<T>(map: Map<string, T[]>, key: string, item: T): void {
       const current = map.get(key);
       if (current === undefined) {
@@ -860,21 +481,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     return index;
   }
 
-  /**
-   * Publish the current top edge for fixed Split History placement.
-   *
-   * Inline view and a previously failed geometry calculation publish `null`.
-   * Without a connected File header, the calculation reads the application
-   * shell's sticky-header offset. Otherwise it reads the first registered
-   * header's sticky position, hit-tests the header currently occupying that
-   * band, and publishes the lower edge plus one pixel through `splitHistoryTop`.
-   *
-   * This function runs only through the frame scheduler. A missing shell,
-   * invalid CSS measurement, or unusable header geometry is contained here
-   * because viewport callbacks are outside Solid's ErrorBoundary: it disables
-   * Split History geometry for the rest of this provider lifetime, publishes
-   * `null`, and reports the exact failure once as a Toast.
-   */
   function updateSplitHistoryGeometry(): void {
     if (props.view !== "split") {
       setSplitHistoryTop(null);
@@ -942,19 +548,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     }
   }
 
-  /**
-   * Schedule at most one Split History geometry calculation for the next frame.
-   *
-   * Calls outside Split view do nothing. Scroll events originating inside the
-   * History host do not affect its placement, and document scrolls are skipped
-   * while a registered File header occupies the sticky band. Resize observers,
-   * header registration, sticky-band changes, and direct initial scheduling pass
-   * no event and remain eligible. An already pending frame absorbs later calls;
-   * its callback clears the handle before invoking the contained calculation.
-   * The provider effect cancels a remaining frame on rerun or disposal.
-   *
-   * @param event Optional captured viewport event; omitted by observer and direct callers.
-   */
   function scheduleSplitHistoryGeometry(event?: Event): void {
     if (props.view !== "split") {
       return;
@@ -982,21 +575,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     });
   }
 
-  /**
-   * Replace the observer that tracks File headers occupying the sticky band.
-   *
-   * Every call disconnects the previous observer and clears its membership.
-   * A new observer is created only when Split geometry has not failed, the first
-   * header is connected, and its sticky offset is finite and nonnegative. Its
-   * viewport root margins form a two-pixel band at that offset. Each callback
-   * replaces membership for the reported connected HTML headers, then schedules
-   * one geometry calculation; every currently registered header is observed.
-   *
-   * Later rebuilds dispose replaced observers. The provider effect disconnects
-   * the final observer and clears membership when Split view ends or the provider
-   * is disposed. A non-HTML callback target is an internal registration invariant
-   * failure and throws.
-   */
   function rebuildStickyBandObserver(): void {
     stickyBandObserver?.disconnect();
     stickyBandObserver = null;
@@ -1053,7 +631,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       scheduleSplitHistoryGeometry(),
     );
     fileHeaders.forEach((header) => fileHeaderObserver?.observe(header));
-    /** Rebuilds the viewport-sized band before recalculating placement. */
     function handleResize(): void {
       rebuildStickyBandObserver();
       scheduleSplitHistoryGeometry();
@@ -1077,22 +654,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     });
   });
 
-  /**
-   * Return the complete new-Thread draft rendered by the active input.
-   *
-   * No active input returns `null`. A transient input returns its inline value;
-   * after persistence, the active record carries only an identity and this
-   * function resolves the exact value from the shared draft document. A missing
-   * persisted identity or a non-new-Thread value is an invariant failure and
-   * throws rather than substituting empty input.
-   *
-   * # Returns
-   *
-   * - The active new-Thread draft, read directly for transient input or resolved
-   *   from the shared draft document after persistence.
-   * - `null`: No Comment input is active. Close and submission paths must do
-   *   nothing that assumes a draft identity.
-   */
   function activeCommentInputDraft(): NewThreadDraft | null {
     const active = activeCommentInput();
     if (active === null) {
@@ -1112,15 +673,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     return draft;
   }
 
-  /**
-   * Close the active Comment input without discarding meaningful persisted work.
-   *
-   * Absence and an in-flight submission are no-ops. Transient input closes
-   * directly because meaningful text is persisted on input. A persisted blank
-   * or whitespace-only draft is removed first and closes only if storage accepts
-   * that removal; a nonblank draft remains stored while its Portal closes. Draft
-   * identity and kind invariants are enforced by `activeCommentInputDraft`.
-   */
   function closeActiveCommentInput(): void {
     const active = activeCommentInput();
     if (active === null || submittingDraftIds().has(active.draftId)) {
@@ -1139,28 +691,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     }
   }
 
-  /**
-   * Opens and focuses one prevalidated new-Thread input at its inline mount.
-   *
-   * The active input is replaced with `draft`, then the function requires the
-   * resulting Portal to contain exactly one Comment textarea beneath `mount`
-   * and focuses it. A persisted input stores only its identity in local state;
-   * the caller must ensure that exact draft remains resolvable from the shared
-   * draft document whenever the input is read.
-   *
-   * @param draft Exact new-Thread input to render.
-   * @param persisted Whether the draft already belongs to the shared document.
-   * @param mount Connected diff row, Thread card, or History whole-review slot
-   *   receiving the Portal.
-   * @param sourceAnchor Originating code marker, or null for a Thread-contained or
-   *   whole-review input.
-   *
-   * # Failures
-   *
-   * Missing or duplicate textarea content throws after the active input has
-   * changed. Later reads of a persisted input throw if its shared draft is
-   * missing or has the wrong kind.
-   */
   function openCommentInput(
     draft: NewThreadDraft,
     persisted: boolean,
@@ -1185,23 +715,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     textareas[0].focus();
   }
 
-  /**
-   * Apply one complete active new-Thread input value to draft storage.
-   *
-   * The replacement must name the sole active input; absence or another identity
-   * is an invariant failure. Whitespace-only transient input needs no storage
-   * write and succeeds. Whitespace-only persisted input is removed, then the
-   * active record is changed back to transient input in the same batch. Nonblank
-   * persisted input replaces its stored value; nonblank transient input is added
-   * and hands authority to storage by clearing the inline copy only after success.
-   *
-   * Returns false when the required add, replacement, or removal fails. In that
-   * case the published active record and shared draft document remain unchanged.
-   * Storage operations also assert their identity transition: add requires no
-   * existing match, while replacement and removal require exactly one.
-   *
-   * @param replacement Complete current value carrying the active draft identity.
-   */
   function updateCommentInputDraft(replacement: NewThreadDraft): boolean {
     const active = expect(
       activeCommentInput(),
@@ -1237,17 +750,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     return true;
   }
 
-  /**
-   * Remove one persisted draft and close matching active input after acceptance.
-   *
-   * Storage removal and the conditional active-input close are batched so
-   * consumers never observe a closed input with the old document. Returns false
-   * on storage failure and leaves both values unchanged; removing an unrelated
-   * draft does not alter active presentation. The shared document asserts that
-   * `draftId` has exactly one persisted match and throws otherwise.
-   *
-   * @param draftId Exact persisted identity to remove.
-   */
   function removeDraft(draftId: ReviewId): boolean {
     let removed = false;
     batch(() => {
@@ -1259,17 +761,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     return removed;
   }
 
-  /**
-   * Discard one active transient input or remove the named persisted draft.
-   *
-   * A matching transient input has no storage entry, so it closes immediately
-   * and returns true. Every other identity is passed to `removeDraft`, which
-   * closes matching persisted input only after storage accepts removal and
-   * returns false without presentation changes on failure. That path requires
-   * exactly one persisted match and throws for a missing or duplicate identity.
-   *
-   * @param draftId Exact transient or persisted draft identity to discard.
-   */
   function discardCommentInputDraft(draftId: ReviewId): boolean {
     const active = activeCommentInput();
     if (active?.draftId === draftId && active.input !== null) {
@@ -1279,25 +770,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     return removeDraft(draftId);
   }
 
-  /**
-   * Opens and focuses transient new-Thread input for one exact target.
-   *
-   * Review data and draft storage must both be available. An unavailable
-   * authority produces its specific Toast and leaves the current presentation
-   * unchanged. Otherwise this function creates a fresh identity for the
-   * selected Profile and current Snapshot and makes the empty transient input
-   * active at `mount`; persistence begins only after meaningful input.
-   *
-   * @param profile Selected author already accepted for this write action.
-   * @param target Validated text range, or the whole review, for the future Thread.
-   * @param mount Exact diff row for a text target, or the History input slot
-   *   for a whole-review target.
-   * @param sourceAnchor Rendered line of a text target, or null for the whole review.
-   *
-   * # Failures
-   *
-   * The textarea invariant enforced by `openCommentInput` throws.
-   */
   function openNewDraft(
     profile: StoredProfile,
     target: ReviewTarget,
@@ -1330,16 +802,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     openCommentInput(draft, false, mount, sourceAnchor);
   }
 
-  /**
-   * Toggle the whole-review new-Thread input in its History slot.
-   *
-   * An in-flight active submission blocks the action. When the whole-review
-   * input is already active at `mount`, this applies ordinary close semantics.
-   * Otherwise the selected Profile is required, as for every browser write, and
-   * a fresh transient input replaces any active Comment input.
-   *
-   * @param mount Connected History slot that receives the input Portal.
-   */
   function toggleReviewThreadInput(mount: HTMLElement): void {
     const active = activeCommentInput();
     if (active !== null && submittingDraftIds().has(active.draftId)) {
@@ -1356,19 +818,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     openNewDraft(profile, { kind: "review" }, mount, null);
   }
 
-  /**
-   * Navigate to one Thread's current code point and open its anchored panel.
-   *
-   * A Thread without a current code landing is a no-op. Otherwise navigation
-   * runs asynchronously through the ChangeSet; an explicit null result also
-   * leaves presentation unchanged. A returned anchor must contain one visible
-   * marker for the Thread's current lifecycle state or the operation throws an
-   * invariant failure. Success closes any active Comment input and replaces the
-   * active Thread panel with this sole Thread at that exact marker. Navigation,
-   * DOM, and invariant failures are caught and presented as a Toast.
-   *
-   * @param thread Loaded canonical Thread selected from History.
-   */
   function viewThreadInCode(thread: ReviewThread): void {
     assert(
       thread.location_source.kind === "displayed-snapshot",
@@ -1400,17 +849,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     );
   }
 
-  /**
-   * Navigate an origin-bound History Thread without inventing a line marker.
-   *
-   * The ChangeSet chooses either its exact origin point or the File's ordinary
-   * first target before this callback. Failures stay inside the review boundary
-   * and use the same Toast title as ordinary History navigation.
-   *
-   * @param file Exact origin File pair still present in the displayed manifest.
-   * @param point Origin code point, or null for a File-level historical Thread.
-   * @param useFileStart Whether navigation uses the displayed File start.
-   */
   function viewOriginThreadInCode(
     file: ReviewFilePair,
     point: ThreadCodePoint | null,
@@ -1427,21 +865,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     );
   }
 
-  /**
-   * Continues one persisted new-Thread draft at its rendered code line.
-   *
-   * The File must first be admitted by `canViewThread`. Navigation then runs
-   * asynchronously; an explicitly stopped navigation returning no anchor is a
-   * no-op. Success closes the active Thread panel and opens and focuses this
-   * shared draft at the exact returned diff row.
-   *
-   * Navigation, unavailable-File, row-mount, persisted-draft, and textarea
-   * failures are contained and presented as a Toast, so this void action does
-   * not expose a rejecting promise to its caller.
-   *
-   * @param draft Existing shared draft whose editor should reopen.
-   * @param point Exact location selected by that draft's starting line.
-   */
   function continueDraftInCode(
     draft: NewThreadDraft,
     point: ThreadCodePoint,
@@ -1468,19 +891,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     );
   }
 
-  /**
-   * Close Comment input mounted inside one exact History Thread before its card changes.
-   *
-   * Only an input without a code source anchor whose mount is a descendant of
-   * the named `data-review-history-thread-id` is affected. Returns false only
-   * when that matching input is in flight, which tells History to abort its card
-   * toggle. Otherwise it applies ordinary close semantics and returns true;
-   * unrelated or absent input is unchanged, and failed removal of an empty
-   * persisted draft may leave the matching input open while storage reports the
-   * error through the shared document.
-   *
-   * @param threadId Exact History Thread whose descendant input may close.
-   */
   function closeCommentInputInThread(threadId: ReviewId): boolean {
     const commentInput = activeCommentInput();
     if (
@@ -1497,13 +907,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     return true;
   }
 
-  /**
-   * Clear the persisted draft document, then close active input on success.
-   *
-   * A storage failure leaves both the shared document and active presentation
-   * unchanged. Successful clearing closes transient or persisted active input
-   * only after the cleared document has been published.
-   */
   function clearStoredDrafts(): void {
     if (draftContext.clear()) {
       setActiveCommentInput(null);

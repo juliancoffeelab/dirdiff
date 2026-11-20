@@ -1,10 +1,3 @@
-/**
- * Contains jsdom integration tests for Snapshot-scoped review discussion state.
- *
- * Tests mount the real Solid providers, discussion factory, TanStack mutation
- * definitions, and API validation. Transport alone is stubbed: no backend or
- * rendered diff is required to verify shared pending-mutation behavior.
- */
 import "@testing-library/jest-dom/vitest";
 import {
   cleanup,

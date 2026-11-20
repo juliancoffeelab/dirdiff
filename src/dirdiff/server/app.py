@@ -1,14 +1,3 @@
-"""Construct the FastAPI application and expose its process entrypoints.
-
-create_app composes the package route groups with concrete application-lifetime
-stores and one Room service. The uvicorn entrypoints construct those dependencies
-from the serialized startup contract and add the selected frontend response.
-
-The local route group handles Profile and preference HTTP entities and the
-unexpected-failure boundary. This module does not define repository, review,
-external-agent, capture, or rendering behavior.
-"""
-
 import json
 import logging
 import os
@@ -63,174 +52,74 @@ __all__ = [
 ]
 
 LOGGER = logging.getLogger(__name__)
-"""Record unexpected failures at the application HTTP boundary."""
 
 
 class UserProfileResponse(ApiModel):
-    """Return persisted Profile identity after create, lookup, or rename.
-
-    Profile routes validate store records through this model. Callers retain the
-    id for preference and review operations and show the current username.
-
-    The response carries no active-selection state, role, or preferences.
-    """
-
     # TODO: Successful Profile routes reject missing records, so make both
     # fields required instead of admitting a partial or empty Profile.
     id: int | None
-    """Durable Profile identity returned by successful current routes.
-
-    The model still admits `None`, although route guards reject missing records.
-    Callers must not invent an id when absence appears.
-    """
 
     username: str | None
-    """Current globally unique Profile username.
-
-    Successful routes return a present string paired with `id`. The nullable
-    model does not authorize a partial Profile or anonymous review author.
-    """
 
 
 class UserProfileUpdateRequest(ApiModel):
-    """Supply one exact username to a Profile create or rename route.
-
-    The called endpoint determines whether it creates or updates. Store
-    validation rejects empty, edge-padded, blank, or duplicate names.
-
-    This body does not identify the Profile being renamed; the route path does.
-    """
-
     username: str
-    """Complete username proposed for creation or rename.
-
-    Persistence requires a unique nonblank value without edge whitespace. The
-    route does not trim it or use it to select the Profile being renamed.
-    """
 
 
 class PreferencesResponse(ApiModel):
-    """Return the complete persisted HUD preferences for one Profile.
-
-    Preference routes validate `PreferencesRecord` through this model after read
-    or write. The Profile id keeps the response bound to the addressed user.
-
-    The server does not interpret how the HUD applies these values.
-    """
-
     user_profile_id: int
-    """Durable Profile identity associated with this preference record.
-
-    It matches the route's addressed Profile. The HUD must not apply the value
-    to another selected user merely because a username changed.
-    """
 
     aggressive_folds: bool
-    """Initial policy for folding renderer-provided unchanged intervals.
-
-    True asks the HUD to start eligible ranges folded; false starts them open.
-    The value does not collapse Files or override later reviewer actions.
-    """
 
     git_color_moved: GitColorMoved
-    """Required exact Git moved-color mode."""
 
     git_color_moved_ws: GitColorMovedWs
-    """Required whitespace policy used only for Git move detection."""
 
     git_algorithm: GitAlgorithm
-    """Remembered Git line-matching choice for future File rendering."""
 
     difftastic_ignore_comments: bool
-    """Required Difftastic comment policy for this Profile."""
 
     gumtree_matcher: GumTreeMatcher
-    """Required upstream GumTree matcher choice for this Profile."""
 
     git_ignore_space_change: bool
-    """Whether Git ignores changes in whitespace amount for future rendering."""
 
     git_word_diff: bool
-    """Whether Git decorates changed lines with word-level classifications."""
 
     git_word_boundary: GitWordBoundaryMode
-    """Remembered Git word-boundary mode for word-diff rendering."""
 
     git_word_diff_regex: str | None
-    """Remembered custom word regex, verbatim whatever the mode; `None` if none entered."""
 
 
 class PreferencesUpdateRequest(ApiModel):
-    """Supply the mutable preference values to store for one Profile.
-
-    The route path identifies the Profile; this body contains the replacement
-    value written by `PreferencesStore`.
-
-    It does not select or create a Profile and carries no defaults.
-    """
-
     aggressive_folds: bool
-    """Complete replacement for the Profile's initial folding policy.
-
-    The route stores this exact boolean for the Profile named in its path. It
-    does not create the Profile or change already mounted fold state directly.
-    """
 
     git_color_moved: GitColorMoved
-    """Required exact Git moved-color mode."""
 
     git_color_moved_ws: GitColorMovedWs
-    """Required whitespace policy used only for Git move detection."""
 
     git_algorithm: GitAlgorithm
-    """Required replacement for the Profile's Git algorithm preference."""
 
     difftastic_ignore_comments: bool
-    """Required Difftastic comment policy for this Profile."""
 
     gumtree_matcher: GumTreeMatcher
-    """Required upstream GumTree matcher choice for this Profile."""
 
     git_ignore_space_change: bool
-    """Required replacement for the Profile's Git whitespace preference."""
 
     git_word_diff: bool
-    """Required replacement for the Profile's Git word-diff preference."""
 
     git_word_boundary: GitWordBoundaryMode
-    """Required exact word-boundary mode."""
 
     git_word_diff_regex: Annotated[str, Field(min_length=1)] | None
-    """Required non-empty custom word regex, verbatim; `None` when none entered.
-
-    The route does not compile it; `GitWordBoundaryCustom` states how the
-    engine treats the value.
-    """
 
 
 class _ApplicationRoutes:
-    """Bind application-wide and Profile handlers to their exact stores.
-
-    One instance retains Profile and preference persistence. Its declarations
-    also contain the root response and the last-resort exception handler, which
-    need no domain route object or additional application state.
-    """
-
     routes = ClassRoutes()
-    """Import-time declarations bound to one application route instance."""
 
     def __init__(
         self,
         user_profile_store: UserProfileStore,
         preferences_store: PreferencesStore,
     ) -> None:
-        """Retain Profile and preference stores for the application lifetime.
-
-        # Parameters
-
-        - `user_profile_store`: Profile persistence used by Profile routes.
-        - `preferences_store`: Preference persistence used by preference routes.
-        """
         self.user_profile_store = user_profile_store
         self.preferences_store = preferences_store
 
@@ -240,21 +129,6 @@ class _ApplicationRoutes:
         request: Request,
         error: Exception,
     ) -> JSONResponse:
-        """Log an unexpected HTTP failure before returning a generic response.
-
-        # Parameters
-
-        - `request`: Failed HTTP entity whose method and path identify damage.
-        - `error`: Unexpected exception recorded with its traceback.
-
-        The response discloses neither exception text nor traceback.
-
-        # Usage
-
-        FastAPI invokes this last-resort handler after typed domain and framework
-        failures have taken their narrower paths.
-
-        """
         LOGGER.error(
             "Unexpected %s %s failure",
             request.method,
@@ -277,17 +151,6 @@ class _ApplicationRoutes:
         self,
         request: UserProfileUpdateRequest,
     ) -> UserProfileResponse:
-        """Create one durable Profile selected later by its exact username.
-
-        `request` supplies a validated display name. Duplicate or otherwise
-        invalid names return a client error; the endpoint selects no active
-        browser identity by itself.
-
-        # Failures
-
-        - Raises `HTTPException` with status 400 when the username is blank,
-          padded with whitespace, or already used.
-        """
         try:
             return UserProfileResponse.model_validate(
                 self.user_profile_store.create(request.username),
@@ -308,21 +171,6 @@ class _ApplicationRoutes:
         summary="Select persisted user profile data by exact username",
     )
     def get_user_profile(self, username: str) -> UserProfileResponse:
-        """Return the one existing Profile selected by its exact username.
-
-        Username validation failures are client errors and exact absence is 404.
-        A successful response exposes the durable identity and current display name
-        without selecting browser state or creating preferences.
-
-        # Parameters
-
-        - `username`: Exact persisted display name, with no surrounding whitespace.
-
-        # Failures
-
-        - Raises `HTTPException` with status 400 for invalid username syntax or
-          status 404 when no exact Profile exists.
-        """
         try:
             profile = self.user_profile_store.get_by_username(username)
         except ValueError as exc:
@@ -353,18 +201,6 @@ class _ApplicationRoutes:
         profile_id: int,
         request: UserProfileUpdateRequest,
     ) -> UserProfileResponse:
-        """Rename one durable Profile without rewriting authored actions.
-
-        # Parameters
-
-        - `profile_id`: Existing Profile whose stable identity is preserved.
-        - `request`: Validated globally unique replacement display name.
-
-        # Failures
-
-        - Raises `HTTPException` with status 400 for an invalid or duplicate name
-          and status 404 for a missing Profile.
-        """
         try:
             profile = self.user_profile_store.update_username(
                 profile_id, request.username
@@ -392,17 +228,6 @@ class _ApplicationRoutes:
         summary="Load persisted user preferences",
     )
     def serve_preferences(self, profile_id: int) -> PreferencesResponse:
-        """Return one Profile's complete preferences, creating defaults if absent.
-
-        `profile_id` must identify an existing Profile. Default creation is the
-        preference store's explicit operation and does not select that Profile
-        as active.
-
-        # Failures
-
-        - Raises `HTTPException` with status 404 when `profile_id` does not name
-          an existing Profile. Persistence failures propagate.
-        """
         profile = self.user_profile_store.get(profile_id)
         if profile is None:
             raise HTTPException(
@@ -426,18 +251,6 @@ class _ApplicationRoutes:
         profile_id: int,
         request: PreferencesUpdateRequest,
     ) -> PreferencesResponse:
-        """Replace one existing Profile's complete preferences.
-
-        # Parameters
-
-        - `profile_id`: Existing Profile whose preference row is updated.
-        - `request`: Complete preference values to persist and return.
-
-        # Failures
-
-        - Raises `HTTPException` with status 404 when `profile_id` does not name
-          an existing Profile. Persistence failures propagate.
-        """
         profile = self.user_profile_store.get(profile_id)
         if profile is None:
             raise HTTPException(
@@ -472,42 +285,6 @@ def create_app(
     presets_root: str,
     store_path: Path,
 ) -> FastAPI:
-    """Create the dirdiff FastAPI app and wire request orchestration.
-
-    The application serves manifest capture, Snapshot reads, review operations,
-    and repository/preset controls using the supplied stores and Room service.
-
-    # Parameters
-
-    - `db`: Repository registry and source of the shared SQLAlchemy engine.
-    - `user_profile_store`: Profile persistence, or `None` to bind one to the
-      registry engine.
-    - `preferences_store`: Preference persistence, or `None` to bind one to the
-      registry engine.
-    - `agent_skills_root`: Exact installed instruction root exposed by agent
-      onboarding.
-    - `room_lord`: Application boundary for Room selection and Snapshot lookup.
-    - `presets_root`: Exact catalog root selected before app construction.
-    - `store_path`: Exact Snapshot root used to construct `room_lord`; source
-      setup needs this configured path to reject persistence inside reviewed
-      inputs. It must match the supplied RoomLord configuration.
-
-    # Usage
-
-    Construct the stores and `RoomLord` once for one database and Snapshot root,
-    then keep the returned application for the server lifetime. Tests may omit
-    Profile and preference stores to derive both from the registry engine.
-
-    # Returns
-
-    A configured `FastAPI` application ready for the server or `TestClient`.
-    Creating it does not start a listening server.
-
-    # Failures
-
-    - Construction propagates dependency and route-registration failures. HTTP
-      operation failures are handled by the installed application handlers.
-    """
     if user_profile_store is None:
         user_profile_store = UserProfileStore(db.engine)
     if preferences_store is None:
@@ -544,25 +321,6 @@ def create_app(
 
 
 def _create_runtime_app() -> FastAPI:
-    """Construct one API application from serialized CLI configuration.
-
-    The development and release uvicorn factories share this application-lifetime
-    operation. It reads the process handoff once, opens one SQLite engine, builds
-    the stores and Room service, and returns an app with API and documentation
-    routes but no frontend route.
-
-    # Usage
-
-    The two uvicorn factories call this after the CLI writes
-    `RUNTIME_CONFIG_ENV`. Application code with constructed dependencies should
-    call `create_app` directly.
-
-    # Failures
-
-    - Asserts when runtime configuration is absent or the configured database
-      has no active repository mark.
-    - Propagates invalid JSON, configuration, database, and schema failures.
-    """
     payload = os.environ.get(RUNTIME_CONFIG_ENV)
     assert payload is not None, "dirdiff runtime config missing"
     config = RuntimeConfig(**json.loads(payload))
@@ -587,18 +345,11 @@ def _create_runtime_app() -> FastAPI:
 
 
 def development_uvicorn_entrypoint() -> FastAPI:
-    """Compose the reloadable API with its missing-Vite diagnostic page.
-
-    Editable CLI startup uses this factory whether Vite starts successfully or
-    the user selects backend-only development. Vite serves the real HUD on its
-    own port; the backend root only explains that fixed development contract.
-    """
 
     app = _create_runtime_app()
 
     @app.get("/", response_class=HTMLResponse)
     def serve_frontend_missing() -> HTMLResponse:
-        """Explain that the development API has no bundled HUD to serve."""
 
         return HTMLResponse(
             """
@@ -654,13 +405,6 @@ def development_uvicorn_entrypoint() -> FastAPI:
 
 
 def release_uvicorn_entrypoint() -> FastAPI:
-    """Compose the API with the HUD installed inside the dirdiff package.
-
-    Standard installations use this factory without Vite or reload. Construction
-    refuses a malformed wheel before uvicorn accepts traffic. The root returns
-    the compiled entry page, `/assets` returns Vite output, and all other browser
-    paths keep FastAPI's normal 404 response.
-    """
 
     app = _create_runtime_app()
     frontend_path = Path(str(files("dirdiff").joinpath("frontend")))
@@ -673,12 +417,6 @@ def release_uvicorn_entrypoint() -> FastAPI:
 
     @app.get("/")
     def serve_release_frontend() -> FileResponse:
-        """Return the installed HUD entry page for every root query string.
-
-        The page names its content-hashed assets, so a browser must
-        revalidate it on every load: a copy kept across a reinstall would
-        keep running the previous release's script against the new API.
-        """
 
         return FileResponse(index_path, headers={"Cache-Control": "no-cache"})
 
