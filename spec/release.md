@@ -116,7 +116,10 @@ construction:
 The release factory adds no catch-all route. Unknown browser and API paths keep
 FastAPI's normal 404 response. Root query strings reach the same `index.html`,
 so the HUD can construct its initial Tab from the URL. Relative `/api` calls stay
-on the release server's origin.
+on the release server's origin. The entry page is served with
+`Cache-Control: no-cache`, so a browser revalidates it on every load and a
+reinstalled release never runs the previous release's script against the new
+API.
 
 ## Launch behavior
 

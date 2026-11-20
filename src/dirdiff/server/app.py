@@ -673,9 +673,14 @@ def release_uvicorn_entrypoint() -> FastAPI:
 
     @app.get("/")
     def serve_release_frontend() -> FileResponse:
-        """Return the installed HUD entry page for every root query string."""
+        """Return the installed HUD entry page for every root query string.
 
-        return FileResponse(index_path)
+        The page names its content-hashed assets, so a browser must
+        revalidate it on every load: a copy kept across a reinstall would
+        keep running the previous release's script against the new API.
+        """
+
+        return FileResponse(index_path, headers={"Cache-Control": "no-cache"})
 
     app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
     return app
