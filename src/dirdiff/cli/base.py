@@ -5,7 +5,8 @@
 `main` invokes the Typer application used by both the installed console script
 and `python -m dirdiff`. The root command opens a Head Tab. The `refs` and
 `branch` subcommands select other initial Tabs, while `mark` edits the local
-repository registry.
+repository registry. `agent` mounts the review-agent commands defined in
+`dirdiff.cli._base.agent_commands`.
 
 ## Purpose and boundaries
 
@@ -29,6 +30,7 @@ from urllib.request import url2pathname
 
 import typer
 
+from dirdiff.cli._base.agent_commands import agent_app
 from dirdiff.cli._base.marker_utils import (
     DB_PATH_ENV,
     InstallationMode,
@@ -70,6 +72,7 @@ Decorators below register the root startup callback and subcommands on this
 exact instance during import. `main` invokes it once; importing the module does
 not parse arguments or start the app.
 """
+cli_app.add_typer(agent_app, name="agent")
 
 
 def configure_logging() -> None:
