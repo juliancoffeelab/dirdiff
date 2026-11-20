@@ -30,7 +30,7 @@ _ATOM_PATTERN = re.compile(
     r"|[^\W\d_]+"
     r"|[^\w\s]"
 )
-r"""Split source text into the ordered atoms consumed by `_tokenize`.
+r"""Split source text into the ordered atoms consumed by `_region_rows`.
 
 The alternatives recognize newlines, other whitespace runs, digits,
 underscores, acronym and ASCII word parts, remaining Unicode word runs, and
@@ -89,12 +89,6 @@ class _Op:
     # Text-equal pair deliberately shown as changed; set only by the demotion
     # pass, never alters the texts, so replay of either side still holds.
     demoted: bool = False
-
-
-def _tokenize(text: str) -> list[str]:
-    atoms = _ATOM_PATTERN.findall(text)
-    assert sum(map(len, atoms)) == len(text), "atom pattern skipped characters"
-    return atoms
 
 
 def _split_lines(text: str) -> list[str]:
@@ -412,48 +406,26 @@ def _anchored_line_row(
     }
 
 
-def _region_rows(
-    left_region: str,
-    right_region: str,
-    *,
-    left_no: int,
-    right_no: int,
-) -> tuple[list[DiffEngineRow], bool]:
-    left_atoms = _tokenize(left_region)
-    right_atoms = _tokenize(right_region)
-    rows: list[DiffEngineRow] = []
-    if len(left_atoms) * len(right_atoms) > _REGION_ATOM_LIMIT:
-        for offset, line in enumerate(_split_lines(left_region)):
-            rows.append(
-                {
-                    "status": "delete",
-                    "left_no": left_no + offset,
-                    "right_no": None,
-                    "left_text": line,
-                    "right_text": "",
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
-            )
-        for offset, line in enumerate(_split_lines(right_region)):
-            rows.append(
-                {
-                    "status": "insert",
-                    "left_no": None,
-                    "right_no": right_no + offset,
-                    "left_text": "",
-                    "right_text": line,
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
-            )
-        return rows, True
+def _one_sided_row(
+    status: Literal["delete", "insert"], line_no: int, text: str
+) -> DiffEngineRow:
+    is_left = status == "delete"
+    return {
+        "status": status,
+        "left_no": line_no if is_left else None,
+        "right_no": None if is_left else line_no,
+        "left_text": text if is_left else "",
+        "right_text": "" if is_left else text,
+        "left_tokens": [],
+        "right_tokens": [],
+    }
 
-    ops = _region_ops(left_atoms, right_atoms)
-    _demote_isolated_matches(ops)
 
-    # First pass: assign each step's sides to region-local lines. The
-    # terminating newline belongs to the line it ends.
+def _op_lines(
+    ops: list[_Op],
+) -> tuple[list[tuple[int | None, int | None]], int, int]:
+    # Region-local line of each op side, then the number of newlines seen on
+    # each side. The terminating newline belongs to the line it ends.
     op_lines: list[tuple[int | None, int | None]] = []
     left_line = 0
     right_line = 0
@@ -468,9 +440,13 @@ def _region_rows(
             left_line += 1
         if op.right == "\n":
             right_line += 1
-    left_count = left_line if left_region.endswith("\n") else left_line + 1
-    right_count = right_line if right_region.endswith("\n") else right_line + 1
+    return op_lines, left_line, right_line
 
+
+def _line_pair_weights(
+    ops: list[_Op],
+    op_lines: list[tuple[int | None, int | None]],
+) -> dict[tuple[int, int], int]:
     weights: dict[tuple[int, int], int] = {}
     for index, op in enumerate(ops):
         if (
@@ -484,15 +460,21 @@ def _region_rows(
         assert line_left is not None and line_right is not None
         key = (line_left, line_right)
         weights[key] = weights.get(key, 0) + len(op.left)
+    return weights
 
-    pairs = _pair_lines(weights, left_count, right_count)
-    paired = set(pairs)
 
-    # Second pass: split each side's steps into per-line pieces with final
-    # statuses. A match whose endpoints are not on rows paired with each
-    # other is demoted here to a one-sided pair, keeping every one-sided
-    # row entirely its own status; newline steps shape lines but are never
-    # rendered as tokens.
+def _line_pieces(
+    ops: list[_Op],
+    op_lines: list[tuple[int | None, int | None]],
+    *,
+    paired: set[tuple[int, int]],
+    left_count: int,
+    right_count: int,
+) -> tuple[list[list[_TokenPiece]], list[list[_TokenPiece]]]:
+    # A match whose endpoints are not on rows paired with each other is
+    # demoted here to a one-sided pair, keeping every one-sided row entirely
+    # its own status; newline steps shape lines but are never rendered as
+    # tokens.
     left_line_pieces: list[list[_TokenPiece]] = [[] for _ in range(left_count)]
     right_line_pieces: list[list[_TokenPiece]] = [
         [] for _ in range(right_count)
@@ -523,52 +505,39 @@ def _region_rows(
             else:
                 right_status = "insert"
             right_line_pieces[line_right].append((op.right, right_status))
+    return left_line_pieces, right_line_pieces
 
+
+def _paired_region_rows(
+    pairs: list[tuple[int, int]],
+    left_line_pieces: list[list[_TokenPiece]],
+    right_line_pieces: list[list[_TokenPiece]],
+    *,
+    left_no: int,
+    right_no: int,
+) -> list[DiffEngineRow]:
+    rows: list[DiffEngineRow] = []
     left_cursor = 0
     right_cursor = 0
 
-    def append_one_sided(line: int, side: Literal["left", "right"]) -> None:
-        nonlocal left_cursor, right_cursor
-        if side == "left":
+    def append_unpaired(left_end: int, right_end: int) -> None:
+        for line in range(left_cursor, left_end):
             pieces = left_line_pieces[line]
             assert all(status == "delete" for _, status in pieces), (
                 "unpaired left row kept shared text"
             )
-            rows.append(
-                {
-                    "status": "delete",
-                    "left_no": left_no + line,
-                    "right_no": None,
-                    "left_text": "".join(text for text, _ in pieces),
-                    "right_text": "",
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
-            )
-            left_cursor = line + 1
-        else:
+            text = "".join(text for text, _ in pieces)
+            rows.append(_one_sided_row("delete", left_no + line, text))
+        for line in range(right_cursor, right_end):
             pieces = right_line_pieces[line]
             assert all(status == "insert" for _, status in pieces), (
                 "unpaired right row kept shared text"
             )
-            rows.append(
-                {
-                    "status": "insert",
-                    "left_no": None,
-                    "right_no": right_no + line,
-                    "left_text": "",
-                    "right_text": "".join(text for text, _ in pieces),
-                    "left_tokens": [],
-                    "right_tokens": [],
-                }
-            )
-            right_cursor = line + 1
+            text = "".join(text for text, _ in pieces)
+            rows.append(_one_sided_row("insert", right_no + line, text))
 
     for pair_left, pair_right in pairs:
-        for line_index in range(left_cursor, pair_left):
-            append_one_sided(line_index, "left")
-        for line_index in range(right_cursor, pair_right):
-            append_one_sided(line_index, "right")
+        append_unpaired(pair_left, pair_right)
         left_pieces = left_line_pieces[pair_left]
         right_pieces = right_line_pieces[pair_right]
         has_change = any(
@@ -593,10 +562,60 @@ def _region_rows(
         )
         left_cursor = pair_left + 1
         right_cursor = pair_right + 1
-    for line_index in range(left_cursor, left_count):
-        append_one_sided(line_index, "left")
-    for line_index in range(right_cursor, right_count):
-        append_one_sided(line_index, "right")
+    append_unpaired(len(left_line_pieces), len(right_line_pieces))
+    return rows
+
+
+def _region_rows(
+    left_region: str,
+    right_region: str,
+    *,
+    left_no: int,
+    right_no: int,
+) -> tuple[list[DiffEngineRow], bool]:
+    def tokenize(text: str) -> list[str]:
+        atoms = _ATOM_PATTERN.findall(text)
+        assert sum(map(len, atoms)) == len(text), (
+            "atom pattern skipped characters"
+        )
+        return atoms
+
+    left_atoms = tokenize(left_region)
+    right_atoms = tokenize(right_region)
+    if len(left_atoms) * len(right_atoms) > _REGION_ATOM_LIMIT:
+        return [
+            *(
+                _one_sided_row("delete", left_no + offset, line)
+                for offset, line in enumerate(_split_lines(left_region))
+            ),
+            *(
+                _one_sided_row("insert", right_no + offset, line)
+                for offset, line in enumerate(_split_lines(right_region))
+            ),
+        ], True
+
+    ops = _region_ops(left_atoms, right_atoms)
+    _demote_isolated_matches(ops)
+    op_lines, left_newlines, right_newlines = _op_lines(ops)
+    left_count = left_newlines + (0 if left_region.endswith("\n") else 1)
+    right_count = right_newlines + (0 if right_region.endswith("\n") else 1)
+    pairs = _pair_lines(
+        _line_pair_weights(ops, op_lines), left_count, right_count
+    )
+    left_line_pieces, right_line_pieces = _line_pieces(
+        ops,
+        op_lines,
+        paired=set(pairs),
+        left_count=left_count,
+        right_count=right_count,
+    )
+    rows = _paired_region_rows(
+        pairs,
+        left_line_pieces,
+        right_line_pieces,
+        left_no=left_no,
+        right_no=right_no,
+    )
     return rows, False
 
 

@@ -555,9 +555,13 @@ def _collect_hints(
     rows: list[DiffEngineRow],
     hints: list[FoldHint],
 ) -> None:
+    def region_is_unchanged() -> bool:
+        return _rows_are_unchanged(
+            rows[candidate.context_start_row : candidate.context_end_row]
+        )
 
     if candidate.rule.region_kind == "class_like":
-        if _region_is_unchanged(candidate, rows):
+        if region_is_unchanged():
             hint = _candidate_to_hint(candidate, rows)
             if hint is not None:
                 hints.append(hint)
@@ -565,7 +569,7 @@ def _collect_hints(
             if child.rule.region_kind in {"function_like", "class_like"}:
                 _collect_hints(child, all_candidates, rows, hints)
     elif candidate.rule.region_kind == "function_like":
-        if _region_is_unchanged(candidate, rows):
+        if region_is_unchanged():
             hint = _candidate_to_hint(candidate, rows)
             if hint is not None:
                 hints.append(hint)
@@ -577,7 +581,7 @@ def _collect_hints(
         if not _has_ancestor_kind(candidate, "function_like") and not (
             _has_ancestor_kind(candidate, "class_like")
         ):
-            if _region_is_unchanged(candidate, rows):
+            if region_is_unchanged():
                 hint = _candidate_to_hint(candidate, rows)
                 if hint is not None:
                     hints.append(hint)
@@ -586,7 +590,7 @@ def _collect_hints(
                     if child.rule.region_kind == "container":
                         _collect_hints(child, all_candidates, rows, hints)
     elif candidate.rule.region_kind == "section":
-        if _region_is_unchanged(candidate, rows):
+        if region_is_unchanged():
             hint = _candidate_to_hint(candidate, rows)
             if hint is not None:
                 hints.append(hint)
@@ -808,22 +812,19 @@ def _append_top_level_run_hint(
 
 
 def _top_level_run_label(run: list[TopLevelItem]) -> str:
+    def plural_label(count: int, noun: str) -> str:
+        if count == 1:
+            return f"{count} {noun}"
+        if noun.endswith("property"):
+            return f"{count} {noun.removesuffix('property')}properties"
+        return f"{count} {noun}s"
 
     if all(item.label_kind == "import" for item in run):
-        return _plural_label(len(run), "unchanged import")
+        return plural_label(len(run), "unchanged import")
     if len({item.label_kind for item in run}) == 1:
         label_kind = run[0].label_kind
-        return _plural_label(len(run), f"unchanged {label_kind}")
-    return _plural_label(len(run), "unchanged top-level declaration")
-
-
-def _plural_label(count: int, noun: str) -> str:
-
-    if count == 1:
-        return f"{count} {noun}"
-    if noun.endswith("property"):
-        return f"{count} {noun.removesuffix('property')}properties"
-    return f"{count} {noun}s"
+        return plural_label(len(run), f"unchanged {label_kind}")
+    return plural_label(len(run), "unchanged top-level declaration")
 
 
 def _fold_hint_sort_key(hint: FoldHint) -> tuple[int, int]:
@@ -847,15 +848,6 @@ def _child_candidates(
             candidate.context_end_byte,
         ),
     )
-
-
-def _region_is_unchanged(
-    candidate: FoldCandidate,
-    rows: list[DiffEngineRow],
-) -> bool:
-
-    span = rows[candidate.context_start_row : candidate.context_end_row]
-    return _rows_are_unchanged(span)
 
 
 def _rows_are_unchanged(rows: list[DiffEngineRow]) -> bool:

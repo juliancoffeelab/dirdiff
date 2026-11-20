@@ -54,18 +54,6 @@ class AppOptions:
     mode: Literal["development", "release"]
 
 
-def _add_branch_selection_query(
-    query: dict[str, str],
-    *,
-    prefix: str,
-    selection: BranchSelection,
-) -> None:
-    query[f"{prefix}_source"] = selection["source"]
-    query[f"{prefix}_branch"] = selection["branch"]
-    if selection["source"] == "remote":
-        query[f"{prefix}_remote"] = selection["remote"]
-
-
 def build_url(port: int, config: RuntimeConfig) -> str:
 
     root = f"http://127.0.0.1:{port}/"
@@ -77,6 +65,13 @@ def build_url(port: int, config: RuntimeConfig) -> str:
         "engine": "tokendiff",
         "view": "inline",
     }
+
+    def add_branch_selection(prefix: str, selection: BranchSelection) -> None:
+        query[f"{prefix}_source"] = selection["source"]
+        query[f"{prefix}_branch"] = selection["branch"]
+        if selection["source"] == "remote":
+            query[f"{prefix}_remote"] = selection["remote"]
+
     if config.tab == "refs":
         query["left"] = config.left
         query["right"] = config.right
@@ -87,16 +82,8 @@ def build_url(port: int, config: RuntimeConfig) -> str:
         assert config.review_selection is not None, (
             "Branch Review startup requires a review selection"
         )
-        _add_branch_selection_query(
-            query,
-            prefix="base",
-            selection=config.base_selection,
-        )
-        _add_branch_selection_query(
-            query,
-            prefix="review",
-            selection=config.review_selection,
-        )
+        add_branch_selection("base", config.base_selection)
+        add_branch_selection("review", config.review_selection)
     return f"{root}?{urlencode(query, quote_via=quote)}"
 
 
@@ -295,8 +282,6 @@ def run_app(
     mode: Literal["development", "release"],
     default_db_path: Path,
 ) -> None:
-
-    # A started Vite child is terminated in the `finally` below.
     if mode == "release":
         if no_frontend_dev:
             raise SystemExit(
@@ -306,30 +291,44 @@ def run_app(
             raise SystemExit(
                 "--frontend-port is unavailable in a release installation."
             )
-        require_marked_repos(
-            Path(config.db_path),
-            migration_config_path=Path(config.migration_config_path),
-            default_db_path=default_db_path,
-        )
-        port, _ = choose_runtime_ports(
-            backend_port=port,
-            frontend_port=frontend_port,
-            use_frontend_dev=False,
-        )
-        url = build_url(port, config)
-        print(f"dirdiff: {url}", file=sys.stderr)
-        if not headless:
-            open_browser(url)
-        run_uvicorn(config=config, port=port, mode=mode)
-        return
-
-    use_frontend_dev = not no_frontend_dev
-
     require_marked_repos(
         Path(config.db_path),
         migration_config_path=Path(config.migration_config_path),
         default_db_path=default_db_path,
     )
+    if mode == "release":
+        _run_release(config=config, port=port, headless=headless)
+    else:
+        _run_development(
+            config=config,
+            port=port,
+            frontend_port=frontend_port,
+            headless=headless,
+            use_frontend_dev=not no_frontend_dev,
+        )
+
+
+def _run_release(*, config: RuntimeConfig, port: int, headless: bool) -> None:
+    port, _ = choose_runtime_ports(
+        backend_port=port,
+        frontend_port=DEFAULT_FRONTEND_PORT,
+        use_frontend_dev=False,
+    )
+    url = build_url(port, config)
+    print(f"dirdiff: {url}", file=sys.stderr)
+    if not headless:
+        open_browser(url)
+    run_uvicorn(config=config, port=port, mode="release")
+
+
+def _run_development(
+    *,
+    config: RuntimeConfig,
+    port: int,
+    frontend_port: int,
+    headless: bool,
+    use_frontend_dev: bool,
+) -> None:
     backend_port, frontend_port = choose_runtime_ports(
         backend_port=port,
         frontend_port=frontend_port,
@@ -349,7 +348,8 @@ def run_app(
     if not headless:
         open_browser(url)
     try:
-        run_uvicorn(config=config, port=backend_port, mode=mode)
+        run_uvicorn(config=config, port=backend_port, mode="development")
     finally:
+        # Vite is this process's child; it must not outlive the backend.
         if frontend_process is not None:
             frontend_process.terminate()

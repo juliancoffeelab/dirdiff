@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from difflib import unified_diff
 from typing import Literal, TypedDict, final, override
@@ -80,15 +81,6 @@ def difftastic_engine_warning(
             "message": "Difftastic reported no structural changes, so dirdiff fell back to a line diff.",
         }
     return None
-
-
-def _source_lines(text: str) -> list[str]:
-    # Difftastic splits on `\n` only; the empty tail after a trailing newline
-    # is its phantom line, not a source line.
-    lines = text.split("\n")
-    if lines != [] and lines[-1] == "":
-        lines.pop()
-    return lines
 
 
 def _line_spans(
@@ -253,53 +245,19 @@ def _row_status(
     return "equal"
 
 
-def difftastic_rows_from_json(
-    diff_json: DifftasticJson,
+def _real_line_pairs(
+    aligned: list[list[int | None]],
     *,
-    left_text: str,
-    right_text: str,
-) -> list[DiffEngineRow]:
-    left_lines = _source_lines(left_text)
-    right_lines = _source_lines(right_text)
-    aligned = diff_json.get("aligned_lines", [])
-    if aligned == []:
-        return []
-    spans = _span_index(
-        diff_json,
-        left_lines=left_lines,
-        right_lines=right_lines,
-    )
-
-    def public_tokens(
-        tokens: list[_DifftasticPartitionToken],
-    ) -> list[InlineToken]:
-        result: list[InlineToken] = []
-        for token in tokens:
-            public_status: Literal["unchanged", "insert", "delete"]
-            match token["status"]:
-                case "synthesised":
-                    public_status = "unchanged"
-                case "insert":
-                    public_status = "insert"
-                case "delete":
-                    public_status = "delete"
-            result.append(
-                {
-                    "text": token["text"],
-                    "status": public_status,
-                    "is_ws": token["is_ws"],
-                }
-            )
-        return result
-
-    rows: list[DiffEngineRow] = []
+    left_count: int,
+    right_count: int,
+) -> Iterator[tuple[int | None, int | None]]:
     next_left = 0
     next_right = 0
     for pair in aligned:
         left_index, right_index = pair
-        if left_index is not None and left_index >= len(left_lines):
+        if left_index is not None and left_index >= left_count:
             left_index = None
-        if right_index is not None and right_index >= len(right_lines):
+        if right_index is not None and right_index >= right_count:
             right_index = None
         if pair[0] is not None and left_index is None:
             # The phantom guard must only ever drop the phantom pair; pairing
@@ -329,47 +287,118 @@ def difftastic_rows_from_json(
                     f"instead of {next_right}."
                 )
             next_right += 1
+        yield left_index, right_index
 
-        left_line = "" if left_index is None else left_lines[left_index]
-        right_line = "" if right_index is None else right_lines[right_index]
-        left_tokens = (
-            []
-            if left_index is None
-            else _line_tokens(left_line, spans.left.get(left_index, []))
-        )
-        right_tokens = (
-            []
-            if right_index is None
-            else _line_tokens(right_line, spans.right.get(right_index, []))
-        )
-        public_left_tokens = public_tokens(left_tokens)
-        public_right_tokens = public_tokens(right_tokens)
-        row_status = _row_status(
-            left_no=None if left_index is None else left_index + 1,
-            right_no=None if right_index is None else right_index + 1,
-            left_text=left_line,
-            right_text=right_line,
-            left_tokens=public_left_tokens,
-            right_tokens=public_right_tokens,
-        )
-        row: DiffEngineRow = {
-            "status": row_status,
-            "left_no": None if left_index is None else left_index + 1,
-            "right_no": None if right_index is None else right_index + 1,
-            "left_text": left_line,
-            "right_text": right_line,
-        }
-        if left_index is not None:
-            row["left_tokens"] = public_left_tokens
-        if right_index is not None:
-            row["right_tokens"] = public_right_tokens
-        rows.append(row)
-
-    if next_left != len(left_lines) or next_right != len(right_lines):
+    if next_left != left_count or next_right != right_count:
         raise ValueError(
             "Difftastic alignment did not cover every source line."
         )
-    return rows
+
+
+def _aligned_row(
+    left_index: int | None,
+    right_index: int | None,
+    *,
+    left_lines: list[str],
+    right_lines: list[str],
+    spans: _SpanIndex,
+) -> DiffEngineRow:
+    def public_tokens(
+        tokens: list[_DifftasticPartitionToken],
+    ) -> list[InlineToken]:
+        result: list[InlineToken] = []
+        for token in tokens:
+            public_status: Literal["unchanged", "insert", "delete"]
+            match token["status"]:
+                case "synthesised":
+                    public_status = "unchanged"
+                case "insert":
+                    public_status = "insert"
+                case "delete":
+                    public_status = "delete"
+            result.append(
+                {
+                    "text": token["text"],
+                    "status": public_status,
+                    "is_ws": token["is_ws"],
+                }
+            )
+        return result
+
+    left_line = "" if left_index is None else left_lines[left_index]
+    right_line = "" if right_index is None else right_lines[right_index]
+    left_tokens = (
+        []
+        if left_index is None
+        else _line_tokens(left_line, spans.left.get(left_index, []))
+    )
+    right_tokens = (
+        []
+        if right_index is None
+        else _line_tokens(right_line, spans.right.get(right_index, []))
+    )
+    public_left_tokens = public_tokens(left_tokens)
+    public_right_tokens = public_tokens(right_tokens)
+    row_status = _row_status(
+        left_no=None if left_index is None else left_index + 1,
+        right_no=None if right_index is None else right_index + 1,
+        left_text=left_line,
+        right_text=right_line,
+        left_tokens=public_left_tokens,
+        right_tokens=public_right_tokens,
+    )
+    row: DiffEngineRow = {
+        "status": row_status,
+        "left_no": None if left_index is None else left_index + 1,
+        "right_no": None if right_index is None else right_index + 1,
+        "left_text": left_line,
+        "right_text": right_line,
+    }
+    if left_index is not None:
+        row["left_tokens"] = public_left_tokens
+    if right_index is not None:
+        row["right_tokens"] = public_right_tokens
+    return row
+
+
+def difftastic_rows_from_json(
+    diff_json: DifftasticJson,
+    *,
+    left_text: str,
+    right_text: str,
+) -> list[DiffEngineRow]:
+    def source_lines(text: str) -> list[str]:
+        # Difftastic splits on `\n` only; the empty tail after a trailing
+        # newline is its phantom line, not a source line.
+        lines = text.split("\n")
+        if lines != [] and lines[-1] == "":
+            lines.pop()
+        return lines
+
+    left_lines = source_lines(left_text)
+    right_lines = source_lines(right_text)
+    aligned = diff_json.get("aligned_lines", [])
+    if aligned == []:
+        return []
+    spans = _span_index(
+        diff_json,
+        left_lines=left_lines,
+        right_lines=right_lines,
+    )
+    return [
+        _aligned_row(
+            left_index,
+            right_index,
+            left_lines=left_lines,
+            right_lines=right_lines,
+            spans=spans,
+        )
+        for left_index, right_index in _real_line_pairs(
+            aligned,
+            left_count=len(left_lines),
+            right_count=len(right_lines),
+        )
+    ]
 
 
 def build_difftastic_ast(
