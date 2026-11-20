@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review"
+  short_description: "Review a change to the dirdiff repository"
+  default_prompt: "Use $review to independently review this change."
