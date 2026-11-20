@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Use when adding, changing or running dirdiff tests, presets, golden snapshots, or cached third-party engine JSON.
+description: Use when adding, changing or running tests, presets, golden snapshots, or cached third-party engine JSON.
 ---
 
 # What this document is about
