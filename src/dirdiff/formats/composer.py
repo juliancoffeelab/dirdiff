@@ -54,8 +54,6 @@ class Composer:
             yield from symlink_bays(left, right, context)
             return
 
-        # Classification belongs to this one dispatch. Keeping it local makes
-        # the `match` below the only top-level format-selection operation.
         def path_claim(path: str) -> tuple[FileFormat, Option[str]]:
             if path.lower().endswith(".ipynb"):
                 return "notebook", Nothing()
@@ -203,7 +201,8 @@ class Composer:
 
 
 # NOTE: This coordinator lives here because it must import every private format
-# builder. Only composer.py may import modules under _composer; the leaves cannot
+# builder. Only composer.py may import modules under _composer; the leaves
+# cannot
 # import each other.
 def symlink_bays(
     left: Option[bytes],

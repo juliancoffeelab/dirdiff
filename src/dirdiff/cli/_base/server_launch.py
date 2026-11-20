@@ -18,8 +18,11 @@ from dirdiff.server import RUNTIME_CONFIG_ENV, RuntimeConfig
 
 DEFAULT_PORT = 5052
 DEFAULT_FRONTEND_PORT = 5173
+# Offsets 0..19 are tried, so the last candidate is requested port + 19.
 PORT_FALLBACK_ATTEMPTS = 20
 FRONTEND_DIR = Path(__file__).resolve().parents[4] / "frontend"
+# Watched by uvicorn reload with a *.py-only pattern so frontend edits do not
+# restart the backend.
 BACKEND_RELOAD_DIR = Path(__file__).resolve().parents[2]
 
 __all__ = [
@@ -105,6 +108,8 @@ def start_frontend_dev_server(
 
     env = os.environ.copy()
     env["VITE_DIRDIFF_BACKEND_ORIGIN"] = f"http://127.0.0.1:{backend_port}"
+    # --strictPort: Vite must not silently move, or the printed URL would point
+    # at another process. Caller owns the child and must terminate it.
     return subprocess.Popen(
         [
             "bun",
@@ -124,6 +129,8 @@ def start_frontend_dev_server(
 
 def can_bind_port(port: int) -> bool:
 
+    # Non-reserving probe: another process can still take the port before the
+    # server binds. Any bind error counts as unavailable.
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -145,6 +152,7 @@ def require_bindable_port(port: int, *, label: str) -> None:
 
 def choose_port_pair(backend_port: int, frontend_port: int) -> tuple[int, int]:
 
+    # Both ports shift by the same offset so their requested relationship holds.
     for offset in range(PORT_FALLBACK_ATTEMPTS):
         next_backend_port = backend_port + offset
         next_frontend_port = frontend_port + offset
@@ -216,6 +224,8 @@ def choose_runtime_ports(
 
 def open_browser(url: str) -> None:
 
+    # Delay so uvicorn and Vite bind first; failures surface on the timer
+    # thread and are not reported. The printed URL remains for manual opening.
     threading.Timer(1.0, lambda: webbrowser.open(url)).start()
 
 
@@ -236,6 +246,7 @@ def start_frontend(
             frontend_port=frontend_port,
         )
     except FileNotFoundError:
+        # Missing `bun` only; other launch errors propagate.
         print(
             "Could not start the Vite frontend dev server. Opening the backend diagnostic page instead.",
             file=sys.stderr,
@@ -255,6 +266,8 @@ def run_uvicorn(
     # once the command is ready to hand control to the backend server process.
     import uvicorn  # noqa: PLC0415
 
+    # uvicorn imports the factory independently of this command, so the config
+    # travels through the environment; reload children rely on it staying set.
     os.environ[RUNTIME_CONFIG_ENV] = json.dumps(asdict(config))
     development = mode == "development"
     uvicorn.run(
@@ -283,6 +296,7 @@ def run_app(
     default_db_path: Path,
 ) -> None:
 
+    # A started Vite child is terminated in the `finally` below.
     if mode == "release":
         if no_frontend_dev:
             raise SystemExit(

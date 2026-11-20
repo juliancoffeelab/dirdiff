@@ -99,6 +99,8 @@ class FilePair:
 
 @dataclass(frozen=True)
 class LineRange:
+    # One-based and inclusive, local to one bay side; not a File line or a
+    # rendered row index.
     start_line: int
 
     end_line: int
@@ -112,6 +114,7 @@ class LineRange:
 class TextTarget:
     file: FilePair
 
+    # Opaque composition-issued key, meaningful only together with `file`.
     bay_key: str
 
     side: Literal["left", "right"]
@@ -197,6 +200,7 @@ class ChangeThreadState:
         assert (self.comment_id is None) == (self.body is None)
 
 
+# After a Comment-writing action in role R the Thread waits on the other role.
 type ReviewRole = Literal["author", "reviewer"]
 
 
@@ -272,6 +276,7 @@ class BatchDeleteThread:
     command: ChangeThreadState
 
 
+# Applied in order inside one transaction; later items observe earlier ones.
 type ReviewBatchAction = (
     BatchCreate
     | BatchComment
@@ -303,6 +308,8 @@ class ReviewProfileView(TypedDict):
 
     is_agent: bool
 
+    # `model` and `harness` are None for humans and for agents registered
+    # before they were recorded.
     model: Optional[str]
 
     harness: Optional[str]
@@ -317,6 +324,7 @@ class ReviewCommentView(TypedDict):
 
     revision: int
 
+    # None only for a deleted Comment, which stays in sequence as a tombstone.
     body: Optional[str]
 
     deleted: bool
@@ -345,6 +353,8 @@ class ReviewLineRangeView(TypedDict):
 class ReviewExcerptView(TypedDict):
     side: Literal["left", "right"]
 
+    # Source line number of `lines[0]`; `lines` holds the selection plus up to
+    # three context lines each side, fewer at the Snapshot boundary.
     start_line: int
 
     selected_start_line: int
@@ -365,6 +375,7 @@ class TextReviewOriginView(TypedDict):
 
     range: ReviewLineRangeView
 
+    # Absent (not empty) on summary reads, which do not read captured bytes.
     excerpt: NotRequired[ReviewExcerptView]
 
 
@@ -524,6 +535,7 @@ def validate_author(
 
 @contextmanager
 def room_write_lock(thread_lock: Lock, lock_path: Path) -> Iterator[None]:
+    # The in-process lock serializes threads; flock serializes processes.
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path.touch(exist_ok=True)
     with thread_lock, lock_path.open("a+b") as lock_file:

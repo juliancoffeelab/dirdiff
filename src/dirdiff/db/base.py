@@ -75,6 +75,7 @@ class AgentProfile(TableBase):
 
     agent_uuid: Mapped[str] = mapped_column(String(32), nullable=False)
 
+    # NULL for agents registered before model and harness were recorded.
     model: Mapped[str | None] = mapped_column(String, nullable=True)
 
     harness: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -104,6 +105,9 @@ def enable_sqlite_foreign_keys(
     connection_record: ConnectionPoolEntry,
 ) -> None:
     del connection_record
+    # SQLite parses but ignores foreign keys unless enabled per connection.
+    # WAL lets Snapshot writes proceed alongside browser and agent reads
+    # (in-memory databases ignore it).
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA journal_mode=WAL")
@@ -127,9 +131,8 @@ def bootstrap_tables(
         )
         config = Config(migration_config_path)
         config.attributes["db_path"] = db_path
-        # A database already at head skips the full Alembic environment run,
-        # which otherwise costs startup latency on every launch. A fresh or
-        # behind database still upgrades exactly as before.
+        # A database already at head skips the Alembic environment run, which
+        # costs startup latency on every launch.
         with engine.connect() as connection:
             current = MigrationContext.configure(
                 connection
@@ -155,6 +158,8 @@ def open_sqlite_engine(db_path: Path, migration_config_path: Path) -> Engine:
 
 def open_ephemeral_engine() -> Engine:
 
+    # StaticPool shares one connection across sessions and threads; each new
+    # connection would otherwise be a separate empty in-memory database.
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},

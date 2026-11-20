@@ -140,6 +140,7 @@ def git_diff_rows_from_patch(
         if hunk_match is not None:
             target_left_no = int(hunk_match.group("left_start"))
             target_right_no = int(hunk_match.group("right_start"))
+            # An omitted count means one.
             # Empty ranges name the preceding line, not the next source line.
             target_left_no += hunk_match.group("left_count") == "0"
             target_right_no += hunk_match.group("right_count") == "0"

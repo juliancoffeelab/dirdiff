@@ -50,6 +50,9 @@ type PreparableFileCard = HTMLElement & {
 };
 
 export type HunkPosition = {
+  // One-based stable DOM position of the selection. A skipped selection keeps
+  // its position, so this may exceed `total`; display only, never navigate by
+  // it.
   current: number | null;
 
   total: number;
@@ -73,7 +76,8 @@ type FileCardProps = {
 
   explicitlyCollapsed: boolean;
   admitted: boolean;
-  // TODO: Consider cooperative yields inside FileBody for expensive in-file rendering.
+  // TODO: Consider cooperative yields inside FileBody for expensive in-file
+  // rendering.
 
   view: DiffViewMode;
 
@@ -414,7 +418,8 @@ function FullFile(
     return modes.every((mode) => mode === "virtual") ? "virtual" : "rich";
   });
   // This must be an effect under the current component boundary. Mounted bays
-  // can change `fileRenderMode` after FullFile renders, but FileCard renders the
+  // can change `fileRenderMode` after FullFile renders, but FileCard renders
+  // the
   // target card, so FullFile has no JSX attribute it can bind to that changing
   // value. The effect performs the required reactive write for FileTree's
   // attribute observer. FullFile removes the attribute when it unmounts so the

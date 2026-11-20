@@ -11,6 +11,7 @@ from typing import Literal, NotRequired, TypedDict, TypeIs
 from dirdiff.engines.base import DirdiffError
 
 DFT_GRAPH_LIMIT = "10000000"
+# Whole-file context: row building needs every line in the alignment.
 DFT_CONTEXT_LINES = "100000000"
 
 __all__ = [
@@ -38,6 +39,7 @@ type DifftasticJsonFileStatus = Literal[
 
 
 class DifftasticJsonChange(TypedDict):
+    # UTF-8 byte columns in the source line, not character offsets.
     start: int
 
     end: int
@@ -60,6 +62,7 @@ def _is_change(value: object) -> TypeIs[DifftasticJsonChange]:
 
 
 class DifftasticJsonSide(TypedDict):
+    # Zero-based.
     line_number: int
 
     changes: list[DifftasticJsonChange]
@@ -171,6 +174,7 @@ def run_difftastic_json(
             # The explicit CLI option controls this preference, not the shell.
             "DFT_IGNORE_COMMENTS": "false",
         }
+        # The JSON output is only available in unstable mode.
         if tunings.unstable:
             env["DFT_UNSTABLE"] = "yes"
 

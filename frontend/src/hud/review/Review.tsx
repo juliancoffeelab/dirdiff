@@ -66,6 +66,7 @@ type ReviewMarkerRevision = readonly [
   boolean,
 ];
 
+// Renderer cleanup must close anchored UI before either element is discarded.
 export type ReviewCodeAnchor = {
   codeCell: HTMLElement;
   trigger: HTMLButtonElement;
@@ -73,6 +74,8 @@ export type ReviewCodeAnchor = {
 
 export type ActiveCommentInput = {
   draftId: ReviewId;
+  // Transient empty draft until meaningful text is persisted, then null; the
+  // persisted draft is read from the draft document by draftId.
   input: NewThreadDraft | null;
   mount: HTMLElement;
   sourceAnchor: ReviewCodeAnchor | null;
@@ -121,6 +124,7 @@ export type ReviewBinding = {
   snapshotId: ReviewId;
   threads: Accessor<readonly ReviewThread[]>;
   markerRevision: Accessor<ReviewMarkerRevision>;
+  // Valid only for the current markerRevision; null means every host repaints.
   changedMarkerKeys(): ReadonlySet<string> | null;
   markerState(
     binding: ReviewTextGridBinding,
@@ -136,6 +140,7 @@ export type ReviewBinding = {
     extend: boolean,
   ): void;
   setFileHeaderMounted(header: HTMLElement, mounted: boolean): void;
+  // Renderers call this synchronously before removing nodes in `container`.
   closeAnchoredUi(container: Node): void;
 };
 
@@ -160,6 +165,8 @@ type ReviewProviderProps = {
   viewOriginThread(point: ThreadCodePoint): Promise<void>;
 };
 
+// The marker index is keyed by the JSON encoding of this tuple, and
+// TextDiffGrid decodes it, so both sides share this one shape.
 export const LineMarkerKeySchema = z.tuple([
   z.string().nullable(),
   z.string().nullable(),
@@ -191,9 +198,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   const review = createInfiniteQuery(() =>
     api.review.snapshot(props.snapshotId),
   );
-  // This provider is the sole driver for the shared progressive query. Each
-  // successful page is already authoritative and visible to all observers
-  // before the next page begins; disposal cancels the observer-owned chain.
+  // Sole driver of the shared progressive query; disposal cancels the chain.
   createEffect(
     on(
       () =>
@@ -217,9 +222,8 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     createSignal<ActiveCommentInput | null>(null);
   const [activeThreadPanel, setActiveThreadPanel] =
     createSignal<ActiveThreadPanel | null>(null);
-  // The Snapshot provider retains only successful mutation responses that occur
-  // after its query boundary. Disposal drops them; query pages are never copied
-  // or changed, and the presentation memo ignores activity already in later pages.
+  // Successful mutation responses after the query boundary; query pages are
+  // never copied, and the memo ignores activity already in later pages.
   const [acceptedActivities, setAcceptedActivities] = createSignal<
     readonly AcceptedReviewActivity[]
   >([]);
@@ -319,11 +323,8 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         ),
     },
   );
-  // Each revision element is itself identity-stable (presented Thread data,
-  // the equality-guarded draft markers, a boolean), so element identity is
-  // content identity: when nothing changed, the memo returns the previous
-  // wrapper array and the default reference equality suppresses the
-  // notification a fresh array would have caused.
+  // Elements are identity-stable, so an unchanged revision returns the previous
+  // wrapper array and default equality suppresses the notification.
   let lastMarkerRevision: ReviewMarkerRevision | null = null;
   const markerRevision = createMemo<ReviewMarkerRevision>(() => {
     const next: ReviewMarkerRevision = [
@@ -613,20 +614,14 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
     fileHeaders.forEach((header) => stickyBandObserver?.observe(header));
   }
 
-  // This provider-lifetime effect tracks only `props.view`. Split layout needs
-  // live DOM observers because File header sizes and viewport position change
-  // outside Solid state; inline layout performs the explicit teardown instead.
-  // Each rerun disposes its animation frame, ResizeObserver, band observer, and
-  // window listeners before installing the split resources, and provider disposal
-  // performs the same cleanup. Header membership remains in the separately paired
-  // renderer callbacks so a view change does not invent another header authority.
+  // Tracks only `props.view`. Split layout needs DOM observers because header
+  // sizes and viewport position change outside Solid state. Each rerun and
+  // disposal tears down the frame, observers and window listeners first.
   createEffect(() => {
     if (props.view !== "split") {
       setSplitHistoryTop(null);
       return;
     }
-    // File headers are content-sized. These observers exist only for the Split
-    // view lifetime and maintain only that fixed History host.
     fileHeaderObserver = new ResizeObserver(() =>
       scheduleSplitHistoryGeometry(),
     );
@@ -703,8 +698,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       mount,
       sourceAnchor,
     });
-    // Solid applies the active input synchronously; focus the resulting Portal
-    // content as part of the same explicit open action.
+    // Solid applies the active input synchronously, so the Portal exists here.
     const textareas = mount.querySelectorAll<HTMLTextAreaElement>(
       ".review-comment-input-line textarea",
     );

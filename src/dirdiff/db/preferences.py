@@ -33,6 +33,8 @@ class UserPreferences(TableBase):
 
     git_word_boundary: Mapped[str] = mapped_column(String, nullable=False)
 
+    # Stored verbatim and unvalidated whatever the word boundary mode; NULL if
+    # none entered. Other option values are validated at the HTTP boundary.
     git_word_diff_regex: Mapped[str | None] = mapped_column(
         String, nullable=True
     )
@@ -111,6 +113,7 @@ class PreferencesStore:
             )
 
     def get_or_create(self, user_profile_id: int) -> PreferencesRecord:
+        # A user_profile_id with no Profile is rejected by the foreign key.
         # TODO: make get_or_create return None for a user that doesn't exist,
         # so that callers dont need to validate it to produce a useful error
         with Session(self.engine) as session, session.begin():

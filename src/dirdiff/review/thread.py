@@ -113,6 +113,7 @@ def fold_actions(
     list[ReviewCommentView],
 ]:
 
+    # Impossible persisted history asserts; it is never repaired or skipped.
     assert actions != () and actions[0].payload.kind == "thread-created"
     assert [action.sequence for action in actions] == list(
         range(len(actions))
@@ -224,6 +225,8 @@ def append_review_action(
     dict[int, ReviewProfileRecord],
 ]:
     with room_write_lock(thread_lock, lock_path):
+        # State is reloaded under the lock; the handle's cached actions may be
+        # stale.
         profile_id = author.profile_id
         profile = validate_author(database, author)
         persisted = database.review_actions(snapshot_id.hex, thread_id.hex)
@@ -330,6 +333,8 @@ def append_review_action(
 class _ThreadFiles:
     origin_file: SnapshotFileRecord
 
+    # None only for file-absent placements, whose absence the loading read
+    # has already proven.
     selected_file: Optional[SnapshotFileRecord]
 
     cache: ReviewReadCache
@@ -595,7 +600,8 @@ class Thread:
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
         )
-        # Placement and captured code are immutable. Only authored action history
+        # Placement and captured code are immutable. Only authored action
+        # history
         # and current Profile names change after an accepted write.
         self._action_records = actions
         self._profiles = profiles
@@ -768,6 +774,9 @@ def _bind_threads(
                 (record.repository_path, record.content_hash, link_identity)
             )
 
+        # Capture errors make the displayed File unusable, never equal.
+        # Symlink sides compare link metadata and target digests, not their
+        # Snapshot-specific physical paths.
         return (
             origin_file.error is None
             and displayed_file.error is None
@@ -1156,6 +1165,8 @@ def apply_review_batch(
             for thread_key, history in histories.items()
         }
 
+        # After a Comment, creation or reopen in `role` the Thread waits on the
+        # other role.
         def waits_after(
             role: ReviewRole,
         ) -> Literal["author", "reviewer"]:
@@ -1323,6 +1334,8 @@ def apply_review_batch(
                 (item.thread_id, comment_id, next_state, next_attention)
             )
 
+        # Every item validated above; one transaction writes them all, so a
+        # failure earlier leaves nothing written.
         activity_ids = database.apply_review_batch(
             tuple(placements), tuple(records)
         )

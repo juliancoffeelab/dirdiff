@@ -16,7 +16,6 @@ vi.mock("../src/hud/review/Review", async (importOriginal) => ({
   }),
 }));
 
-// Navigation and toast providers are unrelated to enclosure geometry.
 vi.mock("../src/hud/navigation", () => ({
   useNavigation: () => ({ navigate: vi.fn() }),
 }));

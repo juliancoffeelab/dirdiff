@@ -16,6 +16,8 @@ __all__ = [
 ]
 
 
+# Consulted after notebook and image claims, before presumed text. Values are
+# displayed facts only; nothing here authorizes decoding or content sniffing.
 _BLOB_MEDIA_TYPES = {
     ".7z": "application/x-7z-compressed",
     ".bz2": "application/x-bzip2",
@@ -55,6 +57,8 @@ def blob_bays(
     right_media_type: Option[str],
     warnings: tuple[BayWarning, ...],
 ) -> Iterator[TextBay]:
+    # Absent sides stay absent. Equal bytes with different declared media types
+    # still read as changed because the stated facts differ.
     yield byte_facts_bay(
         left,
         right,

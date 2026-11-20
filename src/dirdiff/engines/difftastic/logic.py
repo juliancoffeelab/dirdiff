@@ -83,6 +83,8 @@ def difftastic_engine_warning(
 
 
 def _source_lines(text: str) -> list[str]:
+    # Difftastic splits on `\n` only; the empty tail after a trailing newline
+    # is its phantom line, not a source line.
     lines = text.split("\n")
     if lines != [] and lines[-1] == "":
         lines.pop()
@@ -104,6 +106,7 @@ def _line_spans(
             f"Difftastic change addresses missing line {line_number}."
         )
     line = source_lines[line_number]
+    # Difftastic spans are UTF-8 byte columns; convert to character offsets.
     line_bytes = line.encode("utf-8")
     spans: list[_Span] = []
     for change in changes:
@@ -159,6 +162,8 @@ def _span_index(
     ) -> None:
         spans = _line_spans(side, source_lines=source_lines, status=status)
         line_number = side["line_number"]
+        # Whole-file context repeats every entry in each chunk, so an identical
+        # repeat is expected; a different one is a contract violation.
         previous = target.get(line_number)
         if previous is None:
             ordered = sorted(spans, key=lambda span: span.start)
@@ -230,6 +235,8 @@ def _row_status(
 ) -> DifftasticRowStatus:
     tokens = left_tokens + right_tokens
     if tokens == []:
+        # Difftastic cannot span a blank one-sided line; its presence is the
+        # change.
         if left_no is not None and right_no is None and left_text.strip() == "":
             return "delete"
         if (
@@ -534,6 +541,7 @@ def _unified_diff_rows(
 class DifftasticDiffEngine(DiffEngineProtocol):
     ignore_comments: bool
 
+    # Separate method so tests can cache the raw JSON.
     def _run_difftastic_json(
         self,
         *,

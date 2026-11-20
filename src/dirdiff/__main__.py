@@ -1,7 +1,6 @@
 from dirdiff.cli import main
 
-# Intentionally empty: `main` is imported here only so module execution can
-# delegate to the real public entrypoint, `dirdiff.cli:main`.
+# Empty on purpose: `main` is imported only to run it.
 __all__: list[str] = []
 
 if __name__ == "__main__":

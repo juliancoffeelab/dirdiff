@@ -32,7 +32,6 @@ function helperTopologyRule(diagnosticKind) {
             return;
           }
 
-          // Export syntax is the module's explicit public-interface boundary.
           const publicNames = new Set();
           for (const statement of program.body) {
             if (statement.type === "ExportNamedDeclaration") {
@@ -165,7 +164,6 @@ function helperTopologyRule(diagnosticKind) {
               continue;
             }
 
-            // Only a unique, direct module declaration has unambiguous topology.
             let functionNode = null;
             if (variable.defs.length === 1) {
               const definition = variable.defs[0];
@@ -224,7 +222,6 @@ function helperTopologyRule(diagnosticKind) {
                 return false;
               }
 
-              // Self-references and nested closures are internal to the binding.
               let node = reference.identifier.parent;
               while (node.type !== "Program") {
                 if (node === functionNode) {

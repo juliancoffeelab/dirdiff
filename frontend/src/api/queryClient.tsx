@@ -12,13 +12,8 @@ type ErrorMeta = Record<string, unknown> & {
   errorTitle: string | ((error: unknown) => string);
 };
 
-// TanStack derives QueryMeta and MutationMeta from this merged Register
-// interface. As a result, TypeScript checks metadata supplied to
-// queryOptions(...) and mutationOptions(...) against ErrorMeta.
-//
-// This changes only the shape of metadata when present. TanStack still declares
-// `meta` as optional, so QueryProvider asserts the application contract at the
-// runtime cache boundary. The declaration emits no runtime validation code.
+// Type-only: TanStack still declares `meta` optional, so QueryProvider asserts
+// its presence at runtime.
 declare module "@tanstack/query-core" {
   interface Register {
     queryMeta: ErrorMeta;

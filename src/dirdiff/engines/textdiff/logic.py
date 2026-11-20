@@ -24,7 +24,9 @@ INLINE_IDENTIFIER_PART_PATTERN = re.compile(
     flags=re.UNICODE,
 )
 ALIGNMENT_WORD_PATTERN = re.compile(r"\w+", flags=re.UNICODE)
+# Generic literals and numbers cannot alone justify pairing two changed lines.
 ALIGNMENT_NOISE_WORDS = frozenset({"none", "true", "false", "null"})
+# Pairs scoring below this stay independent deletions and insertions.
 MIN_SIMILAR_LINE_RATIO = 0.45
 
 
@@ -77,6 +79,8 @@ class TextDiffEngine(DiffEngineProtocol):
 
 
 def text_diff_summary(left_text: str, right_text: str) -> DiffSummary:
+    # Same counts as render_diff; skipping tokens matters (2.4s on a 2.7MB
+    # single-line notebook output whose response kept five integers).
     return _text_summary(
         _build_text_rows(left_text, right_text, with_inline_tokens=False)
     )

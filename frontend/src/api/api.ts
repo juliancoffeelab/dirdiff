@@ -463,6 +463,8 @@ const RowStatusSchema = z.enum([
 
 export type RowStatus = z.infer<typeof RowStatusSchema>;
 
+// Half-open range: lines are one-based, columns are zero-based Unicode
+// characters.
 const MoveSpanSchema = z
   .strictObject({
     start_line: z.number().int().positive(),
@@ -668,6 +670,7 @@ export const ReviewFilePairSchema = z
 
 export type ReviewFilePair = z.infer<typeof ReviewFilePairSchema>;
 
+// One-based inclusive line range.
 export const ReviewLineRangeSchema = z
   .strictObject({
     start_line: z.number().int().positive(),
@@ -1197,6 +1200,9 @@ const HttpExceptionResponseSchema = z.strictObject({
   detail: z.string(),
 });
 
+// Transport deadlines; SLOW_DIFF is for heavy engines' file renders,
+// PULL_REQUEST
+// covers forge network and Git work during preparation.
 const REQUEST_TIMEOUT_MS = 8_000;
 const SLOW_DIFF_TIMEOUT_MS = 20_000;
 const PULL_REQUEST_TIMEOUT_MS = 60_000;
@@ -1341,7 +1347,8 @@ async function requestResponse(request: HttpRequest): Promise<Response> {
       signal: multiAbortSignal.abortSignal,
     });
   } catch (error) {
-    // Error copy names only the endpoint and never exposes request query values.
+    // Error copy names only the endpoint and never exposes request query
+    // values.
     const queryStart = request.input.indexOf("?");
     const label =
       queryStart === -1 ? request.input : request.input.slice(0, queryStart);
@@ -1719,6 +1726,7 @@ function requestFileDiff(
   if (entry.right_path !== null) {
     search.set("right_path", entry.right_path);
   }
+  // The timeout policy affects execution only; it must not enter the query key.
   const timeoutMs =
     timeout === "unbounded"
       ? null
@@ -2208,7 +2216,8 @@ export const api = {
           const queryKey = api.profile.preferences(
             saved.user_profile_id,
           ).queryKey;
-          // A completed write to a departed Profile still belongs to that Profile.
+          // A completed write to a departed Profile still belongs to that
+          // Profile.
           // It must not overwrite the current user's local cache.
           if (
             queryClient.getQueryCache().find({ queryKey })?.isActive() === true

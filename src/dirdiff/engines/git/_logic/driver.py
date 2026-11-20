@@ -18,6 +18,9 @@ __all__ = [
     "run_git_no_index_diff",
 ]
 
+# Git ships built-in diff drivers but no path-to-driver mapping (that lives in
+# .gitattributes). Written as an attributes file so --no-index reaches them by
+# temp-file suffix. `.m` is MATLAB, not Objective-C.
 _GIT_DIFF_DRIVER_SUFFIXES: dict[str, tuple[str, ...]] = {
     "ada": (".adb", ".ads"),
     "bash": (".sh", ".bash"),
@@ -123,8 +126,6 @@ def run_git_no_index_diff(
         right_path = tmp / _temp_file_name("right", right_path_hint)
         left_path.write_text(left_text, encoding="utf-8")
         right_path.write_text(right_text, encoding="utf-8")
-        # The attributes file only selects word drivers, so it is written
-        # only when a word boundary asks for them.
         attributes_path = tmp / "attributes"
         if language:
             attributes_path.write_text(
@@ -205,6 +206,7 @@ def run_git_no_index_diff(
                 "Git engine requires the `git` executable on PATH."
             ) from exc
 
+    # --no-index exits 1 when the files differ.
     if result.returncode in {0, 1}:
         return result.stdout.decode("utf-8")
 

@@ -64,6 +64,8 @@ class RepoMainBranch(TableBase):
         primary_key=True,
     )
 
+    # "local" or "remote"; remote is set only for a remote source. Stored
+    # symbolically, never resolved to a commit.
     source: Mapped[str] = mapped_column(String, nullable=False)
 
     remote: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -111,6 +113,7 @@ class RepoMarkStore:
                     RepoMark.path == str(path)
                 )
             ).one_or_none()
+            # Reactivation keeps the original project id.
             if existing_mark is not None and existing_mark.active is False:
                 project_id = existing_mark.id
                 session.execute(
@@ -216,6 +219,7 @@ class RepoMarkStore:
             )
 
     def delete(self, project_id: int) -> bool:
+        # Soft delete: Rooms and review data keep referring to the row.
 
         with Session(self.engine) as session, session.begin():
             deactivated_id = session.execute(

@@ -8,15 +8,20 @@ import {
 } from "solid-js";
 
 type AutocompleteChoice = {
+  // Submitted on confirmation; may differ from the label. Not unique across
+  // groups.
   value: string;
+  // Filtering searches only this, case-insensitively.
   label: string;
   description: string | null;
+  // Groups appear in first-seen order; order within a group is the caller's.
   group: string;
 };
 
 type AutocompleteInputProps = {
   class: string;
   label: string;
+  // Realtime; fills the input only until the user has edited it.
   seed: string;
   placeholder: string;
   choices: readonly AutocompleteChoice[];
@@ -65,8 +70,7 @@ export function AutocompleteInput(props: AutocompleteInputProps): JSX.Element {
     return groups;
   });
 
-  // Blur dismissal may still be waiting when a caller removes the field. Clear
-  // that one component-local timer so disposed input state is never updated.
+  // A pending blur dismissal must not fire after the field is removed.
   onCleanup(() => {
     if (blurTimer !== null) {
       window.clearTimeout(blurTimer);

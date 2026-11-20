@@ -38,6 +38,7 @@ class ManifestPath:
         assert Some.present(self.left_path) or Some.present(self.right_path)
 
 
+# Case-folded basenames; matched against the final component of either path.
 GENERATED_FILES = frozenset(
     {
         "cargo.lock",
@@ -102,6 +103,7 @@ def _lazy_reason_for_repo_entry(entry: ManifestPath) -> LazyReason | None:
             and PurePosixPath(path.value).name.casefold() in GENERATED_FILES
         )
 
+    # Precedence: explicit source reason, untracked, deleted, generated.
     if entry.lazy_reason_override is not None:
         return entry.lazy_reason_override
     if entry.untracked:
@@ -149,6 +151,8 @@ def _insert_tree_entry(
     parts: list[str],
     file_entry: RepoManifestFileEntry,
 ) -> None:
+    # `directories` maps full path to node so each ancestor is one dict lookup;
+    # scanning siblings was quadratic in wide directories. One tree build only.
     if parts == []:
         raise ValueError("Cannot insert an empty manifest tree path.")
     entries = root_entries
@@ -174,6 +178,8 @@ def _insert_tree_entry(
 def _root_files_last(
     entries: list[RepoManifestTreeEntry],
 ) -> list[RepoManifestTreeEntry]:
+    # Directories before files, so root files come last in the sidebar and in
+    # the frontend's flat depth-first file order.
     directory_entries: list[RepoManifestDirectoryNode] = []
     file_entries: list[RepoManifestFileNode] = []
     for entry in entries:
@@ -194,6 +200,8 @@ def _compact_single_directory_chains(
             compacted_entries.append(entry)
             continue
 
+        # `path` keeps the deepest directory's full path; only the display
+        # name is joined.
         entry["entries"] = _compact_single_directory_chains(entry["entries"])
         compacted_entry = entry
         while len(compacted_entry["entries"]) == 1:

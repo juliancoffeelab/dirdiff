@@ -126,6 +126,8 @@ export type FileLaneArgs = {
   canonicalNames: readonly string[];
   queryClient: QueryClient;
   lineTarget: FileLaneLineTarget | null;
+  // Runs after an explicit or line-target query becomes Full, before its body
+  // is admitted. Must not enqueue or stop the lane.
   onExplicitLoad(fileIndex: number): void;
 };
 
@@ -137,10 +139,16 @@ export type FileLane = {
   processed: Accessor<number>;
   activity: Accessor<FileLaneActivity | null>;
   error: Accessor<Error | null>;
+  // Duplicate queued indexes coalesce and keep the first timeout policy.
   enqueue(fileIndex: number, timeout: FileDiffTimeout): void;
+  // Idempotent. Reload must await it before refetching the manifest.
   stop(): Promise<void>;
 };
 
+/**
+ * Must run during component setup: the lane lives in the calling reactive
+ * owner and its disposal stops the lane.
+ */
 export function createFileLane(args: FileLaneArgs): FileLane {
   const { engine, snapshotId, files, canonicalNames, queryClient } = args;
   const [processed, setProcessed] = createSignal(0);
@@ -153,9 +161,6 @@ export function createFileLane(args: FileLaneArgs): FileLane {
     (file) => file.entry.lazy === null,
   ).length;
 
-  // The file list is immutable for this lane, so this setup-time branch
-  // creates exactly one lazy-info observer when the entity exists and none
-  // when it does not. It is not a reactive zero-or-one observer collection.
   const lazyInfo = files.some((file) => file.entry.lazy !== null)
     ? createQuery(() => api.changeSet.lazyInfo(snapshotId))
     : null;
@@ -332,8 +337,7 @@ export function createFileLane(args: FileLaneArgs): FileLane {
     fileStateAccessors.map((fileState) => fileState()),
   );
 
-  // Synthetic backpressure set to break the rendering loop and let the main
-  // thread breathe.
+  // Synthetic backpressure: admission mounts the body, which is heavy.
   const [admittedFiles, setAdmittedFiles] = createStore<Record<number, true>>(
     {},
   );
@@ -359,8 +363,6 @@ export function createFileLane(args: FileLaneArgs): FileLane {
   let automaticCursor = 0;
   let activeIndex: number | null = null;
   let activeKey: QueryKey | null = null;
-  // Query keys of launched automatic prefetches, kept until the lane
-  // processes their index so stopping can cancel in-flight ones.
   const prefetchedKeys = new Map<number, QueryKey>();
   let running = false;
   let stopped = false;
@@ -511,11 +513,6 @@ export function createFileLane(args: FileLaneArgs): FileLane {
           `File lane selected invalid index ${fileIndex}.`,
         );
         if (kind === "sequence") {
-          // Launch a bounded number of upcoming automatic fetches so the
-          // network overlaps this file's fetch and admission. Their errors
-          // and results land on the same canonical queries the lane reads
-          // when it reaches those indexes. Heavy engines never
-          // prefetch: see AUTOMATIC_PREFETCH_WIDTH.
           const prefetchWidth = isHeavyEngine(engine)
             ? 0
             : AUTOMATIC_PREFETCH_WIDTH;
@@ -586,11 +583,6 @@ export function createFileLane(args: FileLaneArgs): FileLane {
         activeIndex = fileIndex;
         activeKey = options.queryKey;
         setLaneActivity(activity);
-        // Each active attempt gets one presentation-only timer. Its callback
-        // reads the immutable attempt index and marks activity slow only if that
-        // same attempt is still active. The `finally` block clears the timer on
-        // success, failure, or cancellation, so settled files cannot later
-        // rewrite lane activity.
         const slowTimer = window.setTimeout(() => {
           if (!stopped && activeIndex === fileIndex) {
             setLaneActivity({ ...activity, slow: true });
@@ -619,13 +611,9 @@ export function createFileLane(args: FileLaneArgs): FileLane {
             setFileView(fileIndex, { phase: "success" });
           }
           if (kind === "selected" || kind === "line-target") {
-            // The query result has replaced LazyFile with FullFile; the host
-            // applies its expansion policy now, before admission.
             args.onExplicitLoad(fileIndex);
           }
-          // Yield one continuation through Solid's cooperative scheduler so
-          // the main thread can process browser work before admission. The
-          // scheduled callback has no side effects and needs no cancellation.
+          // Yield so the browser can do work before admission.
           await new Promise<void>((resolve) => {
             requestCallback(resolve);
           });
@@ -635,7 +623,8 @@ export function createFileLane(args: FileLaneArgs): FileLane {
           setAdmittedFiles(fileIndex, true);
           if (currentLineTarget !== null && lineTarget === currentLineTarget) {
             // Admission synchronously mounts FullFile. Wait through the next
-            // paint so Navigation receives complete measurable TextDiffGrid rows.
+            // paint so Navigation receives complete measurable TextDiffGrid
+            // rows.
             await new Promise<void>((resolve) => {
               requestAnimationFrame(() => resolve());
             });
@@ -695,8 +684,6 @@ export function createFileLane(args: FileLaneArgs): FileLane {
   }
 
   function enqueue(fileIndex: number, timeout: FileDiffTimeout): void {
-    // A stopped lane is being disposed or replaced; accepting the operation
-    // would silently drop it, so the broken expectation stays visible.
     assert(!stopped, "Cannot load a file after its lane stopped.");
     expect(files[fileIndex], `Cannot load unknown file index ${fileIndex}.`);
     if (fileView(fileIndex).phase === "success" || activeIndex === fileIndex) {
@@ -709,14 +696,8 @@ export function createFileLane(args: FileLaneArgs): FileLane {
     void runLane().catch(reportLaneFailure);
   }
 
-  // The host resolved any line target synchronously before creating the lane,
-  // so the target already constrains the lane before its first query begins.
   void runLane().catch(reportLaneFailure);
 
-  // The reactive owner and lane have identical lifetimes. Cleanup calls the
-  // idempotent stop operation so active and prefetched queries are cancelled,
-  // the restoration AbortSignal aborts, and every later view write is suppressed.
-  // Any unexpected cancellation failure still reaches the lane error signal.
   onCleanup(() => {
     void stopLane().catch(reportLaneFailure);
   });

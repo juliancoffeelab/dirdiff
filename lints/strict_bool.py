@@ -104,6 +104,8 @@ class StrictBoolPlugin:
 
         path = str(Path(self.filename).resolve())
         if not plugin_type._has_checked:
+            # Flake8 makes one instance per file; the first one runs a single
+            # mypy+dmypy pass over all inputs and later instances reuse it.
 
             def _group_diagnostics(
                 diagnostics: Sequence[Diagnostic],
@@ -401,7 +403,7 @@ class StrictBoolVisitor(ast.NodeVisitor):
             Diagnostic(
                 path=self.path,
                 line=expression.lineno,
-                column=expression.col_offset,
+                column=expression.col_offset,  # zero-based, unlike dmypy's
                 code=code,
                 message=message,
             )
@@ -435,6 +437,8 @@ def _collect_diagnostics(
             stderr=StringIO(),
         )
     except CompileError:
+        # Type errors are mypy's job; this lint reports nothing without a clean
+        # build.
         return []
 
     with tempfile.TemporaryDirectory(prefix="dirdiff-sbt-") as temporary_dir:

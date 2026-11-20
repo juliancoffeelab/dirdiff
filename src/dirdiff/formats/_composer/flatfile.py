@@ -23,6 +23,8 @@ def flatfile_bays(
     right: Option[bytes],
     context: BayContext,
 ) -> Iterator[TextBay]:
+    # Nothing means not captured on that side (added/removed File); a captured
+    # empty File decodes to "" and is present.
     left_text = left.map(try_decode_text)
     right_text = right.map(try_decode_text)
     rejections = [
@@ -30,6 +32,8 @@ def flatfile_bays(
         for value in (left_text, right_text)
         if Some.present(value) and not Ok.good(value.value)
     ]
+    # One rejected side turns the whole File into byte facts, never partial
+    # text.
     if len(rejections) > 0:
         yield byte_facts_bay(
             left,

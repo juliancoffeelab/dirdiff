@@ -289,7 +289,6 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
             repositories={repositories()}
             selectedRepoId={props.selectedRepoId}
             onOpen={() => {
-              // Opening warms the canonical list under TanStack freshness rules.
               void queryClient.prefetchQuery(api.repos.list());
             }}
             onSelect={props.onRepoSelected}
@@ -402,7 +401,6 @@ export function AppHeader(props: AppHeaderProps): JSX.Element {
         />
         <div
           ref={(element) => {
-            // Share this physical Portal target without moving metadata queries or state.
             setMetadataTarget(element);
             props.onMetadataStatusTarget(element);
           }}

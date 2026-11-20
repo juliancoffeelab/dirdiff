@@ -11,6 +11,7 @@ const LinePinTargetSchema = z.strictObject({
   file: ReviewFilePairSchema,
   bay: ReviewTextBaySchema,
   side: z.enum(["left", "right"]),
+  // 1-based line number as canonical decimal text.
   line: z.string().regex(/^[1-9]\d*$/u),
 });
 
@@ -116,6 +117,7 @@ export function linePins(): LinePins {
   }
 
   function toggleUrlState(target: LinePinTarget): LinePinToggleResult {
+    // Abort first: the history write below may throw.
     activeRestoration?.abort();
     activeRestoration = null;
     const current = parseUrl();
@@ -138,6 +140,7 @@ export function linePins(): LinePins {
       );
     }
     const encodedHash = retainedHashFields.join("&");
+    // replaceState neither navigates nor fires a history event.
     history.replaceState(
       history.state,
       "",

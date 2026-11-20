@@ -71,6 +71,8 @@ class _Segment:
 
 @dataclass(frozen=True)
 class _Locator:
+    # Byte offsets index the UTF-8 encoded bay-side text; the hash covers
+    # exactly that slice.
     region_hash: bytes
 
     region_start_byte: int
@@ -90,6 +92,8 @@ class _SourceRegion:
 
     start_line: int
 
+    # Inclusive; a node ending at column zero does not include the following
+    # line.
     end_line: int
 
     segments: tuple[_Segment, ...]
@@ -105,6 +109,8 @@ class _ComposedBay:
 
     right_text: Optional[str]
 
+    # None means "use the captured repository path", not that the side is
+    # absent.
     left_hint: Optional[str]
 
     right_hint: Optional[str]
@@ -288,6 +294,8 @@ def _composed_bays(
         return Some(content)
 
     def pseudo_line(side: MediaSide) -> str:
+        # Content-derived, so replacing the image changes the line and the
+        # Thread's region hash stops matching (outdated).
         ref = media_ref(side)
         return (
             f"{ref['media_type']}, {ref['byte_size']} bytes, "
@@ -711,7 +719,8 @@ def derive_room_threads(
     # target Snapshot arrives fully loaded from the capture that triggered
     # this derivation.
     # A review-scoped Thread is about the review, not captured code, so it is
-    # copied into the target Snapshot as-is and takes no part in File derivation.
+    # copied into the target Snapshot as-is and takes no part in File
+    # derivation.
     review_scope: list[ReviewThreadRecord] = []
     origin_refs_list: list[tuple[str, str]] = []
     for record in origins.values():

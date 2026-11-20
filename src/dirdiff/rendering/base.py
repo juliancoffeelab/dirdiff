@@ -113,6 +113,8 @@ def _is_syntax_class(value: str) -> TypeIs[SyntaxClass]:
 
 
 class SyntaxSpan(TypedDict):
+    # Half-open character offsets within one line (not bytes); spans are ordered
+    # and non-overlapping.
     start: int
 
     end: int
@@ -299,6 +301,9 @@ class DiffRow(TypedDict):
 
     right_no: int | None
 
+    # An empty string with a None line number is a synthetic row, and an empty
+    # source line has a number: test left_no/right_no for side presence, not
+    # text.
     left_text: str | None
 
     right_text: str | None
@@ -307,6 +312,7 @@ class DiffRow(TypedDict):
 
     right_parts: list[DecoratedPart]
 
+    # Zero-based, bay-local, set only on the first row of a changed hunk.
     hunk_index: int | None
 
 
@@ -509,6 +515,8 @@ def _load_syntax_query_text(package_name: str, query_path: str) -> str:
         )
         for inherited_name in _inherited_query_names(query_text)
     ]
+    # Inherited queries come first so the current query's captures take
+    # precedence.
     return "\n".join([*inherited_query_texts, query_text])
 
 

@@ -10,8 +10,11 @@ from sqlalchemy.exc import IntegrityError
 
 from dirdiff.db import RepoMarkStore, open_sqlite_engine
 
+# development: editable install with the repo Vite HUD; release: every
+# standard install with the bundled HUD. Never a runtime fallback or preference.
 InstallationMode = Literal["development", "release"]
 
+# The two modes must keep separate implicit state roots.
 DEVELOPMENT_DB_PATH = (
     Path.home() / ".local" / "share" / "dirdiff" / "dirdiff.sqlite"
 )
@@ -79,11 +82,15 @@ def absolute_repo_path(repo_path: Path) -> Path:
     expanded_path = repo_path.expanduser()
     if expanded_path.is_absolute():
         return expanded_path
+    # PWD keeps the shell's spelling (symlinks, `..`) that Path.cwd() would
+    # resolve away; the registry records that spelling. KeyError if unset.
     return Path(os.environ["PWD"]) / expanded_path
 
 
 def duplicate_repo_path_error(repo_path: Path, exc: IntegrityError) -> NoReturn:
 
+    # SQLAlchemy raises one IntegrityError type for every constraint; only the
+    # path uniqueness failure is an expected user error.
     if "repo_mark.path" in str(exc):
         raise SystemExit(f"Repo is already marked: {repo_path}") from exc
     raise exc

@@ -178,7 +178,6 @@ def test_git_preset_diff_replays_both_directions(
     algorithm: GitAlgorithm,
 ) -> None:
 
-    # Stage 1: render the preset into Git's complete ordered row stream.
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     old_text = old_path.read_text()
@@ -193,7 +192,6 @@ def test_git_preset_diff_replays_both_directions(
         new=DiffSide(exists=True, text=new_text, path_hint=new_path.name),
     )["rows"]
 
-    # Stage 2: translate row statuses into left-to-right operations.
     operations: list[tuple[str, str, str]] = []
     for row in rows:
         if row["status"] == "equal":
@@ -216,7 +214,6 @@ def test_git_preset_diff_replays_both_directions(
         else:
             raise AssertionError(row)
 
-    # Stage 3: apply the operation stream from old to new.
     old_lines = old_text.splitlines()
     forward_cursor = 0
     replayed_new: list[str] = []
@@ -231,11 +228,9 @@ def test_git_preset_diff_replays_both_directions(
         else:
             assert operation == "remove"
 
-    # Stage 4: compare the forward replay with the exact new source.
     assert forward_cursor == len(old_lines)
     assert "\n".join(replayed_new) + "\n" == new_text
 
-    # Stage 5: apply the same operation stream from new to old.
     new_lines = new_text.splitlines()
     reverse_cursor = 0
     replayed_old: list[str] = []
@@ -250,7 +245,6 @@ def test_git_preset_diff_replays_both_directions(
         else:
             assert operation == "insert"
 
-    # Stage 6: compare the reverse replay with the exact old source.
     assert reverse_cursor == len(new_lines)
     assert "\n".join(replayed_old) + "\n" == old_text
 
@@ -264,7 +258,6 @@ def test_git_preset_word_diff_replays_both_directions(
     algorithm: GitAlgorithm,
 ) -> None:
 
-    # Stage 1: render the preset into porcelain-backed word rows.
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     old_text = old_path.read_text()
@@ -293,7 +286,6 @@ def test_git_preset_word_diff_replays_both_directions(
             == row["right_text"]
         )
 
-    # Stage 2: flatten each side's unchanged source gaps and patch fragments.
     actual_left_words: list[str] = []
     actual_right_words: list[str] = []
     for row in rows:
@@ -314,7 +306,6 @@ def test_git_preset_word_diff_replays_both_directions(
         elif row["right_no"] is not None:
             actual_right_words.extend(row["right_text"].split())
 
-    # Stage 3: compare the exact word sequences retained by Git's regex.
     assert actual_left_words == old_text.split()
     assert actual_right_words == new_text.split()
 
@@ -397,7 +388,6 @@ def test_git_preset_word_diff_row_status_preserves_complete_token_facts(
     algorithm: GitAlgorithm,
 ) -> None:
 
-    # Stage 1: render the preset into porcelain-backed word rows.
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     result = GitDiffEngine(algorithm=algorithm, word_diff=True).render_diff(
@@ -414,7 +404,6 @@ def test_git_preset_word_diff_row_status_preserves_complete_token_facts(
     )
     rows = result["rows"]
 
-    # Stage 2: derive every expected row status from every token.
     expected: list[str] = []
     for row in rows:
         statuses = [
@@ -429,10 +418,8 @@ def test_git_preset_word_diff_row_status_preserves_complete_token_facts(
             expected_status = "equal"
         expected.append(expected_status)
 
-    # Stage 3: collect the statuses reported by the adapter.
     actual = [row["status"] for row in rows]
 
-    # Stage 4: compare the complete status stream with the token-derived facts.
     assert actual == expected, preset
     added = expected.count("insert")
     removed = expected.count("delete")
@@ -464,7 +451,6 @@ def test_git_preset_line_alignment_matches_git_patch(
     tmp_path: Path,
 ) -> None:
 
-    # Stage 1: load the preset and materialize it for the independent Git call.
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     old_text = old_path.read_text()
@@ -474,7 +460,6 @@ def test_git_preset_line_alignment_matches_git_patch(
     oracle_old.write_text(old_text)
     oracle_new.write_text(new_text)
 
-    # Stage 2: ask Git's line format for authoritative changed coordinates.
     completed = subprocess.run(
         [
             git_executable(),
@@ -498,7 +483,6 @@ def test_git_preset_line_alignment_matches_git_patch(
     assert completed.returncode in {0, 1}, completed.stderr.decode()
     patch = completed.stdout.decode()
 
-    # Stage 3: expand sparse Git hunks into the complete expected alignment.
     old_line_count = len(old_text.splitlines())
     new_line_count = len(new_text.splitlines())
     expected: list[tuple[int | None, int | None]] = []
@@ -538,13 +522,11 @@ def test_git_preset_line_alignment_matches_git_patch(
     assert old_no == old_line_count + 1
     assert new_no == new_line_count + 1
 
-    # Stage 4: render the same sources through the ordinary adapter.
     rows = GitDiffEngine(algorithm=algorithm).render_diff(
         old=DiffSide(exists=True, text=old_text, path_hint=old_path.name),
         new=DiffSide(exists=True, text=new_text, path_hint=new_path.name),
     )["rows"]
 
-    # Stage 5: compare every adapter coordinate pair with Git's alignment.
     assert [(row["left_no"], row["right_no"]) for row in rows] == expected
 
 
@@ -569,7 +551,6 @@ def test_git_preset_changed_rows_match_git_patch(
     tmp_path: Path,
 ) -> None:
 
-    # Stage 1: load the preset and materialize it for the independent Git call.
     old_path = next(preset.glob("old.*"))
     new_path = next(preset.glob("new.*"))
     old_text = old_path.read_text()
@@ -579,7 +560,6 @@ def test_git_preset_changed_rows_match_git_patch(
     oracle_old.write_text(old_text)
     oracle_new.write_text(new_text)
 
-    # Stage 2: ask Git for changed rows using the reserved color alphabet.
     completed = subprocess.run(
         [
             git_executable(),
@@ -628,7 +608,6 @@ def test_git_preset_changed_rows_match_git_patch(
     assert completed.returncode in {0, 1}, completed.stderr.decode()
     patch = completed.stdout.decode()
 
-    # Stage 3: decode Git's colored rows into complete expected change facts.
     old_lines = old_text.splitlines()
     new_lines = new_text.splitlines()
     expected: list[
@@ -713,7 +692,6 @@ def test_git_preset_changed_rows_match_git_patch(
             )
             new_no += 1
 
-    # Stage 4: render the same sources and move options through the adapter.
     rows = GitDiffEngine(
         color_moved=color_moved,
         color_moved_ws=color_moved_ws,
@@ -722,7 +700,6 @@ def test_git_preset_changed_rows_match_git_patch(
         new=DiffSide(exists=True, text=new_text, path_hint=new_path.name),
     )["rows"]
 
-    # Stage 5: collect the adapter's changed-row facts in the same shape.
     actual = [
         (
             row["status"],
@@ -736,7 +713,6 @@ def test_git_preset_changed_rows_match_git_patch(
         if row["status"] != "equal"
     ]
 
-    # Stage 6: compare every changed row with the independent Git facts.
     assert actual == expected
 
 
@@ -801,7 +777,6 @@ def test_git_preset_ignore_space_change_matches_whitespace_mutation(
     else:
         old_text, new_text = source_text, mutated_text
 
-    # Stage 1: ask Git for the combined mutation's authoritative line patch.
     with tempfile.TemporaryDirectory(prefix="dirdiff-git-proptest-") as raw_tmp:
         tmp = Path(raw_tmp)
         oracle_old = tmp / f"old{source_path.suffix}"
@@ -832,7 +807,6 @@ def test_git_preset_ignore_space_change_matches_whitespace_mutation(
         assert completed.returncode == 1, completed.stderr.decode()
         patch = completed.stdout.decode()
 
-    # Stage 2: expand Git's sparse patch into complete expected row facts.
     old_lines = old_text.splitlines()
     new_lines = new_text.splitlines()
     expected: list[tuple[str, int | None, int | None, str, str]] = []
@@ -892,7 +866,6 @@ def test_git_preset_ignore_space_change_matches_whitespace_mutation(
     assert old_no == len(old_lines) + 1
     assert new_no == len(new_lines) + 1
 
-    # Stage 3: confirm the generated semantic edit is the oracle's sole change.
     changed = [row for row in expected if row[0] != "equal"]
     assert changed == [
         (
@@ -904,7 +877,6 @@ def test_git_preset_ignore_space_change_matches_whitespace_mutation(
         )
     ]
 
-    # Stage 4: render the generated sources through the ordinary adapter.
     rows = GitDiffEngine(
         algorithm=algorithm,
         ignore_space_change=True,
@@ -913,7 +885,6 @@ def test_git_preset_ignore_space_change_matches_whitespace_mutation(
         new=DiffSide(exists=True, text=new_text, path_hint=source_path.name),
     )["rows"]
 
-    # Stage 5: collect adapter rows in the oracle's exact fact shape.
     actual = [
         (
             row["status"],
@@ -925,7 +896,6 @@ def test_git_preset_ignore_space_change_matches_whitespace_mutation(
         for row in rows
     ]
 
-    # Stage 6: compare every adapter row with the independent Git facts.
     assert actual == expected
 
 
@@ -1000,7 +970,6 @@ def test_git_preset_word_diff_ignore_space_change_replays_whitespace_mutation(
     else:
         old_text, new_text = source_text, mutated_text
 
-    # Stage 1: render the generated pair in the combined Git mode.
     rows = GitDiffEngine(
         algorithm=algorithm,
         ignore_space_change=True,
@@ -1010,7 +979,6 @@ def test_git_preset_word_diff_ignore_space_change_replays_whitespace_mutation(
         new=DiffSide(exists=True, text=new_text, path_hint=source_path.name),
     )["rows"]
 
-    # Stage 2: flatten each side's unchanged source gaps and patch fragments.
     actual_left_words: list[str] = []
     actual_right_words: list[str] = []
     for row in rows:
@@ -1031,7 +999,6 @@ def test_git_preset_word_diff_ignore_space_change_replays_whitespace_mutation(
         elif row["right_no"] is not None:
             actual_right_words.extend(row["right_text"].split())
 
-    # Stage 3: compare the exact word sequences retained by Git's regex.
     assert actual_left_words == old_text.split()
     assert actual_right_words == new_text.split()
 
@@ -1107,7 +1074,6 @@ def test_git_preset_word_diff_ignore_space_change_reproduces_color_word_stream(
     else:
         old_text, new_text = source_text, mutated_text
 
-    # Stage 1: ask Git's color word format for an independent word-edit stream.
     with tempfile.TemporaryDirectory(prefix="dirdiff-git-proptest-") as raw_tmp:
         tmp = Path(raw_tmp)
         oracle_old = tmp / f"old{source_path.suffix}"
@@ -1153,7 +1119,6 @@ def test_git_preset_word_diff_ignore_space_change_reproduces_color_word_stream(
         )
         assert completed.returncode == 1, completed.stderr.decode()
 
-    # Stage 2: decode the controlled colors into meaningful Git word facts.
     expected_events: list[tuple[str, InlineTokenStatus]] = []
     in_hunk = False
     for raw_line in completed.stdout.decode().splitlines():
@@ -1179,8 +1144,6 @@ def test_git_preset_word_diff_ignore_space_change_reproduces_color_word_stream(
                 (word, status) for word in re.findall(r"\S+", part)
             )
 
-    # Stage 3: render through the combined-mode adapter, then replay its aligned
-    # line queues into the same inline word stream.
     rows = GitDiffEngine(
         algorithm=algorithm,
         ignore_space_change=True,
@@ -1243,7 +1206,6 @@ def test_git_preset_word_diff_ignore_space_change_reproduces_color_word_stream(
     assert left_pending == []
     assert right_pending == []
 
-    # Stage 4: normalize inline ordering within each changed run, then compare.
     expected: list[tuple[tuple[str, ...], tuple[str, ...], str | None]] = []
     deleted: list[str] = []
     inserted: list[str] = []

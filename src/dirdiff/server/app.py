@@ -283,6 +283,8 @@ def create_app(
     agent_skills_root: Path,
     room_lord: RoomLord,
     presets_root: str,
+    # Must be the same root room_lord was built with; source setup uses it to
+    # reject persistence inside reviewed inputs.
     store_path: Path,
 ) -> FastAPI:
     if user_profile_store is None:

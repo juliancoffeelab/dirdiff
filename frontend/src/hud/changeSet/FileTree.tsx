@@ -177,6 +177,7 @@ export function FileTree(props: FileTreeProps): JSX.Element {
             type="button"
             class="file-tree-directory-target"
             aria-label={`Go to first file in ${rowProps.directory.path}`}
+            // Adjacent Husks have no stable layout to navigate into.
             disabled={stateForFile(firstFile).state === "husk"}
             onClick={() => navigateToFile(firstFile)}
           >
@@ -224,7 +225,8 @@ export function FileTree(props: FileTreeProps): JSX.Element {
       () => props.selectedFileIndex() === fileIndex,
     );
     const fileKind = rowProps.file.entry.file_kind;
-    // This IIFE exists so TypeScript infers the exhaustive switch's result union.
+    // This IIFE exists so TypeScript infers the exhaustive switch's result
+    // union.
     const fileStatus = (() => {
       switch (fileKind.type) {
         case "tracked":
@@ -243,6 +245,8 @@ export function FileTree(props: FileTreeProps): JSX.Element {
       const current = state();
       return current.state === "lazy" && current.file.kind === "error";
     };
+    // Manifest-lazy files render as Husk while their explicit fetch runs but
+    // keep Lazy styling.
     const styledAsLazy = () => {
       const current = state();
       return (
@@ -376,12 +380,9 @@ export function FileTree(props: FileTreeProps): JSX.Element {
       return true;
     });
 
-    // Render mode is exposed by stable FileCard DOM rather than Solid state, so
-    // the open FileTree needs one MutationObserver to mirror only
-    // `data-file-render` for its V markers. It scans once after mount, then
-    // replaces the disposable map after matching attribute changes. The
-    // observer lives only while FileTreeContent is mounted and cleanup always
-    // disconnects it; a malformed DOM value also disconnects before Toasting.
+    // Render mode lives in FileCard DOM, not Solid state, so mirror
+    // `data-file-render` for the V markers with an observer. A malformed value
+    // disconnects it before Toasting.
     onMount(() => {
       const root = props.changeSetRoot();
       assert(root.isConnected, "FileTree requires a mounted ChangeSet root.");
@@ -442,11 +443,8 @@ export function FileTree(props: FileTreeProps): JSX.Element {
       onCleanup(() => observer.disconnect());
     });
 
-    // This effect exists only for mounted, open FileTreeContent. Its memos keep
-    // same-file hunk and unrelated directory-state changes from rerunning it;
-    // selected-ancestor reachability changing to true reveals the remounted row.
-    // It changes only `.file-tree-groups.scrollTop` and dies when the open
-    // content unmounts.
+    // The memos keep same-file hunk and unrelated directory-state changes from
+    // rerunning this, which would overwrite the user's manual scroll.
     createEffect(() => {
       if (!props.open) {
         return;
@@ -534,6 +532,7 @@ export function fileExpanded(
     return selected;
   }
   if (state.state === "lazy") {
+    // Its body holds the only explicit-load affordance.
     return true;
   }
   if (state.state === "full") {

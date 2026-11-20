@@ -86,6 +86,11 @@ def build_gumtree_rows_from_json(
     def source_offsets(
         text: str, path_hint: str
     ) -> dict[int, list[int]] | None:
+        # Maps GumTree's external offsets to Python character offsets, or
+        # None when they already coincide. Tree-sitter generators sum prior
+        # UTF-16 line lengths plus one LF, then add a UTF-8 byte column, so
+        # offsets can collide across lines; every candidate is kept.
+        # YAML addresses characters, other generators Java UTF-16 units.
         suffix = Path(path_hint).suffix
         if suffix in {".yaml", ".yml"}:
             return None
@@ -315,6 +320,9 @@ def build_gumtree_rows_from_json(
 def _tokens_for_lines(
     lines: list[_Line], ranges: list[_Decoration]
 ) -> list[list[InlineToken]]:
+    # Narrower actions win token status, edits beat equally wide moves, then
+    # input order breaks ties. Heaps expire lazily; a move stays reported even
+    # when an edited descendant wins the status.
     ranges = sorted(ranges, key=lambda item: item.start)
     boundaries = sorted(
         {point for item in ranges for point in (item.start, item.end)}
@@ -620,4 +628,5 @@ def _summary(rows: list[DiffEngineRow]) -> DiffSummary:
     return summary
 
 
+# Caught by the engine, which falls back to unified-diff rows with a warning.
 class GumTreeAmbiguousOffsetsError(DirdiffError): ...

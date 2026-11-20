@@ -155,8 +155,8 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
   }
 
   function onWindowError(event: ErrorEvent): void {
-    // Runtime errors provide the thrown value and its stack, while resource and
-    // cross-origin failures may provide only the browser's message.
+    // Resource and cross-origin failures may provide only the browser's
+    // message.
     const error = event.error == null ? event.message : event.error;
     showError("Unexpected error", error);
   }
@@ -182,7 +182,6 @@ export function ToastProvider(props: { children: JSX.Element }): JSX.Element {
       <ToastViewport
         toasts={toasts}
         onDismiss={(id) => {
-          // Dismissal removes the exact ID and is safe to repeat.
           setToasts((current) => current.filter((toast) => toast.id !== id));
         }}
       />

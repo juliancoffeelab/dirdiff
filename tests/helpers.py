@@ -158,6 +158,8 @@ def tool_json(
                 assert_never(unreachable)
 
     assert valid_cache_key(cache_key), cache_key
+    # Entries are keyed by source hashes only; delete .test_cache/tool by hand
+    # to invalidate them after upgrading an external tool.
     inputs: list[ToolText] = []
     hashes: list[str] = []
     for side in (left, right):
@@ -247,7 +249,6 @@ def tool_json(
             stream.close()
             os.replace(temporary, path)
         finally:
-            # Replacement consumes the temporary path; failed writes leave it.
             temporary.unlink(missing_ok=True)
     return output
 

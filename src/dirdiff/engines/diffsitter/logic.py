@@ -32,6 +32,8 @@ type DiffsitterTokenStatus = Literal["unchanged", "insert", "delete"]
 
 
 def _source_lines(text: str) -> list[str]:
+    # Tree-sitter splits on `\n` only, and the empty tail after a trailing
+    # newline is not a line.
     lines = text.split("\n")
     if lines != [] and lines[-1] == "":
         lines.pop()
@@ -99,6 +101,8 @@ def _row_status(
 ) -> DiffsitterRowStatus:
     tokens = left_tokens + right_tokens
     if tokens == []:
+        # Diffsitter strips whitespace so cannot report a blank one-sided
+        # line; its presence is the change.
         if left_no is not None and right_no is None and left_text.strip() == "":
             return "delete"
         if (
@@ -259,6 +263,7 @@ def build_diffsitter_rows_from_json(
 
 @final
 class DiffsitterDiffEngine(DiffEngineProtocol):
+    # Separate method so tests can cache the raw JSON.
     def _run_diffsitter_json(
         self,
         *,
@@ -325,7 +330,6 @@ class DiffsitterDiffEngine(DiffEngineProtocol):
                         ),
                     }
         if rows is None:
-            # Textual rows: the unified alignment alone decides status.
             rows = []
             for left_index, right_index in _aligned_line_pairs(
                 left_lines, right_lines

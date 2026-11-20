@@ -29,6 +29,8 @@ __all__ = [
 ]
 
 
+# Only formats browsers display natively. SVG is excluded on purpose: it is
+# author-controlled markup (a script-execution risk) and reads fine as text.
 _IMAGE_MEDIA_TYPES = {
     ".apng": "image/apng",
     ".avif": "image/avif",
@@ -151,7 +153,6 @@ def image_bays(
         right=right_side,
     )
 
-    # Then show metadata, like things from EXIF
     left_metadata, left_warnings = metadata(left_side, context.left_label)
     right_metadata, right_warnings = metadata(right_side, context.right_label)
     yield TextBay(
@@ -178,7 +179,6 @@ def image_bays(
         warnings=(*left_warnings, *right_warnings),
     )
 
-    # And finally, generic file data, like file size
     left_facts = left_side.map(media_facts)
     right_facts = right_side.map(media_facts)
     yield TextBay(

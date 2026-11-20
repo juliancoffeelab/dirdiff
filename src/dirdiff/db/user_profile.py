@@ -69,7 +69,11 @@ class UserProfileStore:
         model: str,
         harness: str,
     ) -> UserProfileRecord:
+        """Idempotent on `agent_uuid`: a repeat call renames the Profile and
+        refreshes model and harness.
+        """
         _validate_username(username)
+        # Lowercase hex UUID without separators.
         if len(agent_uuid) != 32 or bool(
             set(agent_uuid) - set("0123456789abcdef")
         ):

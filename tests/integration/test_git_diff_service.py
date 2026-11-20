@@ -322,8 +322,6 @@ def test_untracked_lazy_file_can_be_loaded_from_worktree(
     loaded = source.load((change,))[0].right
     assert Some.present(loaded)
     assert Ok.good(loaded.value.content)
-    # An untracked File exists only in the worktree, so the left side is
-    # absent and composition receives no bytes for it at all.
     composed = Composer().compose(
         Nothing(),
         Some(loaded.value.content.value),
@@ -525,8 +523,6 @@ def test_git_diff_service_uses_git_delete_insert_rows(
     head_content = head_side.value.content.value
     worktree_content = worktree_side.value.content.value
 
-    # The same two byte sides, composed three times: the legacy textdiff
-    # prototype, the Git no-index engine, and Git no-index with the sides swapped.
     rich_composed = Composer().compose(
         Some(head_content),
         Some(worktree_content),
@@ -561,8 +557,6 @@ def test_git_diff_service_uses_git_delete_insert_rows(
         ),
     )
 
-    # A flat text File composes into one text bay, and that bay holds the
-    # rendered rows each engine produced.
     (rich_frame,) = rich_composed["frames"]
     (rich_bay,) = rich_frame["bays"]
     rich_kind = rich_bay["kind_data"]

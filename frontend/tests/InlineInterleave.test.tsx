@@ -3,7 +3,6 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { DiffRow } from "../src/api/api";
 import { TextDiffGrid } from "../src/hud/fileCard/grids/text/TextDiffGrid";
 
-// Review markers, navigation, and toasts are unrelated to line interleaving.
 vi.mock("../src/hud/review/Review", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/hud/review/Review")>()),
   useReview: () => ({

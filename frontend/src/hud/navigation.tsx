@@ -16,6 +16,7 @@ export type RealHunkIdentity = {
   fileIndex: number;
   kind: "real";
   bay: string;
+  // Bay-local, as composed; never a file-wide sequence.
   hunkIndex: number;
 };
 
@@ -113,6 +114,8 @@ export function useNavigation(): Navigation {
   return expect(navigation, "Hunk navigation requires NavigationProvider.");
 }
 
+// Exactly five lint-enforced callers: nextHunk, prevHunk, scrollFollow,
+// navigateToFile and writeInitialHunkSelection.
 function selectHunk(root: HTMLElement, target: HTMLElement): void {
   assert(
     target.matches("[data-hunk-target]"),
@@ -196,6 +199,10 @@ function selectHunk(root: HTMLElement, target: HTMLElement): void {
   target.classList.add("active-hunk");
 }
 
+// A file-state selection (husk/lazy/zero) resolves to the card's first target,
+// so it survives admission into composed DOM. Hunk selections match on bay and
+// index only, not kind: collapse/expand turns real and skip targets into each
+// other at the same coordinates.
 export function storedHunkTarget(
   card: HTMLElement,
   targets: readonly HTMLElement[],
@@ -253,8 +260,7 @@ export function storedHunkTarget(
 
 export function writeInitialHunkSelection(root: HTMLElement): void {
   if (root.querySelector("[data-file-render-error]") !== null) {
-    // A critical renderer failure is terminal local damage. Initialization
-    // must not synthesize a target, repair selection, or escalate the error.
+    // Terminal renderer damage stays unselected.
     return;
   }
   const cards = root.querySelectorAll<HTMLElement>("[data-file-card]");
@@ -300,9 +306,8 @@ export function NavigationProvider(
 ): JSX.Element {
   const toast = useToasts();
   let alive = true;
-  // This Provider owns the count across each command's preparation and scroll.
-  // Each accepted call releases its increment in finally, even after disposal;
-  // overlapping calls keep virtualization paused until the last one settles.
+  // Overlapping commands keep bay virtualization paused until the last one
+  // settles; each releases its increment in finally, even after disposal.
   let activeOperations = 0;
 
   const scrollGuard = (() => {
@@ -369,6 +374,7 @@ export function NavigationProvider(
         previousTouchY = primaryTouchY(event);
       },
 
+      // Direction is of document movement: a finger moving up scrolls down.
       comparedDirection(event: TouchEvent): "up" | "down" | null {
         const previousY = expect(
           previousTouchY,
@@ -529,9 +535,7 @@ export function NavigationProvider(
       "Navigation destination has invalid hunk coordinates.",
     );
     let target = initialTarget;
-    // Only a target inside a bay wrapper can be virtual: pseudo-hunks, bay
-    // chrome anchors, and collapsed-file skips live outside every wrapper
-    // and already expose their complete representation.
+    // Only targets inside a bay wrapper can be virtual.
     const bay = initialTarget.closest<HTMLElement>("[data-bay-render]");
     if (
       bay !== null &&
@@ -680,8 +684,6 @@ export function NavigationProvider(
       target.dataset.hunkKind !== "husk",
       "File navigation cannot target a HuskFile.",
     );
-    // Only a target inside a bay wrapper can be virtual; chrome anchors and
-    // collapsed-file skips live outside every wrapper with exact geometry.
     const destinationBay = target.closest<HTMLElement>("[data-bay-render]");
     if (
       destinationBay !== null &&
@@ -709,7 +711,8 @@ export function NavigationProvider(
       target = firstTarget();
       const viewportTop = centeredViewportTop(target);
       // Test the viewport that the final scroll will occupy without moving the
-      // page. Each enrichment changes geometry, so the next pass recalculates it.
+      // page. Each enrichment changes geometry, so the next pass recalculates
+      // it.
       // `waitToEnrich()` spans a rendered frame when it warms fresh chunks, so
       // observer-driven render-mode flips may interleave; that is safe because
       // enrichment completes with real geometry and every mode transition
@@ -888,9 +891,7 @@ export function NavigationProvider(
     const location = selectedLocation(root);
     const rect = location.target.getBoundingClientRect();
     if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
-      // Only a target inside a bay wrapper can have estimated geometry; a
-      // pseudo-hunk, chrome anchor, or collapsed-file skip lives outside
-      // every wrapper and centers exactly as it stands.
+      // Only targets inside a bay wrapper can have estimated geometry.
       const selectedBay =
         location.target.closest<HTMLElement>("[data-bay-render]");
       if (selectedBay !== null) {
@@ -1029,22 +1030,15 @@ export function NavigationProvider(
     },
   };
 
-  // Scroll-follow needs native document listeners because the scroll source can
-  // be wheel, touch, keyboard, or a nested FileTree outside this component's
-  // JSX event path. They read the mounted root plus transient guard/controller
-  // state for this Provider lifetime. One AbortController removes every listener
-  // on cleanup, while the cleanup also cancels permission for a queued frame;
-  // that frame rechecks both the guard and root connection before selecting.
+  // Native document listeners: the scroll source can be wheel, touch, keyboard
+  // or a nested FileTree outside JSX events. One AbortController removes them
+  // all on cleanup, which also revokes permission for a queued frame.
   onMount(() => {
     const root = props.root();
     if (root.querySelector("[data-file-render-error]") !== null) {
-      // A critical renderer failure is terminal local damage. This provider
-      // must not synthesize a target, repair selection, or escalate the error.
       return;
     }
-    // The mounted snapshot has already written its initial selection with
-    // `writeInitialHunkSelection`. Loading and error shells have no navigable
-    // DOM, so they install no scroll listeners.
+    // Loading and error shells have no navigable DOM.
     if (root.querySelectorAll("[data-file-card]").length === 0) {
       return;
     }

@@ -72,6 +72,8 @@ class GitWordBoundaryLanguage(BaseModel):
 class GitWordBoundaryCustom(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     mode: Literal["custom"]
+    # Passed verbatim as a POSIX extended regex; Git rejects bad patterns.
+    # None means nothing entered yet, so Git keeps its whitespace boundary.
     regex: Annotated[str, Field(min_length=1)] | None
 
 
@@ -141,7 +143,10 @@ type EngineConfig = Annotated[
 ]
 
 
-class DirdiffError(ValueError): ...
+class DirdiffError(ValueError):
+    """An expected failure (bad ref, failed external tool) whose message HTTP
+    and CLI may show; not for broken invariants.
+    """
 
 
 type InlineTokenStatus = Literal[
@@ -163,6 +168,9 @@ type DiffEngineRowStatus = Literal[
 
 @cache
 def git_executable() -> str:
+    """Real git binary for every git spawn; on macOS skips the slower xcrun shim
+    that bare `git` resolves to.
+    """
     if sys.platform != "darwin":
         return "git"
     located = subprocess.run(
@@ -183,10 +191,12 @@ class DiffSide:
 
     text: str | None
 
+    # Only picks a parser or temp-file suffix; never read from disk.
     path_hint: str | None = None
 
 
 class DiffSummary(TypedDict):
+    # Equals modified + added + removed + moved; each line position counts once.
     changed_lines: int
 
     modified_lines: int
@@ -199,6 +209,10 @@ class DiffSummary(TypedDict):
 
 
 class MoveSpan(TypedDict):
+    """Half-open source range: lines one-based, columns zero-based Unicode
+    characters; the end may be column 0 of the next line.
+    """
+
     start_line: int
 
     start_column: int
@@ -231,8 +245,10 @@ type Move = PairedMove | UnpairedMove
 
 
 class InlineToken(TypedDict):
+    # Tokens of one row side concatenate to that side's full row text.
     text: str
 
+    # Must equal text.isspace().
     is_ws: bool
 
     move: NotRequired[PairedMove]
@@ -245,6 +261,8 @@ class DiffEngineRow(TypedDict):
 
     status: DiffEngineRowStatus
 
+    # One-based. Git word mode rows are the tool's own display fragments, so
+    # a number can repeat when one physical line is split.
     left_no: int | None
 
     right_no: int | None
@@ -278,6 +296,8 @@ class DiffEngineResult(TypedDict):
 
     rows: list[DiffEngineRow]
 
+    # True when rows are the tool's own printed fragments (Git word mode), so
+    # inline view must interleave both sides back into one line.
     interleave_inline_rows: bool
 
     engine_warning: NotRequired[EngineWarning]

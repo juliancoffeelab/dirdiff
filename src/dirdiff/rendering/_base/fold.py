@@ -14,6 +14,9 @@ __all__ = ["FoldHint", "engine_row_has_change", "fold_hints_for_path"]
 
 
 def engine_row_has_change(row: DiffEngineRow) -> bool:
+    """An equal row with a changed inline token still counts; hunk starts and
+    fold discovery share this predicate.
+    """
     if row["status"] != "equal":
         return True
     return any(
@@ -24,6 +27,7 @@ def engine_row_has_change(row: DiffEngineRow) -> bool:
 
 
 class FoldHint(TypedDict):
+    # start_row/end_row are rendered-row indexes (half-open), not source lines.
     start_row: int
 
     end_row: int
@@ -66,6 +70,7 @@ class FoldLanguageSpec:
 
     suffixes: tuple[str, ...]
 
+    # Indexed by query pattern number, so the order must match query_path.
     rules: tuple[FoldRule, ...]
 
     filenames: tuple[str, ...] = ()
@@ -95,6 +100,7 @@ class FoldCandidate:
 
     context_end_byte: int
 
+    # Set once by _assign_candidate_parents; None afterwards means a root.
     parent: FoldCandidate | None = None
 
 
@@ -260,7 +266,8 @@ def fold_hints_for_path(
     text: str,
     rows: list[DiffEngineRow],
 ) -> list[FoldHint]:
-
+    # An empty list means no safe folds (unsupported language, grammar
+    # unavailable, parse failure), not a failed diff.
     if path is None or rows == []:
         return []
 

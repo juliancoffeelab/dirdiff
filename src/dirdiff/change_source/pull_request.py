@@ -46,6 +46,10 @@ class RepoMarkLike(Protocol):
 
 @dataclass(frozen=True)
 class PreparedPullRequest:
+    """Branch names are display-only; capture uses the two commits, never the
+    branches.
+    """
+
     project_id: int
 
     pull_request_url: str
@@ -401,6 +405,7 @@ def _remote_urls(repo_path: Path) -> dict[str, str]:
         check=False,
     )
     if result.returncode != 0:
+        # Callers cannot tell a failed query from a repository without remotes.
         return {}
     urls: dict[str, str] = {}
     for line in result.stdout.splitlines():
@@ -419,6 +424,9 @@ def _fetch_commits(
     remote: str,
     commits: tuple[str, str],
 ) -> None:
+    # Fetching by SHA works even when the forge branches are deleted. The
+    # refs/dirdiff/prepared/<sha> refs keep the objects safe from git gc so
+    # restored review URLs stay capturable; nothing ever cleans them up.
     result = _run_git_text(
         repo_path,
         [

@@ -23,7 +23,6 @@ export const fileCardFacadeRule = {
       path.relative(context.cwd, context.filename),
     );
 
-    // Facade-internal files import each other freely.
     if (
       importerDir === facadeDir ||
       importerDir.startsWith(facadeDir + path.sep)

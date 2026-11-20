@@ -77,8 +77,6 @@ function onTabReactivated(
   active: Accessor<boolean>,
   reactivate: () => void,
 ): void {
-  // Track only active visibility for this helper's lifetime. Solid disposes the
-  // effect with its Tab; it installs no external resource and needs no cleanup.
   createEffect(
     on(active, (isActive, wasActive) => {
       if (isActive && wasActive === false) {
@@ -413,11 +411,6 @@ function HeadTab(
       }
     >
       {(projectId) => {
-        // Solid owns this branch: the selection signal and the reactivation
-        // effect are created when a repository appears and disposed when the
-        // gate replaces the branch or the Tab unmounts. The repository is
-        // concrete for that whole lifetime, so every Head value built here is
-        // complete.
         const [selected, setSelected] = createSignal<HeadDiffParams | null>(
           props.active
             ? {
@@ -641,9 +634,7 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
       right === null ||
       right.trim().length === 0
     ) {
-      // Report this one startup parse failure only after the active Refs Tab has
-      // mounted. The hook captures the invalid initial pair, tracks no reactive
-      // input, allocates no external resource, and needs no cleanup.
+      // Report only after the active Tab has mounted.
       onMount(() => {
         toast.showError(
           "Could not restore refs from URL",
@@ -736,7 +727,8 @@ function RefsRepoTab(props: RefsRepoTabProps): JSX.Element {
           </button>
         }
         onEditNotification={() => {
-          // Editing warms canonical refs; TanStack freshness avoids request spam.
+          // Editing warms canonical refs; TanStack freshness avoids request
+          // spam.
           void queryClient.prefetchQuery(api.repos.refs(props.projectId));
         }}
         onLeftDone={setLeft}
@@ -926,9 +918,7 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
     try {
       initialBranches = branchPairFromUrl();
     } catch (error) {
-      // Defer the one captured startup validation failure until the active Tab is
-      // mounted. This hook observes no later URL or prop changes, creates no
-      // external resource, and therefore needs no cleanup.
+      // Report only after the active Tab has mounted.
       onMount(() => {
         toast.showError("Could not restore Branch Review from URL", error);
       });
@@ -1090,7 +1080,6 @@ function BranchReviewRepoTab(props: BranchReviewRepoTabProps): JSX.Element {
         }
         onErrorRetry={() => void defaults.refetch()}
         onEditNotification={() => {
-          // Editing warms shared branch/ref metadata without receiving live text.
           void queryClient.prefetchQuery(api.repos.refs(props.projectId));
         }}
         onBaseSelection={setBaseEdit}
@@ -1310,9 +1299,7 @@ function PullRequestTab(
         };
       }
     } catch (error) {
-      // Present the one captured URL validation failure after this active Tab has
-      // mounted. The hook does not track later input or URL state, installs no
-      // resource, and needs no cleanup.
+      // Report only after the active Tab has mounted.
       onMount(() => {
         toast.showError("Could not restore pull request from URL", error);
       });
@@ -1464,9 +1451,7 @@ function PresetTab(
   const toast = useToasts();
   const initialType = props.active ? search.get("preset_type") : null;
   if (props.active && initialType === null) {
-    // Report the missing startup catalog only after this active Tab has mounted.
-    // This one-shot hook tracks no later catalog or URL changes, allocates no
-    // external resource, and needs no cleanup.
+    // Report only after the active Tab has mounted.
     onMount(() => {
       toast.showError(
         "Could not restore preset type from URL",
@@ -1869,7 +1854,6 @@ function RepoGate(props: RepoGateProps): JSX.Element {
                       removeRepo.isPending && removeRepo.variables === repo.id
                     }
                     onClick={() => {
-                      // Repository removal remains an explicit user-confirmed action.
                       if (
                         window.confirm(
                           `Remove ${repo.name} from marked repositories?`,

@@ -18,10 +18,15 @@ __all__ = [
     "run_gumtree_json",
 ]
 
+# When set, it is authoritative: a missing file is an error, no other location
+# is tried.
 GUMTREE_BIN_ENV = "DIRDIFF_GUMTREE_BIN"
+# Tried after PATH, relative to the parent of the cwd (adjacent local checkout).
 GUMTREE_RELATIVE_BIN = Path("gumtree/dist/build/install/gumtree/bin/gumtree")
 
 
+# No generator for the filename; the caller may degrade to a unified diff with a
+# warning.
 class GumTreeUnsupportedError(DirdiffError): ...
 
 
@@ -163,7 +168,8 @@ def run_gumtree_json(
             ) from exc
 
     # The CLI can exit successfully after printing this precise registry error.
-    # Only an absent generator is recoverable; parser and process failures are not.
+    # Only an absent generator is recoverable; parser and process failures are
+    # not.
     if any(
         line.startswith(
             "java.lang.UnsupportedOperationException: No generator found for file: "

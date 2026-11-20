@@ -18,6 +18,8 @@ __all__ = [
 ]
 
 DIFFSITTER_BIN_ENV = "DIRDIFF_DIFFSITTER_BIN"
+# Printed when an input has no extension or no compiled grammar and no
+# fallback command is configured; dirdiff never configures one.
 UNSUPPORTED_LANGUAGE_STDERR = (
     "Error: Unsupported file type with no fallback command specified."
 )
@@ -27,8 +29,10 @@ class DiffsitterUnsupportedError(DirdiffError): ...
 
 
 class DiffsitterJsonPoint(TypedDict):
+    # Zero-based, counting only `\n`; a `\r` stays inside its line.
     row: int
 
+    # Zero-based UTF-8 byte offset within the row, not a character index.
     column: int
 
 

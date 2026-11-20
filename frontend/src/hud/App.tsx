@@ -173,7 +173,8 @@ function Workspace(props: WorkspaceProps): JSX.Element {
     createSignal<HTMLDivElement | null>(null);
   const [changeSetSummaryTarget, setChangeSetSummaryTarget] =
     createSignal<HTMLDivElement | null>(null);
-  // Registered once by AppHeader during setup; read by the ChangeSet `o` hotkey.
+  // Registered once by AppHeader during setup; read by the ChangeSet `o`
+  // hotkey.
   const [engineOptionsToggle, setEngineOptionsToggle] = createSignal<
     (() => void) | null
   >(null);
@@ -469,7 +470,6 @@ function Workspace(props: WorkspaceProps): JSX.Element {
           onPullRequestSelected={selectPreparedPullRequest}
           onPullRequestPrepared={applyPreparedPullRequest}
           onToggleView={() => {
-            // Workspace changes both reactive view and canonical URL.
             selectView(workspace.view === "inline" ? "split" : "inline");
           }}
           onFileTreeOpenChange={(open) => setWorkspace("fileTreeOpen", open)}

@@ -43,11 +43,10 @@ export function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
   let root!: HTMLElement;
   const [hunkDisplay, setHunkDisplay] = createSignal<HunkDisplay | null>(null);
 
-  // Pointerdown is a native document listener because a browser drag may start
-  // anywhere inside the mounted ChangeSet and CSS needs the side marker before
-  // selection continues beyond the initial cell. It reads only this shell's
-  // stable root, runs for the shell lifetime, and cleanup removes the exact
-  // listener so inactive Tabs cannot keep changing grid attributes.
+  // Native document listener: a drag may start anywhere in the ChangeSet and
+  // CSS
+  // needs the side marker before selection leaves the initial cell. Removed on
+  // cleanup so inactive Tabs stop changing grid attributes.
   onMount(() => {
     function selectDiffSide(event: PointerEvent): void {
       root
@@ -131,11 +130,8 @@ type HotkeysProps = {
 function Hotkeys(props: HotkeysProps): null {
   const navigation = useNavigation();
   const toast = useToasts();
-  // Hotkeys require one native document listener because focus may sit anywhere
-  // inside the active ChangeSet, while editable controls and modified browser
-  // shortcuts must keep their defaults. The listener captures current props and
-  // Navigation for this mounted Hotkeys lifetime; cleanup removes the same
-  // function before another active shell can install its listener.
+  // Focus may sit anywhere in the ChangeSet, so this is a document listener.
+  // It must be removed before another active shell installs its own.
   onMount(() => {
     function onKeyDown(event: KeyboardEvent): void {
       if (event.defaultPrevented) {
@@ -148,8 +144,6 @@ function Hotkeys(props: HotkeysProps): null {
         return;
       }
       const target = event.target;
-      // Let editable controls handle their own keystrokes instead of treating
-      // user input as a ChangeSet hotkey.
       if (target instanceof HTMLElement) {
         if (target.isContentEditable) {
           return;
@@ -317,12 +311,9 @@ function DebugHud(props: DebugHudProps): JSX.Element {
   let nodesCountedAt = sampleStartedAt;
   let countTimer: number | null = null;
 
-  // Debug metrics need an animation-frame loop because FPS is a property of
-  // successive browser paints, not reactive application state. The loop reads
-  // elapsed time and schedules low-frequency DOM counts in a zero-delay timer
-  // so counting does not distort the sampled frame. Both handles exist only
-  // while DebugHud is mounted and cleanup cancels them before the hidden HUD can
-  // update signals.
+  // FPS needs an animation-frame loop. The full-document counts are slow, so
+  // they run at most every five seconds in their own macrotask; during a
+  // sustained scroll they go stale rather than steal time from the FPS sample.
   onMount(() => {
     function updateFps(): void {
       setMetrics((current) => ({
@@ -430,6 +421,9 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       return { kind: "real", skipped: real[2] === ":skip" };
     }
 
+    // Per-card facts from the last full calculation. `offset` and
+    // `participating` do not change on selection-only mutations, so the
+    // selective path reuses them; a full walk replaces the map wholesale.
     type CardStats = {
       fileIndex: number;
       participating: number;
@@ -594,6 +588,9 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       observer?.disconnect();
     });
 
+    // TextDiffGrid places its row targets during mount, after FileCard updates
+    // `data-hunk-set`; the microtask waits for that to finish. A queued full
+    // calculation subsumes a selective one, never the reverse.
     function queueDisplayCalculation(kind: "selective" | "full"): void {
       if (queuedKind !== null) {
         if (kind === "full") {
@@ -633,13 +630,9 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       });
     }
 
-    // The mounted snapshot writes its initial selection synchronously during
-    // its own mount. This MutationObserver must therefore attach in a microtask
-    // and calculate only after the FileCards and their imperative rows finish
-    // mounting. It watches the three attributes that can change display facts,
-    // coalesces each mutation batch through `queueDisplayCalculation`, and lives
-    // only for this observer component. Cleanup flips `alive` and disconnects;
-    // a queued microtask checks `alive` before reading or publishing detached DOM.
+    // The snapshot writes its initial selection synchronously during its mount,
+    // so attach in a microtask, after FileCards and their rows have mounted.
+    // `alive` guards queued microtasks against reading detached DOM.
     queueMicrotask(() => {
       if (!alive || !root.isConnected) {
         return;

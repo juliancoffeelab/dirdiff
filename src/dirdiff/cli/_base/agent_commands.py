@@ -59,16 +59,26 @@ _ACTION_VERBS = {
     "delete-thread": "deleted the thread",
 }
 
+# Largest page size the agent endpoints accept.
 _PAGE_LIMIT = 100
 
+# Longest single `wait` hold the server accepts.
 _WAIT_MAX_SECONDS = 540
 
 
 class Wire(BaseModel):
+    """Strict response model: a renamed, missing or extra server field fails
+    validation.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
 
 class Session(BaseModel):
+    """Session file content; a missing, unknown or mistyped field makes the file
+    malformed.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     server_url: str
@@ -821,6 +831,8 @@ def show(session: SessionOption, thread_id: str) -> None:
 def report_activity(session_path: Path, wait_seconds: int | None) -> None:
 
     state = load_session(session_path)
+    # Own events are skipped but the cursor still moves past them; printing
+    # them would make `wait` return right after every post.
     start = state.cursor
     deadline = time.monotonic() + (0 if wait_seconds is None else wait_seconds)
     events: list[Event] = []

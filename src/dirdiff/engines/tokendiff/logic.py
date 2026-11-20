@@ -68,8 +68,13 @@ that mix ASCII and non-ASCII letters may therefore split asymmetrically:
 ['caf', 'é', ' ', '=', ' ', 'Δvalue', '\n']
 """
 
+# Max left-atoms x right-atoms product matched per changed region. Above it the
+# region renders as one-sided rows with a warning (multi-megabyte single-line
+# documents would take seconds to match for an unreadable payload).
 _REGION_ATOM_LIMIT = 4_000_000
 
+# Largest matched word text (characters) a stranded island may hold and still be
+# demoted; matched separators and whitespace never count and never demote.
 _MAX_DEMOTED_MATCH_TEXT = 3
 
 type _TokenPiece = tuple[str, InlineTokenStatus]
@@ -81,6 +86,8 @@ class _Op:
 
     right: str | None
 
+    # Text-equal pair deliberately shown as changed; set only by the demotion
+    # pass, never alters the texts, so replay of either side still holds.
     demoted: bool = False
 
 
@@ -93,6 +100,7 @@ def _tokenize(text: str) -> list[str]:
 def _split_lines(text: str) -> list[str]:
     if text == "":
         return []
+    # The empty tail after a trailing newline is not a line.
     lines = text.split("\n")
     if lines[-1] == "":
         lines.pop()
@@ -100,6 +108,10 @@ def _split_lines(text: str) -> list[str]:
 
 
 def _region_ops(left_atoms: list[str], right_atoms: list[str]) -> list[_Op]:
+    # Maximal word-atom runs match as single units so a fragment of one
+    # identifier never matches inside another; punctuation matches per
+    # character; whitespace (newlines included) is junk to the matcher and
+    # pairs positionally between matched neighbors.
 
     def word_like(atom: str) -> bool:
         return not atom.isspace() and (atom[0].isalnum() or atom[0] == "_")

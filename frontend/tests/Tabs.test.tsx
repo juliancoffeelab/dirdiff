@@ -39,7 +39,6 @@ vi.mock("lucide-solid", () => ({
   Trash2: () => null,
 }));
 
-// Dispose mounted resources and transport stubs before the next test.
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();

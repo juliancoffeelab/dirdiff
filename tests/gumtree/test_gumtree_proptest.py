@@ -139,7 +139,8 @@ def test_edited_moves_keep_exact_unicode_endpoints(
     byte_end = len(left.encode())
     tree = f"block [0,{byte_end}]"
     changed = f"integer [{byte_start},{byte_start + 1}]"
-    # tool-json: synthetic a move to the same coordinate isolates nested action precedence
+    # tool-json: synthetic a move to the same coordinate isolates nested action
+    # precedence
     facts: GumTreeJson = {
         "matches": [
             {"src": tree, "dest": tree},
@@ -261,8 +262,6 @@ def test_preset_actions_and_moves_match_gumtree_facts(preset: Path) -> None:
     destinations = {
         match["src"]: match["dest"] for match in facts.get("matches", [])
     }
-    # Side-specific raw intervals retain action order and the complete paired
-    # move identity. This oracle deliberately scans them per character.
     actions: list[
         list[tuple[int, int, int, str, tuple[int, int, int, int] | None]]
     ] = [[], []]

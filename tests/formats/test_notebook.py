@@ -128,7 +128,6 @@ def test_added_and_removed_cells_are_separate_frames() -> None:
         }
 
     frames = composed["frames"]
-    # Every cell is present, so the frame count exceeds the changed-cell count.
     assert len(frames) >= 7
     added = [frame for frame in frames if statuses(frame) == {"insert"}]
     removed = [frame for frame in frames if statuses(frame) == {"delete"}]
@@ -164,7 +163,6 @@ def test_markdown_edit_is_one_source_bay() -> None:
     bays = changed[0]["bays"]
     assert len(bays) == 1
     assert bays[0]["label"] == "Markdown"
-    # Untouched cells are still present, collapsed rather than dropped.
     assert len(composed["frames"]) > 1
 
 
@@ -310,7 +308,6 @@ def test_cells_pair_by_id_so_an_edited_cell_is_not_an_add_and_a_remove() -> (
     frame = changed[0]
     assert frame["frame_key"] == "intro"
     assert [bay["bay_key"] for bay in frame["bays"]] == ["intro"]
-    # The untouched cell is still present, collapsed.
     assert len(composed["frames"]) == 2
     source_bay = frame["bays"][0]
     assert source_bay["kind_data"]["kind"] == "text"

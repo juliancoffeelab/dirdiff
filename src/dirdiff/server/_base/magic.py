@@ -178,6 +178,8 @@ class ClassRoutes:
         return record
 
     def register[Server](self, app: FastAPI, server: Server) -> None:
+        # Validate every declaration before registering any, so a bad one
+        # cannot leave the app half configured.
         server_class = type(server)
         declared_endpoints: set[FunctionType] = set()
         for declaration in self._declarations:

@@ -543,6 +543,7 @@ class ReviewAction(TableBase):
         ),
     )
 
+    # Reuse conflicts with the primary key; it is never a retry/dedup key.
     operation_id: Mapped[str] = mapped_column(String(32), primary_key=True)
 
     activity_id: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -571,6 +572,7 @@ class ReviewAction(TableBase):
 
     comment_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
+    # Optimistic concurrency gate for comment edit and deletion.
     expected_revision: Mapped[Optional[int]] = mapped_column(nullable=True)
 
     body: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -1255,6 +1257,8 @@ class RoomStore:
 
     @staticmethod
     def _next_review_activity_id(session: Session) -> int:
+        # The caller must hold the write transaction so concurrent actions
+        # cannot allocate the same activity id.
         latest: int | None = session.execute(
             select(func.max(ReviewAction.activity_id))
         ).scalar_one()
@@ -2141,6 +2145,7 @@ class RoomStore:
             if identity.mark_id is None
             else Room.mark_id == identity.mark_id
         )
+        # Nullable sides make a tuple IN unusable; OR exact per-pair conditions.
         pair_clauses = [
             and_(
                 (
@@ -2208,10 +2213,8 @@ class RoomStore:
                 left = record.left.get_map(lambda side: side.repository_path)
                 right = record.right.get_map(lambda side: side.repository_path)
                 found[(left, right)] = record
-            # The one-row query this replaced ended in one_or_none(), which
-            # raised on duplicate pairs; the schema does not make the pair
-            # unique, so a collision must still fail instead of silently
-            # binding to an arbitrary duplicate.
+            # The schema does not make the path pair unique, so a collision
+            # must fail rather than bind to an arbitrary duplicate.
             assert len(found) == len(rows), (
                 "Snapshot contains duplicate File pairs"
             )
@@ -2425,11 +2428,8 @@ class RoomStore:
                     0 if latest_activity_id is None else latest_activity_id
                 )
             # One grouped pass over the pivot-bounded actions yields each
-            # Thread's latest activity and creation activity; joining the
-            # latest action row then supplies status and attention. The
-            # previous shape probed several correlated subqueries per
-            # candidate placement, so page cost grew with total review
-            # history rather than page size.
+            # Thread's latest and creation activity; joining the latest action
+            # row then supplies status and attention.
             latest = (
                 select(
                     ReviewAction.thread_id.label("thread_id"),

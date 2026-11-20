@@ -64,14 +64,22 @@ const ROW_CHUNK_SIZE = 50;
 
 const ROW_CHUNK_THRESHOLD = 600;
 
+// Idle-callback handle of the module-wide chunk warm-up pass; null when none is
+// scheduled.
 let chunkWarmHandle: number | null = null;
 
+// Chunk currently held content-visibility: visible for one rendered frame.
 let warmingChunk: Element | null = null;
 
+// A skipped chunk's height is only the intrinsic estimate until it first
+// renders; warming one
+// chunk per idle pass records its real height so scroll and navigation geometry
+// is exact.
+// `diff-row-chunk-warmed` makes each chunk warm once.
 function warmPendingChunk(): void {
   chunkWarmHandle = null;
-  // The previous chunk has had a rendered frame; returning it to `auto`
-  // keeps its now-remembered real height.
+  // The previous chunk has had a rendered frame, so its real height is
+  // remembered.
   warmingChunk?.classList.remove("diff-row-chunk-warming");
   warmingChunk = null;
   const pending = document.querySelector(
@@ -91,6 +99,10 @@ function requestChunkWarming(): void {
   }
 }
 
+// Off-screen geometry reads need true heights now. The caller must pass the
+// returned chunks to
+// `finishForcedChunkLayout` after a rendered frame, or discard them if the body
+// unmounts.
 export function forceChunkLayout(
   container: HTMLElement,
 ): readonly HTMLElement[] {
@@ -103,7 +115,6 @@ export function forceChunkLayout(
     chunk.classList.add("diff-row-chunk-warming");
   }
   if (pending.length > 0) {
-    // One forced reflow lays the now-visible chunks out synchronously.
     void container.offsetHeight;
   }
   return pending;
@@ -643,6 +654,12 @@ function renderInlineDiffRowsDom(
   }
 }
 
+// Git word-diff `~` rows hold the shared text on both sides, deletions only on
+// the left and
+// insertions only on the right; the tool prints deletions before insertions
+// between shared
+// stretches. Either side may split or merge shared text into different parts.
+// Other shapes throw.
 function interleaveRowSides(row: DiffRow): DecoratedPart[] {
   const parts: DecoratedPart[] = [];
   let left = 0;

@@ -4,7 +4,6 @@ import { afterEach, expect, test } from "vitest";
 
 import { Select } from "../src/comp/Select";
 
-// Dispose each Solid root and its document listeners before the next test.
 afterEach(cleanup);
 
 test("selects a different option and restores trigger focus", () => {

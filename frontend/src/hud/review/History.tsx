@@ -54,6 +54,7 @@ type ReviewHistoryProps = {
   toggleReviewThreadInput(mount: HTMLElement): void;
   closeReviewThreadInput(mount: HTMLElement): void;
   continueReviewDraft(draft: NewThreadDraft, mount: HTMLElement): void;
+  // False when an in-flight submission blocks the close; the caller must abort.
   closeCommentInputInThread(threadId: ReviewId): boolean;
   discardNewThreadDraft(draftId: ReviewId): boolean;
   clearDrafts(): void;
@@ -70,8 +71,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
     profile: () => props.profile,
     acceptedActivities: props.acceptedActivities,
     onAcceptedActivity: props.onAcceptedActivity,
-    // History has no settlement UI of its own: reply and edit inputs render
-    // inside their ThreadCard and read the draft document directly.
+    // Reply and edit inputs live in ThreadCard and read the draft document.
     onSubmitted() {},
   });
   const reviewThreads = createMemo<readonly ReviewThread[]>(
@@ -84,13 +84,11 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
   async function reloadThreads(): Promise<void> {
     await review.refetch();
   }
-  // History keeps its reading position itself: the closed panel is
-  // display: none, whose box reads scrollTop 0, so the scroll listener in
-  // the panel ref records the last real position for restoration on open.
+  // The closed panel is display: none and reads scrollTop 0, so the last real
+  // position is recorded from scroll events for restoration on open.
   let historyScrollTop = 0;
-  // The slot inside the current keyed Portal where the provider mounts the
-  // whole-review Comment input. Its ref reassigns it whenever an inline/split
-  // switch remounts the Portal; it is read only by the actions that open input.
+  // Slot in the current keyed Portal for the whole-review Comment input;
+  // reassigned whenever an inline/split switch remounts the Portal.
   let reviewInputSlot: HTMLElement | null = null;
   const [expandedThreads, setExpandedThreads] = createSignal<
     ReadonlyMap<ReviewId, boolean>
@@ -356,13 +354,9 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
               <div
                 class="review-history-scroll"
                 ref={(scroller) => {
-                  // This ref runs only when the keyed Portal remounts on an
-                  // inline/split view switch; open/close leaves the panel mounted.
-                  // Track the reading position from scroll events because the
-                  // closed panel is display: none and its box reads scrollTop 0.
-                  // The anonymous listener has no explicit removal. Portal
-                  // replacement leaves it attached to the detached scroller until
-                  // that element and this closure are garbage-collected.
+                  // Runs only when the keyed Portal remounts (view switch). The
+                  // listener is never removed; it dies with the detached
+                  // scroller.
                   scroller.addEventListener(
                     "scroll",
                     () => {
@@ -370,13 +364,11 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                     },
                     { passive: true },
                   );
-                  // This Portal-scoped effect tracks only `historyOpen` because
-                  // restoration follows accepted parent visibility, not the click
-                  // that requested it. Solid runs it once on creation and after
-                  // each prop change, so an initially open panel also schedules a
-                  // restore. The frame handle is neither retained nor cancelled.
-                  // If the keyed Portal is replaced before it runs, it writes once
-                  // to the detached scroller and then releases its closure.
+                  // Tracks accepted `historyOpen`, not the click; runs on
+                  // creation
+                  // too, so an initially open panel restores. The frame is not
+                  // cancelled: after a Portal replacement it writes a detached
+                  // scroller.
                   createEffect(
                     on(
                       () => props.historyOpen,
@@ -384,30 +376,21 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                         if (!open) {
                           return;
                         }
-                        // Restore after the browser lays the panel
-                        // out; writing before layout is silently
-                        // clamped.
+                        // Writing before layout is silently clamped.
                         requestAnimationFrame(() => {
                           scroller.scrollTop = historyScrollTop;
                         });
                       },
                     ),
                   );
-                  // Warm every Thread over the frames after opening: a
-                  // warmed Thread has rendered once, its height is
-                  // real, and the estimate-replacement shifts that made
-                  // History scrolling jumpy become impossible. Opening
-                  // stays instant because warming is spread across
-                  // frames, and a manual scroll anchor keeps the
-                  // Thread at the top of the viewport pinned while
-                  // heights above it change.
+                  // Warm Threads over frames after opening so estimated heights
+                  // are replaced by real ones (avoids jumpy scrolling) without
+                  // delaying open; a manual scroll anchor pins the top Thread.
                   let warmFrame: number | null = null;
                   const warmBatch = () => {
                     warmFrame = null;
-                    // A hidden panel must not warm: warmed Threads
-                    // leave the content-visibility regime, so warming
-                    // without rendering would make the next open lay
-                    // out every Thread at once.
+                    // Hidden panels must not warm: warmed Threads leave
+                    // content-visibility, so the next open would lay out all.
                     if (!scroller.isConnected || !props.historyOpen) {
                       return;
                     }
@@ -448,12 +431,9 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                       warmFrame = requestAnimationFrame(warmBatch);
                     }
                   };
-                  // This Portal-scoped effect tracks accepted `historyOpen` and
-                  // `orderedThreads`. It arms frame-batched DOM warming only while
-                  // visible, since a single explicit action cannot cover Threads
-                  // arriving later. The shared cleanup below cancels the remaining
-                  // frame when this keyed Portal is replaced or Review is disposed;
-                  // already applied warmed classes live with their Thread elements.
+                  // Re-arms warming on open and when Threads arrive; the
+                  // cleanup
+                  // below cancels the pending frame.
                   createEffect(() => {
                     if (!props.historyOpen) {
                       return;

@@ -115,8 +115,11 @@ _AGENT_ROUTE_PATHS = frozenset(
 
 _PAGE_LIMIT_MAX = 100
 
+# Nine minutes: below common 10 minute proxy and tool timeouts, so a held call
+# is never cut off by its caller.
 _WAIT_TIMEOUT_MAX = 540
 
+# Each poll is one small indexed read; no worker thread is held between polls.
 _WAIT_POLL_SECONDS = 0.25
 
 _TITLE_MAX = 120
@@ -189,6 +192,8 @@ class AgentProfileRequest(ApiModel):
 
     harness: str = Field(min_length=1)
 
+    # Hyphenated UUIDs are stored compact; the pattern then rejects malformed
+    # values.
     @field_validator("agent_uuid", mode="before")
     @classmethod
     def normalize_agent_uuid(cls, value: JsonValue) -> JsonValue:
@@ -202,6 +207,8 @@ class AgentProfileRequest(ApiModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, value: str) -> str:
+        # Returned untrimmed: trimming would make the stored name differ from
+        # the sent one.
         if value != value.strip() or value.strip() == "":
             raise ValueError("Invalid agent name.")
         return value

@@ -226,6 +226,7 @@ class _PresetWorkspace(WorkspaceStorageProtocol):
                     left_path=left_side,
                     right_path=right_side,
                     display_name=display_name,
+                    # No declared change type: which of old.*/new.* exist is it.
                     change_type=(
                         "modify"
                         if left_side is not None and right_side is not None
@@ -386,7 +387,10 @@ class PresetChangeSource(ChangeSourceProtocol):
         assert max_link_target_bytes >= 0
         self._workspace = _PresetWorkspace(catalog_root)
         self._group = group
+        # Bounds only the reached non-link target of a link; outer content and
+        # raw link payloads are unbounded.
         self._max_link_target_bytes = max_link_target_bytes
+        # Fixture bytes are acquired once; later edits need a fresh source.
         self._files: SourceFiles | None = None
 
     @override

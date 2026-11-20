@@ -42,12 +42,19 @@ __all__ = [
     "ref_choices",
 ]
 
+# Strict threshold on numstat added + removed; binary files have no count and
+# never trip it.
 _LARGE_CHANGED_LINES_LAZY_THRESHOLD = 5000
 
 SYMLINK_MODE = "120000"
 
+# Submodule or embedded repository: no blob, only a commit id of another
+# repository. Loaded as that id; translated to repository_reference at
+# discovery.
 GITLINK_MODE = "160000"
 
+# Only canonical v1 pointers without extensions are expanded; callers inspect
+# only files under 1024 bytes. Non-matching bytes stay raw content.
 _LFS_POINTER_RE = re.compile(
     rb"version (https://(?:git-lfs|hawser)\.github\.com/spec/v[0-9]+)\n"
     rb"((?:ext-[0-9]+-[a-z0-9.-]+ sha256:[0-9a-f]{64}\n)*)"
@@ -363,6 +370,7 @@ class _GitWorkspace(WorkspaceStorageProtocol):
             ["remote", "show", remote_name],
             check=False,
         )
+        # `git remote show` may contact the network.
         if result.returncode != 0:
             return ""
         for line in result.stdout.splitlines():
@@ -444,6 +452,9 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         self,
         output: bytes,
     ) -> tuple[dict[str, tuple[int, int]], int | None, int | None]:
+        # Rename records have an empty path in the count token, then old and new
+        # paths; counts are keyed by the new path. A binary record makes both
+        # totals None.
         tokens = output.split(b"\0")
         if tokens != [] and tokens[-1] == b"":
             tokens = tokens[:-1]
@@ -529,6 +540,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
         right: SideName,
         show_untracked: bool = False,
     ) -> ListedChanges:
+        # show_untracked applies only when the right side is the worktree; the
+        # left may already be a frozen commit id.
         if self.repo_root is None:
             raise DirdiffError("Git-backed diff mode requires a Git repo.")
         if left == right:
@@ -1085,7 +1098,8 @@ class _GitWorkspace(WorkspaceStorageProtocol):
                             )
                         )
 
-        # Tree/index blob reads do not carry modes. Inspect only complete pointer
+        # Tree/index blob reads do not carry modes. Inspect only complete
+        # pointer
         # candidates, grouped by side, so preserving symlinks adds no per-file
         # Git subprocess. Batches without pointer candidates need no additional
         # commands.
@@ -1328,6 +1342,8 @@ class GitChangeSource(ChangeSourceProtocol):
         self._max_link_target_bytes = max_link_target_bytes
         self._files: SourceFiles | None = None
 
+    # No LFS download or filter runs; supported pointers expand from the local
+    # LFS store, whose content-addressed objects are trusted for identity.
     @override
     def changes(self) -> WorkspaceChanges:
         if self._files is None:

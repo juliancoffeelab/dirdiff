@@ -1,6 +1,7 @@
 import type { DiffRow, FoldHint } from "../../../../api/api";
 import { assert, expect } from "../../../../utils";
 
+// Row bounds are zero-based and half-open: [startRow, endRow).
 type NormalizedFoldHint = {
   startRow: number;
   endRow: number;

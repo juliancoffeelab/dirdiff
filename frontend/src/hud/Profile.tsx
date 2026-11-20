@@ -356,7 +356,6 @@ export function Profile(props: ProfileProps): JSX.Element {
             <form
               class="profile-form"
               onSubmit={(event) => {
-                // Keep the username input local and submit its completed value once.
                 event.preventDefault();
                 submitUsername();
               }}
@@ -601,7 +600,6 @@ function PreferencesEditor(props: PreferencesEditorProps): JSX.Element {
     <form
       class="profile-preferences-form"
       onSubmit={(event) => {
-        // Submit the local checkbox value without copying backend state upward.
         event.preventDefault();
         submitPreferences();
       }}

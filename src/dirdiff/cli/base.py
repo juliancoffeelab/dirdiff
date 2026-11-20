@@ -255,7 +255,6 @@ def start(
     boundary and terminate the command.
     """
 
-    # Read installation metadata once so every launch decision agrees.
     mode, default_presets_root = _installation()
 
     resolved_db_path = db_path_or_default(db_path, mode)

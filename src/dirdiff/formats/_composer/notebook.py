@@ -619,7 +619,6 @@ def notebook_bays(
         left_cell = left_index.map(lambda index: left.must().cells[index])
         right_cell = right_index.map(lambda index: right.must().cells[index])
         present = (right_cell if Some.present(right_cell) else left_cell).must()
-        # Pairing yields no pair without at least one side.
 
         if (Some.present(left_cell) and not Ok.good(left_cell.value)) or (
             Some.present(right_cell) and not Ok.good(right_cell.value)
@@ -717,7 +716,8 @@ def notebook_bays(
             heading=frame_heading,
             bay_key=present_cell.source_bay_key,
             # A cell that only moved has no changed row to land on, so its
-            # `detail` says what happened and it consumes a hunk at its own root.
+            # `detail` says what happened and it consumes a hunk at its own
+            # root.
             label=source_label,
             detail=(
                 None

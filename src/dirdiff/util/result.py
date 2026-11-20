@@ -76,6 +76,8 @@ __all__ = ["Err", "Ok", "Result", "catch"]
 @final
 @dataclass(frozen=True, slots=True)
 class Ok[T]:
+    # Ok never inspects its payload: Ok(ValueError(...)) and Ok(Err(...)) are
+    # successes, and Ok.or_raise returns them as-is.
     value: T
 
     @staticmethod

@@ -481,7 +481,6 @@ def test_difftastic_preset_diff_replays_both_directions(
         direction: str,
     ) -> None:
 
-        # Stage 1: collect difftastic statuses as non-whitespace characters.
         side_parts: dict[Side, list[tuple[str, str]]] = {
             "left": [],
             "right": [],
@@ -539,7 +538,6 @@ def test_difftastic_preset_diff_replays_both_directions(
         source_cursor = 0
         target_cursor = 0
 
-        # Stage 2: walk source and target status streams into edit operations.
         while source_cursor < len(source_parts) or target_cursor < len(
             target_parts
         ):
@@ -579,7 +577,6 @@ def test_difftastic_preset_diff_replays_both_directions(
         replayed: list[str] = []
         source_cursor = 0
 
-        # Stage 3: apply collected operations to source.
         for operation, text in operations:
             if operation == "insert":
                 replayed.append(text)

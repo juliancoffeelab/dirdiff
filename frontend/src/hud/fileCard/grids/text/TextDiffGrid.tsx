@@ -376,7 +376,6 @@ function ImperativeDiffLines(props: {
       if (row === null) {
         return;
       }
-      // row is not a fold-edge
       if (!row.classList.contains("fold-toggle-row")) {
         row.classList.add("pinned-line");
       }
@@ -631,7 +630,8 @@ function ImperativeDiffLines(props: {
   }
 
   // This grid's SVG filter combines touching moved-text rectangles into one
-  // outline, retaining holes occupied by different move relationships or unassociated text.
+  // outline, retaining holes occupied by different move relationships or
+  // unassociated text.
   const moveOutlineId = `move-outline-${createUniqueId().replaceAll(":", "")}`;
   function paintMoveOutlines(): void {
     root.querySelector(".move-outlines")?.remove();
@@ -841,7 +841,8 @@ function ImperativeDiffLines(props: {
         }
       }
       // Coverage never changes: hover emphasizes existing text and outlines for
-      // the selected move and descendants, including their opposite-side pieces.
+      // the selected move and descendants, including their opposite-side
+      // pieces.
       for (const element of root.querySelectorAll<HTMLElement | SVGGElement>(
         ".token-moved, .move-outlines g",
       )) {

@@ -121,6 +121,8 @@ class LazyInfo(TypedDict):
     files: list[LazyInfoFile]
 
 
+# Side names with Git-specific loading; keep aligned with the Git loading and
+# diff command branches.
 BUILTIN_SIDES = frozenset({"HEAD", "index", "worktree"})
 
 __all__ = [
@@ -248,6 +250,7 @@ class RefChoices(TypedDict):
 
 
 class RefMetadata(TypedDict):
+    # Empty string when HEAD is detached.
     current_branch: str
 
     local_branches: list[str]
@@ -393,6 +396,7 @@ class LoadedSide:
 
 @dataclass(frozen=True)
 class FileData:
+    # A failure first found during acquisition replaces the observed identity.
     content_identity: bytes
 
     content: Result[bytes, DirdiffError]
@@ -416,10 +420,16 @@ class LoadedFile:
         assert Some.present(self.right) == Some.present(self.change.right)
 
 
+# (canonical path, side, properties, object id). Properties and object id are
+# None for unlisted paths reached through a link, which are inspected live.
 StorageFile = tuple[str, SideName, FileProperties | None, str | None]
 
 
 class ChangeSourceProtocol(Protocol):
+    """changes() must precede load(); load() takes the exact FileChange objects
+    changes() returned (identity-checked, not equal copies). Acquired results,
+    failures included, are retained, so reloads never retry."""
+
     def changes(self) -> WorkspaceChanges: ...
 
     def load(
@@ -460,7 +470,6 @@ def load_file_sides(
         current_path = path
         current_content = content
         while True:
-            # A repeated normalized path must stop before another target read.
             assert current_path not in visited
             visited.add(current_path)
             try:

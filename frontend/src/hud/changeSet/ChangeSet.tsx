@@ -70,6 +70,8 @@ type ChangeSetProps = {
 };
 
 type ChangeSetState = {
+  // Keyed by manifest path pair. `undefined` delegates to the file state's
+  // initial policy; entries survive Tab inactivity but reload clears them all.
   fileExpansion: Record<string, boolean | undefined>;
 };
 
@@ -195,7 +197,6 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
               props.onHistoryOpenChange(!props.historyOpen)
             }
             onReload={() => {
-              // Reload replaces the snapshot and resets only its file expansion.
               void reloadSnapshot();
             }}
             onToggleHelp={() => props.onHelpOpenChange(!props.helpOpen)}
@@ -310,8 +311,8 @@ function ReviewSnapshotBoundary(
   const preferences = createQuery(() =>
     api.profile.preferences(props.profile?.id ?? null),
   );
-  // This boundary retains review state while complete rendering choices replace
-  // only the File lane. Equal choices survive unrelated preference updates.
+  // Structural equality below keeps unrelated preference updates from
+  // replacing the File lane.
   const configuration = createMemo<EngineConfig | null>(
     () => {
       if (preferences.isPending || preferences.error !== null) {
@@ -355,8 +356,8 @@ function ReviewSnapshotBoundary(
     { equals: (left, right) => JSON.stringify(left) === JSON.stringify(right) },
   );
   const navigation = useNavigation();
-  // History navigation shares this exact Snapshot boundary lifetime; disposal
-  // cancels any line preparation before it can scroll or return a detached row.
+  // Disposal cancels line preparation so it cannot scroll or return a detached
+  // row. Line navigation resolves null when aborted this way.
   const reviewNavigationAbort = new AbortController();
   onCleanup(() => reviewNavigationAbort.abort());
   const files = manifestFilesInOrder(props.manifest.tree);
@@ -372,8 +373,8 @@ function ReviewSnapshotBoundary(
   const [navigableFileIndexes, setNavigableFileIndexes] = createSignal<
     ReadonlySet<number>
   >(new Set());
-  // Inline History is rendered by the surrounding review boundary into this
-  // exact third ChangeSet grid child; Split History keeps its fixed host.
+  // Inline History portals into the third ChangeSet grid child; Split History
+  // has its own fixed host.
   const [inlineHistoryTarget, setInlineHistoryTarget] =
     createSignal<HTMLElement | null>(null);
 
@@ -631,16 +632,13 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
       }
     },
   });
-  // The surrounding ChangeSet uses this exact stop operation to await the lane
-  // before manifest reload. Clear the publication when the snapshot unmounts so
-  // a later reload cannot stop an already disposed lane.
+  // Reload awaits this stop; cleared on unmount so reload cannot stop a
+  // disposed lane.
   props.onFileSequenceChange(lane.stop);
   onCleanup(() => props.onFileSequenceChange(null));
 
-  // Initial hunk selection belongs to this mounted snapshot. FileCards have
-  // mounted by the time this runs, and the surrounding NavigationProvider
-  // survives engine-keyed snapshot replacement, so the provider cannot
-  // initialize a replacement snapshot's fresh DOM.
+  // The NavigationProvider survives engine-keyed snapshot replacement, so it
+  // cannot select in a replacement snapshot's fresh DOM; the snapshot does.
   onMount(() => writeInitialHunkSelection(changeSetRoot));
 
   const preferences = createQuery(() =>
@@ -652,12 +650,9 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
         .aggressive_folds,
   );
 
-  // ReviewProvider must react when lane queries replace Husk or Lazy states
-  // with FullFiles, but the lane deliberately knows nothing about review. This
-  // effect derives a fresh immutable set from `lane.fileStates()` after each
-  // canonical state transition and hands it across that boundary. It lives for
-  // this engine-keyed snapshot; cleanup publishes the empty set so the longer
-  // lived review boundary cannot keep enabling destinations from a disposed lane.
+  // The lane knows nothing about review, so this effect hands the set of Full
+  // indexes across. Cleanup publishes the empty set because the review
+  // boundary outlives this engine-keyed snapshot.
   createEffect(() => {
     const navigable = new Set<number>();
     for (const [fileIndex, state] of lane.fileStates().entries()) {

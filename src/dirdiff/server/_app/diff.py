@@ -96,6 +96,7 @@ class DecoratedPartResponse(ApiModel):
 
     syntax_classes: list[SyntaxClass]
 
+    # Move spans use one-based source lines and zero-based Unicode columns.
     move: PairedMove | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -104,10 +105,12 @@ class DecoratedPartResponse(ApiModel):
 
     is_whitespace: bool
 
+    # Implies `is_whitespace`; only the run before the first content counts.
     is_leading_whitespace: bool
 
 
 class FoldHintResponse(ApiModel):
+    # Zero-based half-open interval of row indexes within one bay's `rows`.
     start_row: int
 
     end_row: int
@@ -130,6 +133,8 @@ class DiffRowResponse(ApiModel):
 
     status: Literal["equal", "replace", "insert", "delete", "move"]
 
+    # One-based source line numbers. None for an absent side, and for Git word
+    # fragments made only of whitespace; Git word fragments may repeat a number.
     left_no: int | None
 
     right_no: int | None
@@ -141,10 +146,14 @@ class DiffRowResponse(ApiModel):
     left_parts: list[DecoratedPartResponse]
 
     right_parts: list[DecoratedPartResponse]
+    # Zero-based bay-local index (not File-wide) of the hunk starting on this
+    # row, else None; assigned before frontend folding or virtualization.
     hunk_index: int | None
 
 
 class DiffSummaryResponse(ApiModel):
+    # Counts cover text bays only. `*_exists` is True for an empty File, so
+    # side absence must not be inferred from the counts.
     changed_lines: int
 
     modified_lines: int
@@ -175,6 +184,8 @@ class RepoDiffSummaryResponse(ApiModel):
 
     skipped_files: int
 
+    # The cell counts are not populated by manifests; None means unavailable,
+    # not zero.
     changed_cells: int | None = None
 
     added_cells: int | None = None
@@ -248,6 +259,9 @@ class TextKindResponse(ApiModel):
 
     stats: BayStatsResponse
 
+    # True for Git word mode: each row is one tool-printed line and the inline
+    # grid interleaves an equal row's sides back into it. False: aligned
+    # physical lines, one per side. Required so the HUD never guesses.
     interleave_inline_rows: bool
 
 
@@ -256,12 +270,15 @@ class MediaRefResponse(ApiModel):
 
     byte_size: int = Field(ge=0)
 
+    # Lowercase hex SHA-256 of the exact media bytes.
     digest: str = Field(min_length=1)
 
 
 class ImageKindResponse(ApiModel):
     kind: Literal["image"]
 
+    # None when the side is absent or a notebook output has no PNG there; not
+    # an empty or failed image.
     left: MediaRefResponse | None = None
 
     right: MediaRefResponse | None = None
@@ -274,6 +291,8 @@ BayKindResponse = Annotated[
 
 
 class BayResponse(ApiModel):
+    # Stable sub-File coordinate shared with line pins and Thread targets;
+    # clients return it unchanged. `label` is presentation and may repeat.
     bay_key: str = Field(min_length=1)
 
     label: str
@@ -284,6 +303,8 @@ class BayResponse(ApiModel):
 
     default_expanded: bool
 
+    # Decided by the format builder: row equality cannot recover moves or
+    # changes beyond the rendered text, so the HUD must not re-derive it.
     change: Annotated[
         ChangeStatusResponse | MovedChangeStatusResponse,
         Field(discriminator="kind"),
@@ -349,6 +370,8 @@ class RepoManifestDirectoryNodeResponse(ApiModel):
 
     path: str
 
+    # Source-supplied order; the HUD must not sort it. `path` is the identity,
+    # `name` may be a compacted single-child chain containing separators.
     entries: list[RepoManifestTreeEntryResponse]
 
 
@@ -368,6 +391,7 @@ class LazyInfoFileResponse(ApiModel):
 
     display_name: str
 
+    # None means unknown until the File is rendered, not zero.
     changed_lines: int | None = None
 
     added_lines: int | None = None
@@ -535,6 +559,7 @@ class DiffRoutes:
         summary="Load grouped preset metadata",
     )
     def serve_presets(self) -> list[PresetCatalogResponse]:
+        # The root is rescanned on every call so hot-added catalogs appear.
         try:
             return [
                 self.preset_catalog_response(catalog)
@@ -564,6 +589,7 @@ class DiffRoutes:
         self,
         query: Annotated[ManifestQuery, Query()],
     ) -> RepoManifestResponse:
+        # `selection` is one JSON-encoded object, not separate query fields.
         try:
             prepared: PreparedCapture = query.selection.prepare(
                 self.db,
@@ -757,6 +783,8 @@ class DiffRoutes:
                     Some(side.link) if side.kind == "symlink" else Nothing()
                 )
             )
+            # `bays()` runs no diff engine, so serving a picture never renders a
+            # diff.
             for bay in Composer().bays(
                 left_file.map(lambda side: side.path.read_bytes()),
                 right_file.map(lambda side: side.path.read_bytes()),
@@ -801,5 +829,7 @@ class DiffRoutes:
         return Response(
             content=media_side.value.data,
             media_type=media_side.value.media_type,
+            # Snapshots are immutable and ids never reused, so this address
+            # can never change content.
             headers={"Cache-Control": "private, max-age=31536000, immutable"},
         )
