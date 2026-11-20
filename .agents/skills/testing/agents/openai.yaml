@@ -1,0 +1,4 @@
+interface:
+  display_name: "Testing"
+  short_description: "Add or change dirdiff tests and presets"
+  default_prompt: "Use $testing to add a test for this."

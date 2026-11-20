@@ -1,3 +1,8 @@
+---
+name: testing
+description: Use when adding, changing or running dirdiff tests, presets, golden snapshots, or cached third-party engine JSON.
+---
+
 # What this document is about
 
 The document must answer how to add new tests, where to add new tests, and what

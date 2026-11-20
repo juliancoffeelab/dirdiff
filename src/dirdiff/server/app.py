@@ -396,6 +396,8 @@ def release_uvicorn_entrypoint() -> FastAPI:
 
     @app.get("/")
     def serve_release_frontend() -> FileResponse:
+        # Revalidated on every load, so a reinstalled release never runs the
+        # previous release's script against the new API.
         return FileResponse(index_path, headers={"Cache-Control": "no-cache"})
 
     app.mount("/assets", StaticFiles(directory=assets_path), name="assets")

@@ -14,7 +14,11 @@ in [`navigation.md`](navigation.md).
   list. The engine is not part of manifest identity.
 - A change of engine configuration (including any Git option) replaces the lane
   without refetching the manifest or replacing the review state. Unrelated
-  preference changes must not replace an equal configuration.
+  preference changes must not replace an equal configuration. The manifest,
+  Snapshot and `ReviewProvider` stay mounted across the replacement.
+- File rendering takes a complete `EngineConfig`, and the whole value is part
+  of query identity. `word_boundary.regex` travels only under mode `custom`, so
+  other modes share one query identity whatever pattern is stored.
 - File indexes are depth-first manifest indexes, stable for the snapshot, and
   shared by the lane, `FileCard`, navigation, and FileTree. Duplicate file
   identities are an error.
@@ -22,6 +26,9 @@ in [`navigation.md`](navigation.md).
 
 ## Backend data
 
+- One canonical File query represents one manifest entry in one snapshot under
+  one complete engine configuration. `FileCard` never observes TanStack Query
+  and never performs an HTTP operation.
 - File queries have no observers; the lane runs them imperatively. A settled
   canonical query is garbage-collected immediately (`gcTime` 0), so the
   per-file payload slot is the sole surviving reference and a `success` view
@@ -110,11 +117,3 @@ in [`navigation.md`](navigation.md).
   prefetched queries, and returns one Promise to every caller.
 - Nothing from a disposed snapshot may later write DOM, report progress, or
   scroll.
-
-## Invariants
-
-- `FileCard` never observes TanStack Query and never performs an HTTP
-  operation.
-- One canonical File query represents one manifest entry in one snapshot under
-  one complete engine configuration.
-- Lazy planks, Retry, and line pins all use the same lane.

@@ -62,6 +62,25 @@ live in skills under `.agents/skills/`.
   Specs describe the code as it is and hold only what the code cannot show:
   invariants, ownership, lifetimes, ordering, and the reason for a choice. Code
   and specs change together; when they disagree, investigate the disagreement.
+  - [`rooms.md`](spec/rooms.md): Room correspondence, change sources, Snapshot
+    capture, equality and publication.
+  - [`formats.md`](spec/formats.md): composition of Files into frames and bays,
+    engines and enrichment, review targets and media.
+  - [`reviews.md`](spec/reviews.md): Threads, placements, the review HTTP
+    boundaries, drafts and markers.
+  - [`tabs.md`](spec/tabs.md): Tab selections and preferences.
+  - [`file-lane.md`](spec/file-lane.md): loading of one mounted snapshot.
+  - [`file-meat.md`](spec/file-meat.md): FileCard, bays, TextDiffGrid,
+    rich/virtual rendering.
+  - [`navigation.md`](spec/navigation.md): hunk selection, scroll-follow,
+    FileTree and line pins.
+  - [`release.md`](spec/release.md): installation modes, the wheel and the
+    release server.
+- A change to the captured Snapshot directory (layout, side names, byte
+  meaning, path interpretation, the capture manifest) updates
+  `.agents/skills/review-patch/references/snapshot_structure.md` and the
+  `round-review` and `babysit-patch` skills in the same change; agents read
+  that directory directly.
 - `selectHunk()` has a fixed set of direct callers, enforced by lint. Initial
   hunk selection belongs to the mounted snapshot. FileTree name navigation
   selects hunks; line-pin navigation does not.
@@ -184,8 +203,7 @@ Names that commonly expose bad patterns require architectural scrutiny:
   plausible bugs, not the happy path.
 - A test shows its inputs, the call and the expectation in its own body.
   Shared test infrastructure lives in `tests/helpers.py`; adding to it needs
-  the user's agreement. [`spec/testing.md`](spec/testing.md) covers the kinds
-  of tests and how to add a preset.
+  the user's agreement.
 - Monkey-patching and internal state manipulation are for investigation.
   Final confirmation exercises the real implementation and user-visible
   behavior, and permanent Python tests use no patching.
@@ -200,8 +218,6 @@ Names that commonly expose bad patterns require architectural scrutiny:
   proportion to the change.
 - As you work, keep what a reviewer will need: the user's messages verbatim,
   your test plan, what you actually ran, and screenshots of visible changes.
-  Before asking for a review, read
-  [`.agents/skills/review/handoff.md`](.agents/skills/review/handoff.md).
 
 ## Project commands and environment
 

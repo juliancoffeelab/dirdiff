@@ -1,0 +1,4 @@
+interface:
+  display_name: "Request Review"
+  short_description: "Hand a dirdiff change to a reviewer"
+  default_prompt: "Use $request-review to hand this change to a reviewer."

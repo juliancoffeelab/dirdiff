@@ -49,6 +49,8 @@ from dirdiff.engines.textdiff import TextDiffEngine, text_diff_summary
 from dirdiff.engines.tokendiff import TokenDiffEngine
 
 
+# Lives in the facade rather than base.py: selection imports the concrete
+# engine modules, which themselves depend on base.py.
 def engine(config: EngineConfig) -> DiffEngineProtocol:
     match config:
         case GitEngineConfig(

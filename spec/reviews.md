@@ -1,9 +1,5 @@
 # Persistent review Threads
 
-Rules of the review subsystem that the code does not show on its own. Shapes,
-routes, and fields are in `src/dirdiff/review/base.py`,
-`src/dirdiff/server/_app/review.py`, and `src/dirdiff/server/_app/external_agent.py`.
-
 ## Model
 
 One `thread_id` identifies a live discussion. One `review_thread` row records
@@ -146,12 +142,7 @@ range and its outdated reason; current File content is read explicitly.
   scope includes every discussion (browser History). A Room Thread without a
   selected placement uses its real origin placement for discussion writes and
   reports the captured relation between the origin File and the displayed File.
-- `get_thread` returns a lightweight handle; Snapshot File records load only
-  when a read interprets placement, so write-only callers never pay for them. A
-  write validates and appends from the addressed actions under the Room
-  publication lock.
-- `thread_for_comment` serves Comment-addressed writes that know only the
-  Comment key. No operation changes the bound keys.
+  A write validates and appends under the Room publication lock.
 
 ## Browser HTTP boundary
 
@@ -178,12 +169,10 @@ range and its outdated reason; current File content is read explicitly.
   distinguishes them. The origin is the only place the File pair, bay, and side
   appear; the placement adds only what the origin cannot say. No field pairing
   crosses the two.
-- A review-scope `post_comment` reuses the agent batch's `CreateReviewThread`
-  in a batch of one acting as `reviewer`, so the new Thread waits on the author,
-  as every browser-created code Thread does.
 - No History endpoint exists. Expected review failures return a direct
-  `{code, message}` body using the stable review error enum; clients never
-  parse presentation text.
+  `{code, message}` body using the stable review error enum. The browser turns
+  them into `ReviewRequestError`; callers classify its `code` and never
+  interpret `message` prose.
 - Immediate writes target a bounded response within 50 ms. Slower measurements
   are inspected for avoidable work, not hidden by the frontend.
 
@@ -192,24 +181,24 @@ range and its outdated reason; current File content is read explicitly.
 Ownership and lifetime:
 
 - `App` holds the selected Profile and passes it to the Snapshot-bound
-  `ReviewProvider`; review adds no second identity storage or modal. With no
-  Profile, Threads stay readable and a write attempt directs the user to the
-  existing Profile control. Review never controls that UI and never invents an
-  anonymous author.
-- `ReviewDraftRoot` lives for the application lifetime and is the sole Solid and
-  localStorage representation of drafts. Empty Comment input is not a draft: it
-  lives only in the open input, enters the store on the first non-whitespace
-  input, and is removed when emptied.
+  `ReviewProvider`; review adds no second identity storage and never invents an
+  anonymous author. With no Profile, Threads stay readable.
+- `ReviewDraftRoot` (mounted once by `main.tsx`) lives for the application
+  lifetime and is the sole Solid and localStorage representation of drafts;
+  consumers touch drafts only through `useReviewDrafts`. Empty Comment input is
+  not a draft: it lives only in the open input.
 - `ReviewProvider` lives for one Snapshot, outside engine-keyed File rendering.
   The pages of the canonical query, their total, and their activity boundary
   stay immutable. Successful writes publish their responses as post-boundary
   activity beside the pages; presentation applies contiguous updates by
   discussion revision and ignores an activity once a query result holds an
   equal or newer revision. Query Threads are never copied into another store.
+- `ReviewBinding` is the narrow renderer interface: renderers neither perform
+  review HTTP operations nor store Thread data. `threadViews.tsx` is pure
+  presentation and originates no query, mutation, draft write, or navigation.
 - Before page one arrives, or after the progressive query fails, code markers
   and File actions are disabled rather than reading unavailable Threads as an
-  empty set. Each successful page is authoritative at the boundary. History
-  shows failure and Retry; retry starts a fresh page-one read.
+  empty set.
 
 Drafts:
 
@@ -219,140 +208,64 @@ Drafts:
   loaded Thread supplies current placement. No draft copies source excerpts or
   Thread data.
 - Submission disables that draft for one HTTP action; success removes it,
-  failure leaves the editable draft. Thread state and Comment deletion send one
-  direct action and keep no replay state; both deletions need explicit
-  confirmation first.
-- Closing an input removes an empty new-Thread input and an unchanged or empty
-  edit draft; otherwise it only closes. Renderer detachment preserves the
-  draft. Before a renderer replaces or disposes row DOM it closes only the
-  Comment input or inline Thread panel anchored inside that DOM.
-- A deleted Thread with an existing reply draft keeps its disabled reply
-  textarea and Discard visible; it cannot submit.
-- Meta+Enter (macOS) and Ctrl+Enter (Windows, Linux) submit the focused input;
-  Enter and Shift+Enter stay ordinary textarea input.
-- The whole-review input has no code anchor, so renderer changes never close
-  it. An inline/split view switch rebuilds History and discards its slot, so
-  the switch explicitly closes the input mounted there with ordinary close
-  semantics.
+  failure leaves the editable draft. No action keeps replay state.
+- Renderer detachment preserves the draft. Before a renderer replaces or
+  disposes row DOM it closes only the Comment input or inline Thread panel
+  anchored inside that DOM.
 
-Markers and placement display:
+Markers:
 
 - `region-kept` and `region-changed` mark their stored bay-local line;
   `region-lost` and `bay-lost` mark line one of the bay they name. These are
   coordinates the backend stored: no read-time reconstruction and no
-  frontend-minted bay key. `side-lost`, `file-absent`, `file-unreadable`,
-  `whole-file`, and `review-scope` produce no marker; History is their only
-  presentation.
+  frontend-minted bay key. Every other kind produces no marker; History is its
+  only presentation.
 - Marker facts are one memoized derivation indexed by exact rendered line
   coordinates from the canonical query and new-Thread draft target; it is never
   a writable review store. Draft body changes do not publish a marker revision
   or wake mounted TextDiffGrids.
 - A line-marker failure disables and clears only the affected grid's review
-  decorations and shows a local error beside its intact rows. The failed state
-  persists for the grid lifetime, so later folds and renderer replacements also
-  get disabled triggers.
-- Text selection is one-side, one-based, inclusive; Shift-click extends within
-  the same File, rendered bay, and side.
-
-History:
-
-- The closed panel stays mounted, so closing cannot destroy per-Thread UI
-  state, warmed Thread heights, or the reading position. Only an inline/split
-  view switch rebuilds it, and the tracked scroll position is restored after.
-  The panel has its own scroll and does not follow File-lane scrolling.
-- With no File header, the split host sits directly below the application
-  header so unlocated Threads stay reachable.
-- Go-to is enabled only for an already loaded full File and never loads or
-  admits a lazy File or Husk; neither path starts scroll-follow. A displayed
-  placement or unchanged text origin navigates to the exact selected line. A
-  changed text origin scrolls to the File start without selecting a hunk and
-  without creating a marker or claiming placement. `file-absent` and
-  `file-unreadable` disable go-to and say which happened. A review-scoped
-  Thread has no go-to. Folding a History row does not navigate.
-- Agent names are followed by their reported model and harness label (or
-  "agent" if neither was reported); humans show only the name.
+  decorations for the grid's lifetime and shows a local error beside its intact
+  rows.
 - Unexpected derivation failures are contained around the Comment input, inline
   Thread panel, and History; the File lane is a sibling of that boundary and
   stays mounted.
 
+History:
+
+- The closed panel stays mounted, so closing cannot destroy per-Thread UI
+  state, warmed Thread heights, or the reading position.
+- Go-to never loads or admits a lazy File or Husk, never selects a hunk, and
+  starts no scroll-follow.
+
 ## Agent HTTP boundary
 
 The agent API mirrors the browser and gates nothing: no session, no role stored
-on a Profile, no continuation protocol. Every other `/api/agent` path is absent.
+on a Profile, no continuation protocol. Agents reach it through the
+`dirdiff agent` commands, never through hand-written HTTP.
 
 - `threads` repeats the browser pivot: the first page omits
-  `through_activity_id`, every later page must repeat the returned value; a
-  first page that sends it or a later page that omits it is rejected. Comment
-  pages of `thread/{thread_id}` have no pivot. `threads` lists the whole Room
-  containing the Snapshot, so any Snapshot id of the Room works.
+  `through_activity_id`, every later page must repeat the returned value.
+  `threads` lists the whole Room containing the Snapshot.
 - `onboard` is read-only and creates no Profile, Room, Snapshot, or activity.
-  The browser's Head selection names no baseline (always the current HEAD), so
-  onboarding fills the descriptor's `baseline` with the repository's current
-  HEAD commit id (the empty-tree id for an unborn HEAD). Repository-backed Tabs
-  name the exact path of an active Mark; nothing marks a path implicitly.
-- `profile` is idempotent on the agent UUID (normalized to compact lowercase)
-  and carries no role or permission; its id is the only author identity.
-- `capture` runs the same preparation and `corresponding_room` publication as
-  the browser manifest, so the same descriptor reaches the same Room and an
-  unchanged capture returns the same Snapshot id. The `files` manifest points at
-  the existing durable Snapshot directory; the API creates no copy, hardlink,
-  File reference, or File-content operation, and the tree is read-only and never
-  a worktree. A File whose capture failed stays listed with `capture_error` and
-  holds dirdiff's placeholder, not source. Git LFS sides hold the verified
-  payload, not the pointer. Link side helper files (`*-link.json`, `*-target`)
-  are not changed Files and never appear in `files`.
-- A Head Room is keyed on its baseline commit: `capture` with that descriptor
-  compares the live worktree with the original baseline even after HEAD has
-  advanced. The browser manifest always freezes the current HEAD; the agent
-  capture takes the baseline explicitly.
-- Captured bytes carry the placement coordinate, so no composed content crosses
-  the agent boundary. A text File composes the single `flatfile` bay, so its
-  lines are the lines on disk. A notebook cell bay is keyed by the cell's `id`
-  and its lines are those of the cell's joined `source`. Bays whose text a
-  renderer produces (cell outputs, cell and notebook metadata) have no
-  coordinate an agent can derive from bytes; review accepts those keys but the
-  agent has no way to count lines inside them. `image` and `blob` Files compose
-  one bay of that name, addressed as `1..1`.
-- Changing Snapshot directory organization, side filenames, path meaning,
-  mutability, the manifest shape, or how agents obtain captured bytes must
-  update `.agents/skills/review-patch/references/snapshot_structure.md`, the
-  `round-review` and `babysit-patch` skills, and this document in the same
-  change.
-- The `dirdiff agent` CLI is the supported client; each command takes a required
-  `--session PATH`, with no default path and no environment lookup, so an author
-  and a reviewer in one directory keep separate state. A session file belongs to
-  one review; `init --identity-from` reuses an identity across reviews. The
-  role comes from the session for every `create-thread`, `comment`, and
-  `reopen`. `news` and `wait` print only other participants' events and move the
-  cursor past their own. A failing call prints the server's plain-text body to
-  standard error and exits non-zero; nothing is retried.
-- `reviews` lists the Rooms of one Mark that have a Snapshot; Preset Rooms
-  belong to no Mark and never appear. A Thread whose latest state came from a
-  browser action waits on `both` and counts toward each role.
-- `activity` and `wait` cover every Room of a Mark; placement and code changes
-  are not activity. `wait` polls the newest activity id without holding a worker
-  thread; an empty result is retried with the same cursor.
-- Thread `location` is read through the given Snapshot; a kept or relocated
-  range reports its landed lines and every other landing reports the original
-  lines. `thread/{thread_id}` reads by id alone and describes the Thread as
-  created in its origin Snapshot. Complete Comments and present excerpts are
-  never truncated.
+  Nothing marks a path implicitly.
+- `profile` is idempotent on the agent UUID and carries no role or permission;
+  its id is the only author identity.
+- `capture` points at the existing durable Snapshot directory; the API creates
+  no copy, hardlink, or File-content operation, and the tree is read-only and
+  never a worktree. Captured bytes carry the placement coordinate, so no
+  composed content crosses the agent boundary.
+- `activity_id` orders `activity` and `wait` across every Room of a Mark;
+  placement and code changes are not activity.
 - `role` on an action states which side the Profile speaks for in that action
   only and is never stored. After `create-thread`, `comment`, or `reopen` the
   Thread waits on the other role; after `resolve` and `delete-thread` on
-  nobody; `edit-comment` and `delete-comment` leave it unchanged. The browser's
-  legal transitions apply.
-- `create-thread` sends `path`, `side`, and `bay` together (a code Thread) or
-  not at all (review-scoped). Bay keys the File does not compose are rejected;
-  the boundary assumes no key of its own. Thread ids are server-generated, so a
-  batch cannot address a Thread it creates.
+  nobody; Comment edits and deletions leave it unchanged. A Thread whose latest
+  state came from a browser action waits on `both`.
 - A batch addresses one Room. An action on an existing Thread is recorded
   against that Thread's origin Snapshot. Each action is validated against the
   state the earlier ones produce, and the whole array is appended under the Room
-  write lock in one transaction; any invalid item discards the batch, and which
-  invalid item is reported is unspecified. Re-sending performs the actions
-  again; there is no submission identity, retry, replay, checkpoint, or
-  recovery contract.
-- Rejected operations return a non-2xx response with a plain-text body
-  describing the concrete failure. Unexpected failures stay ordinary
-  internal-server errors and expose no tracebacks.
+  write lock in one transaction; any invalid item discards the batch. Thread
+  ids are server-generated, so a batch cannot address a Thread it creates.
+  There is no submission identity, retry, replay, checkpoint, or recovery
+  contract.

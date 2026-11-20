@@ -5,11 +5,11 @@
 A Room contains Snapshots and review Threads. One Tab's law of correspondence
 selects the Room. `RoomLord` and `Room` are the only application boundary used
 by HTTP and rendering; Snapshot capture, publication, and relational records do
-not cross it. `room_lord.py` reaches the `dirdiff.db` persistence facade only to
-implement those two classes.
+not cross it. `RoomLord` calls `dirdiff.db` and issues no SQL.
 
 The HUD knows only the opaque `snapshot_id` returned by `/api/manifest`. It does
-not know Room identity, Room lifetime, or storage layout.
+not know Room identity, Room lifetime, or storage layout. Snapshot ids are never
+reused.
 
 ## Contract
 
@@ -35,8 +35,15 @@ not know Room identity, Room lifetime, or storage layout.
   lifecycle operations use the handle's bound Snapshot. Room neither
   interprets private source coordinates nor implements discussion state
   transitions.
-- `FileMeta.untracked` is the inverse of the database `tracked` column; the
-  inversion happens at that boundary.
+- After capture, `/api/lazy-info`, `/api/file-diff` and `/api/file-media` read
+  captured state only; they never reload Git, index, worktree, or preset
+  contents.
+- Agent routes capture through the same `corresponding_room` operation as the
+  browser manifest and introduce no other Room identity. None recovers a Room
+  from a Snapshot to recapture it.
+- Repository-mark removal deactivates the Mark instead of deleting its row, so
+  Room and Snapshot identity survive; marking the same path again reactivates
+  the same Mark id.
 
 ## Law of correspondence
 
@@ -45,9 +52,9 @@ interpret it. SQLite compares it for equality only, and partial unique indexes
 keep marked and Mark-less Room identities distinct despite nullable uniqueness.
 
 - Head: `{"commit": baseline}`. Git setup supplies the HEAD commit id, or the
-  empty-tree hash for unborn HEAD. The baseline stays frozen after HEAD advances
-  (browser continuation and agent descriptors alike); a new Head capture from
-  the browser selects a new Room.
+  empty-tree hash for unborn HEAD. The baseline stays frozen after HEAD advances;
+  a new Head capture from the browser selects a new Room. An agent descriptor
+  carries the baseline explicitly, so it keeps comparing against it.
 - Compare Refs: `{"left": identity, "right": identity}`. Commit-backed refs are
   frozen to commit ids; `index` and `worktree` stay as live ephemeral sides.
   Snapshot labels use these canonical values, not the request's ref spelling.
@@ -55,8 +62,31 @@ keep marked and Mark-less Room identities distinct despite nullable uniqueness.
   to Room; Git setup resolves the branch pair freshly for each capture.
 - Pull Request: the URL as a JSON string. The merge-base and head commits used
   for capture do not identify the Room and cannot replace, extend, or verify
-  the URL key.
+  the URL key. Its base and source branch names are display facts, outside Room
+  and Snapshot identity.
 - Preset: `{"catalog": id, "subset": id}` in one Mark-less Room.
+
+## Change sources
+
+- Observation obtains complete content identities, acquiring any data needed to
+  do so. The source retains those results for its one capture lifetime; later
+  `load` calls return the observed data or read the exact listed immutable
+  version and never reread mutable sides.
+- Callers never reconstruct File pairing: absent sides stay absent.
+- Sources do not compute whole-Snapshot equality, select Rooms, or retain state
+  between captures. Loading stops at bytes; what bytes are is decided by
+  `dirdiff.formats`.
+- Git LFS pointers are expanded from local storage only; no download or filter
+  runs, and the local store's content-addressed objects are trusted without
+  recomputing their digest.
+- Pull Request preparation (`/api/pull-request/prepare`) fetches the
+  forge-recorded target and head objects by SHA and computes the merge base
+  locally; it never selects a newer revision from updated tracking refs. Each
+  observed commit is retained under `refs/dirdiff/prepared/<sha>` so restored
+  review URLs stay capturable after Git garbage collection; these refs never
+  expire and are independent of Room and Snapshot identity. Manifest uses the
+  URL only for correspondence and the two commits only for capture; it never
+  contacts a forge or fetches refs.
 
 ## Captured state
 
@@ -81,9 +111,7 @@ keep marked and Mark-less Room identities distinct despite nullable uniqueness.
   sorting defines the hash input only.
 - Sources namespace their side identities so incompatible materialization rules
   cannot silently identify equal data; Room hashes them without treating them as
-  storage addresses. Bump `_SNAPSHOT_HASH_DOMAIN` when the hashed facts change;
-  existing Snapshots stay readable and the new encoding selects its own retained
-  states.
+  storage addresses.
 - A source may establish content identity without loading bytes, so an
   already-captured successful Snapshot stays independent of source availability.
   If acquisition finds a side unavailable and changes an identity, equality is
@@ -102,10 +130,10 @@ side; its target path and hash are present together, only after a successful
 walk. Chain hops, the terminal diagnosis, and the final repository target stay
 in the authenticated metadata, not relationally. No relation stores manifest
 ordering, directory trees, display names, rendered rows, or per-File line
-counts. The Tab lives on the Room relation only, and `Room.meta()` combines it
-with Snapshot facts. The lazy-reason content relation retains the exact preset
-metadata input that participated in identity without adding it to Room File
-metadata.
+counts. The Tab lives on the Room relation only. The lazy-reason content
+relation retains the exact preset metadata input that participated in identity
+without adding it to Room File metadata. A symbolic-link side is identified by
+its link row, never by a filesystem probe.
 
 ## Publication
 
@@ -126,52 +154,10 @@ metadata.
   a predecessor or supply ancestry. Ordinary Thread reads never create or
   repair placements; creating a Thread inserts only its origin row and first
   Comment action in one transaction.
+- The agent capture response points at this same published directory; it
+  creates no other representation. Private `*-link.json` and `*-target` files
+  are not changed Files.
 - Captured File rows retain absolute paths, so changing `--store-path` affects
   only new publication and does not relocate existing Snapshots. Database and
   store paths inside a reviewed repository are rejected before storage
   directories are created.
-
-## HTTP flow
-
-- `/api/pull-request/prepare` is the whole Pull Request preparation boundary;
-  manifest only receives its results. It fetches the forge-recorded target and
-  head objects by SHA and computes the merge base locally. Each observed commit
-  is retained under `refs/dirdiff/prepared/<sha>` in the marked repository so
-  restored review URLs stay capturable after Git garbage collection; these refs
-  never expire and are independent of Room and Snapshot identity. It never
-  selects a newer revision from updated tracking refs. Missing or non-directory
-  marks are logged and skipped while searching.
-- `/api/manifest` validates the per-Tab `selection` (422 on malformed fields),
-  prepares the source, hands it to `corresponding_room`, then reads `meta` and
-  `manifested` from the returned Room. For Pull Request it uses the URL only for
-  correspondence and the two commits only for capture; it never parses the URL,
-  contacts a forge, or fetches refs.
-- `/api/lazy-info` and `/api/file-diff` take a `snapshot_id`, call `find_room`,
-  and read captured state only; they never reload Git, index, worktree, or
-  preset contents. Persisted capture errors do not block lazy-info and follow
-  `/api/file-diff`'s `DirdiffError` path.
-- Agent routes capture through the same `corresponding_room` operation as the
-  browser manifest: the same descriptor always reaches the same Room, an
-  unchanged capture returns the same Snapshot id, and Preset Tabs are rejected
-  because a preset Room has no Mark. No agent route introduces another Room
-  identity or review-handle entity, and none recovers a Room from a Snapshot to
-  recapture it; a later round captures the descriptor again. An agent keeps its
-  Profile id and latest activity id and does not register another Profile.
-- A Head Room is identified by its frozen baseline commit, which the agent's
-  Head descriptor carries (`baseline`, required everywhere). The browser's Head
-  selection names no baseline and always freezes current HEAD, so `onboard`
-  fills `baseline` from the current HEAD (empty-tree id when unborn).
-- The agent capture response returns the existing Snapshot directory already
-  published by ordinary capture; it creates no other representation. Immediate
-  children are opaque captured File ids; the exact `left` and `right` files are
-  the public review sides. Private `*-link.json` and `*-target` files must not
-  be enumerated as changed Files or addressed by findings. File ids and side
-  names encode no repository mapping; the `capture` manifest (see
-  `spec/reviews.md`) maps repository paths to sides. The tree is read-only.
-  Changes to publication layout, side naming, byte meaning, or path
-  interpretation must update `spec/reviews.md` and the `review-patch`,
-  `round-review`, and `babysit-patch` skills together, so capture changes
-  cannot silently break the agent workflow.
-- Repository-mark removal deactivates the Mark instead of deleting its row, so
-  Room and Snapshot identity survive; marking the same path again reactivates
-  the same Mark id.

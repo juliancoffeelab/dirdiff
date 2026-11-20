@@ -1,7 +1,12 @@
+---
+name: request-review
+description: Use when you implemented a change to dirdiff and are about to ask for its review.
+---
+
 # Handing work to a reviewer
 
-For the implementor. The reviewer's own instructions are in `SKILL.md`; do not
-read them.
+For the implementor. The reviewer's own instructions are in the `review` skill;
+do not read them.
 
 ## Required review input
 

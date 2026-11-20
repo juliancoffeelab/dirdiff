@@ -1,11 +1,12 @@
 ---
 name: review
-description: Use when your task is to review a change to the dirdiff repository itself. Reviewers only; an implementor asking for a review reads handoff.md instead.
+description: Use when your task is to review a change to the dirdiff repository itself. Reviewers only.
 ---
 
 # Review a change to dirdiff
 
-The implementor must hand you the input listed in [handoff.md](handoff.md).
+The implementor must hand you the input listed in
+[the `request-review` skill](../request-review/SKILL.md).
 Do not convert paraphrases into user decisions. If a material user message,
 test result, or screenshot is missing, report the missing input and explain
 what cannot be verified without it.

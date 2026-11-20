@@ -6,10 +6,6 @@ release application and contains a compiled HUD. Both forms expose the same API
 and Tab behavior, but their process topology and implicit persistent state are
 separate.
 
-The first verified release platform is macOS ARM64. The implementation does not
-reject other platforms, but they need their own build and browser verification
-before the project claims support.
-
 ## Installation mode
 
 Paths, the working directory, source files, and failed frontend startup never
@@ -39,24 +35,19 @@ command never needs the original checkout:
   opened.
 - The three agent workflow skills go to `dirdiff/skills`; development uses
   `.agents/skills`.
-- Preset files go to `dirdiff/tests/presets`. Standard wheels omit the
-  `formats/symlinks` group and the `formats/invalid/broken-link` and
-  `formats/invalid/link-loop` cases because wheel installation cannot preserve
-  their required filesystem symlinks; the hook creates no symlinks.
+- Preset files go to `dirdiff/tests/presets`. Standard wheels omit the presets
+  that need filesystem symlinks, because wheel installation cannot preserve
+  them; the hook creates no symlinks.
 
 The CLI resolves one absolute Preset root before constructing runtime
-configuration (checkout `tests/presets` when editable, the installed resource
-otherwise; an explicit `--presets-root` is authoritative). The server receives
-the chosen path and performs no installation discovery.
+configuration (an explicit `--presets-root` is authoritative). The server
+receives the chosen path and performs no installation discovery.
 
 Vite reads the output directory from `DIRDIFF_FRONTEND_OUT_DIR` for builds and
 requires `VITE_DIRDIFF_BACKEND_ORIGIN` when serving, so a development HUD is
-always paired with its backend.
-
-`tree-sitter-clojure` is a public HTTPS direct dependency pinned to immutable
-commit `86e2fe6dcdc973e4ca0e9e87dbbce0c34ad44f86`. That revision marks its native
-wheel with the interpreter ABI and build platform. Hatch permits the direct
-reference through `allow-direct-references`.
+always paired with its backend. A JavaScript module change triggers a full page
+reload, because Solid contexts cannot span independently replaced module
+graphs; CSS uses Vite's stylesheet replacement.
 
 ## Server composition
 
@@ -64,30 +55,8 @@ reference through `allow-direct-references`.
 (`release_uvicorn_entrypoint`) returns the entry page from `GET /` and mounts
 only `/assets`; it adds no catch-all route, so unknown paths keep FastAPI's
 404. Root query strings reach the same `index.html`, so the HUD can construct
-its initial Tab from the URL. The entry page is served with
-`Cache-Control: no-cache`, so a browser revalidates it on every load and a
-reinstalled release never runs the previous release's script against the new
-API.
+its initial Tab from the URL.
 
-## Launch behavior
-
-Release is one server: it takes the first free port from `--port` through the
-next 19, runs uvicorn without reload, and never starts Vite. It rejects
-`--no-frontend-dev` and any non-default `--frontend-port`.
-
-Public source installation uses:
-
-```sh
-uv tool install git+https://github.com/juliancoffeelab/dirdiff
-```
-
-An ephemeral invocation may use:
-
-```sh
-uvx --from git+https://github.com/juliancoffeelab/dirdiff dirdiff
-```
-
-Source installation may require Bun, Git, a C compiler, Python headers, and
-public network access. The installed command does not require Bun, frontend
-source, `node_modules`, or a repository checkout. Git and optional diff engines
-remain external requirements for the features that invoke them.
+Release is one server: it runs uvicorn without reload and never starts Vite.
+The installed command does not require Bun, frontend source, `node_modules`, or
+a repository checkout.
