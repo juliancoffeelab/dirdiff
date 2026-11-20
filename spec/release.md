@@ -1,7 +1,5 @@
 # Installed release
 
-## Purpose
-
 Dirdiff keeps one console command across two installation forms. An editable
 installation is the development application. A standard installation is the
 release application and contains a compiled HUD. Both forms expose the same API
@@ -14,126 +12,68 @@ before the project claims support.
 
 ## Installation mode
 
-The root CLI callback reads the installed `dirdiff` distribution and its
-standard `direct_url.json` once. A `dir_info.editable` value of `true` selects
-development. Valid non-editable directory, VCS, archive, wheel, source, and
-ordinary index installations select release. Index installations normally have
-no `direct_url.json`.
-
-Missing distribution metadata, malformed JSON, and invalid direct-URL shapes
-stop the command. Paths, the working directory, source files, and failed
-frontend startup never change the selected mode.
+Paths, the working directory, source files, and failed frontend startup never
+change the selected mode. Only the installed distribution's `direct_url.json`
+does; missing metadata, malformed JSON, and invalid direct-URL shapes stop the
+command. Index installations normally have no `direct_url.json` and are release.
 
 ## Persistent state
 
-Explicit `--db-path`, `DIRDIFF_DB_PATH`, and `--store-path` values are
-authoritative in both modes. With no explicit path, development uses:
-
-```text
-~/.local/share/dirdiff/dirdiff.sqlite
-~/.local/share/dirdiff/store
-```
-
-Release uses:
-
-```text
-~/.local/share/dirdiff/release/dirdiff.sqlite
-~/.local/share/dirdiff/release/store
-```
-
-The database default applies to every command, including `dirdiff mark`. When
-only the database is explicit, the Snapshot store remains its sibling `store`
-directory. Dirdiff does not copy or search state between modes.
+The two modes keep separate implicit state under `~/.local/share/dirdiff/`
+(development) and `~/.local/share/dirdiff/release/` (release). Dirdiff does not
+copy or search state between modes. The database default applies to every
+command, including `dirdiff mark`.
 
 ## Build contract
 
-The wheel target's custom Hatch hook runs only for a standard wheel. It creates
-fresh temporary output, runs `bun install --frozen-lockfile`, and runs the
-frontend `build` script. Vite receives that temporary output path through
-`DIRDIFF_FRONTEND_OUT_DIR`; while serving development it requires
-`VITE_DIRDIFF_BACKEND_ORIGIN` for both API proxying and copied agent-onboarding
-links. The release HUD uses its own origin for those links.
+The wheel hook runs only for a standard wheel; editable wheels skip it. The
+installed package carries everything it needs at runtime, so an installed
+command never needs the original checkout:
 
-The hook requires a regular `index.html` and an `assets` directory, includes the
-complete output at `dirdiff/frontend`, and deletes the temporary directory after
-Hatch consumes it. It does not read `frontend/dist`, write generated files into
-`src/dirdiff`, or run ESLint and frontend tests. Editable wheels skip the hook's
-frontend work.
-
-The source distribution contains the build hook, frontend source and config,
-`package.json`, `bun.lock`, the six preset catalogs under
-`tests/presets`, and the three agent workflow skill directories. It excludes
-`node_modules` and compiled HUD output. A wheel built from an extracted source
-distribution uses only those files.
-
-The wheel also maps the root Alembic configuration and migration history into
-`dirdiff/db`. Development bootstrap uses the canonical files in the editable
-checkout so migration edits take effect immediately. Release bootstrap uses the
-fixed installed resource, so an installed command never needs the original
-checkout to create or upgrade its schema. The validated installation mode
-selects this path before any persistent database is opened.
+- The compiled HUD goes to `dirdiff/frontend`, built into a fresh temporary
+  directory that is deleted after Hatch consumes it. The hook never reads
+  `frontend/dist` or writes generated files into `src/dirdiff`.
+- Alembic configuration and migrations go to `dirdiff/db`. Development uses the
+  canonical files in the checkout so migration edits take effect immediately.
+  The installation mode selects the path before any persistent database is
+  opened.
+- The three agent workflow skills go to `dirdiff/skills`; development uses
+  `.agents/skills`.
+- Preset files go to `dirdiff/tests/presets`. Standard wheels omit the
+  `formats/symlinks` group and the `formats/invalid/broken-link` and
+  `formats/invalid/link-loop` cases because wheel installation cannot preserve
+  their required filesystem symlinks; the hook creates no symlinks.
 
 The CLI resolves one absolute Preset root before constructing runtime
-configuration. An editable installation uses `<checkout>/tests/presets`, where
-the checkout comes from the same standardized direct-URL metadata that selects
-development mode. A release uses the distribution resource at
-`dirdiff/tests/presets`. An explicit `--presets-root` remains authoritative.
-The server receives the chosen path and performs no installation discovery.
+configuration (checkout `tests/presets` when editable, the installed resource
+otherwise; an explicit `--presets-root` is authoritative). The server receives
+the chosen path and performs no installation discovery.
 
-Editable installations expose the complete source corpus. Standard wheels omit
-the `formats/symlinks` group and the `formats/invalid/broken-link` and
-`formats/invalid/link-loop` cases because wheel installation cannot preserve
-their required filesystem symlinks. The wheel hook copies every other regular
-project Preset file into `dirdiff/tests/presets`; it creates no symlinks. Those
-files remain available in the installed Preset Tab.
-
-The wheel maps the complete `review-patch`, `round-review`, and `babysit-patch`
-skill directories into `dirdiff/skills`. Editable startup exposes their
-canonical `.agents/skills` directories instead. Runtime configuration carries
-the selected root into application construction, which requires all three
-`SKILL.md` entry files before the onboarding route can be served. The route
-returns their resolved absolute paths; it does not extract, copy, or search for
-skills at request time.
+Vite reads the output directory from `DIRDIFF_FRONTEND_OUT_DIR` for builds and
+requires `VITE_DIRDIFF_BACKEND_ORIGIN` when serving, so a development HUD is
+always paired with its backend.
 
 `tree-sitter-clojure` is a public HTTPS direct dependency pinned to immutable
 commit `86e2fe6dcdc973e4ca0e9e87dbbce0c34ad44f86`. That revision marks its native
-wheel with the interpreter ABI and build platform. Hatch permits this direct
-reference in project metadata; no uv source override is required.
+wheel with the interpreter ABI and build platform. Hatch permits the direct
+reference through `allow-direct-references`.
 
 ## Server composition
 
-`create_app` constructs the API, documentation, stores, route handlers, and Room
-service. It has no frontend route or mode input.
-
-The two uvicorn factories share runtime configuration decoding and dependency
-construction:
-
-- `development_uvicorn_entrypoint` adds the fixed root diagnostic used when the
-  separate Vite HUD is unavailable.
-- `release_uvicorn_entrypoint` requires installed `index.html` and `assets`,
-  returns the entry page from `GET /`, and mounts only `/assets` as static files.
-
-The release factory adds no catch-all route. Unknown browser and API paths keep
-FastAPI's normal 404 response. Root query strings reach the same `index.html`,
-so the HUD can construct its initial Tab from the URL. Relative `/api` calls stay
-on the release server's origin. The entry page is served with
+`create_app` has no frontend route or mode input. The release factory
+(`release_uvicorn_entrypoint`) returns the entry page from `GET /` and mounts
+only `/assets`; it adds no catch-all route, so unknown paths keep FastAPI's
+404. Root query strings reach the same `index.html`, so the HUD can construct
+its initial Tab from the URL. The entry page is served with
 `Cache-Control: no-cache`, so a browser revalidates it on every load and a
 reinstalled release never runs the previous release's script against the new
 API.
 
 ## Launch behavior
 
-Development selects a free backend and frontend port pair, starts Vite with the
-backend proxy origin, opens the Vite URL unless headless, and runs uvicorn with
-Python reload. `--no-frontend-dev` keeps the reloadable API and diagnostic root.
-Missing Bun retains the same diagnostic path. The CLI terminates a started Vite
-child after uvicorn exits.
-
-Release selects the first available server port from `--port` through the next
-19 ports, opens that server URL unless headless, and runs uvicorn without
-reload. It never starts Vite. Release rejects
-`--no-frontend-dev` and any non-default `--frontend-port` value because neither
-option describes its one-server topology.
+Release is one server: it takes the first free port from `--port` through the
+next 19, runs uvicorn without reload, and never starts Vite. It rejects
+`--no-frontend-dev` and any non-default `--frontend-port`.
 
 Public source installation uses:
 
