@@ -78,9 +78,7 @@ __all__ = [
 @dataclass(frozen=True)
 class ReviewProfileRecord:
     id: int
-
     username: str
-
     agent: AgentDetails | None
 
 
@@ -126,16 +124,12 @@ class Room(TableBase):
             name="ck_room_backend_key",
         ),
     )
-
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-
     mark_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("repo_mark.id"),
         nullable=True,
     )
-
     tab: Mapped[str] = mapped_column(String, nullable=False)
-
     backend_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
 
 
@@ -174,14 +168,11 @@ class Snapshot(TableBase):
             name="ck_snapshot_content_hash",
         ),
     )
-
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
-
     room_id: Mapped[int] = mapped_column(
         ForeignKey("room.id"),
         nullable=False,
     )
-
     content_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
 
 
@@ -207,18 +198,13 @@ class SnapshotMeta(TableBase):
             name="ck_snapshot_meta_line_counts",
         ),
     )
-
     snapshot_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot.id"),
         primary_key=True,
     )
-
     left_label: Mapped[str] = mapped_column(String, nullable=False)
-
     right_label: Mapped[str] = mapped_column(String, nullable=False)
-
     added_lines: Mapped[Optional[int]] = mapped_column(nullable=True)
-
     removed_lines: Mapped[Optional[int]] = mapped_column(nullable=True)
 
 
@@ -245,20 +231,14 @@ class SnapshotFile(TableBase):
             name="ck_snapshot_file_error",
         ),
     )
-
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
-
     snapshot_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot.id"),
         nullable=False,
     )
-
     path: Mapped[str] = mapped_column(String, nullable=False)
-
     tracked: Mapped[bool] = mapped_column(Boolean, nullable=False)
-
     change_type: Mapped[str] = mapped_column(String, nullable=False)
-
     error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
@@ -288,28 +268,22 @@ def _captured_side_constraints(side: str) -> tuple[CheckConstraint, ...]:
 class SnapshotFileLeft(TableBase):
     __tablename__ = "snapshot_file_left"
     __table_args__ = _captured_side_constraints("left")
-
     file_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot_file.id"),
         primary_key=True,
     )
-
     repository_path: Mapped[str] = mapped_column(String, nullable=False)
-
     content_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
 
 
 class SnapshotFileRight(TableBase):
     __tablename__ = "snapshot_file_right"
     __table_args__ = _captured_side_constraints("right")
-
     file_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot_file.id"),
         primary_key=True,
     )
-
     repository_path: Mapped[str] = mapped_column(String, nullable=False)
-
     content_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
 
 
@@ -348,24 +322,18 @@ class SnapshotFileSymlink(TableBase):
             name="ck_snapshot_file_symlink_target_hash",
         ),
     )
-
     file_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot_file.id"),
         primary_key=True,
     )
-
     side: Mapped[str] = mapped_column(String, primary_key=True)
-
     metadata_path: Mapped[str] = mapped_column(String, nullable=False)
-
     metadata_hash: Mapped[bytes] = mapped_column(
         LargeBinary(32), nullable=False
     )
-
     target_capture_path: Mapped[Optional[str]] = mapped_column(
         String, nullable=True
     )
-
     target_hash: Mapped[Optional[bytes]] = mapped_column(
         LargeBinary(32), nullable=True
     )
@@ -373,12 +341,10 @@ class SnapshotFileSymlink(TableBase):
 
 class SnapshotFileLazyReason(TableBase):
     __tablename__ = "snapshot_file_lazy_reason"
-
     file_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot_file.id"),
         primary_key=True,
     )
-
     reason: Mapped[str] = mapped_column(String, nullable=False)
 
 
@@ -390,12 +356,10 @@ class SnapshotFileLazyReasonContent(TableBase):
             name="ck_snapshot_file_lazy_reason_content",
         ),
     )
-
     file_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot_file_lazy_reason.file_id"),
         primary_key=True,
     )
-
     content: Mapped[str] = mapped_column(String, nullable=False)
 
 
@@ -408,9 +372,7 @@ class ReviewThread(TableBase):
             name="ck_review_thread_id",
         ),
     )
-
     thread_id: Mapped[str] = mapped_column(String(32), primary_key=True)
-
     origin_snapshot_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot.id"), nullable=False
     )
@@ -433,7 +395,6 @@ class ReviewThreadPlacement(TableBase):
             name="ck_review_thread_placement_id",
         ),
     )
-
     thread_id: Mapped[str] = mapped_column(
         ForeignKey(
             "review_thread.thread_id",
@@ -441,29 +402,21 @@ class ReviewThreadPlacement(TableBase):
         ),
         primary_key=True,
     )
-
     snapshot_id: Mapped[str] = mapped_column(
         ForeignKey("snapshot.id"), primary_key=True
     )
-
     snapshot_file_id: Mapped[Optional[str]] = mapped_column(
         String(32), nullable=True
     )
-
     target_kind: Mapped[
         Optional[Literal["range", "bay-start", "file-start", "review"]]
     ] = mapped_column(String, nullable=True)
-
     bay_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-
     side: Mapped[Optional[Literal["left", "right"]]] = mapped_column(
         String, nullable=True
     )
-
     start_line: Mapped[Optional[int]] = mapped_column(nullable=True)
-
     end_line: Mapped[Optional[int]] = mapped_column(nullable=True)
-
     outdated_reason: Mapped[
         Optional[
             Literal[
@@ -475,7 +428,6 @@ class ReviewThreadPlacement(TableBase):
             ]
         ]
     ] = mapped_column(String, nullable=True)
-
     private_locator: Mapped[Optional[bytes]] = mapped_column(
         LargeBinary, nullable=True
     )
@@ -542,18 +494,12 @@ class ReviewAction(TableBase):
             name="ck_review_action_created_at",
         ),
     )
-
     # Reuse conflicts with the primary key; it is never a retry/dedup key.
     operation_id: Mapped[str] = mapped_column(String(32), primary_key=True)
-
     activity_id: Mapped[int] = mapped_column(Integer, nullable=False)
-
     thread_id: Mapped[str] = mapped_column(String(32), nullable=False)
-
     snapshot_id: Mapped[str] = mapped_column(String(32), nullable=False)
-
     sequence: Mapped[int] = mapped_column(nullable=False)
-
     kind: Mapped[
         Literal[
             "comment-created",
@@ -565,24 +511,17 @@ class ReviewAction(TableBase):
             "thread-deleted",
         ]
     ] = mapped_column(String, nullable=False)
-
     profile_id: Mapped[int] = mapped_column(
         ForeignKey("user_profile.id"), nullable=False
     )
-
     comment_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-
     # Optimistic concurrency gate for comment edit and deletion.
     expected_revision: Mapped[Optional[int]] = mapped_column(nullable=True)
-
     body: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-
     created_at: Mapped[str] = mapped_column(String, nullable=False)
-
     status_after: Mapped[Literal["open", "resolved", "deleted"]] = (
         mapped_column(String, nullable=False)
     )
-
     attention_after: Mapped[Literal["author", "reviewer", "both", "none"]] = (
         mapped_column(String, nullable=False)
     )
@@ -616,16 +555,13 @@ Index(
 @dataclass(frozen=True)
 class RoomIdentity:
     mark_id: Optional[int]
-
     tab: str
-
     correspondence_key: bytes
 
 
 @dataclass(frozen=True)
 class SnapshotRegularFileSideRecord:
     repository_path: str
-
     content_hash: bytes
 
     def __post_init__(self) -> None:
@@ -647,7 +583,6 @@ class SnapshotRegularFileSideRecord:
 @dataclass(frozen=True)
 class SnapshotLinkTargetRecord:
     path: str
-
     content_hash: bytes
 
     def __post_init__(self) -> None:
@@ -662,9 +597,7 @@ class SnapshotLinkTargetRecord:
 @dataclass(frozen=True)
 class SnapshotFileSymlinkRecord:
     metadata_path: str
-
     metadata_hash: bytes
-
     target: Option[SnapshotLinkTargetRecord]
 
     def __post_init__(self) -> None:
@@ -679,9 +612,7 @@ class SnapshotFileSymlinkRecord:
 @dataclass(frozen=True)
 class SnapshotSymlinkFileSideRecord:
     repository_path: str
-
     content_hash: bytes
-
     link: SnapshotFileSymlinkRecord
 
     def __post_init__(self) -> None:
@@ -711,19 +642,12 @@ SnapshotFileSideRecord = (
 @dataclass(frozen=True)
 class SnapshotFileRecord:
     id: str
-
     snapshot_id: str
-
     path: str
-
     tracked: bool
-
     change_type: str
-
     error: Optional[str]
-
     left: Option[SnapshotFileSideRecord]
-
     right: Option[SnapshotFileSideRecord]
 
     def __post_init__(self) -> None:
@@ -735,48 +659,34 @@ class SnapshotFileRecord:
 @dataclass(frozen=True)
 class SnapshotRecord:
     id: str
-
     content_hash: bytes
-
     meta: SnapshotMetaRecord
-
     files: tuple[SnapshotFileRecord, ...]
 
 
 @dataclass(frozen=True)
 class SnapshotMetaRecord:
     left_label: str
-
     right_label: str
-
     added_lines: Optional[int]
-
     removed_lines: Optional[int]
 
 
 @dataclass(frozen=True)
 class SnapshotFileLoadRecord:
     file: SnapshotFileRecord
-
     lazy_reason: Optional[str]
 
 
 @dataclass(frozen=True)
 class RangePlacement:
     thread_id: str
-
     snapshot_id: str
-
     snapshot_file_id: str
-
     bay_key: str
-
     side: Literal["left", "right"]
-
     start_line: int
-
     end_line: int
-
     outdated_reason: Optional[Literal["region_changed"]]
 
     def __post_init__(self) -> None:
@@ -799,15 +709,10 @@ class RangePlacement:
 @dataclass(frozen=True)
 class BayStartPlacement:
     thread_id: str
-
     snapshot_id: str
-
     snapshot_file_id: str
-
     bay_key: str
-
     side: Literal["left", "right"]
-
     outdated_reason: Literal["region_not_found", "bay_not_found"]
 
     def __post_init__(self) -> None:
@@ -826,13 +731,9 @@ class BayStartPlacement:
 @dataclass(frozen=True)
 class FileStartPlacement:
     thread_id: str
-
     snapshot_id: str
-
     snapshot_file_id: str
-
     side: Literal["left", "right"]
-
     outdated_reason: Optional[Literal["bay_not_found"]]
 
     def __post_init__(self) -> None:
@@ -850,7 +751,6 @@ class FileStartPlacement:
 @dataclass(frozen=True)
 class FileMissingPlacement:
     thread_id: str
-
     snapshot_id: str
 
     def __post_init__(self) -> None:
@@ -862,7 +762,6 @@ class FileMissingPlacement:
 @dataclass(frozen=True)
 class FileUnreadablePlacement:
     thread_id: str
-
     snapshot_id: str
 
     def __post_init__(self) -> None:
@@ -874,7 +773,6 @@ class FileUnreadablePlacement:
 @dataclass(frozen=True)
 class ReviewScopePlacement:
     thread_id: str
-
     snapshot_id: str
 
     def __post_init__(self) -> None:
@@ -896,9 +794,7 @@ Placement = (
 @dataclass(frozen=True)
 class ReviewThreadRecord:
     placement: Placement
-
     is_origin: bool
-
     private_locator: bytes | None
 
     def __post_init__(self) -> None:
@@ -925,7 +821,6 @@ class ReviewThreadRecord:
 @dataclass(frozen=True)
 class AuthoredComment:
     id: str
-
     body: str
 
     def __post_init__(self) -> None:
@@ -938,7 +833,6 @@ class AuthoredComment:
 @dataclass(frozen=True)
 class CommentCreatedAction:
     kind: Literal["thread-created", "comment-created"]
-
     comment: AuthoredComment
 
     def __post_init__(self) -> None:
@@ -949,9 +843,7 @@ class CommentCreatedAction:
 @dataclass(frozen=True)
 class CommentEditedAction:
     comment: AuthoredComment
-
     expected_revision: int
-
     kind: Literal["comment-edited"] = "comment-edited"
 
     def __post_init__(self) -> None:
@@ -963,9 +855,7 @@ class CommentEditedAction:
 @dataclass(frozen=True)
 class CommentDeletedAction:
     comment_id: str
-
     expected_revision: int
-
     kind: Literal["comment-deleted"] = "comment-deleted"
 
     def __post_init__(self) -> None:
@@ -977,7 +867,6 @@ class CommentDeletedAction:
 @dataclass(frozen=True)
 class ThreadStateAction:
     kind: Literal["thread-resolved", "thread-reopened"]
-
     comment: AuthoredComment | None
 
     def __post_init__(self) -> None:
@@ -1005,21 +894,13 @@ ReviewActionPayload = (
 @dataclass(frozen=True)
 class ReviewActionInput:
     operation_id: str
-
     thread_id: str
-
     snapshot_id: str
-
     sequence: int
-
     profile_id: int
-
     payload: ReviewActionPayload
-
     created_at: str
-
     status_after: Literal["open", "resolved", "deleted"]
-
     attention_after: Literal["author", "reviewer", "both", "none"]
 
     def __post_init__(self) -> None:
@@ -1048,7 +929,6 @@ class ReviewActionInput:
 @dataclass(frozen=True)
 class ReviewActionRecord:
     action: ReviewActionInput
-
     activity_id: int
 
     def __post_init__(self) -> None:
@@ -1061,53 +941,36 @@ class ReviewActionRecord:
 @dataclass(frozen=True)
 class ReviewThreadsRecord:
     threads: tuple[ReviewThreadRecord, ...]
-
     origins: tuple[ReviewThreadRecord, ...]
-
     actions: tuple[ReviewActionRecord, ...]
-
     profiles: tuple[ReviewProfileRecord, ...]
-
     total_threads: int
 
 
 @dataclass(frozen=True)
 class ReviewThreadHistory:
     identity: RoomIdentity
-
     origin: ReviewThreadRecord
-
     origin_left_path: Optional[str]
-
     origin_right_path: Optional[str]
-
     actions: tuple[ReviewActionRecord, ...]
 
 
 @dataclass(frozen=True)
 class ReviewMarkActionRecord:
     record: ReviewActionRecord
-
     identity: RoomIdentity
 
 
 class _ReviewThreadInsertValues(TypedDict):
     thread_id: str
-
     snapshot_id: str
-
     snapshot_file_id: str | None
-
     target_kind: Literal["range", "bay-start", "file-start", "review"] | None
-
     bay_key: str | None
-
     side: Literal["left", "right"] | None
-
     start_line: int | None
-
     end_line: int | None
-
     outdated_reason: (
         Literal[
             "region_changed",
@@ -1118,19 +981,14 @@ class _ReviewThreadInsertValues(TypedDict):
         ]
         | None
     )
-
     private_locator: bytes | None
 
 
 class _ReviewActionInsertValues(TypedDict):
     operation_id: str
-
     thread_id: str
-
     snapshot_id: str
-
     sequence: int
-
     kind: Literal[
         "thread-created",
         "comment-created",
@@ -1140,21 +998,13 @@ class _ReviewActionInsertValues(TypedDict):
         "thread-reopened",
         "thread-deleted",
     ]
-
     profile_id: int
-
     comment_id: str | None
-
     expected_revision: int | None
-
     body: str | None
-
     created_at: str
-
     status_after: Literal["open", "resolved", "deleted"]
-
     attention_after: Literal["author", "reviewer", "both", "none"]
-
     activity_id: NotRequired[int]
 
 

@@ -45,13 +45,9 @@ class _OptionRegistrar(Protocol):
 @dataclass(frozen=True)
 class Diagnostic:
     path: str
-
     line: int
-
     column: int
-
     code: str
-
     message: str
 
     def flake8_error(self) -> tuple[int, int, str, type[StrictBoolPlugin]]:
@@ -70,7 +66,6 @@ class StrictBoolPlugin:
         {TRUTHY_CODE, OR_FALLBACK_CODE, OBJECT_ANNOTATION_CODE}
     )
     _flake8_paths: Sequence[str] = ()
-
     _mypy_config = Path("pyproject.toml")
     _diagnostics_by_path: ClassVar[dict[str, list[Diagnostic]]] = {}
     _has_checked = False

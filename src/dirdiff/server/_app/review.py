@@ -50,7 +50,6 @@ __all__ = ["ReviewRoutes"]
 
 class ReviewFilePairModel(ApiModel):
     left_path: str | None
-
     right_path: str | None
 
     @model_validator(mode="after")
@@ -61,7 +60,6 @@ class ReviewFilePairModel(ApiModel):
 
 class ReviewLineRange(ApiModel):
     start_line: int = Field(ge=1)
-
     end_line: int = Field(ge=1)
 
     @model_validator(mode="after")
@@ -76,13 +74,9 @@ class ReviewTextBayModel(ApiModel):
 
 class TextReviewTarget(ApiModel):
     kind: Literal["text"]
-
     file: ReviewFilePairModel
-
     bay: ReviewTextBayModel
-
     side: Literal["left", "right"]
-
     range: ReviewLineRange
 
     @model_validator(mode="after")
@@ -106,23 +100,16 @@ ReviewTargetModel = Annotated[
 
 class NewCodeCommentRequest(ApiModel):
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     profile_id: int = Field(gt=0)
-
     target: ReviewTargetModel
-
     body: str = Field(min_length=1)
 
 
 class ReplyCommentRequest(ApiModel):
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     profile_id: int = Field(gt=0)
-
     body: str = Field(min_length=1)
-
     attention: Literal["inert", "alert"]
 
 
@@ -131,49 +118,35 @@ PostCommentRequest = NewCodeCommentRequest | ReplyCommentRequest
 
 class EditReviewCommentRequest(ApiModel):
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     profile_id: int = Field(gt=0)
-
     body: str = Field(min_length=1)
 
 
 class DeleteReviewCommentRequest(ApiModel):
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     profile_id: int = Field(gt=0)
 
 
 class ChangeReviewThreadStateRequest(ApiModel):
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     profile_id: int = Field(gt=0)
-
     body: str | None = Field(default=None, min_length=1)
 
 
 class DeleteReviewThreadRequest(ApiModel):
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     profile_id: int = Field(gt=0)
 
 
 class ReviewAuthorResponse(ApiModel):
     profile_id: int = Field(gt=0)
-
     display_name: str = Field(min_length=1)
-
     is_agent: bool
-
     model: str | None
-
     harness: str | None
 
     @model_validator(mode="after")
@@ -187,19 +160,12 @@ class ReviewAuthorResponse(ApiModel):
 
 class ReviewCommentResponse(ApiModel):
     comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     sequence: int = Field(ge=0)
-
     author: ReviewAuthorResponse
-
     revision: int = Field(ge=0)
-
     body: str | None
-
     deleted: bool
-
     created_at: datetime
-
     updated_at: datetime
 
     @model_validator(mode="after")
@@ -211,13 +177,11 @@ class ReviewCommentResponse(ApiModel):
 
 class ThreadRegionKeptPlacementResponse(ApiModel):
     kind: Literal["region-kept"]
-
     range: ReviewLineRange
 
 
 class ThreadRegionChangedPlacementResponse(ApiModel):
     kind: Literal["region-changed"]
-
     range: ReviewLineRange
 
 
@@ -227,7 +191,6 @@ class ThreadRegionLostPlacementResponse(ApiModel):
 
 class ThreadBayLostPlacementResponse(ApiModel):
     kind: Literal["bay-lost"]
-
     bay: ReviewTextBayModel
 
 
@@ -271,7 +234,6 @@ class ThreadDisplayedLocationSourceResponse(ApiModel):
 
 class ThreadOriginLocationSourceResponse(ApiModel):
     kind: Literal["origin-snapshot"]
-
     file_state: Literal["unchanged", "changed", "missing", "unreadable"]
 
 
@@ -287,9 +249,7 @@ class TextReviewOriginResponse(TextReviewTarget):
 
 class FileStartReviewOriginResponse(ApiModel):
     kind: Literal["file-start"]
-
     file: ReviewFilePairModel
-
     side: Literal["left", "right"]
 
 
@@ -307,59 +267,38 @@ ReviewOriginResponse = Annotated[
 
 class ReviewThreadResponse(ApiModel):
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     created_at: datetime
-
     state: Literal["open", "resolved", "deleted"]
-
     attention: Literal["author", "reviewer", "both", "none"]
-
     discussion_revision: int = Field(ge=0)
-
     origin_target: ReviewOriginResponse
-
     placement: ThreadPlacementResponse
-
     location_source: ThreadLocationSourceResponse
-
     comments: list[ReviewCommentResponse] = Field(min_length=1)
 
 
 class ReviewThreadUpdateResponse(ApiModel):
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     state: Literal["open", "resolved", "deleted"]
-
     attention: Literal["author", "reviewer", "both", "none"]
-
     discussion_revision: int = Field(ge=0)
-
     comment: ReviewCommentResponse | None
 
 
 class ReviewThreadPage(ApiModel):
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     through_activity_id: int = Field(ge=0)
-
     threads: list[ReviewThreadResponse]
-
     page: int = Field(ge=1)
-
     limit: int = Field(ge=1)
-
     total_threads: int = Field(ge=0)
-
     has_more: bool
 
 
 class ReviewErrorResponse(ApiModel):
     code: ReviewErrorCode
-
     message: str = Field(min_length=1)
 
 

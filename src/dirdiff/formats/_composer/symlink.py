@@ -147,11 +147,8 @@ def read_captured_link(
 @dataclass(frozen=True)
 class SymlinkComposition:
     link_bay: TextBay
-
     left_target: Option[bytes]
-
     right_target: Option[bytes]
-
     target_context: BayContext
 
 

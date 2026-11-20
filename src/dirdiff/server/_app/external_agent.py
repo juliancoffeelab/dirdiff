@@ -127,41 +127,31 @@ _TITLE_MAX = 120
 
 class AgentBranch(ApiModel):
     remote: str | None
-
     name: str = Field(min_length=1)
 
 
 class AgentHeadTab(ApiModel):
     kind: Literal["head"]
-
     repo_path: str = Field(min_length=1)
-
     baseline: str = Field(min_length=1)
 
 
 class AgentRefsTab(ApiModel):
     kind: Literal["refs"]
-
     repo_path: str = Field(min_length=1)
-
     left: str = Field(min_length=1)
-
     right: str = Field(min_length=1)
 
 
 class AgentBranchReviewTab(ApiModel):
     kind: Literal["branch-review"]
-
     repo_path: str = Field(min_length=1)
-
     base: AgentBranch
-
     review: AgentBranch
 
 
 class AgentPullRequestTab(ApiModel):
     kind: Literal["pull-request"]
-
     url: str = Field(min_length=1)
 
 
@@ -173,23 +163,16 @@ AgentReviewTab = Annotated[
 
 class AgentOnboardResponse(ApiModel):
     dirdiff_url: str = Field(min_length=1)
-
     project_id: int | None = Field(default=None, ge=1)
-
     tab: AgentReviewTab
-
     skill_paths: list[str] = Field(min_length=3, max_length=3)
-
     next_step: str = Field(min_length=1)
 
 
 class AgentProfileRequest(ApiModel):
     agent_uuid: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     name: str = Field(min_length=1)
-
     model: str = Field(min_length=1)
-
     harness: str = Field(min_length=1)
 
     # Hyphenated UUIDs are stored compact; the pattern then rejects malformed
@@ -223,11 +206,8 @@ class AgentProfileRequest(ApiModel):
 
 class AgentProfileResponse(ApiModel):
     profile_id: int = Field(gt=0)
-
     name: str
-
     model: str
-
     harness: str
 
 
@@ -237,73 +217,49 @@ class AgentCaptureRequest(ApiModel):
 
 class AgentManifestFile(ApiModel):
     left_path: str | None
-
     right_path: str | None
-
     change_type: Literal["modify", "add", "delete", "rename", "copy"]
-
     capture_error: str | None
-
     left_file: str | None
-
     right_file: str | None
 
 
 class AgentCaptureResponse(ApiModel):
     project_id: int = Field(gt=0)
-
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     tab: AgentReviewTab
-
     snapshot_path: str = Field(min_length=1)
-
     latest_activity_id: int = Field(ge=0)
-
     files: list[AgentManifestFile]
 
 
 class AgentAuthor(ApiModel):
     profile_id: int = Field(gt=0)
-
     name: str
-
     is_agent: bool
-
     model: str | None
-
     harness: str | None
 
 
 class AgentComment(ApiModel):
     comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     author: AgentAuthor
-
     body: str | None
-
     deleted: bool
-
     revision: int = Field(ge=0)
-
     created_at: datetime
-
     updated_at: datetime
 
 
 class AgentCommentPreview(ApiModel):
     body: str | None
-
     deleted: bool
-
     truncated: bool
 
 
 class AgentBayRange(ApiModel):
     bay_key: str = Field(min_length=1)
-
     start_line: int = Field(ge=1)
-
     end_line: int = Field(ge=1)
 
     @model_validator(mode="after")
@@ -314,13 +270,9 @@ class AgentBayRange(ApiModel):
 
 class AgentLocation(ApiModel):
     path: str
-
     side: Literal["left", "right"]
-
     bay_key: str | None
-
     start_line: int | None = Field(default=None, ge=1)
-
     end_line: int | None = Field(default=None, ge=1)
 
 
@@ -339,35 +291,22 @@ AgentWaiting = Literal["author", "reviewer", "both", "none"]
 
 class AgentThreadSummary(ApiModel):
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     status: AgentStatus
-
     waiting_on: AgentWaiting
-
     title: str | None
-
     location: AgentLocation | None
-
     outdated_reason: AgentOutdatedReason | None
-
     comment_count: int = Field(ge=1)
-
     first_comment: AgentCommentPreview
-
     latest_comment: AgentCommentPreview
-
     latest_activity_id: int = Field(ge=1)
 
 
 class AgentPage[AgentPageItem](ApiModel):
     items: list[AgentPageItem]
-
     page: int = Field(ge=1)
-
     limit: int = Field(ge=1)
-
     total: int = Field(ge=0)
-
     has_more: bool
 
 
@@ -377,37 +316,23 @@ class AgentThreadPage(AgentPage[AgentThreadSummary]):
 
 class AgentThread(ApiModel):
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     status: AgentStatus
-
     waiting_on: AgentWaiting
-
     location: AgentLocation | None
-
     original_excerpt: ReviewExcerptResponse | None
-
     comments: list[AgentComment]
-
     page: int = Field(ge=1)
-
     limit: int = Field(ge=1)
-
     total_comments: int = Field(ge=1)
-
     has_more: bool
 
 
 class AgentReview(ApiModel):
     tab: AgentReviewTab
-
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     open_threads: int = Field(ge=0)
-
     waiting_on_author: int = Field(ge=0)
-
     waiting_on_reviewer: int = Field(ge=0)
 
 
@@ -417,9 +342,7 @@ class AgentReviewsResponse(ApiModel):
 
 class AgentEventComment(ApiModel):
     comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     author: AgentAuthor
-
     body: str | None
 
 
@@ -436,49 +359,31 @@ AgentActionKind = Literal[
 
 class AgentActivityEvent(ApiModel):
     activity_id: int = Field(ge=1)
-
     created_at: datetime
-
     tab: AgentReviewTab
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     title: str | None
-
     location: AgentLocation | None
-
     action: AgentActionKind
-
     author: AgentAuthor
-
     comment: AgentEventComment | None
-
     status: AgentStatus
-
     waiting_on: AgentWaiting
 
 
 class AgentActivityResponse(ApiModel):
     events: list[AgentActivityEvent]
-
     next_after: int = Field(ge=0)
-
     has_more: bool
 
 
 class AgentCreateAction(ApiModel):
     kind: Literal["create-thread"]
-
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     role: ReviewRole
-
     body: str
-
     path: str | None = Field(default=None, min_length=1)
-
     side: Literal["left", "right"] | None = None
-
     bay: AgentBayRange | None = None
 
     @model_validator(mode="after")
@@ -493,53 +398,39 @@ class AgentCreateAction(ApiModel):
 
 class AgentCommentAction(ApiModel):
     kind: Literal["comment"]
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     role: ReviewRole
-
     body: str
 
 
 class AgentResolveAction(ApiModel):
     kind: Literal["resolve"]
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     body: str | None = None
 
 
 class AgentReopenAction(ApiModel):
     kind: Literal["reopen"]
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     role: ReviewRole
-
     body: str | None = None
 
 
 class AgentEditCommentAction(ApiModel):
     kind: Literal["edit-comment"]
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     body: str
 
 
 class AgentDeleteCommentAction(ApiModel):
     kind: Literal["delete-comment"]
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     comment_id: str = Field(pattern=r"^[0-9a-f]{32}$")
 
 
 class AgentDeleteThreadAction(ApiModel):
     kind: Literal["delete-thread"]
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
 
 
@@ -557,21 +448,15 @@ AgentAction = Annotated[
 
 class AgentActionsRequest(ApiModel):
     profile_id: int = Field(gt=0)
-
     actions: list[AgentAction] = Field(min_length=1, max_length=_PAGE_LIMIT_MAX)
 
 
 class AgentActionResult(ApiModel):
     kind: AgentActionKind
-
     thread_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     comment_id: str | None
-
     activity_id: int = Field(ge=1)
-
     status: AgentStatus
-
     waiting_on: AgentWaiting
 
 

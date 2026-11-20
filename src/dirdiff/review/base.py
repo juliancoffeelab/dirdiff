@@ -73,7 +73,6 @@ class ReviewError(DirdiffError):
 @dataclass(frozen=True)
 class FilePair:
     left_path: Option[str]
-
     right_path: Option[str]
 
     def __post_init__(self) -> None:
@@ -102,7 +101,6 @@ class LineRange:
     # One-based and inclusive, local to one bay side; not a File line or a
     # rendered row index.
     start_line: int
-
     end_line: int
 
     def __post_init__(self) -> None:
@@ -113,14 +111,10 @@ class LineRange:
 @dataclass(frozen=True)
 class TextTarget:
     file: FilePair
-
     # Opaque composition-issued key, meaningful only together with `file`.
     bay_key: str
-
     side: Literal["left", "right"]
-
     range: LineRange
-
     kind: Literal["text"] = "text"
 
     def __post_init__(self) -> None:
@@ -147,53 +141,39 @@ class ProfileAuthor:
 @dataclass(frozen=True)
 class CreateThread:
     thread_id: UUID
-
     operation_id: UUID
-
     comment_id: UUID
-
     author: ProfileAuthor
-
     target: ReviewTarget
-
     body: str
 
 
 @dataclass(frozen=True)
 class AddComment:
     operation_id: UUID
-
     comment_id: UUID
-
     author: ProfileAuthor
-
     body: str
 
 
 @dataclass(frozen=True)
 class EditComment:
     operation_id: UUID
-
     author: ProfileAuthor
-
     body: str
 
 
 @dataclass(frozen=True)
 class DeleteComment:
     operation_id: UUID
-
     author: ProfileAuthor
 
 
 @dataclass(frozen=True)
 class ChangeThreadState:
     operation_id: UUID
-
     author: ProfileAuthor
-
     comment_id: Optional[UUID]
-
     body: Optional[str]
 
     def __post_init__(self) -> None:
@@ -207,72 +187,56 @@ type ReviewRole = Literal["author", "reviewer"]
 @dataclass(frozen=True)
 class CreateReviewThread:
     thread_id: UUID
-
     operation_id: UUID
-
     comment_id: UUID
-
     author: ProfileAuthor
-
     body: str
 
 
 @dataclass(frozen=True)
 class BatchCreate:
     snapshot_id: UUID
-
     command: CreateThread | CreateReviewThread
-
     role: ReviewRole
 
 
 @dataclass(frozen=True)
 class BatchComment:
     thread_id: UUID
-
     command: AddComment
-
     role: ReviewRole
 
 
 @dataclass(frozen=True)
 class BatchResolve:
     thread_id: UUID
-
     command: ChangeThreadState
 
 
 @dataclass(frozen=True)
 class BatchReopen:
     thread_id: UUID
-
     command: ChangeThreadState
-
     role: ReviewRole
 
 
 @dataclass(frozen=True)
 class BatchEditComment:
     thread_id: UUID
-
     comment_id: UUID
-
     command: EditComment
 
 
 @dataclass(frozen=True)
 class BatchDeleteComment:
     thread_id: UUID
-
     comment_id: UUID
-
     command: DeleteComment
 
 
 @dataclass(frozen=True)
 class BatchDeleteThread:
     thread_id: UUID
-
     command: ChangeThreadState
 
 
@@ -291,52 +255,36 @@ type ReviewBatchAction = (
 @dataclass(frozen=True)
 class ReviewBatchResult:
     thread_id: UUID
-
     comment_id: Optional[UUID]
-
     activity_id: int
-
     status: Literal["open", "resolved", "deleted"]
-
     attention: Literal["author", "reviewer", "both", "none"]
 
 
 class ReviewProfileView(TypedDict):
     profile_id: int
-
     display_name: str
-
     is_agent: bool
-
     # `model` and `harness` are None for humans and for agents registered
     # before they were recorded.
     model: Optional[str]
-
     harness: Optional[str]
 
 
 class ReviewCommentView(TypedDict):
     comment_id: str
-
     sequence: int
-
     author: ReviewProfileView
-
     revision: int
-
     # None only for a deleted Comment, which stays in sequence as a tombstone.
     body: Optional[str]
-
     deleted: bool
-
     created_at: datetime
-
     updated_at: datetime
 
 
 class ReviewFilePairView(TypedDict):
     left_path: str | None
-
     right_path: str | None
 
 
@@ -346,44 +294,32 @@ class ReviewTextBayView(TypedDict):
 
 class ReviewLineRangeView(TypedDict):
     start_line: int
-
     end_line: int
 
 
 class ReviewExcerptView(TypedDict):
     side: Literal["left", "right"]
-
     # Source line number of `lines[0]`; `lines` holds the selection plus up to
     # three context lines each side, fewer at the Snapshot boundary.
     start_line: int
-
     selected_start_line: int
-
     selected_end_line: int
-
     lines: list[str]
 
 
 class TextReviewOriginView(TypedDict):
     kind: Literal["text"]
-
     file: ReviewFilePairView
-
     bay: ReviewTextBayView
-
     side: Literal["left", "right"]
-
     range: ReviewLineRangeView
-
     # Absent (not empty) on summary reads, which do not read captured bytes.
     excerpt: NotRequired[ReviewExcerptView]
 
 
 class FileStartReviewOriginView(TypedDict):
     kind: Literal["file-start"]
-
     file: ReviewFilePairView
-
     side: Literal["left", "right"]
 
 
@@ -398,7 +334,6 @@ type ReviewOriginView = (
 
 class ThreadRegionPlacementView(TypedDict):
     kind: Literal["region-kept", "region-changed"]
-
     range: ReviewLineRangeView
 
 
@@ -408,7 +343,6 @@ class ThreadRegionLostPlacementView(TypedDict):
 
 class ThreadBayLostPlacementView(TypedDict):
     kind: Literal["bay-lost"]
-
     bay: ReviewTextBayView
 
 
@@ -450,7 +384,6 @@ class ThreadDisplayedLocationSourceView(TypedDict):
 
 class ThreadOriginLocationSourceView(TypedDict):
     kind: Literal["origin-snapshot"]
-
     file_state: Literal["unchanged", "changed", "missing", "unreadable"]
 
 
@@ -461,55 +394,34 @@ type ThreadLocationSourceView = (
 
 class ThreadDiscussionView(TypedDict):
     thread_id: str
-
     snapshot_id: str
-
     created_at: datetime
-
     state: Literal["open", "resolved", "deleted"]
-
     attention: Literal["author", "reviewer", "both", "none"]
-
     discussion_revision: int
-
     origin_target: ReviewOriginView
-
     placement: ThreadPlacementView
-
     location_source: ThreadLocationSourceView
-
     comments: list[ReviewCommentView]
 
 
 class ThreadSummaryView(TypedDict):
     thread_id: str
-
     state: Literal["open", "resolved", "deleted"]
-
     attention: Literal["author", "reviewer", "both", "none"]
-
     origin_target: ReviewOriginView
-
     placement: ThreadPlacementView
-
     first_comment: ReviewCommentView
-
     latest_comment: ReviewCommentView
-
     comment_count: int
 
 
 class ThreadUpdateView(TypedDict):
     thread_id: str
-
     snapshot_id: str
-
     state: Literal["open", "resolved", "deleted"]
-
     attention: Literal["author", "reviewer", "both", "none"]
-
     discussion_revision: int
-
     comment: Optional[ReviewCommentView]
 
 

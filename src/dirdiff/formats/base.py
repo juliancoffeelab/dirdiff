@@ -56,9 +56,7 @@ class ChangeStatus(TypedDict):
 
 class MovedChangeStatus(TypedDict):
     kind: Literal["moved"]
-
     from_heading: str | None
-
     to_heading: str | None
 
 
@@ -98,22 +96,16 @@ def whole_file_change[Content](
 @dataclass(frozen=True)
 class BayContext:
     left_path: Option[str]
-
     right_path: Option[str]
-
     left_label: str
-
     right_label: str
-
     left_link: Option[CapturedLink] = field(default_factory=Nothing)
-
     right_link: Option[CapturedLink] = field(default_factory=Nothing)
 
 
 @dataclass(frozen=True)
 class ComposeContext:
     bays: BayContext
-
     renderer: DiffEngineProtocol
 
     @classmethod
@@ -146,61 +138,38 @@ class ComposeContext:
 @dataclass(frozen=True)
 class TextBay:
     frame_key: str
-
     heading: str | None
-
     bay_key: str
-
     label: str
-
     detail: str | None
-
     collapsible: bool
-
     default_expanded: bool
-
     change: BayChange
-
     left_label: str
-
     right_label: str
-
     left: DiffSide
-
     right: DiffSide
-
     warnings: tuple[BayWarning, ...] = ()
 
 
 @dataclass(frozen=True)
 class MediaSide:
     media_type: str
-
     data: bytes
 
 
 @dataclass(frozen=True)
 class ImageBay:
     frame_key: str
-
     heading: str | None
-
     bay_key: str
-
     label: str
-
     detail: str | None
-
     collapsible: bool
-
     default_expanded: bool
-
     change: BayChange
-
     left: Option[MediaSide]
-
     right: Option[MediaSide]
-
     warnings: tuple[BayWarning, ...] = ()
 
 
@@ -209,39 +178,28 @@ Bay = TextBay | ImageBay
 
 class BayWarning(TypedDict):
     type: str
-
     message: str
 
 
 class MediaRef(TypedDict):
     media_type: str
-
     byte_size: int
-
     digest: str
 
 
 class TextKindPayload(TypedDict):
     kind: Literal["text"]
-
     left_label: str
-
     right_label: str
-
     rows: list[DiffRow]
-
     fold_hints: list[FoldHint]
-
     stats: DiffSummary
-
     interleave_inline_rows: bool
 
 
 class ImageKindPayload(TypedDict):
     kind: Literal["image"]
-
     left: MediaRef | None
-
     right: MediaRef | None
 
 
@@ -250,56 +208,39 @@ BayKindPayload = TextKindPayload | ImageKindPayload
 
 class BayPayload(TypedDict):
     bay_key: str
-
     label: str
-
     detail: str | None
-
     collapsible: bool
-
     default_expanded: bool
-
     change: BayChange
-
     warnings: list[BayWarning]
-
     kind_data: BayKindPayload
 
 
 class FramePayload(TypedDict):
     frame_key: str
-
     heading: str | None
-
     bays: list[BayPayload]
 
 
 class ComposedSummary(DiffSummary):
     left_exists: bool
-
     right_exists: bool
 
 
 class ComposedFilePayload(TypedDict):
     left_label: str
-
     right_label: str
-
     left_path: str | None
-
     right_path: str | None
-
     summary: ComposedSummary
-
     default_expanded: bool
-
     frames: list[FramePayload]
 
 
 @dataclass(frozen=True)
 class TextRejection:
     reason: Literal["nul-byte", "invalid-utf8"]
-
     detail: str
 
 

@@ -132,7 +132,6 @@ function createRowChunkAppender(
   chunked: boolean,
 ): {
   appendRow(element: DocumentFragment | HTMLElement): void;
-
   appendFold(element: HTMLElement): void;
 } {
   let chunk: HTMLElement | null = null;
@@ -394,7 +393,6 @@ function renderInlineFoldDom(
 
 type FoldToggle = {
   expanded: boolean;
-
   onToggle: () => void;
 };
 
@@ -759,25 +757,15 @@ function canCombineInsertOnlyChangedRow(row: DiffRow): boolean {
 
 function renderInlineDiffRowDom(props: {
   status: InlineRowStatus;
-
   marker: InlineMarker;
-
   leftNo: number | null;
-
   rightNo: number | null;
-
   text: string;
-
   parts: DecoratedPart[];
-
   rowIndex: number;
-
   fileIndex: number;
-
   bayKey: string;
-
   sourceRow: DiffRow;
-
   lineNumberState: InlineLineNumberState;
 }): HTMLElement {
   const element = document.createElement("div");

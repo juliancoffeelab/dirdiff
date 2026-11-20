@@ -50,9 +50,7 @@ def _is_lazy_reason(value: object) -> TypeIs[LazyReason]:
 @dataclass(frozen=True)
 class PresetCatalogDir:
     catalog_id: str
-
     name: str
-
     root: Path
 
 

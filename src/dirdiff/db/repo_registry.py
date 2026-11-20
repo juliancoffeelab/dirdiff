@@ -28,11 +28,8 @@ __all__ = [
 
 class RepoMark(TableBase):
     __tablename__ = "repo_mark"
-
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-
     path: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-
     active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -42,14 +39,11 @@ class RepoMark(TableBase):
 
 class RepoMarkMeta(TableBase):
     __tablename__ = "repo_mark_meta"
-
     project_id: Mapped[int] = mapped_column(
         ForeignKey("repo_mark.id"),
         primary_key=True,
     )
-
     name: Mapped[str] = mapped_column(String, nullable=False)
-
     marked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -58,40 +52,30 @@ class RepoMarkMeta(TableBase):
 
 class RepoMainBranch(TableBase):
     __tablename__ = "repo_main_branch"
-
     project_id: Mapped[int] = mapped_column(
         ForeignKey("repo_mark.id"),
         primary_key=True,
     )
-
     # "local" or "remote"; remote is set only for a remote source. Stored
     # symbolically, never resolved to a commit.
     source: Mapped[str] = mapped_column(String, nullable=False)
-
     remote: Mapped[str | None] = mapped_column(String, nullable=True)
-
     branch: Mapped[str] = mapped_column(String, nullable=False)
 
 
 @dataclass(frozen=True)
 class RepoMarkRecord:
     id: int
-
     path: str
-
     name: str
-
     marked_at: datetime
 
 
 @dataclass(frozen=True)
 class RepoMainBranchRecord:
     project_id: int
-
     source: str
-
     remote: str | None
-
     branch: str
 
 

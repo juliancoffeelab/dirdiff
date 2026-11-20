@@ -73,13 +73,11 @@ class RepoMainBranchRequest(ApiModel):
 
 class RepoMainBranchResponse(ApiModel):
     project_id: int
-
     selection: BranchSelection
 
 
 class RepoDefaultsResponse(ApiModel):
     default_base_selection: BranchSelection | DefaultBaseSelectionError
-
     preferred_review_selection: BranchSelection
 
 
@@ -93,15 +91,10 @@ class PullRequestPrepareRequest(ApiModel):
 
 class PullRequestPrepareResponse(ApiModel):
     project_id: int
-
     pull_request_url: str
-
     left_commit: str
-
     right_commit: str
-
     base_branch: str
-
     head_branch: str
 
 
@@ -122,11 +115,8 @@ def _pull_request_prepare_response(
 
 class RepoMarkResponse(ApiModel):
     id: int
-
     path: str
-
     name: str
-
     marked_at: datetime
 
 

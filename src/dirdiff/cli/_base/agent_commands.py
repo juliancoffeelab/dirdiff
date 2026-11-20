@@ -80,145 +80,93 @@ class Session(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
-
     server_url: str
-
     agent_uuid: str
-
     profile_id: int
-
     name: str
-
     role: Literal["author", "reviewer"]
-
     model: str
-
     harness: str
-
     project_id: int
-
     tab: dict[str, JsonValue]
-
     snapshot_id: str
-
     snapshot_dir: str
-
     cursor: int
 
 
 class OnboardResponse(Wire):
     dirdiff_url: str
-
     project_id: int | None
-
     tab: dict[str, JsonValue]
-
     skill_paths: list[str]
-
     next_step: str
 
 
 class ProfileResponse(Wire):
     profile_id: int
-
     name: str
-
     model: str
-
     harness: str
 
 
 class ManifestFile(Wire):
     left_path: str | None
-
     right_path: str | None
-
     change_type: str
-
     capture_error: str | None
-
     left_file: str | None
-
     right_file: str | None
 
 
 class CaptureResponse(Wire):
     project_id: int
-
     snapshot_id: str
-
     tab: dict[str, JsonValue]
-
     snapshot_path: str
-
     latest_activity_id: int
-
     files: list[ManifestFile]
 
 
 class Author(Wire):
     profile_id: int
-
     name: str
-
     is_agent: bool
-
     model: str | None
-
     harness: str | None
 
 
 class Location(Wire):
     path: str
-
     side: str
-
     bay_key: str | None
-
     start_line: int | None
-
     end_line: int | None
 
 
 class CommentPreview(Wire):
     body: str | None
-
     deleted: bool
-
     truncated: bool
 
 
 class ThreadSummary(Wire):
     thread_id: str
-
     status: str
-
     waiting_on: str
-
     title: str | None
-
     location: Location | None
-
     outdated_reason: str | None
-
     comment_count: int
-
     first_comment: CommentPreview
-
     latest_comment: CommentPreview
-
     latest_activity_id: int
 
 
 class Page[Item](Wire):
     items: list[Item]
-
     page: int
-
     limit: int
-
     total: int
-
     has_more: bool
 
 
@@ -228,65 +176,41 @@ class ThreadPage(Page[ThreadSummary]):
 
 class Excerpt(Wire):
     side: str
-
     start_line: int
-
     selected_start_line: int
-
     selected_end_line: int
-
     lines: list[str]
 
 
 class Comment(Wire):
     comment_id: str
-
     author: Author
-
     body: str | None
-
     deleted: bool
-
     revision: int
-
     created_at: AwareDatetime
-
     updated_at: AwareDatetime
 
 
 class Thread(Wire):
     thread_id: str
-
     snapshot_id: str
-
     status: str
-
     waiting_on: str
-
     location: Location | None
-
     original_excerpt: Excerpt | None
-
     comments: list[Comment]
-
     page: int
-
     limit: int
-
     total_comments: int
-
     has_more: bool
 
 
 class Review(Wire):
     tab: dict[str, JsonValue]
-
     snapshot_id: str
-
     open_threads: int
-
     waiting_on_author: int
-
     waiting_on_reviewer: int
 
 
@@ -296,55 +220,36 @@ class ReviewsResponse(Wire):
 
 class EventComment(Wire):
     comment_id: str
-
     author: Author
-
     body: str | None
 
 
 class Event(Wire):
     activity_id: int
-
     created_at: AwareDatetime
-
     tab: dict[str, JsonValue]
-
     thread_id: str
-
     title: str | None
-
     location: Location | None
-
     action: str
-
     author: Author
-
     comment: EventComment | None
-
     status: str
-
     waiting_on: str
 
 
 class ActivityResponse(Wire):
     events: list[Event]
-
     next_after: int
-
     has_more: bool
 
 
 class ActionResult(Wire):
     kind: str
-
     thread_id: str
-
     comment_id: str | None
-
     activity_id: int
-
     status: str
-
     waiting_on: str
 
 

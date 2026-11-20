@@ -83,9 +83,7 @@ type _TokenPiece = tuple[str, InlineTokenStatus]
 @dataclass
 class _Op:
     left: str | None
-
     right: str | None
-
     # Text-equal pair deliberately shown as changed; set only by the demotion
     # pass, never alters the texts, so replay of either side still holds.
     demoted: bool = False

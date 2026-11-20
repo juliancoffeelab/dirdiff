@@ -20,7 +20,6 @@ LazyReason = Literal[
 
 class PresetGroup(TypedDict):
     id: str
-
     display_name: str
 
 
@@ -29,7 +28,6 @@ type FileStatus = Literal["modified", "added", "deleted", "renamed", "copied"]
 
 class TrackedFileKind(TypedDict):
     type: Literal["tracked"]
-
     status: FileStatus
 
 
@@ -42,45 +40,31 @@ type RepoFileKind = TrackedFileKind | UntrackedFileKind
 
 class RepoManifestSummary(TypedDict):
     changed_files: int
-
     added_files: int
-
     removed_files: int
-
     updated_files: int
-
     added_lines: int | None
-
     removed_lines: int | None
-
     skipped_files: int
 
 
 class RepoManifestFileEntry(TypedDict):
     left_path: str | None
-
     right_path: str | None
-
     file_kind: RepoFileKind
-
     lazy: LazyReason | None
 
 
 class RepoManifestFileNode(TypedDict):
     type: Literal["file"]
-
     name: str
-
     entry: RepoManifestFileEntry
 
 
 class RepoManifestDirectoryNode(TypedDict):
     type: Literal["directory"]
-
     name: str
-
     path: str
-
     entries: list[RepoManifestTreeEntry]
 
 
@@ -89,31 +73,20 @@ type RepoManifestTreeEntry = RepoManifestFileNode | RepoManifestDirectoryNode
 
 class RepoManifest(TypedDict):
     display_name: str
-
     left_label: str
-
     right_label: str
-
     summary: RepoManifestSummary
-
     tree: list[RepoManifestTreeEntry]
 
 
 class LazyInfoFile(TypedDict):
     left_path: str | None
-
     right_path: str | None
-
     file_kind: RepoFileKind
-
     display_name: str
-
     changed_lines: int | None
-
     added_lines: int | None
-
     removed_lines: int | None
-
     lazy: LazyReason
 
 
@@ -168,48 +141,33 @@ __all__ = [
 @dataclass(frozen=True)
 class ListedPath:
     left_path: str | None
-
     right_path: str | None
-
     display_name: str
-
     change_type: Literal["modify", "add", "delete", "rename", "copy"]
-
     lazy_reason_override: LazyReason | None
-
     untracked: bool = False
-
     left_object_id: str | None = None
-
     right_object_id: str | None = None
-
     left_properties: FileProperties | None = None
-
     right_properties: FileProperties | None = None
-
     lazy_metadata_content: str | None = None
 
 
 @dataclass(frozen=True)
 class ListedChanges:
     paths: tuple[ListedPath, ...]
-
     added_lines: int | None
-
     removed_lines: int | None
 
 
 class LocalBranchSelection(TypedDict):
     source: Literal["local"]
-
     branch: str
 
 
 class RemoteBranchSelection(TypedDict):
     source: Literal["remote"]
-
     branch: str
-
     remote: str
 
 
@@ -218,7 +176,6 @@ BranchSelection = LocalBranchSelection | RemoteBranchSelection
 
 class DefaultBaseSelectionError(TypedDict):
     kind: Literal["error"]
-
     error: Literal["heuristic_fail"]
 
 
@@ -227,13 +184,11 @@ type DefaultBaseSelection = Result[BranchSelection, DefaultBaseSelectionError]
 
 class StructuredRemoteBranchRef(TypedDict):
     remote: str
-
     branch: str
 
 
 class RemoteBranchRef(TypedDict):
     structured: StructuredRemoteBranchRef
-
     # Use only for freeform ref inputs like Compare Refs. Structured branch
     # review, defaults, and runtime JSON must keep remote and branch separate.
     gitref: str
@@ -241,26 +196,18 @@ class RemoteBranchRef(TypedDict):
 
 class RefChoices(TypedDict):
     builtins: list[str]
-
     local_branches: list[str]
-
     remotes: list[str]
-
     remote_branches: list[RemoteBranchRef]
 
 
 class RefMetadata(TypedDict):
     # Empty string when HEAD is detached.
     current_branch: str
-
     local_branches: list[str]
-
     remote_names: list[str]
-
     remote_branches: list[StructuredRemoteBranchRef]
-
     upstreams: dict[str, str]
-
     remote_head_branches: dict[str, str]
 
 
@@ -295,7 +242,6 @@ class WorkspaceStorageProtocol(Protocol):
 @dataclass(frozen=True)
 class FileKey:
     slot: Literal["left", "right"]
-
     path: str
 
     def __post_init__(self) -> None:
@@ -309,7 +255,6 @@ class FileKey:
 @dataclass(frozen=True)
 class FileProperties:
     kind: Literal["file", "symbolic_link", "repository_reference"]
-
     executable: bool
 
     def __post_init__(self) -> None:
@@ -320,26 +265,18 @@ class FileProperties:
 @dataclass(frozen=True)
 class FileSide:
     key: FileKey
-
     properties: FileProperties
-
     content_identity: bytes
 
 
 @dataclass(frozen=True)
 class FileChange:
     left: Option[FileSide]
-
     right: Option[FileSide]
-
     display_name: str
-
     change_type: Literal["modify", "add", "delete", "rename", "copy"]
-
     untracked: bool
-
     lazy_reason_override: LazyReason | None
-
     lazy_reason_content: str | None
 
     def __post_init__(self) -> None:
@@ -357,9 +294,7 @@ class FileChange:
 @dataclass(frozen=True)
 class WorkspaceChanges:
     files: tuple[FileChange, ...]
-
     added_lines: int | None
-
     removed_lines: int | None
 
     def __post_init__(self) -> None:
@@ -371,11 +306,8 @@ class WorkspaceChanges:
 @dataclass(frozen=True)
 class CapturedLink:
     nested_links: tuple[tuple[str, str], ...]
-
     diagnosis: Option[str]
-
     target_path: Option[str]
-
     target_data: Option[bytes]
 
     def __post_init__(self) -> None:
@@ -387,7 +319,6 @@ class CapturedLink:
 @dataclass(frozen=True)
 class LoadedSide:
     content: bytes
-
     link: Option[CapturedLink]
 
 
@@ -395,9 +326,7 @@ class LoadedSide:
 class FileData:
     # A failure first found during acquisition replaces the observed identity.
     content_identity: bytes
-
     content: Result[bytes, DirdiffError]
-
     link: Option[CapturedLink]
 
     def __post_init__(self) -> None:
@@ -407,9 +336,7 @@ class FileData:
 @dataclass(frozen=True)
 class LoadedFile:
     change: FileChange
-
     left: Option[FileData]
-
     right: Option[FileData]
 
     def __post_init__(self) -> None:

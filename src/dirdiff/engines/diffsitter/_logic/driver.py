@@ -31,7 +31,6 @@ class DiffsitterUnsupportedError(DirdiffError): ...
 class DiffsitterJsonPoint(TypedDict):
     # Zero-based, counting only `\n`; a `\r` stays inside its line.
     row: int
-
     # Zero-based UTF-8 byte offset within the row, not a character index.
     column: int
 
@@ -51,11 +50,8 @@ def _is_diffsitter_point(value: object) -> TypeIs[DiffsitterJsonPoint]:
 
 class DiffsitterJsonEntry(TypedDict):
     text: str
-
     start_position: DiffsitterJsonPoint
-
     end_position: DiffsitterJsonPoint
-
     kind_id: int
 
 
@@ -74,7 +70,6 @@ def _is_diffsitter_entry(value: object) -> TypeIs[DiffsitterJsonEntry]:
 
 class DiffsitterJsonLine(TypedDict):
     line_index: int
-
     entries: list[DiffsitterJsonEntry]
 
 
@@ -93,7 +88,6 @@ def _is_diffsitter_line(value: object) -> TypeIs[DiffsitterJsonLine]:
 
 class DiffsitterJsonHunk(TypedDict):
     Old: NotRequired[list[DiffsitterJsonLine]]
-
     New: NotRequired[list[DiffsitterJsonLine]]
 
 
@@ -111,7 +105,6 @@ def _is_diffsitter_hunk(value: object) -> TypeIs[DiffsitterJsonHunk]:
 
 class DiffsitterJsonDocument(TypedDict):
     filename: str
-
     text: str
 
 
@@ -125,9 +118,7 @@ def _is_diffsitter_document(value: object) -> TypeIs[DiffsitterJsonDocument]:
 
 class DiffsitterJson(TypedDict):
     hunks: list[DiffsitterJsonHunk]
-
     old: DiffsitterJsonDocument
-
     new: DiffsitterJsonDocument
 
 

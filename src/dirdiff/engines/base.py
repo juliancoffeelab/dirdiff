@@ -188,9 +188,7 @@ def git_executable() -> str:
 @dataclass(frozen=True)
 class DiffSide:
     exists: bool
-
     text: str | None
-
     # Only picks a parser or temp-file suffix; never read from disk.
     path_hint: str | None = None
 
@@ -198,13 +196,9 @@ class DiffSide:
 class DiffSummary(TypedDict):
     # Equals modified + added + removed + moved; each line position counts once.
     changed_lines: int
-
     modified_lines: int
-
     added_lines: int
-
     removed_lines: int
-
     moved_lines: int
 
 
@@ -214,19 +208,14 @@ class MoveSpan(TypedDict):
     """
 
     start_line: int
-
     start_column: int
-
     end_line: int
-
     end_column: int
 
 
 class PairedMove(TypedDict):
     kind: Literal["paired"]
-
     left: MoveSpan
-
     right: MoveSpan
 
 
@@ -235,9 +224,7 @@ type MoveGroup = Literal["primary", "alternative"]
 
 class UnpairedMove(TypedDict):
     kind: Literal["unpaired"]
-
     group: MoveGroup
-
     dimmed: bool
 
 
@@ -247,32 +234,22 @@ type Move = PairedMove | UnpairedMove
 class InlineToken(TypedDict):
     # Tokens of one row side concatenate to that side's full row text.
     text: str
-
     # Must equal text.isspace().
     is_ws: bool
-
     move: NotRequired[PairedMove]
-
     status: InlineTokenStatus
 
 
 class DiffEngineRow(TypedDict):
     move: NotRequired[UnpairedMove]
-
     status: DiffEngineRowStatus
-
     # One-based. Git word mode rows are the tool's own display fragments, so
     # a number can repeat when one physical line is split.
     left_no: int | None
-
     right_no: int | None
-
     left_text: str
-
     right_text: str
-
     left_tokens: NotRequired[list[InlineToken]]
-
     right_tokens: NotRequired[list[InlineToken]]
 
 
@@ -287,19 +264,15 @@ class EngineWarning(TypedDict):
         "diffsitter_empty_result",
         "tokendiff_region_limit",
     ]
-
     message: str
 
 
 class DiffEngineResult(TypedDict):
     summary: DiffSummary
-
     rows: list[DiffEngineRow]
-
     # True when rows are the tool's own printed fragments (Git word mode), so
     # inline view must interleave both sides back into one line.
     interleave_inline_rows: bool
-
     engine_warning: NotRequired[EngineWarning]
 
 

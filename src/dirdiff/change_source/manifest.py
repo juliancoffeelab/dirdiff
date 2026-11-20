@@ -23,15 +23,10 @@ from dirdiff.util import Option, Some
 @dataclass(frozen=True)
 class ManifestPath:
     left_path: Option[str]
-
     right_path: Option[str]
-
     display_name: str
-
     change_type: Literal["modify", "add", "delete", "rename", "copy"]
-
     lazy_reason_override: LazyReason | None
-
     untracked: bool
 
     def __post_init__(self) -> None:

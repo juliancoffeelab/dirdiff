@@ -32,7 +32,6 @@ class GumTreeUnsupportedError(DirdiffError): ...
 
 class GumTreeJsonMatch(TypedDict):
     src: str
-
     dest: str
 
 
@@ -46,13 +45,9 @@ def _is_gumtree_match(value: object) -> TypeIs[GumTreeJsonMatch]:
 
 class GumTreeJsonAction(TypedDict):
     action: Required[str]
-
     tree: Required[str]
-
     parent: NotRequired[str]
-
     at: NotRequired[int]
-
     label: NotRequired[str]
 
 
@@ -79,7 +74,6 @@ def _is_gumtree_action(value: object) -> TypeIs[GumTreeJsonAction]:
 
 class GumTreeJson(TypedDict):
     matches: NotRequired[list[GumTreeJsonMatch]]
-
     actions: NotRequired[list[GumTreeJsonAction]]
 
 

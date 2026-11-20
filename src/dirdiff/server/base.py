@@ -60,23 +60,14 @@ RUNTIME_CONFIG_ENV = "DIRDIFF_RUNTIME_CONFIG"
 @dataclass(frozen=True)
 class RuntimeConfig:
     db_path: str
-
     migration_config_path: str
-
     agent_skills_path: str
-
     store_path: str
-
     presets_root: str
-
     tab: Literal["head", "refs", "branch-review"] = "head"
-
     left: str = "HEAD"
-
     right: str = "worktree"
-
     base_selection: BranchSelection | None = None
-
     review_selection: BranchSelection | None = None
 
 
@@ -361,13 +352,9 @@ class PreparedCapture:
 
 class ReviewExcerptResponse(ApiModel):
     side: Literal["left", "right"]
-
     start_line: int = Field(ge=1)
-
     selected_start_line: int = Field(ge=1)
-
     selected_end_line: int = Field(ge=1)
-
     lines: list[str] = Field(min_length=1)
 
     @model_validator(mode="after")

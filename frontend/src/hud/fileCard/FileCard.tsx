@@ -54,7 +54,6 @@ export type HunkPosition = {
   // its position, so this may exceed `total`; display only, never navigate by
   // it.
   current: number | null;
-
   total: number;
 };
 
@@ -63,32 +62,22 @@ type HunkCounterProps = {
     position: HunkPosition;
     hasMore: boolean;
   } | null>;
-
   fileSelectedHunk: Accessor<HunkPosition | null>;
 };
 
 type FileCardProps = {
   reviewFile: ReviewFilePair;
-
   file_state: FileState;
-
   expanded: boolean;
-
   explicitlyCollapsed: boolean;
   admitted: boolean;
   // TODO: Consider cooperative yields inside FileBody for expensive in-file
   // rendering.
-
   view: DiffViewMode;
-
   aggressiveFolds: boolean;
-
   linePins: LinePins;
-
   onExpandedChange: (expanded: boolean) => void;
-
   onLoad: () => void;
-
   onRetry: () => void;
 } & HunkCounterProps;
 
@@ -198,9 +187,7 @@ export function FileCard(props: FileCardProps): JSX.Element {
 
 function FileRendererBoundary(props: {
   card: Accessor<HTMLElement>;
-
   path: string;
-
   children: JSX.Element;
 }): JSX.Element {
   return (
@@ -220,9 +207,7 @@ function FileRendererBoundary(props: {
 
 function FileRendererErrorStrip(props: {
   card: Accessor<HTMLElement>;
-
   path: string;
-
   error: unknown;
 }): JSX.Element {
   const toast = useToasts();
@@ -259,7 +244,6 @@ function FileRendererErrorStrip(props: {
 function HuskFile(
   props: {
     file_state: HuskFileState;
-
     explicitlyCollapsed: boolean;
   } & HunkCounterProps,
 ): JSX.Element {
@@ -276,7 +260,6 @@ function HuskFile(
 function HuskFileHeader(
   props: {
     file_state: HuskFileState;
-
     explicitlyCollapsed: boolean;
   } & HunkCounterProps,
 ): JSX.Element {
@@ -375,7 +358,6 @@ function FullFile(
     linePins: LinePins;
     hunkCount: Accessor<number>;
     card: Accessor<HTMLElement>;
-
     onExpandedChange: (expanded: boolean) => void;
   } & HunkCounterProps,
 ): JSX.Element {
@@ -475,11 +457,8 @@ function FullFileRenderer(
     aggressiveFolds: boolean;
     linePins: LinePins;
     card: Accessor<HTMLElement>;
-
     onExpandedChange: (expanded: boolean) => void;
-
     bayExpansion: BayExpansion;
-
     bayRenderModes: BayRenderModes;
   } & HunkCounterProps,
 ): JSX.Element {
@@ -681,7 +660,6 @@ function FullFileHeader(
     virtualized: boolean;
     awaitingAdmission: boolean;
     hunkCount: Accessor<number>;
-
     onExpandedChange: (expanded: boolean) => void;
   } & HunkCounterProps,
 ): JSX.Element {
@@ -764,9 +742,7 @@ function LazyFileView(
   props: {
     file_state: LazyFileState;
     expanded: boolean;
-
     onLoad: () => void;
-
     onRetry: () => void;
   } & HunkCounterProps,
 ): JSX.Element {
@@ -894,7 +870,6 @@ function LazyFileHeader(
 function DeferredFilePlank(props: {
   fileIndex: number;
   info: LazyInfoFile;
-
   onLoad: () => void;
 }): JSX.Element {
   const identity: PseudoHunkIdentity = {
@@ -986,7 +961,6 @@ function LazyStatistics(props: { info: LazyInfoFile }): JSX.Element {
 
 function VisibilityIndicator(props: {
   visible: boolean;
-
   virtualized: boolean;
 }): JSX.Element {
   return (

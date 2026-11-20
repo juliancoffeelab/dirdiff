@@ -58,7 +58,6 @@ class UserProfileResponse(ApiModel):
     # TODO: Successful Profile routes reject missing records, so make both
     # fields required instead of admitting a partial or empty Profile.
     id: int | None
-
     username: str | None
 
 
@@ -68,47 +67,28 @@ class UserProfileUpdateRequest(ApiModel):
 
 class PreferencesResponse(ApiModel):
     user_profile_id: int
-
     aggressive_folds: bool
-
     git_color_moved: GitColorMoved
-
     git_color_moved_ws: GitColorMovedWs
-
     git_algorithm: GitAlgorithm
-
     difftastic_ignore_comments: bool
-
     gumtree_matcher: GumTreeMatcher
-
     git_ignore_space_change: bool
-
     git_word_diff: bool
-
     git_word_boundary: GitWordBoundaryMode
-
     git_word_diff_regex: str | None
 
 
 class PreferencesUpdateRequest(ApiModel):
     aggressive_folds: bool
-
     git_color_moved: GitColorMoved
-
     git_color_moved_ws: GitColorMovedWs
-
     git_algorithm: GitAlgorithm
-
     difftastic_ignore_comments: bool
-
     gumtree_matcher: GumTreeMatcher
-
     git_ignore_space_change: bool
-
     git_word_diff: bool
-
     git_word_boundary: GitWordBoundaryMode
-
     git_word_diff_regex: Annotated[str, Field(min_length=1)] | None
 
 

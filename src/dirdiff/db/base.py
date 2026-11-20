@@ -45,16 +45,13 @@ class UserProfile(TableBase):
     __table_args__ = (
         UniqueConstraint("username", name="uq_user_profile_username"),
     )
-
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-
     username: Mapped[str] = mapped_column(String, nullable=False)
 
 
 @dataclass(frozen=True)
 class UserProfileRecord:
     id: int
-
     username: str
 
 
@@ -68,23 +65,18 @@ class AgentProfile(TableBase):
             name="ck_agent_profile_uuid",
         ),
     )
-
     profile_id: Mapped[int] = mapped_column(
         ForeignKey("user_profile.id"), primary_key=True
     )
-
     agent_uuid: Mapped[str] = mapped_column(String(32), nullable=False)
-
     # NULL for agents registered before model and harness were recorded.
     model: Mapped[str | None] = mapped_column(String, nullable=True)
-
     harness: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 @dataclass(frozen=True)
 class AgentDetails:
     model: str | None
-
     harness: str | None
 
 

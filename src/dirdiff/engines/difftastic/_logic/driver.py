@@ -41,9 +41,7 @@ type DifftasticJsonFileStatus = Literal[
 class DifftasticJsonChange(TypedDict):
     # UTF-8 byte columns in the source line, not character offsets.
     start: int
-
     end: int
-
     content: NotRequired[str]
 
 
@@ -64,7 +62,6 @@ def _is_change(value: object) -> TypeIs[DifftasticJsonChange]:
 class DifftasticJsonSide(TypedDict):
     # Zero-based.
     line_number: int
-
     changes: list[DifftasticJsonChange]
 
 
@@ -79,7 +76,6 @@ def _is_side(value: object) -> TypeIs[DifftasticJsonSide]:
 
 class DifftasticJsonChunkEntry(TypedDict):
     lhs: NotRequired[DifftasticJsonSide]
-
     rhs: NotRequired[DifftasticJsonSide]
 
 
@@ -97,13 +93,9 @@ def _is_chunk_entry(value: object) -> TypeIs[DifftasticJsonChunkEntry]:
 
 class DifftasticJson(TypedDict):
     aligned_lines: NotRequired[list[DifftasticAlignedPairJson]]
-
     chunks: NotRequired[list[list[DifftasticJsonChunkEntry]]]
-
     language: NotRequired[str]
-
     path: NotRequired[str]
-
     status: NotRequired[DifftasticJsonFileStatus]
 
 
@@ -139,9 +131,7 @@ def is_difftastic_json(value: object) -> TypeIs[DifftasticJson]:
 @dataclass(frozen=True)
 class DifftasticTunings:
     graph_limit: str = DFT_GRAPH_LIMIT
-
     context_lines: str = DFT_CONTEXT_LINES
-
     unstable: bool = True
 
 

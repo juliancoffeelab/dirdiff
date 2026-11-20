@@ -45,20 +45,15 @@ __all__ = [
 @dataclass(frozen=True)
 class _Line:
     start: int
-
     text: str
 
 
 @dataclass(frozen=True)
 class _Decoration:
     start: int
-
     end: int
-
     status: InlineTokenStatus
-
     ordinal: int
-
     move: PairedMove | None
 
 

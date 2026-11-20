@@ -88,19 +88,12 @@ __all__ = [
 @dataclass
 class _CommentState:
     comment_id: str
-
     sequence: int
-
     profile_id: int
-
     revision: int
-
     body: Optional[str]
-
     deleted: bool
-
     created_at: str
-
     updated_at: str
 
 
@@ -331,11 +324,9 @@ def append_review_action(
 @dataclass
 class _ThreadFiles:
     origin_file: SnapshotFileRecord
-
     # None only for file-absent placements, whose absence the loading read
     # has already proven.
     selected_file: Optional[SnapshotFileRecord]
-
     cache: ReviewReadCache
 
 

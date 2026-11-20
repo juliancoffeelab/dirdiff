@@ -29,9 +29,7 @@ def engine_row_has_change(row: DiffEngineRow) -> bool:
 class FoldHint(TypedDict):
     # start_row/end_row are rendered-row indexes (half-open), not source lines.
     start_row: int
-
     end_row: int
-
     kind: Literal[
         "function_like",
         "class_like",
@@ -39,7 +37,6 @@ class FoldHint(TypedDict):
         "section",
         "top_level",
     ]
-
     label: str
 
 
@@ -56,50 +53,33 @@ StartMode = Literal["node_start", "next_line"]
 @dataclass(frozen=True)
 class FoldRule:
     region_kind: RegionKind
-
     start_mode: StartMode
-
     min_hidden_rows: int
 
 
 @dataclass(frozen=True)
 class FoldLanguageSpec:
     module_name: str
-
     query_path: str
-
     suffixes: tuple[str, ...]
-
     # Indexed by query pattern number, so the order must match query_path.
     rules: tuple[FoldRule, ...]
-
     filenames: tuple[str, ...] = ()
-
     language_attr: str = "language"
 
 
 @dataclass
 class FoldCandidate:
     rule: FoldRule
-
     fold_node: Node
-
     context_node: Node
-
     label_text: str | None
-
     context_start_row: int
-
     context_end_row: int
-
     hidden_start_row: int
-
     hidden_end_row: int
-
     context_start_byte: int
-
     context_end_byte: int
-
     # Set once by _assign_candidate_parents; None afterwards means a root.
     parent: FoldCandidate | None = None
 
@@ -107,13 +87,9 @@ class FoldCandidate:
 @dataclass(frozen=True)
 class TopLevelItem:
     start_row: int
-
     end_row: int
-
     start_byte: int
-
     end_byte: int
-
     label_kind: str
 
 

@@ -65,7 +65,6 @@ LOGGER = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class _Segment:
     node_type: str
-
     name: Optional[str]
 
 
@@ -74,45 +73,32 @@ class _Locator:
     # Byte offsets index the UTF-8 encoded bay-side text; the hash covers
     # exactly that slice.
     region_hash: bytes
-
     region_start_byte: int
-
     region_end_byte: int
-
     segments: tuple[_Segment, ...]
 
 
 @dataclass(frozen=True)
 class _SourceRegion:
     source: bytes
-
     start_byte: int
-
     end_byte: int
-
     start_line: int
-
     # Inclusive; a node ending at column zero does not include the following
     # line.
     end_line: int
-
     segments: tuple[_Segment, ...]
 
 
 @dataclass(frozen=True)
 class _ComposedBay:
     bay_key: str
-
     kind: Literal["text", "image"]
-
     left_text: Optional[str]
-
     right_text: Optional[str]
-
     # None means "use the captured repository path", not that the side is
     # absent.
     left_hint: Optional[str]
-
     right_hint: Optional[str]
 
     def text_for(self, side: Literal["left", "right"]) -> Optional[str]:

@@ -15,63 +15,42 @@ __all__ = [
 
 class UserPreferences(TableBase):
     __tablename__ = "user_preferences"
-
     user_profile_id: Mapped[int] = mapped_column(
         ForeignKey("user_profile.id"),
         primary_key=True,
     )
-
     aggressive_folds: Mapped[bool] = mapped_column(Boolean, nullable=False)
-
     git_algorithm: Mapped[str] = mapped_column(String, nullable=False)
-
     git_ignore_space_change: Mapped[bool] = mapped_column(
         Boolean, nullable=False
     )
-
     git_word_diff: Mapped[bool] = mapped_column(Boolean, nullable=False)
-
     git_word_boundary: Mapped[str] = mapped_column(String, nullable=False)
-
     # Stored verbatim and unvalidated whatever the word boundary mode; NULL if
     # none entered. Other option values are validated at the HTTP boundary.
     git_word_diff_regex: Mapped[str | None] = mapped_column(
         String, nullable=True
     )
-
     difftastic_ignore_comments: Mapped[bool] = mapped_column(
         Boolean, nullable=False
     )
-
     git_color_moved: Mapped[str] = mapped_column(String, nullable=False)
-
     git_color_moved_ws: Mapped[str] = mapped_column(String, nullable=False)
-
     gumtree_matcher: Mapped[str] = mapped_column(String, nullable=False)
 
 
 @dataclass(frozen=True)
 class PreferencesRecord:
     user_profile_id: int
-
     aggressive_folds: bool
-
     git_algorithm: str
-
     git_ignore_space_change: bool
-
     git_word_diff: bool
-
     git_word_boundary: str
-
     git_word_diff_regex: str | None
-
     difftastic_ignore_comments: bool
-
     git_color_moved: str
-
     git_color_moved_ws: str
-
     gumtree_matcher: str
 
 

@@ -21,26 +21,18 @@ type _ResponseModel = type[BaseModel] | UnionType
 @dataclass(frozen=True)
 class _HttpRouteDeclaration:
     method: Literal["GET", "POST", "PATCH", "DELETE"]
-
     path: str
-
     endpoint: FunctionType
-
     response_model: _ResponseModel | None
-
     status_code: int | None
-
     responses: Responses | None
-
     summary: str | None
-
     response_class: type[Response]
 
 
 @dataclass(frozen=True)
 class _ExceptionHandlerDeclaration:
     exception_class: type[Exception]
-
     endpoint: FunctionType
 
 

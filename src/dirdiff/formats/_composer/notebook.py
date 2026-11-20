@@ -44,32 +44,26 @@ __all__ = [
 @dataclass(frozen=True)
 class StreamOutput:
     raw: JsonValue
-
     text: str
 
 
 @dataclass(frozen=True)
 class ErrorOutput:
     raw: JsonValue
-
     traceback: list[str]
 
 
 @dataclass(frozen=True)
 class ExecuteResultOutput:
     raw: JsonValue
-
     text_plain: Option[str]
-
     image_png: Option[bytes] = field(compare=False)
 
 
 @dataclass(frozen=True)
 class DisplayDataOutput:
     raw: JsonValue
-
     text_plain: Option[str]
-
     image_png: Option[bytes] = field(compare=False)
 
 
@@ -81,7 +75,6 @@ NotebookOutput = (
 @dataclass(frozen=True)
 class RejectedNotebookPart:
     raw: JsonValue
-
     warning: BayWarning
 
 
@@ -91,19 +84,12 @@ type NotebookOutputEntry = Result[NotebookOutput, RejectedNotebookPart]
 @dataclass(frozen=True)
 class NotebookCell:
     id: str
-
     source_bay_key: str
-
     cell_type: str
-
     source: str
-
     metadata: JsonValue
-
     outputs: list[NotebookOutputEntry]
-
     execution_count: Option[int] = field(compare=False)
-
     warnings: tuple[BayWarning, ...] = field(compare=False)
 
 
@@ -113,7 +99,6 @@ type NotebookCellEntry = Result[NotebookCell, RejectedNotebookPart]
 @dataclass(frozen=True)
 class NotebookDocument:
     cells: list[NotebookCellEntry]
-
     document: JsonValue
 
 

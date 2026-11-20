@@ -32,7 +32,6 @@ MIN_SIMILAR_LINE_RATIO = 0.45
 
 class _TokenPiece(TypedDict):
     text: str
-
     is_ws: bool
 
 

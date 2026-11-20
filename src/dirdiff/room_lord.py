@@ -90,7 +90,6 @@ class HeadCaptureSelection:
 @dataclass(frozen=True)
 class RevisionsCaptureSelection:
     left: str
-
     right: str
 
 
@@ -98,7 +97,6 @@ class RevisionsCaptureSelection:
 class BranchReviewCaptureSelection:
     # The JSON containers are caller-owned and must not change while in use.
     base: JsonValue
-
     review: JsonValue
 
 
@@ -110,7 +108,6 @@ class PullRequestCaptureSelection:
 @dataclass(frozen=True)
 class PresetCaptureSelection:
     catalog: str
-
     subset: str
 
 
@@ -136,19 +133,14 @@ _CAPTURE_ERROR_PREAMBLE = (
 
 class SnapshotMeta(TypedDict):
     tab: RoomTab
-
     left_label: str
-
     right_label: str
-
     added_lines: Optional[int]
-
     removed_lines: Optional[int]
 
 
 class RoomCaptureContext(TypedDict):
     mark_id: int | None
-
     selection: CaptureSelection
 
 
@@ -168,7 +160,6 @@ class FileMeta(TypedDict):
 @dataclass(frozen=True)
 class CapturedRegularFileSide:
     path: Path
-
     kind: Literal["regular"] = "regular"
 
 
@@ -177,9 +168,7 @@ class CapturedSymlinkFileSide:
     # Raw link payload (the outer link target spelling); reached target bytes
     # live in `link`.
     path: Path
-
     link: CapturedLink
-
     kind: Literal["symlink"] = "symlink"
 
 

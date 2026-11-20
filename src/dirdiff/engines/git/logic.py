@@ -461,17 +461,12 @@ def git_word_diff_rows_from_patch(
 @dataclass(frozen=True)
 class GitDiffEngine(DiffEngineProtocol):
     algorithm: GitAlgorithm = "myers"
-
     ignore_space_change: bool = False
-
     word_diff: bool = False
-
     word_boundary: GitWordBoundary = field(
         default_factory=lambda: GitWordBoundaryDefault(mode="default")
     )
-
     color_moved: GitColorMoved = "no"
-
     color_moved_ws: GitColorMovedWs = "no"
 
     @override

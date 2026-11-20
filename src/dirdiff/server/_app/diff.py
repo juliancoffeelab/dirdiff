@@ -77,34 +77,25 @@ ChangeType = Literal["modify", "add", "delete", "rename", "copy"]
 
 class PresetGroupResponse(ApiModel):
     id: str
-
     display_name: str
 
 
 class PresetCatalogResponse(ApiModel):
     id: str
-
     name: str
-
     default_preset: str
-
     groups: list[PresetGroupResponse]
 
 
 class DecoratedPartResponse(ApiModel):
     text: str
-
     syntax_classes: list[SyntaxClass]
-
     # Move spans use one-based source lines and zero-based Unicode columns.
     move: PairedMove | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
-
     diff_status: InlineTokenStatus
-
     is_whitespace: bool
-
     # Implies `is_whitespace`; only the run before the first content counts.
     is_leading_whitespace: bool
 
@@ -112,9 +103,7 @@ class DecoratedPartResponse(ApiModel):
 class FoldHintResponse(ApiModel):
     # Zero-based half-open interval of row indexes within one bay's `rows`.
     start_row: int
-
     end_row: int
-
     kind: Literal[
         "function_like",
         "class_like",
@@ -122,7 +111,6 @@ class FoldHintResponse(ApiModel):
         "section",
         "top_level",
     ]
-
     label: str
 
 
@@ -130,21 +118,14 @@ class DiffRowResponse(ApiModel):
     move: UnpairedMove | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
-
     status: Literal["equal", "replace", "insert", "delete", "move"]
-
     # One-based source line numbers. None for an absent side, and for Git word
     # fragments made only of whitespace; Git word fragments may repeat a number.
     left_no: int | None
-
     right_no: int | None
-
     left_text: str | None
-
     right_text: str | None
-
     left_parts: list[DecoratedPartResponse]
-
     right_parts: list[DecoratedPartResponse]
     # Zero-based bay-local index (not File-wide) of the hunk starting on this
     # row, else None; assigned before frontend folding or virtualization.
@@ -155,43 +136,27 @@ class DiffSummaryResponse(ApiModel):
     # Counts cover text bays only. `*_exists` is True for an empty File, so
     # side absence must not be inferred from the counts.
     changed_lines: int
-
     modified_lines: int
-
     added_lines: int
-
     removed_lines: int
-
     moved_lines: int = 0
-
     left_exists: bool
-
     right_exists: bool
 
 
 class RepoDiffSummaryResponse(ApiModel):
     changed_files: int
-
     added_files: int
-
     removed_files: int
-
     updated_files: int
-
     added_lines: Optional[int]
-
     removed_lines: Optional[int]
-
     skipped_files: int
-
     # The cell counts are not populated by manifests; None means unavailable,
     # not zero.
     changed_cells: int | None = None
-
     added_cells: int | None = None
-
     removed_cells: int | None = None
-
     modified_cells: int | None = None
 
     @model_validator(mode="after")
@@ -205,7 +170,6 @@ class RepoDiffSummaryResponse(ApiModel):
 
 class TrackedFileKindResponse(ApiModel):
     type: Literal["tracked"]
-
     status: Literal["modified", "added", "deleted", "renamed", "copied"]
 
 
@@ -218,19 +182,14 @@ FileKindResponse = TrackedFileKindResponse | UntrackedFileKindResponse
 
 class BayWarningResponse(ApiModel):
     type: str = Field(min_length=1)
-
     message: str
 
 
 class BayStatsResponse(ApiModel):
     changed_lines: int
-
     modified_lines: int
-
     added_lines: int
-
     removed_lines: int
-
     moved_lines: int = 0
 
 
@@ -240,25 +199,17 @@ class ChangeStatusResponse(ApiModel):
 
 class MovedChangeStatusResponse(ApiModel):
     kind: Literal["moved"]
-
     from_heading: str | None
-
     to_heading: str | None
 
 
 class TextKindResponse(ApiModel):
     kind: Literal["text"]
-
     left_label: str
-
     right_label: str
-
     rows: list[DiffRowResponse]
-
     fold_hints: list[FoldHintResponse] = Field(default_factory=list)
-
     stats: BayStatsResponse
-
     # True for Git word mode: each row is one tool-printed line and the inline
     # grid interleaves an equal row's sides back into it. False: aligned
     # physical lines, one per side. Required so the HUD never guesses.
@@ -267,20 +218,16 @@ class TextKindResponse(ApiModel):
 
 class MediaRefResponse(ApiModel):
     media_type: str = Field(min_length=1)
-
     byte_size: int = Field(ge=0)
-
     # Lowercase hex SHA-256 of the exact media bytes.
     digest: str = Field(min_length=1)
 
 
 class ImageKindResponse(ApiModel):
     kind: Literal["image"]
-
     # None when the side is absent or a notebook output has no PNG there; not
     # an empty or failed image.
     left: MediaRefResponse | None = None
-
     right: MediaRefResponse | None = None
 
 
@@ -294,62 +241,42 @@ class BayResponse(ApiModel):
     # Stable sub-File coordinate shared with line pins and Thread targets;
     # clients return it unchanged. `label` is presentation and may repeat.
     bay_key: str = Field(min_length=1)
-
     label: str
-
     detail: str | None = None
-
     collapsible: bool
-
     default_expanded: bool
-
     # Decided by the format builder: row equality cannot recover moves or
     # changes beyond the rendered text, so the HUD must not re-derive it.
     change: Annotated[
         ChangeStatusResponse | MovedChangeStatusResponse,
         Field(discriminator="kind"),
     ]
-
     warnings: list[BayWarningResponse]
-
     kind_data: BayKindResponse
 
 
 class FrameResponse(ApiModel):
     frame_key: str = Field(min_length=1)
-
     heading: str | None = None
-
     bays: list[BayResponse]
 
 
 class ComposedDiffResponse(ApiModel):
     display_name: str
-
     left_label: str
-
     right_label: str
-
     left_path: str | None = None
-
     right_path: str | None = None
-
     file_kind: FileKindResponse
-
     summary: DiffSummaryResponse
-
     default_expanded: bool = True
-
     frames: list[FrameResponse]
 
 
 class RepoFileEntryResponse(ApiModel):
     file_kind: FileKindResponse
-
     left_path: str | None = None
-
     right_path: str | None = None
-
     # TODO: Lazy-info contains deferred Files only, so require the concrete
     # reason that `build_lazy_info_for_paths` always supplies.
     lazy: LazyReason | None = None
@@ -357,19 +284,14 @@ class RepoFileEntryResponse(ApiModel):
 
 class RepoManifestFileNodeResponse(ApiModel):
     type: Literal["file"]
-
     name: str
-
     entry: RepoFileEntryResponse
 
 
 class RepoManifestDirectoryNodeResponse(ApiModel):
     type: Literal["directory"]
-
     name: str
-
     path: str
-
     # Source-supplied order; the HUD must not sort it. `path` is the identity,
     # `name` may be a compacted single-child chain containing separators.
     entries: list[RepoManifestTreeEntryResponse]
@@ -384,34 +306,22 @@ class LazyInfoFileResponse(ApiModel):
     # This response must contain enough data for the frontend to construct a
     # lazy placeholder FileEntry without copying fields from /api/manifest.
     file_kind: FileKindResponse
-
     left_path: str | None = None
-
     right_path: str | None = None
-
     display_name: str
-
     # None means unknown until the File is rendered, not zero.
     changed_lines: int | None = None
-
     added_lines: int | None = None
-
     removed_lines: int | None = None
-
     lazy: LazyReason | None = None
 
 
 class RepoManifestResponse(ApiModel):
     snapshot_id: str = Field(pattern=r"^[0-9a-f]{32}$")
-
     display_name: str
-
     left_label: str
-
     right_label: str
-
     summary: RepoDiffSummaryResponse
-
     tree: list[RepoManifestTreeEntryResponse]
 
 

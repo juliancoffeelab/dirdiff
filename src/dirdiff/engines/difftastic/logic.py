@@ -37,24 +37,19 @@ __all__ = [
 @dataclass(frozen=True)
 class DifftasticAst:
     rows: list[DiffEngineRow]
-
     engine_warning: EngineWarning | None
 
 
 @dataclass(frozen=True)
 class _Span:
     start: int
-
     end: int
-
     status: _DifftasticNovelStatus
 
 
 class _DifftasticPartitionToken(TypedDict):
     text: str
-
     is_ws: bool
-
     status: _DifftasticPartitionStatus
 
 
@@ -133,7 +128,6 @@ def _line_spans(
 @dataclass(frozen=True)
 class _SpanIndex:
     left: dict[int, list[_Span]]
-
     right: dict[int, list[_Span]]
 
 

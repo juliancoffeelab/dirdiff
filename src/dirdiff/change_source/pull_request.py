@@ -51,59 +51,37 @@ class PreparedPullRequest:
     """
 
     project_id: int
-
     pull_request_url: str
-
     left_commit: str
-
     right_commit: str
-
     base_branch: str
-
     head_branch: str
 
 
 @dataclass(frozen=True)
 class _GitHubPullRequest:
     url: str
-
     owner: str
-
     repo: str
-
     number: int
-
     base_branch: str
-
     base_repo_key: str
-
     head_branch: str
-
     base_commit: str
-
     head_commit: str
 
 
 @dataclass(frozen=True)
 class _GitLabMergeRequest:
     url: str
-
     scheme: str
-
     host: str
-
     project_path: str
-
     iid: int
-
     target_branch: str
-
     head_branch: str
-
     base_commit: str
-
     head_commit: str
-
     target_repo_key: str
 
 

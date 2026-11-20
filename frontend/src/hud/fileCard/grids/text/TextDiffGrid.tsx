@@ -29,29 +29,17 @@ import { renderInlineRowsDom, renderSplitRowsDom, type Side } from "./rowDom";
 
 export function TextDiffGrid(props: {
   reviewFile: ReviewFilePair;
-
   fileIndex: number;
-
   displayName: string;
-
   bayKey: string;
-
   contentLabel: string;
-
   leftLabel: string;
-
   rightLabel: string;
-
   rows: DiffRow[];
-
   foldHints: FoldHint[];
-
   interleaveInlineRows: boolean;
-
   viewMode: DiffViewMode;
-
   aggressiveFolds: boolean;
-
   linePins: LinePins;
 }) {
   return (

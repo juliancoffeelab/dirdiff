@@ -116,23 +116,16 @@ class SyntaxSpan(TypedDict):
     # Half-open character offsets within one line (not bytes); spans are ordered
     # and non-overlapping.
     start: int
-
     end: int
-
     classes: list[SyntaxClass]
 
 
 class DecoratedPart(TypedDict):
     text: str
-
     syntax_classes: list[SyntaxClass]
-
     move: NotRequired[PairedMove]
-
     diff_status: InlineTokenStatus
-
     is_whitespace: bool
-
     is_leading_whitespace: bool
 
 
@@ -294,48 +287,33 @@ def weave_decorated_parts(
 
 class DiffRow(TypedDict):
     move: NotRequired[UnpairedMove]
-
     status: Literal["equal", "replace", "insert", "delete", "move"]
-
     left_no: int | None
-
     right_no: int | None
-
     # An empty string with a None line number is a synthetic row, and an empty
     # source line has a number: test left_no/right_no for side presence, not
     # text.
     left_text: str | None
-
     right_text: str | None
-
     left_parts: list[DecoratedPart]
-
     right_parts: list[DecoratedPart]
-
     # Zero-based, bay-local, set only on the first row of a changed hunk.
     hunk_index: int | None
 
 
 class EnrichedRows(TypedDict):
     hunk_count: int
-
     rows: list[DiffRow]
-
     fold_hints: NotRequired[list[FoldHint]]
 
 
 @dataclass(frozen=True)
 class _SyntaxLanguageSpec:
     module_name: str
-
     query_path: str
-
     suffixes: tuple[str, ...]
-
     filenames: tuple[str, ...] = ()
-
     language_attr: str = "language"
-
     query_package: str | None = None
 
 
@@ -345,9 +323,7 @@ _SpanPriority = tuple[int, int, int]
 @dataclass(frozen=True)
 class _SyntaxSpan:
     start: int
-
     end: int
-
     classes: tuple[SyntaxClass, ...]
 
 

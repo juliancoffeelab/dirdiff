@@ -38,19 +38,12 @@ __all__ = [
 @dataclass(frozen=True)
 class AppOptions:
     db_path: Path
-
     store_path: Path | None
-
     presets_root: str
-
     port: int
-
     frontend_port: int
-
     headless: bool
-
     no_frontend_dev: bool
-
     mode: Literal["development", "release"]
 
 

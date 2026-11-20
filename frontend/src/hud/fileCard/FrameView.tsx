@@ -73,9 +73,7 @@ export type BayRenderMode = "rich" | "virtual";
 
 export type BayRenderModes = {
   mode(bayKey: string): BayRenderMode;
-
   setMode(bayKey: string, mode: BayRenderMode): void;
-
   clearMode(bayKey: string): void;
 };
 
@@ -83,7 +81,6 @@ type BayCost = "small" | "medium" | "large";
 
 type RichZone = {
   enterViewports: number;
-
   exitViewports: number;
 };
 
@@ -127,7 +124,6 @@ function initialRenderMode(card: HTMLElement, rowCount: number): BayRenderMode {
 
 type EnrichableBay = HTMLElement & {
   intersectsRichEntryZone: (viewportTop: number) => boolean;
-
   waitToEnrich_impl: () => Promise<void>;
 };
 
@@ -149,11 +145,8 @@ function BayWarnings(props: { bay: BayPayload }): JSX.Element {
 
 function VirtualBay(props: {
   fileIndex: number;
-
   bay: BayPayload;
-
   content: TextKindPayload;
-
   reservedRichHeight: number | null;
 }): JSX.Element {
   const text = createMemo(() => {
@@ -484,7 +477,6 @@ function BayBody(props: {
 
 export type BayExpansion = {
   isExpanded(bay: BayPayload): boolean;
-
   setExpanded(bayKey: string, expanded: boolean): void;
 };
 

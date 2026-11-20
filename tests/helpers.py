@@ -72,7 +72,6 @@ __all__ = [
 @dataclass(frozen=True)
 class ToolText:
     text: str
-
     name: str
 
 
@@ -254,25 +253,17 @@ def tool_json(
 
 class _LoadedDiffSummary(DiffSummary):
     left_exists: bool
-
     right_exists: bool
 
 
 class _LoadedDiff(TypedDict):
     display_name: str
-
     left_label: str
-
     right_label: str
-
     summary: _LoadedDiffSummary
-
     rows: list[DiffRow]
-
     hunk_count: int
-
     default_expanded: bool
-
     fold_hints: NotRequired[list[FoldHint]]
 
 
@@ -280,9 +271,7 @@ class GoldenJsonSnapshotExtension(SingleFileSnapshotExtension):
     _write_mode = WriteMode.TEXT
     file_extension = "json"
     preset_root: ClassVar[Path]
-
     golden_root: ClassVar[Path]
-
     snapshot_function_name: ClassVar[str]
 
     @override
