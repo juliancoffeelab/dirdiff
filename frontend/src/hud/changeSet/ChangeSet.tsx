@@ -34,7 +34,12 @@ import {
 import { assert, expect } from "../../utils";
 import type { DiffViewMode } from "../App";
 import type { AppHeaderOutlets } from "../AppHeader";
-import { FileCard } from "../fileCard/FileCard";
+import {
+  FileCard,
+  type BayRenderMode,
+  type BayRenderModes,
+  type LineCell,
+} from "../fileCard/FileCard";
 import {
   createFileLane,
   fileDisplayName,
@@ -47,7 +52,7 @@ import {
 import { linePins } from "../linePins";
 import { useNavigation, writeInitialHunkSelection } from "../navigation";
 import type { StoredProfile } from "../Profile";
-import { ReviewProvider, type ReviewCodeAnchor } from "../review/Review";
+import { ReviewProvider } from "../review/Review";
 import {
   calculateDirectoryExpansion,
   fileExpanded,
@@ -395,7 +400,7 @@ function ReviewSnapshotBoundary(
 
   async function viewReviewThread(
     point: ThreadCodePoint,
-  ): Promise<ReviewCodeAnchor | null> {
+  ): Promise<LineCell | null> {
     const fileIndex = reviewFileIndex(point.file);
     if (!navigableFileIndexes().has(fileIndex)) {
       throw new Error("Review navigation requires a loaded File.");
@@ -420,49 +425,7 @@ function ReviewSnapshotBoundary(
         "The exact reviewed line is absent from the loaded File.",
       );
     }
-    assert(
-      result.state === "complete",
-      "Review line navigation did not finish.",
-    );
-    // The navigation context serves the stable Shell root, mounted in both
-    // views; the inline History slot exists only in inline view and must not
-    // stand in for it.
-    const changeSetRoot = navigation.root();
-    const card = changeSetRoot.querySelector<HTMLElement>(
-      `[data-file-card][data-file-index="${fileIndex}"]`,
-    );
-    assert(card !== null, "Review navigation lost its loaded FileCard.");
-    const matchingGrids = [
-      ...card.querySelectorAll<HTMLElement>(".diff-grid"),
-    ].filter((grid) => grid.dataset.reviewBay === bay.bay_key);
-    assert(
-      matchingGrids.length === 1,
-      "Review navigation requires one exact rendered bay.",
-    );
-    const matchingLines = expect(
-      matchingGrids[0],
-      "Reviewed bay disappeared after navigation.",
-    ).querySelectorAll<HTMLElement>(
-      `.line-no[data-line-pin-side="${point.side}"][data-line-pin-line="${point.line}"]`,
-    );
-    assert(
-      matchingLines.length === 1,
-      "Review navigation requires one exact line in its prepared row.",
-    );
-    const lineNumber = expect(
-      matchingLines[0],
-      "Reviewed line disappeared after navigation.",
-    );
-    const rowPart = lineNumber.parentElement;
-    const codeCell = rowPart?.querySelector<HTMLElement>(":scope > .line-code");
-    const trigger = lineNumber.querySelector<HTMLButtonElement>(
-      ".line-comment-trigger:not([hidden])",
-    );
-    assert(
-      codeCell !== null && codeCell !== undefined && trigger !== null,
-      "Reviewed line requires its rendered code and marker.",
-    );
-    return { codeCell, trigger };
+    return result.cell;
   }
 
   async function viewReviewFileStart(file: ReviewFilePair): Promise<void> {
@@ -540,6 +503,33 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
   const pins = linePins();
   let changeSetRoot!: HTMLDivElement;
   const orderedFiles = manifestFilesInOrder(props.manifest.tree);
+  // Indexed like `orderedFiles`. Each mounted text bay registers its mode under
+  // its File for exactly its mounted lifetime, so an entry never outlives its
+  // bay and a File whose body is unmounted holds none.
+  const [bayModes, setBayModes] = createStore<
+    Record<string, BayRenderMode | undefined>[]
+  >(orderedFiles.map(() => ({})));
+  const fileRenderModes = orderedFiles.map((_, fileIndex) => {
+    const bayRenderModes: BayRenderModes = {
+      mode: (bayKey) =>
+        expect(
+          expect(bayModes[fileIndex], "Bay modes are indexed by File.")[bayKey],
+          `Bay ${bayKey} read its render mode unregistered.`,
+        ),
+      setMode: (bayKey, mode) => setBayModes(fileIndex, bayKey, mode),
+      clearMode: (bayKey) => setBayModes(fileIndex, bayKey, undefined),
+    };
+    const renderMode = createMemo((): BayRenderMode | null => {
+      const modes = Object.values(
+        expect(bayModes[fileIndex], "Bay modes are indexed by File."),
+      ).filter((mode): mode is BayRenderMode => mode !== undefined);
+      if (modes.length === 0) {
+        return null;
+      }
+      return modes.every((mode) => mode === "virtual") ? "virtual" : "rich";
+    });
+    return { bayRenderModes, renderMode };
+  });
   const fileIndexByKey = new Map<string, number>();
   for (const [fileIndex, file] of orderedFiles.entries()) {
     const key = manifestEntryKey(file.entry);
@@ -739,7 +729,6 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
           retryOnR={false}
         >
           <FileTree
-            changeSetRoot={() => changeSetRoot}
             tree={props.manifest.tree}
             states={lane.fileStates}
             open={props.fileTreeOpen}
@@ -749,6 +738,12 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
             }
             directoryExpansion={directoryExpansion}
             fileExpansion={() => props.state.fileExpansion}
+            renderMode={(fileIndex) =>
+              expect(
+                fileRenderModes[fileIndex],
+                "FileTree asked for a File outside the manifest.",
+              ).renderMode()
+            }
             onOpenChange={props.onFileTreeOpenChange}
             onDirectoryExpandedChange={(directory, expanded) =>
               batch(() => {
@@ -787,6 +782,10 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
             <div class="directory-groups">
               <For each={orderedFiles}>
                 {(file, fileIndex) => {
+                  const modes = expect(
+                    fileRenderModes[fileIndex()],
+                    "Bay modes are indexed by File.",
+                  );
                   return (
                     <FileCard
                       reviewFile={{
@@ -808,6 +807,8 @@ function ChangeSetSnapshot(props: ChangeSetFileLaneProps): JSX.Element {
                       view={props.view}
                       aggressiveFolds={aggressiveFolds()}
                       linePins={pins}
+                      bayRenderModes={modes.bayRenderModes}
+                      renderMode={modes.renderMode()}
                       globalSelectedHunk={() =>
                         props.hunkDisplay()?.globalSelectedHunk ?? null
                       }

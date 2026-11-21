@@ -3,9 +3,6 @@ import {
   Show,
   createEffect,
   createMemo,
-  createSignal,
-  onCleanup,
-  onMount,
   type Accessor,
   type JSX,
 } from "solid-js";
@@ -17,6 +14,7 @@ import type {
 import { useToasts } from "../../comp/Toasts";
 import { assert, expect } from "../../utils";
 import type { DiffViewMode } from "../App";
+import type { BayRenderMode } from "../fileCard/FileCard";
 import {
   fileDisplayName,
   manifestEntryKey,
@@ -67,10 +65,7 @@ export function calculateDirectoryExpansion(
   return result;
 }
 
-type FileTreeRenderModes = ReadonlyMap<number, "rich" | "virtual">;
-
 type FileTreeProps = {
-  changeSetRoot: Accessor<HTMLElement>;
   tree: readonly ManifestNode[];
   states: Accessor<readonly FileState[]>;
   open: boolean;
@@ -78,6 +73,7 @@ type FileTreeProps = {
   selectedFileIndex: Accessor<number | null>;
   directoryExpansion: Accessor<ReadonlyMap<string, boolean>>;
   fileExpansion: Accessor<Readonly<Record<string, boolean | undefined>>>;
+  renderMode: (fileIndex: number) => BayRenderMode | null;
   onOpenChange: (open: boolean) => void;
   onDirectoryExpandedChange: (
     directory: ManifestDirectory,
@@ -135,7 +131,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
   function FileTreeDirectory(rowProps: {
     directory: ManifestDirectory;
     depth: number;
-    renderModes: Accessor<FileTreeRenderModes>;
   }): JSX.Element {
     const expanded = () => {
       const current = props.directoryExpansion().get(rowProps.directory.path);
@@ -192,11 +187,7 @@ export function FileTree(props: FileTreeProps): JSX.Element {
           >
             <For each={rowProps.directory.entries}>
               {(child) => (
-                <FileTreeNode
-                  node={child}
-                  depth={rowProps.depth + 1}
-                  renderModes={rowProps.renderModes}
-                />
+                <FileTreeNode node={child} depth={rowProps.depth + 1} />
               )}
             </For>
           </div>
@@ -208,7 +199,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
   function FileTreeFile(rowProps: {
     file: ManifestFile;
     depth: number;
-    renderModes: Accessor<FileTreeRenderModes>;
   }): JSX.Element {
     const fileIndex = indexForFile(rowProps.file);
     const state = () => stateForFile(rowProps.file);
@@ -220,7 +210,7 @@ export function FileTree(props: FileTreeProps): JSX.Element {
       return fileExpanded(rowProps.file, current, props.fileExpansion());
     };
     const virtualized = () =>
-      expanded() && rowProps.renderModes().get(fileIndex) === "virtual";
+      expanded() && props.renderMode(fileIndex) === "virtual";
     const highlighted = createMemo(
       () => props.selectedFileIndex() === fileIndex,
     );
@@ -327,31 +317,17 @@ export function FileTree(props: FileTreeProps): JSX.Element {
   function FileTreeNode(nodeProps: {
     node: ManifestNode;
     depth: number;
-    renderModes: Accessor<FileTreeRenderModes>;
   }): JSX.Element {
     if (nodeProps.node.type === "directory") {
       return (
-        <FileTreeDirectory
-          directory={nodeProps.node}
-          depth={nodeProps.depth}
-          renderModes={nodeProps.renderModes}
-        />
+        <FileTreeDirectory directory={nodeProps.node} depth={nodeProps.depth} />
       );
     }
-    return (
-      <FileTreeFile
-        file={nodeProps.node}
-        depth={nodeProps.depth}
-        renderModes={nodeProps.renderModes}
-      />
-    );
+    return <FileTreeFile file={nodeProps.node} depth={nodeProps.depth} />;
   }
 
   function FileTreeContent(): JSX.Element {
     let groups!: HTMLDivElement;
-    const [renderModes, setRenderModes] = createSignal<FileTreeRenderModes>(
-      new Map(),
-    );
     const highlightedFileIndex = createMemo(() => props.selectedFileIndex());
 
     const highlightedRowReachable = createMemo(() => {
@@ -378,69 +354,6 @@ export function FileTree(props: FileTreeProps): JSX.Element {
         }
       }
       return true;
-    });
-
-    // Render mode lives in FileCard DOM, not Solid state, so mirror
-    // `data-file-render` for the V markers with an observer. A malformed value
-    // disconnects it before Toasting.
-    onMount(() => {
-      const root = props.changeSetRoot();
-      assert(root.isConnected, "FileTree requires a mounted ChangeSet root.");
-
-      function readRenderModes(): FileTreeRenderModes {
-        const modes = new Map<number, "rich" | "virtual">();
-        for (const card of root.querySelectorAll<HTMLElement>(
-          "[data-file-card][data-file-index]",
-        )) {
-          const mode = card.dataset.fileRender;
-          if (mode === undefined) {
-            continue;
-          }
-          assert(
-            mode === "rich" || mode === "virtual",
-            `FileCard exposed invalid render mode ${mode}.`,
-          );
-          const indexText = card.dataset.fileIndex;
-          assert(
-            indexText !== undefined && /^\d+$/.test(indexText),
-            "FileCard exposed an invalid manifest index.",
-          );
-          const fileIndex = Number(indexText);
-          assert(
-            fileIndex < files.length,
-            "FileCard render mode is outside the manifest.",
-          );
-          assert(
-            !modes.has(fileIndex),
-            "FileTree found duplicate stable FileCards.",
-          );
-          modes.set(fileIndex, mode);
-        }
-        return modes;
-      }
-
-      setRenderModes(readRenderModes());
-      const observer = new MutationObserver(() => {
-        try {
-          setRenderModes(readRenderModes());
-        } catch (error) {
-          observer.disconnect();
-          toast.showError(
-            "Could not update file tree render modes",
-            error instanceof Error
-              ? error
-              : new Error(
-                  "FileTree render-mode calculation threw a non-Error value.",
-                ),
-          );
-        }
-      });
-      observer.observe(root, {
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["data-file-render"],
-      });
-      onCleanup(() => observer.disconnect());
     });
 
     // The memos keep same-file hunk and unrelated directory-state changes from
@@ -479,9 +392,7 @@ export function FileTree(props: FileTreeProps): JSX.Element {
       >
         <div ref={groups} class="file-tree-groups">
           <For each={props.tree}>
-            {(node) => (
-              <FileTreeNode node={node} depth={0} renderModes={renderModes} />
-            )}
+            {(node) => <FileTreeNode node={node} depth={0} />}
           </For>
         </div>
       </aside>

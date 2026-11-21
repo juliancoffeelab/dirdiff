@@ -29,6 +29,7 @@ import { UnexpectedErrorBoundary, useToasts } from "../../comp/Toasts";
 import { assert, expect } from "../../utils";
 import { z } from "zod";
 import type { DiffViewMode } from "../App";
+import type { LineCell } from "../fileCard/FileCard";
 import type { StoredProfile } from "../Profile";
 import {
   newReviewId,
@@ -111,6 +112,162 @@ export type ReviewMarkerState = {
   markers: readonly ReviewMarkerDescriptor[];
 };
 
+// The one renderer of Comment triggers, for text rows and image sides alike.
+// `label` names the line for assistive technology, e.g. "old line 3". A null
+// state means marker derivation failed: every trigger already painted beneath
+// `host`, which may be a whole grid, stays in place but inert for the rest of
+// the painting grid's lifetime. It reads no line, since the failure may come
+// from reading one.
+export function paintCommentTriggers(host: ParentNode, state: null): void;
+export function paintCommentTriggers(
+  host: HTMLElement,
+  state: ReviewMarkerState,
+  label: string,
+): void;
+export function paintCommentTriggers(
+  host: ParentNode,
+  state: ReviewMarkerState | null,
+  label?: string,
+): void {
+  if (state === null) {
+    for (const trigger of host.querySelectorAll<HTMLButtonElement>(
+      ".line-comment-trigger",
+    )) {
+      trigger.classList.remove(
+        "line-comment-trigger-commented",
+        "line-comment-trigger-draft",
+        "line-comment-trigger-open",
+        "line-comment-trigger-resolved",
+        "line-comment-trigger-deleted",
+        "line-comment-trigger-warning",
+      );
+      trigger.disabled = true;
+    }
+    return;
+  }
+  assert(label !== undefined, "Painted Comment triggers require a line label.");
+  function decorateTriggerKind(
+    trigger: HTMLButtonElement,
+    markerKind: ReviewMarkerKind,
+  ): void {
+    trigger.dataset.reviewMarkerKind = markerKind;
+    trigger.classList.toggle(
+      "line-comment-trigger-commented",
+      markerKind === "open" ||
+        markerKind === "resolved" ||
+        markerKind === "deleted",
+    );
+    trigger.classList.toggle(
+      "line-comment-trigger-draft",
+      markerKind === "draft",
+    );
+    trigger.classList.toggle(
+      "line-comment-trigger-open",
+      markerKind === "open",
+    );
+    trigger.classList.toggle(
+      "line-comment-trigger-resolved",
+      markerKind === "resolved",
+    );
+    trigger.classList.toggle(
+      "line-comment-trigger-deleted",
+      markerKind === "deleted",
+    );
+  }
+
+  state.markers.forEach((marker, index) => {
+    const current = host.children.item(index);
+    let trigger: HTMLButtonElement;
+    if (current instanceof HTMLButtonElement) {
+      // A kind change re-decorates the existing button instead of replacing
+      // it: the button may anchor the active Comment input, and replacing it
+      // disconnects that anchor, which closes the input on the next
+      // anchored-UI sweep (e.g. any FileCard header unmount while the file
+      // lane is still loading).
+      trigger = current;
+      if (trigger.dataset.reviewMarkerKind !== marker.kind) {
+        decorateTriggerKind(trigger, marker.kind);
+      }
+    } else {
+      trigger = document.createElement("button");
+      trigger.type = "button";
+      trigger.className = "line-comment-trigger";
+      decorateTriggerKind(trigger, marker.kind);
+      const icon = document.createElement("span");
+      icon.className = "line-comment-trigger-icon";
+      icon.ariaHidden = "true";
+      const visibleLabel = document.createElement("span");
+      visibleLabel.className = "line-comment-trigger-label";
+      trigger.append(icon, visibleLabel);
+      if (current === null) {
+        host.append(trigger);
+      } else {
+        current.replaceWith(trigger);
+      }
+    }
+    const visibleLabel = trigger.lastElementChild;
+    assert(
+      visibleLabel instanceof HTMLSpanElement,
+      "Rendered Comment trigger requires its visible label.",
+    );
+    let actionLabel: string;
+    if (marker.kind === "draft") {
+      actionLabel = "Draft";
+    } else if (marker.kind === "new") {
+      actionLabel = "Add comment";
+    } else {
+      actionLabel = `${marker.count} ${marker.kind === "resolved" ? "Resolved" : marker.kind === "deleted" ? "Deleted" : "Open"} Thread${marker.count === 1 ? "" : "s"}`;
+    }
+    const labelText =
+      marker.kind === "open" ||
+      marker.kind === "resolved" ||
+      marker.kind === "deleted"
+        ? String(marker.count)
+        : actionLabel;
+    if (visibleLabel.textContent !== labelText) {
+      visibleLabel.textContent = labelText;
+    }
+    if (trigger.title !== actionLabel) {
+      trigger.title = actionLabel;
+    }
+    const ariaLabel = `${actionLabel} on ${label}`;
+    if (trigger.ariaLabel !== ariaLabel) {
+      trigger.ariaLabel = ariaLabel;
+    }
+    const warning = "warning" in marker && marker.warning;
+    if (
+      trigger.classList.contains("line-comment-trigger-warning") !== warning
+    ) {
+      trigger.classList.toggle("line-comment-trigger-warning", warning);
+    }
+    if (trigger.disabled !== state.disabled) {
+      trigger.disabled = state.disabled;
+    }
+  });
+  while (host.children.length > state.markers.length) {
+    host.lastElementChild?.remove();
+  }
+}
+
+export function commentTrigger(
+  host: HTMLElement,
+  kind: ReviewMarkerKind,
+): HTMLButtonElement {
+  const matching = [...host.children].filter(
+    (trigger) =>
+      trigger instanceof HTMLButtonElement &&
+      trigger.dataset.reviewMarkerKind === kind,
+  );
+  const trigger = matching[0];
+  assert(
+    matching.length === 1 &&
+      trigger instanceof HTMLButtonElement &&
+      trigger.hidden === false,
+    "A line requires exactly one visible marker of this kind.",
+  );
+  return trigger;
+}
+
 const AVAILABLE_NEW_MARKER_STATE: ReviewMarkerState = {
   disabled: false,
   markers: [{ kind: "new" }],
@@ -123,8 +280,8 @@ const DISABLED_NEW_MARKER_STATE: ReviewMarkerState = {
 export type ReviewBinding = {
   snapshotId: ReviewId;
   threads: Accessor<readonly ReviewThread[]>;
-  markerRevision: Accessor<ReviewMarkerRevision>;
-  // Valid only for the current markerRevision; null means every host repaints.
+  // Valid only for the current marker revision, which this call reads and so
+  // subscribes to; null means every host repaints.
   changedMarkerKeys(): ReadonlySet<string> | null;
   markerState(
     binding: ReviewTextGridBinding,
@@ -136,7 +293,6 @@ export type ReviewBinding = {
     side: "left" | "right",
     line: number,
     anchor: ReviewCodeAnchor,
-    markerKind: ReviewMarkerKind,
     extend: boolean,
   ): void;
   setFileHeaderMounted(header: HTMLElement, mounted: boolean): void;
@@ -159,7 +315,7 @@ type ReviewProviderProps = {
   children: JSX.Element;
   inlineHistoryTarget: Accessor<HTMLElement | null>;
   canViewThread(point: ThreadCodePoint): boolean;
-  viewThread(point: ThreadCodePoint): Promise<ReviewCodeAnchor | null>;
+  viewThread(point: ThreadCodePoint): Promise<LineCell | null>;
   canViewFile(file: ReviewFilePair): boolean;
   viewFileStart(file: ReviewFilePair): Promise<void>;
   viewOriginThread(point: ThreadCodePoint): Promise<void>;
@@ -822,21 +978,17 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       return;
     }
     void (async () => {
-      const anchor = await props.viewThread(point);
-      if (anchor === null) {
+      const cell = await props.viewThread(point);
+      if (cell === null) {
         return;
       }
-      const trigger = anchor.trigger.parentElement?.querySelector(
-        `[data-review-marker-kind="${thread.state}"]`,
-      );
-      assert(
-        trigger instanceof HTMLButtonElement && trigger.hidden === false,
-        "Viewed Thread requires its visible state marker.",
-      );
       setActiveCommentInput(null);
       setActiveThreadPanel({
         threadIds: [thread.thread_id],
-        anchor: { codeCell: anchor.codeCell, trigger },
+        anchor: {
+          codeCell: cell.codeCell,
+          trigger: commentTrigger(cell.triggerHost, thread.state),
+        },
       });
     })().catch((error: unknown) =>
       toast.showError("Could not view Thread", error),
@@ -867,19 +1019,25 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       if (!props.canViewThread(point)) {
         throw new Error("Load the reviewed File before continuing this draft.");
       }
-      const anchor = await props.viewThread(point);
-      if (anchor === null) {
+      const cell = await props.viewThread(point);
+      if (cell === null) {
         return;
       }
       setActiveThreadPanel(null);
-      const mount = anchor.codeCell.parentElement;
-      assert(
-        mount !== null &&
-          (mount.classList.contains("diff-side") ||
-            mount.classList.contains("inline-diff-row")),
-        "Continuing a new Thread requires its exact rendered row.",
+      openCommentInput(
+        draft,
+        true,
+        expect(
+          cell.codeCell.parentElement,
+          "A code cell requires its row part.",
+        ),
+        {
+          codeCell: cell.codeCell,
+          // A persisted new-Thread draft is marked on its line by its own
+          // trigger.
+          trigger: commentTrigger(cell.triggerHost, "draft"),
+        },
       );
-      openCommentInput(draft, true, mount, anchor);
     })().catch((error: unknown) =>
       toast.showError("Could not continue editing draft", error),
     );
@@ -910,7 +1068,6 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   const binding: ReviewBinding = {
     snapshotId: props.snapshotId,
     threads: reviewThreads,
-    markerRevision,
     changedMarkerKeys() {
       markerIndex();
       return lastChangedKeys;
@@ -925,7 +1082,16 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
           : DISABLED_NEW_MARKER_STATE)
       );
     },
-    activateTextCommentInput(grid, side, line, anchor, markerKind, extend) {
+    activateTextCommentInput(grid, side, line, anchor, extend) {
+      const markerKind = anchor.trigger.dataset.reviewMarkerKind;
+      assert(
+        markerKind === "new" ||
+          markerKind === "draft" ||
+          markerKind === "open" ||
+          markerKind === "resolved" ||
+          markerKind === "deleted",
+        "Comment trigger has an invalid marker kind.",
+      );
       assert(
         reviewAvailable(),
         "Text review activation requires persisted Threads to be available.",
@@ -1036,14 +1202,15 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
           return;
         }
         setActiveThreadPanel(null);
-        const mount = anchor.codeCell.parentElement;
-        assert(
-          mount !== null &&
-            (mount.classList.contains("diff-side") ||
-              mount.classList.contains("inline-diff-row")),
-          "Review draft requires its exact rendered diff row.",
+        openCommentInput(
+          existingDraft,
+          true,
+          expect(
+            anchor.codeCell.parentElement,
+            "A code cell requires its row part.",
+          ),
+          anchor,
         );
-        openCommentInput(existingDraft, true, mount, anchor);
         return;
       }
       assert(
@@ -1054,12 +1221,9 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
       if (profile === null) {
         return;
       }
-      const mount = anchor.codeCell.parentElement;
-      assert(
-        mount !== null &&
-          (mount.classList.contains("diff-side") ||
-            mount.classList.contains("inline-diff-row")),
-        "New-Thread input requires its exact rendered diff row.",
+      const mount = expect(
+        anchor.codeCell.parentElement,
+        "A code cell requires its row part.",
       );
       openNewDraft(
         profile,

@@ -8,10 +8,21 @@ import {
   type JSX,
 } from "solid-js";
 import { useToasts } from "../../comp/Toasts";
-import { assert, expect } from "../../utils";
-import type { HunkPosition } from "../fileCard/FileCard";
+import { assert } from "../../utils";
+import {
+  fileCardIndex,
+  fileCardsIn,
+  markSelectionSide,
+  renderDamaged,
+  type HunkPosition,
+} from "../fileCard/FileCard";
 import {
   NavigationProvider,
+  hunkParticipates,
+  hunkTargetsOf,
+  readHunkIdentity,
+  readHunkSet,
+  selectedFileCard,
   storedHunkTarget,
   useNavigation,
 } from "../navigation";
@@ -49,27 +60,7 @@ export function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
   // cleanup so inactive Tabs stop changing grid attributes.
   onMount(() => {
     function selectDiffSide(event: PointerEvent): void {
-      root
-        .querySelector<HTMLElement>(".diff-grid[data-diff-selection-side]")
-        ?.removeAttribute("data-diff-selection-side");
-
-      const target = event.target;
-      if (!(target instanceof Element) || !root.contains(target)) {
-        return;
-      }
-      const side = target.closest<HTMLElement>(
-        ".diff-side.side-left, .diff-side.side-right",
-      );
-      if (side === null || !root.contains(side)) {
-        return;
-      }
-      const grid = side.closest<HTMLElement>(".diff-grid");
-      if (grid === null || !root.contains(grid)) {
-        return;
-      }
-      grid.dataset.diffSelectionSide = side.classList.contains("side-left")
-        ? "left"
-        : "right";
+      markSelectionSide(root, event.target);
     }
 
     document.addEventListener("pointerdown", selectDiffSide);
@@ -395,32 +386,6 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
   onMount(() => {
     const root = props.root();
 
-    function parseHunkSet(card: HTMLElement): {
-      kind: "husk" | "lazy" | "zero" | "real";
-      skipped: boolean;
-    } {
-      const hunkSet = expect(
-        card.dataset.hunkSet,
-        "Every FileCard requires data-hunk-set.",
-      );
-      const pseudo = /^(husk|lazy|zero)(:skip)?$/.exec(hunkSet);
-      if (pseudo !== null) {
-        const kind = pseudo[1];
-        switch (kind) {
-          case "husk":
-          case "lazy":
-          case "zero":
-            return { kind, skipped: pseudo[2] === ":skip" };
-        }
-        assert(false, "FileCard has an invalid pseudo-hunk set.");
-      }
-      const real = expect(
-        /^real:([1-9]\d*)(:skip)?$/.exec(hunkSet),
-        `FileCard has invalid hunk set ${hunkSet}.`,
-      );
-      return { kind: "real", skipped: real[2] === ":skip" };
-    }
-
     // Per-card facts from the last full calculation. `offset` and
     // `participating` do not change on selection-only mutations, so the
     // selective path reuses them; a full walk replaces the map wholesale.
@@ -433,15 +398,11 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
     let lastDisplay: HunkDisplay | null = null;
 
     function calculateDisplay(): HunkDisplay {
-      const cards = Array.from(
-        root.querySelectorAll<HTMLElement>("[data-file-card]"),
-      );
-      const selectedCards = cards.filter(
-        (card) => card.dataset.selectedHunkIndex !== undefined,
-      );
+      const cards = fileCardsIn(root);
+      const selectedCard = selectedFileCard(root);
       if (cards.length === 0) {
         assert(
-          selectedCards.length === 0,
+          selectedCard === null,
           "Empty ChangeSet contains a selected FileCard.",
         );
         cardStats = new Map();
@@ -455,7 +416,7 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
         };
       }
       assert(
-        selectedCards.length === 1,
+        selectedCard !== null,
         "A non-empty ChangeSet requires exactly one selected FileCard.",
       );
 
@@ -468,32 +429,20 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       const stats = new Map<HTMLElement, CardStats>();
 
       cards.forEach((card) => {
-        const fileIndexText = card.dataset.fileIndex;
-        assert(
-          fileIndexText !== undefined && /^(?:0|[1-9]\d*)$/.test(fileIndexText),
-          "FileCard has an invalid manifest file index.",
-        );
-        const fileIndex = Number(fileIndexText);
-        const hunkSet = parseHunkSet(card);
-        const targets = Array.from(
-          card.querySelectorAll<HTMLElement>("[data-hunk-target]"),
-        );
+        const fileIndex = fileCardIndex(card);
+        const hunkSet = readHunkSet(card);
+        const targets = hunkTargetsOf(card);
         for (const target of targets) {
-          const hunkIndex = target.dataset.hunkIndex;
           assert(
-            target.dataset.fileIndex === fileIndexText &&
-              hunkIndex !== undefined &&
-              /^(?:0|[1-9]\d*)$/.test(hunkIndex),
-            `FileCard ${fileIndexText} contains a hunk with invalid coordinates.`,
+            readHunkIdentity(target).fileIndex === fileIndex,
+            `FileCard ${fileIndex} contains a hunk with invalid coordinates.`,
           );
         }
-        const participatingTargets = targets.filter(
-          (target) => !target.classList.contains("skip"),
-        );
+        const participatingTargets = targets.filter(hunkParticipates);
         hasMore ||=
           hunkSet.kind === "husk" || hunkSet.kind === "lazy" || hunkSet.skipped;
         let localCurrent: number | null = null;
-        if (card === selectedCards[0]) {
+        if (card === selectedCard) {
           selectedFileIndex = fileIndex;
           const selectedTarget = storedHunkTarget(card, targets);
           localCurrent = targets.indexOf(selectedTarget) + 1;
@@ -532,24 +481,16 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
       if (cardStats === null || lastDisplay === null) {
         return null;
       }
-      const selectedCards = root.querySelectorAll<HTMLElement>(
-        "[data-file-card][data-selected-hunk-index]",
-      );
+      const card = selectedFileCard(root);
       assert(
-        selectedCards.length === 1,
+        card !== null,
         "A non-empty ChangeSet requires exactly one selected FileCard.",
       );
-      const card = selectedCards[0];
-      if (card === undefined) {
-        return null;
-      }
       const stats = cardStats.get(card);
       if (stats === undefined) {
         return null;
       }
-      const targets = Array.from(
-        card.querySelectorAll<HTMLElement>("[data-hunk-target]"),
-      );
+      const targets = hunkTargetsOf(card);
       const selectedTarget = storedHunkTarget(card, targets);
       const localCurrent = targets.indexOf(selectedTarget) + 1;
       const fileSelectedHunks = new Map(lastDisplay.fileSelectedHunks);
@@ -605,7 +546,7 @@ function HunkDisplayObserver(props: HunkDisplayObserverProps): null {
         if (!alive) {
           return;
         }
-        if (root.querySelector("[data-file-render-error]") !== null) {
+        if (renderDamaged(root)) {
           // The renderer already exposed terminal local damage and its Toast.
           // Preserve the last successful display without repair or duplication.
           observer?.disconnect();

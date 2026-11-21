@@ -29,11 +29,20 @@ zeroes.
 
 ## Bays
 
-Bay expansion and render modes (`BayExpansion`, `BayRenderModes`) are owned by
-the card, keyed by bay key, because the card outlives body collapse and
-rich/virtual remounts. Expansion reads the backend's `default_expanded` until
-the reviewer changes it and is dropped with the card. Line-pin navigation opens
-a bay by writing that state, not by reaching a mounted bay through the DOM.
+Bay expansion (`BayExpansion`) is held by the card, keyed by bay key, because
+the card outlives body collapse and rich/virtual remounts. Expansion reads the
+backend's `default_expanded` until the reviewer changes it and is dropped with
+the card. Line-pin navigation opens a bay by writing that state, not by
+reaching a mounted bay through the DOM.
+
+Bay render modes (`BayRenderModes`) are `ChangeSet` state, keyed by File index
+and bay key, because the File header and FileTree both show a File's aggregate
+mode. A text bay registers its mode for exactly its mounted lifetime, so a File
+whose body is unmounted has no mode.
+
+Every bay, of any kind, is mounted inside a wrapper carrying `data-bay-key`.
+The card keeps one `BayHandle` per mounted bay, registered on mount and removed
+on cleanup, and the wrapper is how the facade finds the handle for an element.
 
 A bay collapsed by default still writes its first hunk coordinate, and that
 anchor stays landable, unlike a collapsed File's skipped hunks: a change the
@@ -41,15 +50,21 @@ reviewer cannot land on is a hidden change.
 
 Content with no rows (`image` and `blob` bays) does not participate in
 rich/virtual replacement and stays mounted, so its chrome carries its single
-hunk stop. An image bay hosts one review line per side and writes the same
-line-host DOM contract as `TextDiffGrid`, because line pins and navigation
-resolve against it. Only the one-frame, one-bay `flatfile` text shape renders
+hunk stop. An image bay hosts one review line per side, builds the same
+`LineCell` for it as a text row, and paints Comment triggers and line pins with
+the same painters, because line pins and navigation act on it as on a text
+line. Only the one-frame, one-bay `flatfile` text shape renders
 without bay chrome.
 
-## TextDiffGrid
+## Text grid
 
-`TextDiffGrid` owns the row DOM and line-pin paint for one text bay. It does
-not own file loading or hunk selection.
+`textGrid.ts` holds the row DOM of one text bay and everything done to it:
+folds, Comment trigger and line-pin paint, move outlines and hover, click
+delegation, and when chunks are laid out or warmed. It imports nothing from
+Solid. `TextDiffGrid` is
+its adapter: it creates the grid once its row host is mounted, hands it the
+rendering inputs and review markers from two effects, and disposes it with the
+host. The grid does not load files or select hunks.
 
 - It has one persistent root and replaces its row children atomically when a
   rendering input other than review markers changes. Review marker changes only
@@ -57,13 +72,17 @@ not own file loading or hunk selection.
   composer anchor, or erase selected-hunk DOM.
 - Every row replacement, including fold changes, first closes only the review
   composer or Thread panel whose trigger is inside that grid.
-- After each render the grid reports which sides have a real line-one Comment
-  trigger in mounted DOM; the File marker uses that fact and never infers
-  availability from backend rows.
-- `rowDom.ts` is a detached row-DOM builder with no reactivity, queries, or
-  state. Its only listeners are fold toggles; it installs no review or line-pin
-  listeners, retains no markers or pins, decides no view mode, and never
-  fetches.
+- A marker paint failure, including one in reading which markers changed,
+  disables every Comment trigger of that grid without reading its lines again,
+  and is reported to the adapter, which shows the "Review markers unavailable"
+  strip; the rows stay. The grid paints no markers again until it is remounted.
+- `rowDom.ts` is the row vocabulary: it builds detached rows and holds every
+  spelling of row-internal classes and attributes, with readers that turn a
+  mounted line or move token back into a `LineCell` or `Move`. It has no
+  reactivity, and its only listeners are fold toggles. It creates the row
+  chunks, so it also holds the document-wide chunk warm-up pass, its one piece
+  of retained state. The one painted line pin is found under the ChangeSet
+  root the painter is given.
 
 Backend row order is authoritative. Inline view may merge presented rows, but
 hunk identity stays attached to the backend boundary that produced it. When the
@@ -90,7 +109,7 @@ canonical engine-row change classification, so fold discovery never compares
 row text independently or discards rows such as trailing blanks. A fold range
 containing a hunk boundary is a backend contract violation and throws.
 
-`TextDiffGrid` stores expanded folds locally. Expansion changes only that
+The text grid stores expanded folds locally. Expansion changes only that
 grid's row DOM; it selects no hunk and neither navigates, fetches, nor changes
 file collapse.
 
@@ -123,24 +142,34 @@ File expansion is stored by `ChangeSet` and shared by the file list and
 FileTree; state replacement creates no other expansion value.
 
 Disposing a `FileCard` disposes its bays: each text bay disconnects its
-observers and resize listener, removes the operations on its wrapper, and
-clears its registered render mode. The card removes the operations `FullFile` or
-`TextDiffGrid` attached and drops local fold and bay expansion state. The card
-does not outlive its `ChangeSetSnapshot`; query cancellation and observer
-disposal remain the lane's responsibility.
+observers and resize listener, removes its handle, and clears its registered
+render mode; its grid removes its listeners and resize observer. The FullFile
+body removes the card's handle and drops local fold and bay expansion state.
+The card does not outlive its `ChangeSetSnapshot`; query cancellation and
+observer disposal remain the lane's responsibility.
 
 ## Operations exposed to navigation
 
-Navigation discovers these through the DOM, and each exists exactly for the
-mounted lifetime of its element. File presentation never calls `selectHunk()`.
+Navigation reaches a File's body only through the facade's typed handles. A
+handle exists exactly while its element is mounted. File presentation never
+calls `selectHunk()`.
 
-- Card: `prepareLine_impl(target, abortSignal)` expands the file and the
-  target's bay, enriches that bay, unfolds the line, and returns the row or a
-  precise missing/stopped result. Calling it before admission is a contract
-  error.
-- Text bay wrapper: `waitToEnrich_impl()` makes the bay rich and resolves once
-  the rich grid exists; `intersectsRichEntryZone(viewportTop)` answers without
-  changing representation.
-- `TextDiffGrid`: its own `prepareLine_impl` unfolds containing folds and
-  returns the exact row. It does not scroll, paint a pin, select a hunk, or
-  fetch.
+- `fileCardAt(root, fileIndex)` returns the File's `FileCardHandle`. Its
+  `prepareLine(target, abortSignal)` expands the File and the target's bay,
+  then hands the line to that bay. Calling it before the FullFile body is
+  mounted is a contract error.
+- `bayContaining(element)` returns the `BayHandle` of the bay holding an
+  element, or null outside any bay; `virtualBays(root)` returns every mounted
+  virtual bay in document order.
+- `BayHandle`: `mode()` is the text bay's render mode and null for an image
+  bay. `enrich()` makes the bay rich and resolves once its geometry is real.
+  `intersectsRichEntryZone(viewportTop)` answers without changing
+  representation, and is asked only of virtual bays. `prepareLine(target,
+  abortSignal)` enriches the bay, unfolds the folds holding the line, and
+  returns its `LineCell` or a precise missing/stopped result. None of these
+  scroll, paint a pin, select a hunk, or fetch.
+
+The facade also spells the card's own DOM for navigation and the ChangeSet
+shell, so neither reads it directly: the cards under a root, the card holding
+an element, a card's file index, whether any File renderer is damaged, and the
+split side a text selection stays on.

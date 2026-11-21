@@ -235,12 +235,9 @@ export function InlineThreadPanel(props: {
           ReadonlySet<ReviewId>
         >(new Set());
         const multiple = () => visibleThreads().length > 1;
-        const mount = active.anchor.codeCell.parentElement;
-        assert(
-          mount !== null &&
-            (mount.classList.contains("diff-side") ||
-              mount.classList.contains("inline-diff-row")),
-          "Inline Threads require their exact rendered diff row.",
+        const mount = expect(
+          active.anchor.codeCell.parentElement,
+          "A code cell requires its row part.",
         );
         return (
           <Portal

@@ -1,7 +1,7 @@
 import type { DecoratedPart, DiffRow } from "../../../../api/api";
 import { isFoldRow, type FoldRow, type RenderRow } from "./folds";
-import type { RealHunkIdentity } from "../../../navigation";
-import { assert } from "../../../../utils";
+import { hunkTargetAttrs } from "../../../navigation";
+import { assert, expect } from "../../../../utils";
 
 const suppressedSyntaxClassPrefixes = [
   "ts-punctuation",
@@ -13,6 +13,167 @@ const suppressedSyntaxClassPrefixes = [
 ];
 
 export type Side = "left" | "right";
+
+// One reviewable line as mounted: a text row side or an image bay side. The
+// image bay builds its own from refs; it writes the same line-host DOM.
+export type LineCell = {
+  side: Side;
+  line: number;
+  row: HTMLElement;
+  triggerHost: HTMLElement;
+  codeCell: HTMLElement;
+};
+
+export function lineCellAt(
+  root: ParentNode,
+  side: Side,
+  line: number,
+): LineCell | null {
+  const matching = root.querySelectorAll<HTMLElement>(
+    `.line-no[data-line-pin-side="${side}"][data-line-pin-line="${line}"]`,
+  );
+  assert(matching.length <= 1, "Rows contain duplicate line coordinates.");
+  const lineNumber = matching[0];
+  if (lineNumber === undefined) {
+    return null;
+  }
+  const row = expect(
+    lineNumber.closest<HTMLElement>(".diff-row"),
+    "A line number requires its row.",
+  );
+  const triggerHost = expect(
+    lineNumber.querySelector<HTMLElement>(":scope > .line-comment-triggers"),
+    "A line number requires its Comment trigger host.",
+  );
+  const codeCell = expect(
+    lineNumber.parentElement?.querySelector<HTMLElement>(":scope > .line-code"),
+    "A line number requires its code cell.",
+  );
+  return { side, line, row, triggerHost, codeCell };
+}
+
+export function lineCellFromEvent(target: EventTarget | null): LineCell | null {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+  const lineNumber = target.closest<HTMLElement>(
+    ".line-no[data-line-pin-line]",
+  );
+  if (lineNumber === null) {
+    return null;
+  }
+  const side = lineNumber.dataset.linePinSide;
+  const line = lineNumber.dataset.linePinLine;
+  assert(
+    side === "left" || side === "right",
+    "A line number has an invalid side.",
+  );
+  assert(
+    line !== undefined && /^[1-9]\d*$/u.test(line),
+    "A line number has an invalid line.",
+  );
+  const row = expect(
+    lineNumber.closest<HTMLElement>(".diff-row"),
+    "A line number requires its row.",
+  );
+  return lineCellAt(row, side, Number(line));
+}
+
+// In document order.
+export function lineCellsIn(root: ParentNode): LineCell[] {
+  return Array.from(
+    root.querySelectorAll(".line-no[data-line-pin-line]"),
+    (lineNumber) =>
+      expect(
+        lineCellFromEvent(lineNumber),
+        "A pinnable line number must read as its line.",
+      ),
+  );
+}
+
+// The ChangeSet paints at most one pinned row, so painting a pin first clears
+// the previous one. An expanded fold's toggle row is never painted: its line
+// number toggles the fold instead of the pin.
+export function paintLinePin(
+  changeSetRoot: HTMLElement,
+  cell: LineCell,
+  pinned: boolean,
+): void {
+  if (!pinned) {
+    cell.row.classList.remove("pinned-line");
+    return;
+  }
+  const painted = changeSetRoot.querySelectorAll<HTMLElement>(".pinned-line");
+  assert(painted.length <= 1, "ChangeSet contains multiple painted line pins.");
+  painted[0]?.classList.remove("pinned-line");
+  if (!cell.row.classList.contains("fold-toggle-row")) {
+    cell.row.classList.add("pinned-line");
+  }
+}
+
+type MoveSpan = {
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+};
+
+export type Move = {
+  element: HTMLElement;
+  codeCell: HTMLElement;
+  side: Side;
+  // Identity shared by both sides' pieces of one move relationship.
+  key: string;
+  left: MoveSpan;
+  right: MoveSpan;
+};
+
+// Decodes what `appendDecoratedText` encodes on each move enclosure.
+export function moveAt(element: Element): Move | null {
+  const enclosure = element.closest<HTMLElement>(".token-moved");
+  if (enclosure === null) {
+    return null;
+  }
+  const side = enclosure.dataset.moveSide;
+  assert(side === "left" || side === "right", "Move has an invalid side.");
+  const key = expect(enclosure.dataset.moveKey, "Move has no endpoints.");
+  const coordinates = key.split(":").map(Number);
+  assert(
+    coordinates.length === 8 && coordinates.every(Number.isInteger),
+    "Move has invalid endpoints.",
+  );
+  // Each side's span is four consecutive coordinates, left first.
+  function span(offset: number): MoveSpan {
+    const [startLine, startColumn, endLine, endColumn] = coordinates.slice(
+      offset,
+      offset + 4,
+    );
+    return {
+      startLine: expect(startLine, "Move endpoint is missing."),
+      startColumn: expect(startColumn, "Move endpoint is missing."),
+      endLine: expect(endLine, "Move endpoint is missing."),
+      endColumn: expect(endColumn, "Move endpoint is missing."),
+    };
+  }
+  return {
+    element: enclosure,
+    codeCell: expect(
+      enclosure.closest<HTMLElement>(".line-code"),
+      "A move requires its code cell.",
+    ),
+    side,
+    key,
+    left: span(0),
+    right: span(4),
+  };
+}
+
+// Every move enclosure in document order, both sides.
+export function movesIn(root: ParentNode): Move[] {
+  return Array.from(root.querySelectorAll(".token-moved"), (enclosure) =>
+    expect(moveAt(enclosure), "A move enclosure reads as its move."),
+  );
+}
 
 type InlineMarker = " " | "-" | "+" | "*";
 
@@ -64,18 +225,17 @@ const ROW_CHUNK_SIZE = 50;
 
 const ROW_CHUNK_THRESHOLD = 600;
 
-// Idle-callback handle of the module-wide chunk warm-up pass; null when none is
-// scheduled.
+// Idle-callback handle of the document-wide chunk warm-up pass; null when none
+// is scheduled.
 let chunkWarmHandle: number | null = null;
 
 // Chunk currently held content-visibility: visible for one rendered frame.
 let warmingChunk: Element | null = null;
 
 // A skipped chunk's height is only the intrinsic estimate until it first
-// renders; warming one
-// chunk per idle pass records its real height so scroll and navigation geometry
-// is exact.
-// `diff-row-chunk-warmed` makes each chunk warm once.
+// renders; warming one chunk per idle pass records its real height so scroll
+// and navigation geometry is exact. `diff-row-chunk-warmed` makes each chunk
+// warm once.
 function warmPendingChunk(): void {
   chunkWarmHandle = null;
   // The previous chunk has had a rendered frame, so its real height is
@@ -93,16 +253,20 @@ function warmPendingChunk(): void {
   chunkWarmHandle = requestIdleCallback(warmPendingChunk);
 }
 
-function requestChunkWarming(): void {
-  if (chunkWarmHandle === null) {
+// Starts the document-wide warm-up pass unless one is scheduled or `root`
+// holds no unwarmed chunk.
+export function warmChunksWhenIdle(root: ParentNode): void {
+  if (
+    chunkWarmHandle === null &&
+    root.querySelector(".diff-row-chunk:not(.diff-row-chunk-warmed)") !== null
+  ) {
     chunkWarmHandle = requestIdleCallback(warmPendingChunk);
   }
 }
 
-// Off-screen geometry reads need true heights now. The caller must pass the
-// returned chunks to
-// `finishForcedChunkLayout` after a rendered frame, or discard them if the body
-// unmounts.
+// Off-screen geometry reads need true heights now. The caller passes the
+// returned chunks to `finishForcedChunkLayout` after a rendered frame, or
+// discards them if the grid unmounts.
 export function forceChunkLayout(
   container: HTMLElement,
 ): readonly HTMLElement[] {
@@ -120,6 +284,7 @@ export function forceChunkLayout(
   return pending;
 }
 
+// The chunks have had a rendered frame, so their real heights are remembered.
 export function finishForcedChunkLayout(chunks: readonly HTMLElement[]): void {
   for (const chunk of chunks) {
     chunk.classList.add("diff-row-chunk-warmed");
@@ -147,9 +312,6 @@ function createRowChunkAppender(
         chunk.className = "diff-row-chunk";
         fragment.append(chunk);
         chunkCount = 0;
-        // Chunks are born only here, so this is the one warming trigger;
-        // the idle pass finds them once the caller mounts the fragment.
-        requestChunkWarming();
       }
       // Count emitted elements, not append calls: an inline changed row may
       // arrive as a two-element fragment, and the chunk's intrinsic-height
@@ -187,11 +349,10 @@ export function renderSplitRowsDom(
     const rowIndex = isFoldRow(row) ? row.startRow : cursor;
     if (isFoldRow(row)) {
       appender.appendFold(
-        renderSplitFoldDom(
+        renderFoldDom(
           row,
           rowIndex,
-          leftLabel,
-          rightLabel,
+          { view: "split", leftLabel, rightLabel },
           expandedFolds,
           fileIndex,
           bayKey,
@@ -234,10 +395,10 @@ export function renderInlineRowsDom(
     const rowIndex = isFoldRow(row) ? row.startRow : cursor;
     if (isFoldRow(row)) {
       appender.appendFold(
-        renderInlineFoldDom(
+        renderFoldDom(
           row,
           rowIndex,
-          interleaveInlineRows,
+          { view: "inline", interleaveInlineRows },
           expandedFolds,
           fileIndex,
           bayKey,
@@ -265,11 +426,16 @@ export function renderInlineRowsDom(
   return fragment;
 }
 
-function renderSplitFoldDom(
+// Split and inline folds differ only in the rows they reopen and the bar they
+// show while closed.
+type FoldLayout =
+  | { view: "split"; leftLabel: string; rightLabel: string }
+  | { view: "inline"; interleaveInlineRows: boolean };
+
+function renderFoldDom(
   row: FoldRow,
   rowIndex: number,
-  leftLabel: string,
-  rightLabel: string,
+  layout: FoldLayout,
   expandedFolds: Set<number>,
   fileIndex: number,
   bayKey: string,
@@ -291,78 +457,30 @@ function renderSplitFoldDom(
   };
 
   const renderFold = () => {
-    const expanded = expandedFolds.has(rowIndex);
-    if (expanded) {
-      const fragment = renderSplitRowsDom(
-        row.foldedRows,
-        leftLabel,
-        rightLabel,
-        expandedFolds,
-        fileIndex,
-        bayKey,
-        row.startRow,
-        beforeRowsReplaced,
-        onRowsChanged,
-      );
-      attachExpandedFoldToggle(fragment, toggle);
-      wrapper.replaceChildren(fragment);
-      return;
-    }
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "diff-row fold-bar";
-    button.dataset.rowIndex = String(rowIndex);
-    button.title = "Expand folded rows";
-    button.addEventListener("click", toggle);
-    button.append(
-      createFoldSideDom(row.count, row.label, leftLabel),
-      createFoldSideDom(row.count, row.label, rightLabel),
-    );
-    wrapper.replaceChildren(button);
-  };
-
-  renderFold();
-  return wrapper;
-}
-
-function renderInlineFoldDom(
-  row: FoldRow,
-  rowIndex: number,
-  interleaveInlineRows: boolean,
-  expandedFolds: Set<number>,
-  fileIndex: number,
-  bayKey: string,
-  beforeRowsReplaced: (container: Node) => void,
-  onRowsChanged: () => void,
-): HTMLElement {
-  const wrapper = document.createElement("div");
-  wrapper.style.display = "contents";
-
-  const toggle = () => {
     if (expandedFolds.has(rowIndex)) {
-      expandedFolds.delete(rowIndex);
-    } else {
-      expandedFolds.add(rowIndex);
-    }
-    beforeRowsReplaced(wrapper);
-    renderFold();
-    onRowsChanged();
-  };
-
-  const renderFold = () => {
-    const expanded = expandedFolds.has(rowIndex);
-    if (expanded) {
-      const fragment = renderInlineRowsDom(
-        row.foldedRows,
-        interleaveInlineRows,
-        expandedFolds,
-        fileIndex,
-        bayKey,
-        row.startRow,
-        beforeRowsReplaced,
-        onRowsChanged,
-      );
+      const fragment =
+        layout.view === "split"
+          ? renderSplitRowsDom(
+              row.foldedRows,
+              layout.leftLabel,
+              layout.rightLabel,
+              expandedFolds,
+              fileIndex,
+              bayKey,
+              row.startRow,
+              beforeRowsReplaced,
+              onRowsChanged,
+            )
+          : renderInlineRowsDom(
+              row.foldedRows,
+              layout.interleaveInlineRows,
+              expandedFolds,
+              fileIndex,
+              bayKey,
+              row.startRow,
+              beforeRowsReplaced,
+              onRowsChanged,
+            );
       attachExpandedFoldToggle(fragment, toggle);
       wrapper.replaceChildren(fragment);
       return;
@@ -370,20 +488,30 @@ function renderInlineFoldDom(
 
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "diff-row inline-diff-row inline-fold-bar";
+    button.className =
+      layout.view === "split"
+        ? "diff-row fold-bar"
+        : "diff-row inline-diff-row inline-fold-bar";
     button.dataset.rowIndex = String(rowIndex);
     button.title = "Expand folded rows";
     button.addEventListener("click", toggle);
-    const lineText = foldLineText(row.count);
-    const label =
-      row.label.length > 0
-        ? `... ${lineText} in ${row.label}`
-        : `... ${lineText}`;
-    button.append(
-      createPlainLineNumberDom(".."),
-      createPlainLineNumberDom(".."),
-      createElementWithClass("div", "fold-label inline-fold-label", label),
-    );
+    if (layout.view === "split") {
+      button.append(
+        createFoldSideDom(row.count, row.label, layout.leftLabel),
+        createFoldSideDom(row.count, row.label, layout.rightLabel),
+      );
+    } else {
+      const lineText = foldLineText(row.count);
+      const label =
+        row.label.length > 0
+          ? `... ${lineText} in ${row.label}`
+          : `... ${lineText}`;
+      button.append(
+        createPlainLineNumberDom(".."),
+        createPlainLineNumberDom(".."),
+        createElementWithClass("div", "fold-label inline-fold-label", label),
+      );
+    }
     wrapper.replaceChildren(button);
   };
 
@@ -411,7 +539,9 @@ function attachExpandedFoldToggle(
   row.addEventListener("click", (event) => {
     if (
       event.target instanceof Element &&
-      event.target.closest(".line-comment-trigger") !== null
+      // Children of the trigger host are Comment triggers; their clicks are
+      // review actions, not fold toggles.
+      event.target.closest(".line-comment-triggers > *") !== null
     ) {
       return;
     }
@@ -435,17 +565,16 @@ function renderSplitDiffRowDom(
   element.className = diffRowClass(row.status, row, "");
   element.dataset.rowIndex = String(rowIndex);
   if (row.hunk_index !== null) {
-    const identity: RealHunkIdentity = {
-      fileIndex,
-      kind: "real",
-      bay: bayKey,
-      hunkIndex: row.hunk_index,
-    };
-    element.dataset.hunkTarget = "";
-    element.dataset.hunkKind = identity.kind;
-    element.dataset.fileIndex = String(identity.fileIndex);
-    element.dataset.hunkBay = identity.bay;
-    element.dataset.hunkIndex = String(identity.hunkIndex);
+    for (const [name, value] of Object.entries(
+      hunkTargetAttrs({
+        fileIndex,
+        kind: "real",
+        bay: bayKey,
+        hunkIndex: row.hunk_index,
+      }),
+    )) {
+      element.setAttribute(name, value);
+    }
   }
   element.append(
     createDiffSideDom(row, "left"),
@@ -786,17 +915,16 @@ function renderInlineDiffRowDom(props: {
   );
   element.dataset.rowIndex = String(props.rowIndex);
   if (props.sourceRow.hunk_index !== null) {
-    const identity: RealHunkIdentity = {
-      fileIndex: props.fileIndex,
-      kind: "real",
-      bay: props.bayKey,
-      hunkIndex: props.sourceRow.hunk_index,
-    };
-    element.dataset.hunkTarget = "";
-    element.dataset.hunkKind = identity.kind;
-    element.dataset.fileIndex = String(identity.fileIndex);
-    element.dataset.hunkBay = identity.bay;
-    element.dataset.hunkIndex = String(identity.hunkIndex);
+    for (const [name, value] of Object.entries(
+      hunkTargetAttrs({
+        fileIndex: props.fileIndex,
+        kind: "real",
+        bay: props.bayKey,
+        hunkIndex: props.sourceRow.hunk_index,
+      }),
+    )) {
+      element.setAttribute(name, value);
+    }
   }
   const code = createInlineLineCodeDom(
     props.marker,

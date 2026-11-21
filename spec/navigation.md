@@ -121,9 +121,13 @@ decoration.
   the target, explicitly loads a lazy target, waits for admission, then awaits
   `LinePins.restore()` before later files.
 - `LinePins.restore()` retains one `AbortController`, checks the URL still holds
-  the same target, and asks Navigation to navigate. Navigation calls the target
-  `FullFile`'s `prepareLine_impl()`, which returns `ready`, `missing` or
-  `stopped` and does not fetch, paint, select or scroll.
+  the same target, and asks Navigation to navigate. Navigation calls
+  `prepareLine()` on the target File's `FileCardHandle` (`fileCardAt()`), which
+  returns `ready` with the line's `LineCell`, `missing` or `stopped` and does
+  not fetch, paint, select or scroll. A completed line navigation returns that
+  `LineCell`, and only while its row is still mounted after the final scroll
+  settles: a view switch or File collapse meanwhile makes it `stopped`, so no
+  review UI anchors to a detached row.
 - `toggleUrlState()` and snapshot disposal abort restoration; Navigation checks
   the signal immediately before its final scroll. A pin is removed
   automatically only if the URL still holds that target. Structural failures

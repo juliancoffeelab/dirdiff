@@ -19,12 +19,12 @@ import {
   type TextKindPayload,
 } from "../../api/api";
 import type { DiffViewMode } from "../App";
-import { finishForcedChunkLayout, forceChunkLayout } from "./grids/text/rowDom";
 
 import { ImageBayView } from "./grids/image/ImageBayView";
 import { TextDiffGrid } from "./grids/text/TextDiffGrid";
-import type { LinePins } from "../linePins";
-import { useNavigation, type RealHunkIdentity } from "../navigation";
+import type { TextGrid } from "./grids/text/textGrid";
+import type { LinePins, LinePinTarget, PreparedLine } from "../linePins";
+import { hunkTargetAttrs, useNavigation } from "../navigation";
 import { assert, expect } from "../../utils";
 
 export type BayHunks = {
@@ -122,9 +122,19 @@ function initialRenderMode(card: HTMLElement, rowCount: number): BayRenderMode {
     : "virtual";
 }
 
-type EnrichableBay = HTMLElement & {
-  intersectsRichEntryZone: (viewportTop: number) => boolean;
-  waitToEnrich_impl: () => Promise<void>;
+// What navigation may do with one mounted bay. A handle exists exactly while
+// its bay wrapper is mounted, in the FileCard's map under the bay key.
+export type BayHandle = {
+  // Null for a bay kind that is never virtualized.
+  mode(): BayRenderMode | null;
+  // Resolves once the bay is rich and its geometry is real.
+  enrich(): Promise<void>;
+  // Asked only of a virtual bay.
+  intersectsRichEntryZone(viewportTop: number): boolean;
+  prepareLine(
+    target: LinePinTarget,
+    abortSignal: AbortSignal,
+  ): Promise<PreparedLine>;
 };
 
 export function composedHunkCount(diff: FileDiff): number {
@@ -184,21 +194,16 @@ function VirtualBay(props: {
       <div class="plain-split-diff" aria-label="Virtualized plain split diff">
         <For each={text().hunkAnchors}>
           {(anchor) => {
-            const identity: RealHunkIdentity = {
-              fileIndex: props.fileIndex,
-              kind: "real",
-              bay: props.bay.bay_key,
-              hunkIndex: anchor.hunkIndex,
-            };
             return (
               <span
                 class="virtual-hunk-anchor hunk-anchor"
                 style={{ top: `${10 + anchor.rowOffset * 17.4}px` }}
-                data-hunk-target
-                data-hunk-kind={identity.kind}
-                data-file-index={identity.fileIndex}
-                data-hunk-bay={identity.bay}
-                data-hunk-index={identity.hunkIndex}
+                {...hunkTargetAttrs({
+                  fileIndex: props.fileIndex,
+                  kind: "real",
+                  bay: props.bay.bay_key,
+                  hunkIndex: anchor.hunkIndex,
+                })}
                 aria-hidden="true"
               />
             );
@@ -214,7 +219,6 @@ function VirtualBay(props: {
 function TextBayView(props: {
   reviewFile: ReviewFilePair;
   fileIndex: number;
-  displayName: string;
   bay: BayPayload;
   content: TextKindPayload;
   view: DiffViewMode;
@@ -222,10 +226,11 @@ function TextBayView(props: {
   linePins: LinePins;
   card: Accessor<HTMLElement>;
   bayRenderModes: BayRenderModes;
+  bays: Map<string, BayHandle>;
 }): JSX.Element {
-  // Held as HTMLElement: the enrichment attachment below converts it to the
-  // EnrichableBay DOM interface, which is declared on the element base type.
-  let wrapper!: HTMLElement;
+  let wrapper!: HTMLDivElement;
+  // Mounted exactly while the bay is rich.
+  let grid: TextGrid | null = null;
   const navigation = useNavigation();
   const bayKey = props.bay.bay_key;
   // Registration spans the component lifetime, not onMount's: the mode is
@@ -247,45 +252,28 @@ function TextBayView(props: {
     if (next === "virtual") {
       // An off-screen grid with unwarmed chunks measures the intrinsic
       // estimate, not its real height; pinning that onto the virtual body
-      // moves the page under the reader. Force real layout first. The grid
-      // unmounts with this transition, so the visible chunks need no
-      // restoration.
-      forceChunkLayout(wrapper);
-      const measuredHeight = wrapper.getBoundingClientRect().height;
-      assert(
-        Number.isFinite(measuredHeight) && measuredHeight > 0,
-        "Rich bay body must have a finite positive height before virtualization.",
+      // moves the page under the reader. The grid unmounts with this
+      // transition, so the chunks it lays out need no restoration.
+      setReservedRichHeight(
+        expect(grid, "A rich bay has its grid mounted.").realHeight(),
       );
-      setReservedRichHeight(measuredHeight);
     }
     props.bayRenderModes.setMode(bayKey, next);
   }
 
-  async function waitToEnrich_impl(): Promise<void> {
+  async function enrich(): Promise<void> {
     changeRenderMode("rich");
     // `changeRenderMode` writes a store key; the grid it selects is mounted
     // by Solid's flush, not by the assignment. Yielding the microtask lets
-    // that flush run so the chunks read below exist. Nothing here waits on
-    // layout or paint, only on the render Solid has already scheduled.
+    // that flush run so the grid exists. Nothing here waits on layout or
+    // paint, only on the render Solid has already scheduled.
     await Promise.resolve();
     if (!wrapper.isConnected) {
       return;
     }
-    // Enrichment is complete only when its geometry is real: fresh chunks
-    // still carry the intrinsic estimate, and the callers (navigation's
-    // pre-enrichment and centering) read heights immediately. Lay the
-    // chunks out now and give the browser one rendered frame to record
-    // their remembered sizes before returning them to skippable containment.
-    const freshChunks = forceChunkLayout(wrapper);
-    if (freshChunks.length > 0) {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve());
-      });
-      if (!wrapper.isConnected) {
-        return;
-      }
-      finishForcedChunkLayout(freshChunks);
-    }
+    // Enrichment is complete only when its geometry is real: the callers
+    // (navigation's pre-enrichment and centering) read heights immediately.
+    await expect(grid, "An enriched bay has its grid mounted.").settleLayout();
   }
 
   function intersectsRichEntryZone(viewportTop: number): boolean {
@@ -314,10 +302,29 @@ function TextBayView(props: {
   }
 
   onMount(() => {
-    Object.assign(wrapper, {
+    assert(!props.bays.has(bayKey), `Bay ${bayKey} is mounted twice.`);
+    props.bays.set(bayKey, {
+      mode,
+      enrich,
       intersectsRichEntryZone,
-      waitToEnrich_impl,
-    }) satisfies EnrichableBay;
+      async prepareLine(target, abortSignal) {
+        assert(
+          target.file.left_path === props.reviewFile.left_path &&
+            target.file.right_path === props.reviewFile.right_path &&
+            target.bay.bay_key === bayKey,
+          "Text bay received a line target from another bay.",
+        );
+        await enrich();
+        if (abortSignal.aborted || !wrapper.isConnected) {
+          return { state: "stopped" };
+        }
+        const cell = expect(
+          grid,
+          "An enriched bay has its grid mounted.",
+        ).revealLine(target.side, Number(target.line));
+        return cell === null ? { state: "missing" } : { state: "ready", cell };
+      },
+    });
     const rowCount = props.content.rows.length;
     let enterObserver: IntersectionObserver | null = null;
     let exitObserver: IntersectionObserver | null = null;
@@ -388,8 +395,7 @@ function TextBayView(props: {
         "navigation-idle",
         observeCurrentZones,
       );
-      Reflect.deleteProperty(wrapper, "intersectsRichEntryZone");
-      Reflect.deleteProperty(wrapper, "waitToEnrich_impl");
+      props.bays.delete(bayKey);
     });
   });
 
@@ -415,7 +421,6 @@ function TextBayView(props: {
         <TextDiffGrid
           reviewFile={props.reviewFile}
           fileIndex={props.fileIndex}
-          displayName={props.displayName}
           bayKey={props.bay.bay_key}
           contentLabel={props.bay.label}
           leftLabel={props.content.left_label}
@@ -426,6 +431,9 @@ function TextBayView(props: {
           viewMode={props.view}
           aggressiveFolds={props.aggressiveFolds}
           linePins={props.linePins}
+          onGrid={(mounted) => {
+            grid = mounted;
+          }}
         />
       </Show>
     </div>
@@ -435,13 +443,13 @@ function TextBayView(props: {
 function BayBody(props: {
   reviewFile: ReviewFilePair;
   fileIndex: number;
-  displayName: string;
   bay: BayPayload;
   view: DiffViewMode;
   aggressiveFolds: boolean;
   linePins: LinePins;
   card: Accessor<HTMLElement>;
   bayRenderModes: BayRenderModes;
+  bays: Map<string, BayHandle>;
 }): JSX.Element {
   // Read once into a local so the narrowing below survives into each branch;
   // `props.bay.kind_data` is a fresh getter call and narrows nothing.
@@ -452,7 +460,6 @@ function BayBody(props: {
         <TextBayView
           reviewFile={props.reviewFile}
           fileIndex={props.fileIndex}
-          displayName={props.displayName}
           bay={props.bay}
           content={content}
           view={props.view}
@@ -460,17 +467,34 @@ function BayBody(props: {
           linePins={props.linePins}
           card={props.card}
           bayRenderModes={props.bayRenderModes}
+          bays={props.bays}
         />
       );
     case "image":
       return (
-        <ImageBayView
-          reviewFile={props.reviewFile}
-          bay={props.bay}
-          content={content}
-          view={props.view}
-          linePins={props.linePins}
-        />
+        // The same wrapper a text bay mounts, without a render mode: an image
+        // bay is never virtualized.
+        <div data-bay-key={props.bay.bay_key}>
+          <ImageBayView
+            reviewFile={props.reviewFile}
+            bay={props.bay}
+            content={content}
+            view={props.view}
+            linePins={props.linePins}
+            onHandle={(handle) => {
+              const bayKey = props.bay.bay_key;
+              if (handle === null) {
+                props.bays.delete(bayKey);
+                return;
+              }
+              assert(
+                !props.bays.has(bayKey),
+                `Bay ${bayKey} is mounted twice.`,
+              );
+              props.bays.set(bayKey, handle);
+            }}
+          />
+        </div>
       );
   }
 }
@@ -507,7 +531,6 @@ function BayStats(props: { bay: BayPayload }): JSX.Element {
 function BayView(props: {
   reviewFile: ReviewFilePair;
   fileIndex: number;
-  displayName: string;
   bay: BayPayload;
   hunks: BayHunks;
   view: DiffViewMode;
@@ -516,6 +539,7 @@ function BayView(props: {
   card: Accessor<HTMLElement>;
   bayExpansion: BayExpansion;
   bayRenderModes: BayRenderModes;
+  bays: Map<string, BayHandle>;
 }): JSX.Element {
   function changeTone(change: BayChange): string {
     return `composed-bay-${change.kind}`;
@@ -568,23 +592,18 @@ function BayView(props: {
       <BayWarnings bay={props.bay} />
       <For each={anchors()}>
         {(hunkIndex, position) => {
-          const identity: RealHunkIdentity = {
-            fileIndex: props.fileIndex,
-            kind: "real",
-            bay: props.bay.bay_key,
-            hunkIndex,
-          };
           return (
             <span
               class="composed-bay-anchor"
               // The first anchor is where Next lands; the rest hold their
               // coordinates without being traversed.
               classList={{ skip: position() > 0 }}
-              data-hunk-target
-              data-hunk-kind={identity.kind}
-              data-file-index={identity.fileIndex}
-              data-hunk-bay={identity.bay}
-              data-hunk-index={identity.hunkIndex}
+              {...hunkTargetAttrs({
+                fileIndex: props.fileIndex,
+                kind: "real",
+                bay: props.bay.bay_key,
+                hunkIndex,
+              })}
               aria-hidden="true"
             />
           );
@@ -594,13 +613,13 @@ function BayView(props: {
         <BayBody
           reviewFile={props.reviewFile}
           fileIndex={props.fileIndex}
-          displayName={props.displayName}
           bay={props.bay}
           view={props.view}
           aggressiveFolds={props.aggressiveFolds}
           linePins={props.linePins}
           card={props.card}
           bayRenderModes={props.bayRenderModes}
+          bays={props.bays}
         />
       </Show>
     </div>
@@ -617,6 +636,7 @@ export function FrameView(props: {
   card: Accessor<HTMLElement>;
   bayExpansion: BayExpansion;
   bayRenderModes: BayRenderModes;
+  bays: Map<string, BayHandle>;
 }): JSX.Element {
   function frameTone(frame: Frame): string {
     return `composed-frame-${frame.bays[0].change.kind}`;
@@ -713,7 +733,6 @@ export function FrameView(props: {
                       reviewFile={props.reviewFile}
                       hunks={bayHunks(bay)}
                       fileIndex={props.fileIndex}
-                      displayName={props.backend_data.display_name}
                       bay={bay}
                       view={props.view}
                       aggressiveFolds={props.aggressiveFolds}
@@ -721,6 +740,7 @@ export function FrameView(props: {
                       card={props.card}
                       bayExpansion={props.bayExpansion}
                       bayRenderModes={props.bayRenderModes}
+                      bays={props.bays}
                     />
                   )}
                 </For>
@@ -744,11 +764,12 @@ export function FrameView(props: {
             {(hunkIndex) => (
               <span
                 class="composed-bay-anchor"
-                data-hunk-target
-                data-hunk-kind="real"
-                data-file-index={props.fileIndex}
-                data-hunk-bay={bare.bay.bay_key}
-                data-hunk-index={hunkIndex}
+                {...hunkTargetAttrs({
+                  fileIndex: props.fileIndex,
+                  kind: "real",
+                  bay: bare.bay.bay_key,
+                  hunkIndex,
+                })}
                 aria-hidden="true"
               />
             )}
@@ -759,7 +780,6 @@ export function FrameView(props: {
           <TextBayView
             reviewFile={props.reviewFile}
             fileIndex={props.fileIndex}
-            displayName={props.backend_data.display_name}
             bay={bare.bay}
             content={bare.content}
             view={props.view}
@@ -767,6 +787,7 @@ export function FrameView(props: {
             linePins={props.linePins}
             card={props.card}
             bayRenderModes={props.bayRenderModes}
+            bays={props.bays}
           />
         </>
       )}

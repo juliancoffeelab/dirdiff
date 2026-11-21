@@ -1,6 +1,6 @@
 import {
-  Index,
   Show,
+  createEffect,
   createSignal,
   onCleanup,
   onMount,
@@ -15,27 +15,19 @@ import {
   type ReviewFilePair,
 } from "../../../../api/api";
 import type { DiffViewMode } from "../../../App";
-import type { LinePins, LinePinTarget, PreparedLine } from "../../../linePins";
-import { assert, expect } from "../../../../utils";
+import type { LinePins } from "../../../linePins";
+import { useNavigation } from "../../../navigation";
+import { assert } from "../../../../utils";
 import { useToasts } from "../../../../comp/Toasts";
 import {
+  paintCommentTriggers,
   useReview,
-  type ReviewMarkerDescriptor,
   type ReviewTextGridBinding,
 } from "../../../review/Review";
+import type { BayHandle } from "../../FrameView";
+import { paintLinePin, type LineCell, type Side } from "../text/rowDom";
 
 const PSEUDO_LINE = 1;
-
-type EnrichableImageBay = HTMLElement & {
-  waitToEnrich_impl: () => Promise<void>;
-};
-
-type PreparableImageLines = HTMLElement & {
-  prepareLine_impl(
-    target: LinePinTarget,
-    abortSignal: AbortSignal,
-  ): Promise<PreparedLine>;
-};
 
 export function ImageBayView(props: {
   reviewFile: ReviewFilePair;
@@ -43,80 +35,53 @@ export function ImageBayView(props: {
   content: ImageKindPayload;
   view: DiffViewMode;
   linePins: LinePins;
+  // Receives the bay's handle once mounted and null before it goes.
+  onHandle: (handle: BayHandle | null) => void;
 }): JSX.Element {
-  // Each ref holds the plain element and is converted at the one place its
-  // caller-facing operation is attached, so the DOM interfaces above describe
-  // the contract without the refs pretending to satisfy it before mount.
-  let wrapper!: HTMLElement;
-  let lines!: HTMLElement;
-  let row!: HTMLElement;
+  let row!: HTMLDivElement;
   const review = useReview();
+  const navigation = useNavigation();
   const bayKey = props.bay.bay_key;
   const binding: ReviewTextGridBinding = {
     snapshot_id: review.snapshotId,
     file: props.reviewFile,
     bay: { bay_key: bayKey },
   };
+  // A side is present here exactly while its content is mounted; an absent
+  // image has no pseudo-line.
+  const cells: Partial<Record<Side, LineCell>> = {};
 
-  const sideRef = (side: "left" | "right"): MediaRef | null =>
-    side === "left" ? props.content.left : props.content.right;
-
-  function togglePin(side: "left" | "right"): void {
-    const target: LinePinTarget = {
-      file: props.reviewFile,
-      bay: { bay_key: bayKey },
-      side,
-      line: String(PSEUDO_LINE),
-    };
-    const changeSetRoot = expect(
-      row.closest<HTMLElement>("[data-change-set-root]"),
-      "Image bay requires its ChangeSet root.",
-    );
-    const paintedRows =
-      changeSetRoot.querySelectorAll<HTMLElement>(".pinned-line");
-    assert(
-      paintedRows.length <= 1,
-      "ChangeSet contains multiple painted line pins.",
-    );
-    paintedRows[0]?.classList.remove("pinned-line");
-    if (props.linePins.toggleUrlState(target) === "pinned") {
-      row.classList.add("pinned-line");
-    }
-  }
-
-  async function prepareLine_impl(
-    target: LinePinTarget,
-    abortSignal: AbortSignal,
-  ): Promise<PreparedLine> {
-    assert(
-      target.file.left_path === props.reviewFile.left_path &&
-        target.file.right_path === props.reviewFile.right_path &&
-        target.bay.bay_key === bayKey,
-      "Image bay received a line target from another bay.",
-    );
-    // Nothing is fetched, unfolded, or enriched to answer this, so the result
-    // is already known; the operation is asynchronous because it is one
-    // implementation of the line host every bay widget offers.
-    await Promise.resolve();
-    if (abortSignal.aborted || !lines.isConnected) {
-      return { state: "stopped" };
-    }
-    if (target.line !== String(PSEUDO_LINE) || sideRef(target.side) === null) {
-      return { state: "missing" };
-    }
-    return { state: "ready", row };
-  }
-
-  // FileCard and Navigation reach this widget through two mounted DOM
-  // operations. Publish both only after their elements mount, paint any existing
-  // matching URL pin, and remove the operations before the widget is disposed.
   onMount(() => {
-    Object.assign(wrapper, {
-      waitToEnrich_impl: () => Promise.resolve(),
-    }) satisfies EnrichableImageBay;
-    Object.assign(lines, { prepareLine_impl }) satisfies PreparableImageLines;
-    // A pin already in the URL when this bay mounts belongs to it whenever it
-    // names this bay and a present side; painting it here is the same
+    props.onHandle({
+      mode: () => null,
+      // Nothing is fetched, unfolded or virtualized to show an image bay.
+      enrich: () => Promise.resolve(),
+      intersectsRichEntryZone() {
+        throw new Error("An image bay is never virtual.");
+      },
+      prepareLine(target, abortSignal) {
+        assert(
+          target.file.left_path === props.reviewFile.left_path &&
+            target.file.right_path === props.reviewFile.right_path &&
+            target.bay.bay_key === bayKey,
+          "Image bay received a line target from another bay.",
+        );
+        if (abortSignal.aborted || !row.isConnected) {
+          return Promise.resolve({ state: "stopped" });
+        }
+        const cell =
+          target.line === String(PSEUDO_LINE) ? cells[target.side] : undefined;
+        return Promise.resolve(
+          cell === undefined ? { state: "missing" } : { state: "ready", cell },
+        );
+      },
+    });
+    onCleanup(() => props.onHandle(null));
+  });
+
+  function mountSide(cell: LineCell): void {
+    cells[cell.side] = cell;
+    // A pin already in the URL when this bay mounts is painted here, the same
     // restoration the text grid performs once it has rendered its rows.
     const parsed = props.linePins.parseUrl();
     if (
@@ -124,52 +89,71 @@ export function ImageBayView(props: {
       parsed.target.file.left_path === props.reviewFile.left_path &&
       parsed.target.file.right_path === props.reviewFile.right_path &&
       parsed.target.bay.bay_key === bayKey &&
-      parsed.target.line === String(PSEUDO_LINE) &&
-      sideRef(parsed.target.side) !== null
+      parsed.target.side === cell.side &&
+      parsed.target.line === String(PSEUDO_LINE)
     ) {
-      row.classList.add("pinned-line");
+      paintLinePin(navigation.root(), cell, true);
     }
-    onCleanup(() => {
-      Reflect.deleteProperty(wrapper, "waitToEnrich_impl");
-      Reflect.deleteProperty(lines, "prepareLine_impl");
-    });
-  });
+  }
+
+  function activateLine(cell: LineCell, clicked: EventTarget | null): void {
+    const trigger = Array.from(cell.triggerHost.children).find(
+      (child) => clicked instanceof Node && child.contains(clicked),
+    );
+    if (trigger !== undefined) {
+      assert(
+        trigger instanceof HTMLButtonElement,
+        "Comment trigger must be a button inside its line number.",
+      );
+      review.activateTextCommentInput(
+        binding,
+        cell.side,
+        PSEUDO_LINE,
+        { codeCell: cell.codeCell, trigger },
+        // A bay with one pseudo-line has no range to extend, so the shift
+        // modifier means nothing here.
+        false,
+      );
+      return;
+    }
+    paintLinePin(
+      navigation.root(),
+      cell,
+      props.linePins.toggleUrlState({
+        file: props.reviewFile,
+        bay: { bay_key: bayKey },
+        side: cell.side,
+        line: String(PSEUDO_LINE),
+      }) === "pinned",
+    );
+  }
 
   return (
-    <div
-      class="media-bay"
-      ref={(element) => {
-        wrapper = element;
-      }}
-      data-bay-key={bayKey}
-    >
-      <div class="diff-grid media-grid" data-review-bay={bayKey}>
-        <div
-          class="diff-lines media-lines"
-          ref={(element) => {
-            lines = element;
-          }}
-        >
+    <div class="media-bay">
+      <div class="diff-grid media-grid">
+        <div class="diff-lines media-lines">
           <div
             class="diff-row media-row"
             classList={{ "media-row-inline": props.view === "inline" }}
-            ref={(element) => {
-              row = element;
-            }}
+            ref={row}
           >
             <ImageSideView
               content={props.content}
               side="left"
               reviewFile={props.reviewFile}
               binding={binding}
-              onPin={togglePin}
+              row={row}
+              onMount={mountSide}
+              onActivate={activateLine}
             />
             <ImageSideView
               content={props.content}
               side="right"
               reviewFile={props.reviewFile}
               binding={binding}
-              onPin={togglePin}
+              row={row}
+              onMount={mountSide}
+              onActivate={activateLine}
             />
           </div>
         </div>
@@ -180,10 +164,12 @@ export function ImageBayView(props: {
 
 function ImageSideView(props: {
   content: ImageKindPayload;
-  side: "left" | "right";
+  side: Side;
   reviewFile: ReviewFilePair;
   binding: ReviewTextGridBinding;
-  onPin: (side: "left" | "right") => void;
+  row: HTMLElement;
+  onMount: (cell: LineCell) => void;
+  onActivate: (cell: LineCell, clicked: EventTarget | null) => void;
 }): JSX.Element {
   const review = useReview();
   const toast = useToasts();
@@ -192,14 +178,40 @@ function ImageSideView(props: {
   // exactly the "looks empty, actually failed" state review must never show.
   const [decodeFailed, setDecodeFailed] = createSignal(false);
   let codeCell!: HTMLDivElement;
+  // Mounted only while this side has content.
+  let triggerHost: HTMLSpanElement | undefined;
+  let cell: LineCell | null = null;
 
   const mediaRef = (): MediaRef | null =>
     props.side === "left" ? props.content.left : props.content.right;
   // "old" and "new" are what the inline text header calls the two sides; the
   // same two words name them here.
   const sideName = (): string => (props.side === "left" ? "old" : "new");
-  const markerState = () =>
-    review.markerState(props.binding, props.side, PSEUDO_LINE);
+
+  onMount(() => {
+    if (triggerHost === undefined) {
+      return;
+    }
+    const mounted: LineCell = {
+      side: props.side,
+      line: PSEUDO_LINE,
+      row: props.row,
+      triggerHost,
+      codeCell,
+    };
+    cell = mounted;
+    // Indexed repaint, not replacement: a marker whose kind or count changes
+    // re-decorates its existing button, which may anchor an active Comment
+    // input or Thread panel.
+    createEffect(() => {
+      paintCommentTriggers(
+        mounted.triggerHost,
+        review.markerState(props.binding, props.side, PSEUDO_LINE),
+        `the ${sideName()} content`,
+      );
+    });
+    props.onMount(mounted);
+  });
 
   return (
     <div
@@ -222,43 +234,20 @@ function ImageSideView(props: {
           mediaRef() === null ? undefined : `Pin the ${sideName()} content`
         }
         onClick={(event) => {
-          if (mediaRef() === null) {
+          if (cell === null) {
             return;
           }
-          // The Comment triggers sit inside this cell and stop their own
-          // clicks, so anything still reaching here is a pin.
           event.stopPropagation();
-          props.onPin(props.side);
+          props.onActivate(cell, event.target);
         }}
       >
         <Show when={mediaRef() !== null}>
-          <span class="line-comment-triggers">
-            {/* Indexed, not keyed: a marker whose kind or count changes must
-                re-decorate its existing button. Replacing the element would
-                disconnect an active Comment input or Thread panel anchored to
-                it, which the next anchored-UI sweep then closes. */}
-            <Index each={markerState().markers}>
-              {(marker) => (
-                <CommentTrigger
-                  marker={marker()}
-                  side={props.side}
-                  disabled={markerState().disabled}
-                  onActivate={(trigger) => {
-                    review.activateTextCommentInput(
-                      props.binding,
-                      props.side,
-                      PSEUDO_LINE,
-                      { codeCell, trigger },
-                      marker().kind,
-                      // A bay with one pseudo-line has no range to extend, so
-                      // the shift modifier means nothing here.
-                      false,
-                    );
-                  }}
-                />
-              )}
-            </Index>
-          </span>
+          <span
+            class="line-comment-triggers"
+            ref={(element) => {
+              triggerHost = element;
+            }}
+          />
         </Show>
       </div>
       <div
@@ -306,70 +295,5 @@ function ImageSideView(props: {
         </Show>
       </div>
     </div>
-  );
-}
-
-function CommentTrigger(props: {
-  marker: ReviewMarkerDescriptor;
-  side: "left" | "right";
-  disabled: boolean;
-  onActivate: (trigger: HTMLButtonElement) => void;
-}): JSX.Element {
-  const counted = (): boolean =>
-    props.marker.kind === "open" ||
-    props.marker.kind === "resolved" ||
-    props.marker.kind === "deleted";
-  const actionLabel = (): string => {
-    const marker = props.marker;
-    if (marker.kind === "draft") {
-      return "Draft";
-    }
-    if (marker.kind === "new") {
-      return "Add comment";
-    }
-    const state =
-      marker.kind === "resolved"
-        ? "Resolved"
-        : marker.kind === "deleted"
-          ? "Deleted"
-          : "Open";
-    return `${marker.count} ${state} Thread${marker.count === 1 ? "" : "s"}`;
-  };
-
-  return (
-    <button
-      type="button"
-      class="line-comment-trigger"
-      classList={{
-        "line-comment-trigger-commented": counted(),
-        "line-comment-trigger-draft": props.marker.kind === "draft",
-        "line-comment-trigger-open": props.marker.kind === "open",
-        "line-comment-trigger-resolved": props.marker.kind === "resolved",
-        "line-comment-trigger-deleted": props.marker.kind === "deleted",
-        "line-comment-trigger-warning":
-          "warning" in props.marker && props.marker.warning,
-      }}
-      data-review-marker-kind={props.marker.kind}
-      disabled={props.disabled}
-      title={actionLabel()}
-      aria-label={`${actionLabel()} on the ${props.side === "left" ? "old" : "new"} content`}
-      onClick={(event) => {
-        // The pin handler wraps this control; a review action is not a pin.
-        event.stopPropagation();
-        const trigger = event.currentTarget;
-        assert(
-          trigger instanceof HTMLButtonElement,
-          "Comment trigger must activate from its own button.",
-        );
-        props.onActivate(trigger);
-      }}
-    >
-      <span class="line-comment-trigger-icon" aria-hidden="true" />
-      <span class="line-comment-trigger-label">
-        {counted() && "count" in props.marker
-          ? String(props.marker.count)
-          : actionLabel()}
-      </span>
-    </button>
   );
 }

@@ -7,13 +7,13 @@ vi.mock("../src/hud/review/Review", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/hud/review/Review")>()),
   useReview: () => ({
     snapshotId: "1".repeat(32),
-    markerRevision: () => 0,
     changedMarkerKeys: () => null,
     markerState: () => ({ disabled: false, markers: [] }),
     closeAnchoredUi: () => {},
   }),
 }));
-vi.mock("../src/hud/navigation", () => ({
+vi.mock("../src/hud/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/hud/navigation")>()),
   useNavigation: () => ({ navigate: vi.fn() }),
 }));
 vi.mock("../src/comp/Toasts", async (importOriginal) => ({
@@ -63,7 +63,6 @@ test("inline interleave splits a merged shared part around an insertion", () => 
     <TextDiffGrid
       reviewFile={{ left_path: "old.txt", right_path: "new.txt" }}
       fileIndex={0}
-      displayName="fixture"
       bayKey="flatfile"
       contentLabel="Code"
       leftLabel="old"
@@ -82,6 +81,7 @@ test("inline interleave splits a merged shared part around an insertion", () => 
           throw new Error("Unexpected pin restoration");
         },
       }}
+      onGrid={() => {}}
     />
   ));
   const root = mounted.container;

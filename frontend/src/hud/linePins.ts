@@ -4,6 +4,7 @@ import { ReviewFilePairSchema, ReviewTextBaySchema } from "../api/api";
 import { useToasts } from "../comp/Toasts";
 import { assert, expect } from "../utils";
 import { useNavigation } from "./navigation";
+import type { LineCell } from "./fileCard/FileCard";
 
 const LINE_PIN_NOTICE_DURATION_MS = 2_000;
 
@@ -45,7 +46,7 @@ export type LinePinRestoration =
 export type PreparedLine =
   | {
       state: "ready";
-      row: HTMLElement;
+      cell: LineCell;
     }
   | {
       state: "missing";

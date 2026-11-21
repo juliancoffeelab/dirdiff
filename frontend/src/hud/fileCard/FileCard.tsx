@@ -2,7 +2,6 @@ import {
   ErrorBoundary,
   For,
   Show,
-  createEffect,
   createMemo,
   onCleanup,
   onMount,
@@ -35,19 +34,134 @@ import {
   composedHunkCount,
   composedHunks,
   type BayExpansion,
+  type BayHandle,
   type BayRenderMode,
   type BayRenderModes,
 } from "./FrameView";
-import type { PseudoHunkIdentity, SkippedHunkIdentity } from "../navigation";
+import {
+  hunkSetAttrs,
+  hunkTargetAttrs,
+  type HunkSet,
+  type PseudoHunkIdentity,
+} from "../navigation";
 import { useReview } from "../review/Review";
 import { assert, expect } from "../../utils";
 
-type PreparableFileCard = HTMLElement & {
-  prepareLine_impl: (
+export type { BayHandle, BayRenderMode, BayRenderModes } from "./FrameView";
+export type { LineCell } from "./grids/text/rowDom";
+
+export type FileCardHandle = {
+  // Expands the File and the target's bay, then reveals the line in it.
+  prepareLine(
     target: LinePinTarget,
     abortSignal: AbortSignal,
-  ) => Promise<PreparedLine>;
+  ): Promise<PreparedLine>;
 };
+
+type MountedFullFile = {
+  card: FileCardHandle;
+  bays: Map<string, BayHandle>;
+};
+
+// Keyed by the persistent card element. An entry exists exactly while that
+// card's admitted FullFile renderer is mounted; its bay map holds exactly the
+// mounted bays.
+const mountedFullFiles = new WeakMap<HTMLElement, MountedFullFile>();
+
+// In document order.
+export function fileCardsIn(root: ParentNode): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>("[data-file-card]"));
+}
+
+export function fileCardContaining(element: Element): HTMLElement | null {
+  return element.closest<HTMLElement>("[data-file-card]");
+}
+
+export function fileCardIndex(card: HTMLElement): number {
+  const fileIndex = card.dataset.fileIndex;
+  assert(
+    fileIndex !== undefined && /^(?:0|[1-9]\d*)$/.test(fileIndex),
+    "FileCard has an invalid manifest file index.",
+  );
+  return Number(fileIndex);
+}
+
+// A File renderer that failed has already shown its damage and Toast.
+export function renderDamaged(root: ParentNode): boolean {
+  return root.querySelector("[data-file-render-error]") !== null;
+}
+
+// CSS keeps a drag's text selection on the split side where the pointer went
+// down. The marker moves to that side's grid, or is cleared outside any side.
+export function markSelectionSide(
+  root: HTMLElement,
+  target: EventTarget | null,
+): void {
+  root
+    .querySelector<HTMLElement>(".diff-grid[data-diff-selection-side]")
+    ?.removeAttribute("data-diff-selection-side");
+  if (!(target instanceof Element) || !root.contains(target)) {
+    return;
+  }
+  const side = target.closest<HTMLElement>(
+    ".diff-side.side-left, .diff-side.side-right",
+  );
+  if (side === null || !root.contains(side)) {
+    return;
+  }
+  const grid = side.closest<HTMLElement>(".diff-grid");
+  if (grid === null || !root.contains(grid)) {
+    return;
+  }
+  grid.dataset.diffSelectionSide = side.classList.contains("side-left")
+    ? "left"
+    : "right";
+}
+
+export function fileCardAt(
+  root: ParentNode,
+  fileIndex: number,
+): FileCardHandle {
+  const cards = root.querySelectorAll<HTMLElement>(
+    `[data-file-card][data-file-index="${fileIndex}"]`,
+  );
+  assert(
+    cards.length === 1,
+    `Navigation requires one FileCard at index ${fileIndex}.`,
+  );
+  return expect(
+    mountedFullFiles.get(
+      expect(cards.item(0), "Indexed FileCard disappeared."),
+    ),
+    "Line navigation requires a mounted FullFile.",
+  ).card;
+}
+
+export function bayContaining(element: Element): BayHandle | null {
+  const wrapper = element.closest<HTMLElement>("[data-bay-key]");
+  if (wrapper === null) {
+    return null;
+  }
+  const card = expect(
+    wrapper.closest<HTMLElement>("[data-file-card]"),
+    "A bay requires its FileCard.",
+  );
+  const bayKey = expect(wrapper.dataset.bayKey, "A bay wrapper names its bay.");
+  return expect(
+    expect(
+      mountedFullFiles.get(card),
+      "A bay requires its mounted FullFile.",
+    ).bays.get(bayKey),
+    `Bay ${bayKey} is mounted without its handle.`,
+  );
+}
+
+// In document order.
+export function virtualBays(root: ParentNode): BayHandle[] {
+  return Array.from(root.querySelectorAll("[data-bay-key]"), (wrapper) =>
+    expect(bayContaining(wrapper), "A bay wrapper contains its own bay."),
+  ).filter((bay) => bay.mode() === "virtual");
+}
 
 export type HunkPosition = {
   // One-based stable DOM position of the selection. A skipped selection keeps
@@ -76,6 +190,11 @@ type FileCardProps = {
   view: DiffViewMode;
   aggressiveFolds: boolean;
   linePins: LinePins;
+  // The mounted bays of this File register their modes here.
+  bayRenderModes: BayRenderModes;
+  // The aggregate of the modes above: null while no bay is mounted, virtual
+  // only while every mounted bay is.
+  renderMode: BayRenderMode | null;
   onExpandedChange: (expanded: boolean) => void;
   onLoad: () => void;
   onRetry: () => void;
@@ -92,21 +211,23 @@ export function FileCard(props: FileCardProps): JSX.Element {
       ? composedHunkCount(props.file_state.backend_data)
       : 0,
   );
-  function hunkSet(): string {
+  function hunkSet(): HunkSet {
     if (props.file_state.state === "husk") {
-      return props.explicitlyCollapsed ? "husk:skip" : "husk";
+      return { kind: "husk", skipped: props.explicitlyCollapsed };
     }
     if (props.file_state.state === "lazy") {
-      return props.expanded ? "lazy" : "lazy:skip";
+      return { kind: "lazy", skipped: !props.expanded };
     }
     const count = hunkCount();
     if (count === 0) {
-      return props.expanded ? "zero" : "zero:skip";
+      return { kind: "zero", skipped: !props.expanded };
     }
     if (!props.expanded) {
-      return `real:${count}:skip`;
+      return { kind: "real", count, skipped: true };
     }
-    return props.admitted ? `real:${count}` : "husk";
+    return props.admitted
+      ? { kind: "real", count, skipped: false }
+      : { kind: "husk", skipped: false };
   }
 
   return (
@@ -119,7 +240,7 @@ export function FileCard(props: FileCardProps): JSX.Element {
       data-file-card
       data-file-index={props.file_state.fileIndex}
       data-file-state={props.file_state.state}
-      data-hunk-set={hunkSet()}
+      {...hunkSetAttrs(hunkSet())}
       data-hunk-count={
         props.file_state.state === "full" ? hunkCount() : undefined
       }
@@ -158,6 +279,8 @@ export function FileCard(props: FileCardProps): JSX.Element {
             view={props.view}
             aggressiveFolds={props.aggressiveFolds}
             linePins={props.linePins}
+            bayRenderModes={props.bayRenderModes}
+            renderMode={props.renderMode}
             hunkCount={hunkCount}
             globalSelectedHunk={props.globalSelectedHunk}
             fileSelectedHunk={props.fileSelectedHunk}
@@ -275,20 +398,16 @@ function HuskFileHeader(
       review.closeAnchoredUi(header);
     });
   });
-  const identity: PseudoHunkIdentity = {
-    fileIndex: props.file_state.fileIndex,
-    kind: "husk",
-    hunkIndex: 0,
-  };
   return (
     <header
       ref={header}
       class="file-card-header husk-file-header"
       classList={{ skip: props.explicitlyCollapsed }}
-      data-hunk-target
-      data-hunk-kind={identity.kind}
-      data-file-index={identity.fileIndex}
-      data-hunk-index={identity.hunkIndex}
+      {...hunkTargetAttrs({
+        fileIndex: props.file_state.fileIndex,
+        kind: "husk",
+        hunkIndex: 0,
+      })}
     >
       <span class="file-card-heading">
         <VisibilityIndicator visible={false} virtualized={false} />
@@ -356,6 +475,8 @@ function FullFile(
     view: DiffViewMode;
     aggressiveFolds: boolean;
     linePins: LinePins;
+    bayRenderModes: BayRenderModes;
+    renderMode: BayRenderMode | null;
     hunkCount: Accessor<number>;
     card: Accessor<HTMLElement>;
     onExpandedChange: (expanded: boolean) => void;
@@ -372,62 +493,12 @@ function FullFile(
     isExpanded: (bay) => expandedBays[bay.bay_key] ?? bay.default_expanded,
     setExpanded: (bayKey, expanded) => setExpandedBays(bayKey, expanded),
   };
-  // The mode registry, by contrast, holds only mounted bays: each bay wrapper
-  // registers itself for exactly its mounted lifetime and every bay mounts
-  // virtual again, so nothing here persists across a body unmount. The card
-  // holds the store because the whole-File aggregate below is derived from it.
-  const [bayModes, setBayModes] = createStore<
-    Record<string, BayRenderMode | undefined>
-  >({});
-  const bayRenderModes: BayRenderModes = {
-    mode: (bayKey) => {
-      return expect(
-        bayModes[bayKey],
-        `Bay ${bayKey} read its render mode unregistered.`,
-      );
-    },
-    setMode: (bayKey, mode) => setBayModes(bayKey, mode),
-    clearMode: (bayKey) => setBayModes(bayKey, undefined),
-  };
-
-  const fileRenderMode = createMemo((): BayRenderMode | null => {
-    const modes = Object.values(bayModes).filter(
-      (mode): mode is BayRenderMode => mode !== undefined,
-    );
-    if (modes.length === 0) {
-      return null;
-    }
-    return modes.every((mode) => mode === "virtual") ? "virtual" : "rich";
-  });
-  // This must be an effect under the current component boundary. Mounted bays
-  // can change `fileRenderMode` after FullFile renders, but FileCard renders
-  // the
-  // target card, so FullFile has no JSX attribute it can bind to that changing
-  // value. The effect performs the required reactive write for FileTree's
-  // attribute observer. FullFile removes the attribute when it unmounts so the
-  // persistent card cannot retain the departed body's mode.
-  //
-  // TODO: Move bay render-mode state to FileCard and bind `data-file-render`
-  // in its JSX, eliminating this effect and its cleanup.
-  createEffect(() => {
-    const mode = fileRenderMode();
-    if (mode === null) {
-      // props.card() returns an HTMLElement, which filetree would observe
-      delete props.card().dataset.fileRender;
-    } else {
-      props.card().dataset.fileRender = mode;
-    }
-  });
-  onCleanup(() => {
-    delete props.card().dataset.fileRender;
-  });
-
   return (
     <>
       <FullFileHeader
         file_state={props.file_state}
         expanded={props.expanded}
-        virtualized={props.expanded && fileRenderMode() === "virtual"}
+        virtualized={props.expanded && props.renderMode === "virtual"}
         awaitingAdmission={
           props.expanded && !props.admitted && props.hunkCount() > 0
         }
@@ -437,11 +508,7 @@ function FullFile(
         onExpandedChange={props.onExpandedChange}
       />
       <FileRendererBoundary card={props.card} path={backend_data.display_name}>
-        <FullFileRenderer
-          {...props}
-          bayExpansion={bayExpansion}
-          bayRenderModes={bayRenderModes}
-        />
+        <FullFileRenderer {...props} bayExpansion={bayExpansion} />
       </FileRendererBoundary>
     </>
   );
@@ -494,7 +561,9 @@ function FullFileRenderer(
     `${backend_data.display_name} wrote ${hunkStops.length} hunk targets for ${hunkTotal} counted hunks.`,
   );
 
-  async function prepareLine_impl(
+  const bays = new Map<string, BayHandle>();
+
+  async function prepareLine(
     target: LinePinTarget,
     abortSignal: AbortSignal,
   ): Promise<PreparedLine> {
@@ -517,86 +586,31 @@ function FullFileRenderer(
       return { state: "stopped" };
     }
     // A pin names the bay it was taken in, always by the key composition
-    // gave it. The bay may be closed, so its card-owned expansion is
-    // written before its wrapper is searched; a key this composed diff does
-    // not contain expands nothing and is answered by the missing wrapper
-    // below.
+    // gave it. The bay may be closed, so its card-held expansion is written
+    // before its handle is looked up; a key this composed diff does not
+    // contain expands nothing and is answered by the missing handle below.
     const bayKey = target.bay.bay_key;
     props.bayExpansion.setExpanded(bayKey, true);
-    // The expansion is a store write, so a closed bay's wrapper is mounted
-    // by the resulting flush. The yield lets that flush run before the
-    // wrapper below is queried.
+    // The expansion is a store write, so a closed bay is mounted by the
+    // resulting flush. The yield lets that flush run before the handle below
+    // is looked up.
     await Promise.resolve();
     if (abortSignal.aborted || !props.card().isConnected) {
       return { state: "stopped" };
     }
-    // A text bay's grid exists only while that bay is rich, so the pin is
-    // answered through the bay wrapper every kind mounts. Enrich that one bay,
-    // then search inside it. The wrapper is addressed by its bay key alone.
-    // `data-bay-render` names a text bay's rich-or-virtual mode, which a bay
-    // holding captured bytes has no equivalent of.
-    const wrapper = props
-      .card()
-      .querySelector<HTMLElement>(`[data-bay-key="${CSS.escape(bayKey)}"]`);
-    if (wrapper === null) {
+    const bay = bays.get(bayKey);
+    if (bay === undefined) {
       return { state: "missing" };
     }
-    const waitToEnrich: unknown = Reflect.get(wrapper, "waitToEnrich_impl");
-    assert(
-      typeof waitToEnrich === "function",
-      "Bay omitted its enrichment operation.",
-    );
-    await Reflect.apply(waitToEnrich, wrapper, []);
-    if (abortSignal.aborted || !props.card().isConnected) {
-      return { state: "stopped" };
-    }
-    const gridRoot = expect(
-      wrapper.querySelector<HTMLElement>(
-        `.diff-grid[data-review-bay="${CSS.escape(bayKey)}"]`,
-      ),
-      "Enriched bay did not mount its grid.",
-    );
-    const grid = expect(
-      gridRoot.querySelector<HTMLElement>(".diff-lines"),
-      "Prepared bay grid disappeared.",
-    );
-    const prepareLine: unknown = Reflect.get(grid, "prepareLine_impl");
-    assert(
-      typeof prepareLine === "function",
-      "Bay line host omitted its preparation operation.",
-    );
-    const result: unknown = await Reflect.apply(prepareLine, grid, [
-      target,
-      abortSignal,
-    ]);
-    assert(
-      typeof result === "object" &&
-        result !== null &&
-        "state" in result &&
-        (result.state === "ready" ||
-          result.state === "missing" ||
-          result.state === "stopped"),
-      "Bay line host returned an invalid preparation result.",
-    );
-    if (result.state === "ready") {
-      assert(
-        "row" in result && result.row instanceof HTMLElement,
-        "Ready line preparation omitted its rendered row.",
-      );
-      return { state: "ready", row: result.row };
-    }
-    return { state: result.state };
+    return await bay.prepareLine(target, abortSignal);
   }
 
-  // Navigation discovers line preparation through the stable FileCard DOM.
-  // Publish the operation only while this admitted FullFile renderer is mounted
-  // and remove it before a replacement renderer can expose another one.
   onMount(() => {
-    const card = Object.assign(props.card(), {
-      prepareLine_impl,
-    }) satisfies PreparableFileCard;
+    const card = props.card();
+    assert(!mountedFullFiles.has(card), "A FileCard mounts one FullFile.");
+    mountedFullFiles.set(card, { card: { prepareLine }, bays });
     onCleanup(() => {
-      Reflect.deleteProperty(card, "prepareLine_impl");
+      mountedFullFiles.delete(card);
     });
   });
 
@@ -609,20 +623,15 @@ function FullFileRenderer(
         <div class="hunk-skip-anchors" aria-hidden="true">
           <For each={hunkStops}>
             {(stop) => {
-              const identity: SkippedHunkIdentity = {
-                fileIndex: props.file_state.fileIndex,
-                kind: "skip",
-                bay: stop.bay,
-                hunkIndex: stop.hunkIndex,
-              };
               return (
                 <span
                   class="hunk-skip skip"
-                  data-hunk-target
-                  data-hunk-kind={identity.kind}
-                  data-file-index={identity.fileIndex}
-                  data-hunk-bay={identity.bay}
-                  data-hunk-index={identity.hunkIndex}
+                  {...hunkTargetAttrs({
+                    fileIndex: props.file_state.fileIndex,
+                    kind: "skip",
+                    bay: stop.bay,
+                    hunkIndex: stop.hunkIndex,
+                  })}
                 />
               );
             }}
@@ -646,6 +655,7 @@ function FullFileRenderer(
             card={props.card}
             bayExpansion={props.bayExpansion}
             bayRenderModes={props.bayRenderModes}
+            bays={bays}
           />
         </div>
       </Show>
@@ -692,16 +702,17 @@ function FullFileHeader(
         }
       : null;
   }
+  const targetAttrs = () => {
+    const identity = targetIdentity();
+    return identity === null ? {} : hunkTargetAttrs(identity);
+  };
 
   return (
     <header
       ref={header}
       class="file-card-header full-file-header"
       classList={{ skip: zeroHunkFile() && !props.expanded }}
-      data-hunk-target={targetIdentity() === null ? undefined : ""}
-      data-hunk-kind={targetIdentity()?.kind}
-      data-file-index={targetIdentity()?.fileIndex}
-      data-hunk-index={targetIdentity()?.hunkIndex}
+      {...targetAttrs()}
     >
       <span class="file-card-heading">
         <button
@@ -760,13 +771,7 @@ function LazyFileView(
       />
       <Show when={!props.expanded}>
         <div class="hunk-skip-anchors" aria-hidden="true">
-          <span
-            class="hunk-skip skip"
-            data-hunk-target
-            data-hunk-kind={identity.kind}
-            data-file-index={identity.fileIndex}
-            data-hunk-index={identity.hunkIndex}
-          />
+          <span class="hunk-skip skip" {...hunkTargetAttrs(identity)} />
         </div>
       </Show>
       <Show when={props.expanded}>
@@ -797,10 +802,7 @@ function LazyFileView(
           {(failure) => (
             <div
               class="file-lazy-error-panel is-error lazy-hunk-anchor"
-              data-hunk-target
-              data-hunk-kind={identity.kind}
-              data-file-index={identity.fileIndex}
-              data-hunk-index={identity.hunkIndex}
+              {...hunkTargetAttrs(identity)}
             >
               <ErrorPanel
                 title={`Failed to load ${failure.path}`}
@@ -921,10 +923,7 @@ function DeferredFilePlank(props: {
         "is-too-big": props.info.lazy === "too_big",
         "is-pure-renamed": props.info.lazy === "pure_renamed",
       }}
-      data-hunk-target
-      data-hunk-kind={identity.kind}
-      data-file-index={identity.fileIndex}
-      data-hunk-index={identity.hunkIndex}
+      {...hunkTargetAttrs(identity)}
       onClick={props.onLoad}
     >
       <span class="file-lazy-load-toggle-title">{title()}</span>
