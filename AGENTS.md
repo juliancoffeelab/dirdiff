@@ -110,9 +110,9 @@ live in skills under `.agents/skills/`.
   The sole exception is a private `_x/__init__.py`, which is empty.
 - Code outside a package imports its public items from the package root, never
   from its submodules.
-- Package-internal shared contracts, types, helpers, and invariants belong in
-  `base.py`. Sibling modules import those internals from `base.py`, not from the
-  package facade.
+- A top-level package's shared contracts, types, helpers, and invariants belong
+  in its `base.py`. Modules anywhere inside that top-level package import those
+  internals from its `base.py`, not from the package facade.
 - A module `x.py` may split its private implementation across `_x/`. Only
   `x.py` imports modules beneath `_x`, and it imports them directly rather than
   through `_x/__init__.py`. The implementation modules remain independent
