@@ -198,6 +198,8 @@ Names that commonly expose bad patterns require architectural scrutiny:
   `make pytest-slow` take tens of minutes. `make fullcheck` runs everything
   and is for when the user asks.
 - Test behavior and expectations change only with the user's explicit approval.
+  A test broken by a change to an interface it uses (an import, a mock's shape,
+  a signature) is updated to the new interface, with what it checks left intact.
 - A permanent test is added only when its value exceeds its total cost:
   runtime, maintenance, brittleness and duplication. A missing test alone is
   not a reason to add one. A test that is added goes after edge cases and
