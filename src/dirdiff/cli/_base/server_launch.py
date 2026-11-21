@@ -24,6 +24,11 @@ FRONTEND_DIR = Path(__file__).resolve().parents[4] / "frontend"
 # Watched by uvicorn reload with a *.py-only pattern so frontend edits do not
 # restart the backend.
 BACKEND_RELOAD_DIR = Path(__file__).resolve().parents[2]
+# The app upgrades the database when it opens it, so restarting on a new
+# migration applies it to the running server.
+MIGRATION_RELOAD_DIR = (
+    Path(__file__).resolve().parents[4] / "alembic" / "versions"
+)
 
 __all__ = [
     "DEFAULT_FRONTEND_PORT",
@@ -250,7 +255,11 @@ def run_uvicorn(
         port=port,
         factory=True,
         reload=development,
-        reload_dirs=[str(BACKEND_RELOAD_DIR)] if development else None,
+        reload_dirs=(
+            [str(BACKEND_RELOAD_DIR), str(MIGRATION_RELOAD_DIR)]
+            if development
+            else None
+        ),
         reload_includes=["*.py"] if development else None,
     )
 

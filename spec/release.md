@@ -47,7 +47,11 @@ Vite reads the output directory from `DIRDIFF_FRONTEND_OUT_DIR` for builds and
 requires `VITE_DIRDIFF_BACKEND_ORIGIN` when serving, so a development HUD is
 always paired with its backend. A JavaScript module change triggers a full page
 reload, because Solid contexts cannot span independently replaced module
-graphs; CSS uses Vite's stylesheet replacement.
+graphs; CSS uses Vite's stylesheet replacement. The development backend
+restarts on a Python change under `src/dirdiff` or `alembic/versions`; opening
+the database on restart upgrades it, so a new migration applies to the running
+server. Editing a revision the database already records does not rerun it. The
+watch list is fixed when `dirdiff` launches.
 
 ## Server composition
 
