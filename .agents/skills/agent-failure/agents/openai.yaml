@@ -1,0 +1,3 @@
+interface:
+  display_name: "Agent Failure"
+  short_description: "Diagnose architecture, code and instruction causes of agent failures"
