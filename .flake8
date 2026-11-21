@@ -8,6 +8,7 @@ extension =
     SBT = strict_bool:StrictBoolPlugin
     CST = no_casts:NoCastsPlugin
     HLP = helper_topology:HelperTopologyPlugin
+    PKG = package_interface:PackageInterfacePlugin
     TJC = tool_cache:ToolCachePlugin
     NMP = no_monkeypatch:NoMonkeypatchPlugin
 paths =
