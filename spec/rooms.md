@@ -152,8 +152,10 @@ its link row, never by a filesystem probe.
   with the Snapshot. A genuinely new Snapshot derives only the placements it is
   missing; reuse of an equal Snapshot derives none. Capture callers never select
   a predecessor or supply ancestry. Ordinary Thread reads never create or
-  repair placements; creating a Thread inserts only its origin row and first
-  Comment action in one transaction.
+  repair placements; creating a Thread inserts its origin row and first
+  Comment action in one transaction. A whole-review Thread's creation also
+  inserts its placement into every existing Snapshot of the Room, in that same
+  transaction (see `comments.md`).
 - The agent capture response points at this same published directory; it
   creates no other representation. Private `*-link.json` and `*-target` files
   are not changed Files.

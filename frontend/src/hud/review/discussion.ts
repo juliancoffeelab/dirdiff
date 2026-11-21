@@ -61,7 +61,7 @@ export function createThreadDiscussion(
   const draftContext = useReviewDrafts();
   const toast = useToasts();
   const review = createInfiniteQuery(() =>
-    api.review.snapshot(args.snapshotId),
+    api.review.snapshot(args.snapshotId, toast.showError),
   );
   const reviewThreads = createMemo(() =>
     reviewThreadList(review.data, args.acceptedActivities()),

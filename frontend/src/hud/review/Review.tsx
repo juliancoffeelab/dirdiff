@@ -196,7 +196,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   const draftContext = useReviewDrafts();
   const toast = useToasts();
   const review = createInfiniteQuery(() =>
-    api.review.snapshot(props.snapshotId),
+    api.review.snapshot(props.snapshotId, toast.showError),
   );
   // Sole driver of the shared progressive query; disposal cancels the chain.
   createEffect(

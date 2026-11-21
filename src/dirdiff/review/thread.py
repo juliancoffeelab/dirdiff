@@ -856,13 +856,16 @@ def _bind_threads(
     for origin_record in data.origins:
         thread_key = origin_record.placement.thread_id
         if thread_key in review_scope_ids:
+            review_placement = placements[thread_key].placement
+            assert review_placement.snapshot_id == snapshot_id.hex, (
+                "review-scoped Thread has no placement in the displayed "
+                "Snapshot"
+            )
             threads.append(
                 Thread(
                     database=database,
                     identity=identity,
-                    snapshot_id=UUID(
-                        hex=placements[thread_key].placement.snapshot_id
-                    ),
+                    snapshot_id=snapshot_id,
                     thread_id=UUID(hex=thread_key),
                     lock_path=lock_path,
                     thread_lock=thread_lock,
@@ -907,6 +910,9 @@ def _bind_threads(
             location_source = {"kind": "displayed-snapshot"}
         else:
             location_source = {"kind": "displayed-snapshot"}
+        assert (placement.snapshot_id == snapshot_id.hex) == (
+            location_source["kind"] == "displayed-snapshot"
+        ), "location_source contradicts the placement's Snapshot"
         threads.append(
             Thread(
                 database=database,
@@ -1142,6 +1148,12 @@ def apply_review_batch(
         for snapshot_key in review_snapshots:
             if database.room_identity(snapshot_key) != identity:
                 raise DirdiffError(f"Unknown snapshot id: {snapshot_key}")
+        # A review-scoped Thread is placed in every Snapshot of its Room:
+        # capture copies it into later Snapshots, creation covers the existing
+        # ones. Both run under the Room write lock, so no Snapshot is missed.
+        room_snapshots = (
+            database.room_snapshot_ids(identity) if review_snapshots else ()
+        )
 
         # Thread key -> (origin Snapshot key, actions so far).
         simulated: dict[str, tuple[str, list[ReviewActionInput]]] = {
@@ -1175,14 +1187,18 @@ def apply_review_batch(
                     )
                 else:
                     validate_comment_body(command.body)
-                    rows = (
+                    rows = tuple(
                         ReviewThreadRecord(
                             ReviewScopePlacement(
-                                command.thread_id.hex, snapshot_key
+                                command.thread_id.hex, room_snapshot
                             ),
-                            True,
+                            room_snapshot == snapshot_key,
                             None,
-                        ),
+                        )
+                        for room_snapshot in room_snapshots
+                    )
+                    assert sum(row.is_origin for row in rows) == 1, (
+                        "review-scoped origin Snapshot lies outside its Room"
                     )
                     first_action = ReviewActionInput(
                         operation_id=command.operation_id.hex,

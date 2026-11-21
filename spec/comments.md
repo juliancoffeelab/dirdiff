@@ -17,6 +17,11 @@ are in [`rooms.md`](rooms.md#publication); target validation is in
   every coordinate it could offer would describe text dirdiff wrote.
   Derivation contains the failure at that one placement and logs the captured
   error.
+- A whole-review Thread has a placement in every Snapshot of its Room:
+  creation writes one into each existing Snapshot and capture derives one into
+  each new Snapshot, both under the Room write lock. Every Snapshot can
+  therefore read and write it as `displayed-snapshot`; Comment actions
+  reference a placement, so an earlier Snapshot without one could not.
 - The stored `bay_not_found` covers two browser kinds: `bay-lost` has a bay to
   mark and navigate to, `side-lost` has none.
 - Derivation chooses and stores every landing while it already holds the

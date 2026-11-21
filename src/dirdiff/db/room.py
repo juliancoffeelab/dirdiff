@@ -1447,6 +1447,25 @@ class RoomStore:
             correspondence_key=row.backend_key,
         )
 
+    def room_snapshot_ids(self, identity: RoomIdentity) -> tuple[str, ...]:
+        mark_clause = (
+            Room.mark_id.is_(None)
+            if identity.mark_id is None
+            else Room.mark_id == identity.mark_id
+        )
+        with Session(self.engine) as session:
+            return tuple(
+                session.scalars(
+                    select(Snapshot.id)
+                    .join(Room, Room.id == Snapshot.room_id)
+                    .where(
+                        Room.tab == identity.tab,
+                        Room.backend_key == identity.correspondence_key,
+                        mark_clause,
+                    )
+                ).all()
+            )
+
     def snapshot_id_for_content(
         self,
         identity: RoomIdentity,

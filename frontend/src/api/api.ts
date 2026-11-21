@@ -990,59 +990,117 @@ export type AcceptedReviewActivity =
       update: ReviewThreadUpdate;
     };
 
+// A Thread that fails its own checks is kept in its page position so the rest
+// of the page stays usable; it is never merged, marked or navigated to.
+export type RejectedThread = {
+  kind: "rejected";
+  thread_id: ReviewId | null;
+  error: z.ZodError;
+};
+
+export type ReviewThreadEntry = ReviewThread | RejectedThread;
+
+export function isRejectedThread(
+  entry: ReviewThreadEntry,
+): entry is RejectedThread {
+  return "kind" in entry;
+}
+
 const ReviewThreadPageSchema = z
   .strictObject({
     snapshot_id: ReviewIdSchema,
     through_activity_id: z.number().int().nonnegative(),
-    threads: z.array(ReviewThreadSchema),
+    threads: z.array(z.unknown()),
     page: z.number().int().positive(),
     limit: z.number().int().positive(),
     total_threads: z.number().int().nonnegative(),
     has_more: z.boolean(),
   })
-  .superRefine((page, context) => {
+  .transform((page, context) => {
+    const pageThreadSchema = ReviewThreadSchema.superRefine(
+      (thread, context) => {
+        if (
+          thread.location_source.kind === "displayed-snapshot" &&
+          thread.snapshot_id !== page.snapshot_id
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: "Displayed placement names another Snapshot.",
+            path: ["snapshot_id"],
+          });
+        }
+        if (
+          thread.location_source.kind === "origin-snapshot" &&
+          thread.snapshot_id === page.snapshot_id
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: "Origin placement repeats the displayed Snapshot.",
+            path: ["snapshot_id"],
+          });
+        }
+      },
+    );
+    const rejectedIdentitySchema = z.object({ thread_id: ReviewIdSchema });
+    const rejectedCommentsSchema = z.object({ comments: z.array(z.unknown()) });
+    const commentIdentitySchema = z.object({ comment_id: ReviewIdSchema });
     const threadIds = new Set<ReviewId>();
     const commentIds = new Set<ReviewId>();
-    page.threads.forEach((thread, index) => {
-      if (
-        thread.location_source.kind === "displayed-snapshot" &&
-        thread.snapshot_id !== page.snapshot_id
-      ) {
-        context.addIssue({
-          code: "custom",
-          message: "Displayed placement names another Snapshot.",
-          path: ["threads", index, "snapshot_id"],
-        });
+    const threads = page.threads.map((raw, index): ReviewThreadEntry => {
+      const parsed = pageThreadSchema.safeParse(raw);
+      let entry: ReviewThreadEntry;
+      // Cross-Thread identity checks fail the page, so a rejected Thread
+      // contributes whatever ids it still carries.
+      let entryCommentIds: readonly (ReviewId | null)[];
+      if (parsed.success) {
+        entry = parsed.data;
+        entryCommentIds = entry.comments.map((comment) => comment.comment_id);
+      } else {
+        const identity = rejectedIdentitySchema.safeParse(raw);
+        entry = {
+          kind: "rejected",
+          thread_id: identity.success ? identity.data.thread_id : null,
+          error: parsed.error,
+        };
+        const comments = rejectedCommentsSchema.safeParse(raw);
+        entryCommentIds = comments.success
+          ? comments.data.comments.map((comment) => {
+              const commentIdentity = commentIdentitySchema.safeParse(comment);
+              return commentIdentity.success
+                ? commentIdentity.data.comment_id
+                : null;
+            })
+          : [];
       }
-      if (
-        thread.location_source.kind === "origin-snapshot" &&
-        thread.snapshot_id === page.snapshot_id
-      ) {
-        context.addIssue({
-          code: "custom",
-          message: "Origin placement repeats the displayed Snapshot.",
-          path: ["threads", index, "snapshot_id"],
-        });
+      if (entry.thread_id !== null) {
+        if (threadIds.has(entry.thread_id)) {
+          context.addIssue({
+            code: "custom",
+            message: "Review Room Thread identities must be unique.",
+            path: ["threads", index, "thread_id"],
+          });
+        }
+        threadIds.add(entry.thread_id);
       }
-      if (threadIds.has(thread.thread_id)) {
-        context.addIssue({
-          code: "custom",
-          message: "Review Room Thread identities must be unique.",
-          path: ["threads", index, "thread_id"],
-        });
-      }
-      threadIds.add(thread.thread_id);
-      thread.comments.forEach((comment, commentIndex) => {
-        if (commentIds.has(comment.comment_id)) {
+      // A repeat within one Thread is that Thread's own failure, reported by
+      // its schema; only earlier entries' ids count here.
+      entryCommentIds.forEach((commentId, commentIndex) => {
+        if (commentId !== null && commentIds.has(commentId)) {
           context.addIssue({
             code: "custom",
             message: "Review Snapshot Comment identities must be unique.",
             path: ["threads", index, "comments", commentIndex, "comment_id"],
           });
         }
-        commentIds.add(comment.comment_id);
       });
+      for (const commentId of entryCommentIds) {
+        if (commentId !== null) {
+          commentIds.add(commentId);
+        }
+      }
+      return entry;
     });
+    return { ...page, threads };
   });
 
 export type ReviewThreadPage = z.infer<typeof ReviewThreadPageSchema>;
@@ -1063,6 +1121,17 @@ export function reviewThreadList(
   data: ReviewThreadPages | undefined,
   acceptedActivities: readonly AcceptedReviewActivity[],
 ): readonly ReviewThread[] {
+  return reviewThreadEntries(data, acceptedActivities).filter(
+    (entry): entry is ReviewThread => !isRejectedThread(entry),
+  );
+}
+
+// History alone renders rejected Threads; every other consumer reads
+// `reviewThreadList()`.
+export function reviewThreadEntries(
+  data: ReviewThreadPages | undefined,
+  acceptedActivities: readonly AcceptedReviewActivity[],
+): readonly ReviewThreadEntry[] {
   if (data === undefined) {
     assert(
       acceptedActivities.length === 0,
@@ -1071,9 +1140,12 @@ export function reviewThreadList(
     return NO_REVIEW_THREADS;
   }
   const threads = data.pages.flatMap((page) => page.threads);
-  const threadIndexes = new Map(
-    threads.map((thread, index) => [thread.thread_id, index]),
-  );
+  const threadIndexes = new Map<ReviewId, number>();
+  threads.forEach((thread, index) => {
+    if (thread.thread_id !== null) {
+      threadIndexes.set(thread.thread_id, index);
+    }
+  });
   for (const activity of acceptedActivities) {
     if (activity.kind === "created") {
       const existingIndex = threadIndexes.get(activity.thread.thread_id);
@@ -1085,7 +1157,9 @@ export function reviewThreadList(
           threads[existingIndex],
           "Loaded review Thread disappeared during activity presentation.",
         );
+        // A later page rejected this Thread; its row already reports why.
         if (
+          !isRejectedThread(existing) &&
           activity.thread.discussion_revision > existing.discussion_revision
         ) {
           threads[existingIndex] = activity.thread;
@@ -1094,15 +1168,26 @@ export function reviewThreadList(
       continue;
     }
     const update = activity.update;
-    const threadIndex = expect(
-      threadIndexes.get(update.thread_id),
-      "Accepted review update requires its visible Thread.",
-    );
+    const threadIndex = threadIndexes.get(update.thread_id);
+    if (threadIndex === undefined) {
+      // A refetch rejected this Thread without a readable id; its row reports
+      // why, and the update has nothing to apply to.
+      assert(
+        threads.some(
+          (thread) => isRejectedThread(thread) && thread.thread_id === null,
+        ),
+        "Accepted review update requires its visible Thread.",
+      );
+      continue;
+    }
     const existing = expect(
       threads[threadIndex],
       "Updated review Thread disappeared during activity presentation.",
     );
-    if (update.discussion_revision <= existing.discussion_revision) {
+    if (
+      isRejectedThread(existing) ||
+      update.discussion_revision <= existing.discussion_revision
+    ) {
       continue;
     }
     assert(
@@ -1978,7 +2063,12 @@ export const api = {
   },
 
   review: {
-    snapshot(snapshotId: ReviewId) {
+    // Whichever caller's queryFn runs the fetch reports, so every caller
+    // passes the same reporter and each fetched page reports once.
+    snapshot(
+      snapshotId: ReviewId,
+      reportRejected: (title: string, error: unknown) => void,
+    ) {
       const initialPageParam: ReviewThreadPageParameter = {
         page: 1,
         throughActivityId: null,
@@ -2022,6 +2112,14 @@ export const api = {
               "Review transport pages use different activity pivots.",
             );
           }
+          for (const entry of response.threads) {
+            if (isRejectedThread(entry)) {
+              reportRejected(
+                `Thread ${entry.thread_id ?? "without an id"} could not be shown`,
+                entry.error,
+              );
+            }
+          }
           return response;
         },
         getNextPageParam: (lastPage, pages) => {
@@ -2040,8 +2138,13 @@ export const api = {
             "Review transport pages disagree about their stable boundary.",
           );
           const threadIds = new Set<ReviewId>();
+          let threadCount = 0;
           for (const page of pages) {
             for (const thread of page.threads) {
+              threadCount += 1;
+              if (thread.thread_id === null) {
+                continue;
+              }
               assert(
                 !threadIds.has(thread.thread_id),
                 "Review transport pages contain a duplicate Thread.",
@@ -2051,7 +2154,7 @@ export const api = {
           }
           if (!lastPage.has_more) {
             assert(
-              threadIds.size === lastPage.total_threads,
+              threadCount === lastPage.total_threads,
               "Review transport pages do not contain every Thread.",
             );
             return undefined;

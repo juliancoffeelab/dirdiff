@@ -14,12 +14,15 @@ import { createInfiniteQuery } from "@tanstack/solid-query";
 import { Eye, MessageSquarePlus, RefreshCw } from "lucide-solid";
 import {
   api,
-  reviewThreadList,
+  isRejectedThread,
+  reviewThreadEntries,
   threadPlacementCodePoint,
   type AcceptedReviewActivity,
   type ReviewFilePair,
+  type RejectedThread,
   type ReviewId,
   type ReviewThread,
+  type ReviewThreadEntry,
   type ThreadCodePoint,
 } from "../../api/api";
 import { ErrorPanel, RetryButton, useToasts } from "../../comp/Toasts";
@@ -30,7 +33,7 @@ import { createThreadDiscussion } from "./discussion";
 import { useReviewDrafts, type NewThreadDraft } from "./drafts";
 import { ThreadCard } from "./threadViews";
 
-const NO_THREADS: readonly ReviewThread[] = [];
+const NO_THREADS: readonly ReviewThreadEntry[] = [];
 
 type ReviewHistoryProps = {
   snapshotId: ReviewId;
@@ -64,7 +67,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
   const toast = useToasts();
   const draftContext = useReviewDrafts();
   const review = createInfiniteQuery(() =>
-    api.review.snapshot(props.snapshotId),
+    api.review.snapshot(props.snapshotId, toast.showError),
   );
   const discussion = createThreadDiscussion({
     snapshotId: props.snapshotId,
@@ -74,12 +77,22 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
     // Reply and edit inputs live in ThreadCard and read the draft document.
     onSubmitted() {},
   });
-  const reviewThreads = createMemo<readonly ReviewThread[]>(
-    () => reviewThreadList(review.data, props.acceptedActivities()),
+  const threadEntries = createMemo<readonly ReviewThreadEntry[]>(
+    () => reviewThreadEntries(review.data, props.acceptedActivities()),
     NO_THREADS,
   );
+  // A rejected Thread has no valid state to group or sort by, so the rejected
+  // ones form their own group above Open, in backend order.
+  const rejectedThreads = createMemo(() =>
+    threadEntries().filter(isRejectedThread),
+  );
+  const reviewThreads = createMemo(() =>
+    threadEntries().filter(
+      (entry): entry is ReviewThread => !isRejectedThread(entry),
+    ),
+  );
   const totalThreads = (): number =>
-    Math.max(review.data?.pages[0]?.total_threads ?? 0, reviewThreads().length);
+    Math.max(review.data?.pages[0]?.total_threads ?? 0, threadEntries().length);
 
   async function reloadThreads(): Promise<void> {
     await review.refetch();
@@ -280,7 +293,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                 <kbd>m</kbd>
                 <strong>History</strong>
                 <span>
-                  {orderedThreads().length} / {totalThreads()} Threads
+                  {threadEntries().length} / {totalThreads()} Threads
                 </span>
                 <button
                   type="button"
@@ -592,6 +605,27 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
                           </article>
                         );
                       }}
+                    </For>
+                  </section>
+                </Show>
+                <Show when={rejectedThreads().length > 0}>
+                  <section class="review-thread-group">
+                    <header class="review-thread-group-heading">
+                      <strong>Could not be shown</strong>
+                      <span>{rejectedThreads().length}</span>
+                    </header>
+                    <For each={rejectedThreads()}>
+                      {(rejected: RejectedThread) => (
+                        <ErrorPanel
+                          title="Thread could not be shown"
+                          error={rejected.error}
+                        >
+                          <p>
+                            {rejected.thread_id ??
+                              "The Thread has no valid id."}
+                          </p>
+                        </ErrorPanel>
+                      )}
                     </For>
                   </section>
                 </Show>

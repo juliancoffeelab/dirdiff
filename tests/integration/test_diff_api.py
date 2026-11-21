@@ -437,6 +437,141 @@ def test_browser_can_edit_a_comment_twice_then_delete_it(
     assert comment["deleted"] is True
 
 
+def test_review_scoped_thread_is_addressable_from_an_earlier_snapshot(
+    tmp_path: Path,
+) -> None:
+    create_committed_repo(tmp_path, branch="main")
+    first_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (tmp_path / "alpha.txt").write_text("one\nchanged\n", encoding="utf-8")
+    run_git(tmp_path, "commit", "-am", "second")
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (tmp_path / "alpha.txt").write_text("one\nearlier\n", encoding="utf-8")
+    client, _project_id = create_repo_client(tmp_path)
+    profile_id = client.post(
+        "/api/agent/profile",
+        json={
+            "agent_uuid": "1" * 32,
+            "name": "reviewer",
+            "model": "test-model",
+            "harness": "pytest",
+        },
+    ).json()["profile_id"]
+    head_tab = {"kind": "head", "repo_path": str(tmp_path), "baseline": head}
+    earlier = client.post("/api/agent/capture", json={"tab": head_tab}).json()
+    (tmp_path / "alpha.txt").write_text("one\nlater\n", encoding="utf-8")
+    later = client.post("/api/agent/capture", json={"tab": head_tab}).json()
+    other_room = client.post(
+        "/api/agent/capture",
+        json={
+            "tab": {
+                "kind": "head",
+                "repo_path": str(tmp_path),
+                "baseline": first_commit,
+            }
+        },
+    ).json()
+    assert earlier["snapshot_id"] != later["snapshot_id"]
+
+    # Created after `earlier` was captured, so `earlier` holds no placement.
+    created = client.post(
+        "/api/review/post_comment",
+        json={
+            "snapshot_id": later["snapshot_id"],
+            "profile_id": profile_id,
+            "target": {"kind": "review"},
+            "body": "whole review",
+        },
+    )
+    assert created.status_code == 200
+    thread_id = created.json()["thread_id"]
+
+    page = client.get(
+        "/api/review/threads",
+        params={"snapshot_id": earlier["snapshot_id"]},
+    )
+    assert page.status_code == 200
+    (thread,) = page.json()["threads"]
+    assert thread["thread_id"] == thread_id
+    assert thread["snapshot_id"] == earlier["snapshot_id"]
+    assert thread["location_source"] == {"kind": "displayed-snapshot"}
+    assert thread["placement"] == {"kind": "review-scope"}
+
+    reply = client.post(
+        "/api/review/post_comment",
+        json={
+            "snapshot_id": earlier["snapshot_id"],
+            "thread_id": thread_id,
+            "profile_id": profile_id,
+            "body": "reply from the earlier Snapshot",
+            "attention": "inert",
+        },
+    )
+    assert reply.status_code == 200
+    reply_id = reply.json()["comment"]["comment_id"]
+    edited = client.post(
+        "/api/review/edit_comment",
+        json={
+            "snapshot_id": earlier["snapshot_id"],
+            "comment_id": reply_id,
+            "profile_id": profile_id,
+            "body": "edited from the earlier Snapshot",
+        },
+    )
+    assert edited.status_code == 200
+    resolved = client.post(
+        "/api/review/resolve_thread",
+        json={
+            "snapshot_id": earlier["snapshot_id"],
+            "thread_id": thread_id,
+            "profile_id": profile_id,
+        },
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["state"] == "resolved"
+
+    # Another Room must not reach the Thread through the review-scope rule.
+    assert (
+        client.get(
+            "/api/review/threads",
+            params={"snapshot_id": other_room["snapshot_id"]},
+        ).json()["threads"]
+        == []
+    )
+    foreign_reply = client.post(
+        "/api/review/post_comment",
+        json={
+            "snapshot_id": other_room["snapshot_id"],
+            "thread_id": thread_id,
+            "profile_id": profile_id,
+            "body": "reply from another Room",
+            "attention": "inert",
+        },
+    )
+    assert foreign_reply.status_code == 404
+    foreign_edit = client.post(
+        "/api/review/edit_comment",
+        json={
+            "snapshot_id": other_room["snapshot_id"],
+            "comment_id": reply_id,
+            "profile_id": profile_id,
+            "body": "edit from another Room",
+        },
+    )
+    assert foreign_edit.status_code == 404
+
+
 def test_repo_main_branch_save_overrides_repo_defaults(
     tmp_path: Path,
 ) -> None:
