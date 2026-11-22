@@ -108,6 +108,12 @@ discussion that later reads cannot render.
   fetch is an image whose URL is `attachment:` and a content hash: it is read
   from dirdiff's own server, from the Room of the Thread's Snapshot, and any
   other image URL shows as its source text.
+- Files pasted or dropped into a Comment textarea are uploaded to the Room of
+  the open Snapshot, whatever their declared type, and their references, one per
+  line with an empty caption, go in at the selection as it stands when the
+  upload finishes, through the textarea's own input handler. A failed upload
+  inserts nothing; an input closed meanwhile gets an error carrying the
+  references, since the stored bytes are kept but no draft names them.
 - The History panel has one host for both code views and stays mounted while
   closed, so neither a view switch nor closing can destroy per-Thread UI
   state, warmed Thread heights, or the reading position.

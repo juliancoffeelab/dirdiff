@@ -24,6 +24,67 @@ import { assert, expect } from "../../utils";
 import type { NewThreadDraft, ReviewDraft } from "./drafts";
 import type { ActiveCommentInput, ActiveThreadPanel } from "./Review";
 
+type TextareaEvent<E extends Event> = E & {
+  currentTarget: HTMLTextAreaElement;
+};
+
+// Pasting or dropping files into a Comment textarea uploads them and inserts
+// their image references. The upload finishes after the user may have typed,
+// so the references go in at the selection as it stands then, and reach the
+// draft through the textarea's own input handler, the one path that changes a
+// body.
+function createImageInsertion(
+  uploadImages: (files: readonly File[]) => Promise<string | null>,
+): {
+  onPaste(event: TextareaEvent<ClipboardEvent>): void;
+  onDragOver(event: TextareaEvent<DragEvent>): void;
+  onDrop(event: TextareaEvent<DragEvent>): void;
+} {
+  function insert(
+    event: TextareaEvent<ClipboardEvent | DragEvent>,
+    files: FileList | undefined,
+  ): void {
+    if (files === undefined || files.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    const textarea = event.currentTarget;
+    // A throw here reaches the unhandled-rejection Toast.
+    void uploadImages([...files]).then((markdown) => {
+      if (markdown === null) {
+        return;
+      }
+      if (!textarea.isConnected || textarea.disabled) {
+        throw new Error(
+          `The Comment input closed during the image upload. Paste this where the image belongs: ${markdown}`,
+        );
+      }
+      textarea.setRangeText(
+        markdown,
+        textarea.selectionStart,
+        textarea.selectionEnd,
+        "end",
+      );
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  return {
+    onPaste(event) {
+      insert(event, event.clipboardData?.files);
+    },
+    onDragOver(event) {
+      // Without this the browser does not deliver a file drop to the textarea
+      // and opens the file instead.
+      if (event.dataTransfer?.types.includes("Files") === true) {
+        event.preventDefault();
+      }
+    },
+    onDrop(event) {
+      insert(event, event.dataTransfer?.files);
+    },
+  };
+}
+
 export function CommentInput(props: {
   drafts: Accessor<readonly ReviewDraft[]>;
   active: Accessor<ActiveCommentInput | null>;
@@ -34,6 +95,7 @@ export function CommentInput(props: {
   onDiscard(draftId: ReviewId): boolean;
   onClose(): void;
   onSubmit(draftId: ReviewId): Promise<boolean>;
+  uploadImages(files: readonly File[]): Promise<string | null>;
 }): JSX.Element {
   const draft = createMemo(() => {
     const active = props.active();
@@ -58,6 +120,7 @@ export function CommentInput(props: {
     const current = draft();
     return current !== null && props.submittingDraftIds().has(current.draft_id);
   });
+  const imageInsertion = createImageInsertion(props.uploadImages);
   const mount = createMemo(() => {
     const active = props.active();
     return active?.mount ?? document.body;
@@ -140,6 +203,9 @@ export function CommentInput(props: {
                     event.currentTarget.value = current.body;
                   }
                 }}
+                onPaste={imageInsertion.onPaste}
+                onDragOver={imageInsertion.onDragOver}
+                onDrop={imageInsertion.onDrop}
                 onKeyDown={(event) => {
                   if (
                     event.key === "Enter" &&
@@ -213,6 +279,7 @@ export function InlineThreadPanel(props: {
   onEditSubmit(draft: ReviewDraft): Promise<boolean>;
   onEditDiscard(draft: ReviewDraft): boolean;
   onDeleteComment(thread: ReviewThread, comment: ReviewComment): void;
+  uploadImages(files: readonly File[]): Promise<string | null>;
   onState(thread: ReviewThread, action: "resolve" | "reopen" | "delete"): void;
 }): JSX.Element {
   const visibleThreads = createMemo(() => {
@@ -323,6 +390,7 @@ export function InlineThreadPanel(props: {
                       onEditChange={props.onEditChange}
                       onEditSubmit={props.onEditSubmit}
                       onEditDiscard={props.onEditDiscard}
+                      uploadImages={props.uploadImages}
                       onDeleteComment={(comment) =>
                         props.onDeleteComment(thread, comment)
                       }
@@ -373,7 +441,9 @@ export function ThreadCard(props: {
   onEditSubmit(draft: ReviewDraft): Promise<boolean>;
   onEditDiscard(draft: ReviewDraft): boolean;
   onDeleteComment(comment: ReviewComment): void;
+  uploadImages(files: readonly File[]): Promise<string | null>;
 }): JSX.Element {
+  const imageInsertion = createImageInsertion(props.uploadImages);
   const origin = props.thread.origin_target;
   // A review-scoped origin has no File; its heading shows a fixed label.
   const excerptPath =
@@ -624,6 +694,7 @@ export function ThreadCard(props: {
                   onEditSubmit={props.onEditSubmit}
                   onEditDiscard={props.onEditDiscard}
                   onDelete={() => props.onDeleteComment(comment)}
+                  uploadImages={props.uploadImages}
                 />
               );
             }}
@@ -660,6 +731,9 @@ export function ThreadCard(props: {
                   event.currentTarget.value = props.replyDraft?.body ?? "";
                 }
               }}
+              onPaste={imageInsertion.onPaste}
+              onDragOver={imageInsertion.onDragOver}
+              onDrop={imageInsertion.onDrop}
               onKeyDown={(event) => {
                 if (
                   event.key === "Enter" &&
@@ -987,7 +1061,9 @@ function ReviewCommentView(props: {
   onEditSubmit(draft: ReviewDraft): Promise<boolean>;
   onEditDiscard(draft: ReviewDraft): boolean;
   onDelete(): void;
+  uploadImages(files: readonly File[]): Promise<string | null>;
 }): JSX.Element {
+  const imageInsertion = createImageInsertion(props.uploadImages);
   return (
     <li
       data-review-comment-id={props.comment.comment_id}
@@ -1071,6 +1147,9 @@ function ReviewCommentView(props: {
                       event.currentTarget.value = draft().body;
                     }
                   }}
+                  onPaste={imageInsertion.onPaste}
+                  onDragOver={imageInsertion.onDragOver}
+                  onDrop={imageInsertion.onDrop}
                   onKeyDown={(event) => {
                     if (
                       event.key === "Enter" &&

@@ -53,6 +53,7 @@ export type ThreadDiscussion = {
   ): Promise<void>;
   openEditDraft(thread: ReviewThread, comment: ReviewComment): void;
   tombstoneComment(thread: ReviewThread, comment: ReviewComment): void;
+  uploadImages(files: readonly File[]): Promise<string | null>;
 };
 
 export function createThreadDiscussion(
@@ -70,6 +71,7 @@ export function createThreadDiscussion(
   const addComment = createMutation(() => api.review.comment.add());
   const editComment = createMutation(() => api.review.comment.edit());
   const deleteComment = createMutation(() => api.review.comment.delete());
+  const uploadAttachment = createMutation(() => api.review.attachment.upload());
   const resolveThread = createMutation(() =>
     api.review.thread.changeState("resolve"),
   );
@@ -443,6 +445,31 @@ export function createThreadDiscussion(
     })();
   }
 
+  // The Markdown that shows the files in a Comment, one image per line, or
+  // null when an upload failed or no Profile is selected. The Room decides
+  // which files are images; a refusal arrives as the upload's error.
+  async function uploadImages(files: readonly File[]): Promise<string | null> {
+    const profile = profileForWrite();
+    if (profile === null) {
+      return null;
+    }
+    const lines: string[] = [];
+    for (const file of files) {
+      try {
+        const url = await uploadAttachment.mutateAsync({
+          snapshotId: args.snapshotId,
+          profileId: profile.id,
+          file,
+        });
+        lines.push(`![](${url})`);
+      } catch {
+        // QueryProvider presented the failure through the mutation metadata.
+        return null;
+      }
+    }
+    return lines.join("\n");
+  }
+
   return {
     reviewAvailable,
     profileId,
@@ -459,5 +486,6 @@ export function createThreadDiscussion(
     changeThreadState,
     openEditDraft,
     tombstoneComment,
+    uploadImages,
   };
 }

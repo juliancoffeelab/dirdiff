@@ -187,6 +187,7 @@ test("Comment Markdown creates no image, raw HTML or unsafe link, and keeps line
       onEditSubmit={() => Promise.resolve(true)}
       onEditDiscard={() => true}
       onDeleteComment={() => undefined}
+      uploadImages={() => Promise.resolve(null)}
     />
   ));
   const rendered = container.querySelector(".review-comment-body")!;

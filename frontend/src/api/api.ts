@@ -1984,6 +1984,31 @@ async function requestDeleteReviewComment(
   return thread;
 }
 
+type UploadReviewAttachmentInput = {
+  snapshotId: ReviewId;
+  profileId: number;
+  file: File;
+};
+
+async function requestUploadReviewAttachment(
+  input: UploadReviewAttachmentInput,
+): Promise<string> {
+  const search = snapshotSearchParams(input.snapshotId);
+  search.set("profile_id", String(input.profileId));
+  const response = await requestJson(
+    {
+      input: `/api/review/upload_attachment?${search.toString()}`,
+      init: { method: "POST", body: input.file },
+      abortSignal: null,
+      // A stored upload is not undone by a dropped connection, so the browser
+      // waits for the one authoritative response, as for other review writes.
+      timeoutMs: null,
+    },
+    z.strictObject({ url: z.string().regex(/^attachment:[0-9a-f]{64}$/u) }),
+  );
+  return response.url;
+}
+
 type ReviewThreadActionInput = {
   snapshotId: ReviewId;
   threadId: ReviewId;
@@ -2213,6 +2238,16 @@ export const api = {
           mutationKey: ["review", "comment", "delete"] as const,
           mutationFn: requestDeleteReviewComment,
           meta: { errorTitle: "Failed to delete review Comment" },
+        });
+      },
+    },
+
+    attachment: {
+      upload() {
+        return mutationOptions({
+          mutationKey: ["review", "attachment", "upload"] as const,
+          mutationFn: requestUploadReviewAttachment,
+          meta: { errorTitle: "Failed to upload image" },
         });
       },
     },

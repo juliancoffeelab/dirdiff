@@ -254,6 +254,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
         onEditChange={discussion.replaceDraft}
         onEditSubmit={(draft) => discussion.submitDraft(draft.draft_id)}
         onEditDiscard={(draft) => discussion.removeDraft(draft.draft_id)}
+        uploadImages={discussion.uploadImages}
         onDeleteComment={(comment) =>
           discussion.tombstoneComment(thread(), comment)
         }

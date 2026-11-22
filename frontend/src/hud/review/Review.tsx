@@ -1335,6 +1335,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
             onDiscard={discardCommentInputDraft}
             onClose={closeActiveCommentInput}
             onSubmit={submitReviewDraft}
+            uploadImages={discussion.uploadImages}
           />
           <InlineThreadPanel
             active={activeThreadPanel}
@@ -1369,6 +1370,7 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
             onEditSubmit={(draft) => submitReviewDraft(draft.draft_id)}
             onEditDiscard={(draft) => removeDraft(draft.draft_id)}
             onDeleteComment={tombstoneComment}
+            uploadImages={discussion.uploadImages}
             onState={(thread, action) => {
               void changeThreadState(thread, action);
             }}
