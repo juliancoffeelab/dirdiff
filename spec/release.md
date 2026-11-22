@@ -53,6 +53,11 @@ the database on restart upgrades it, so a new migration applies to the running
 server. Editing a revision the database already records does not rerun it. The
 watch list is fixed when `dirdiff` launches.
 
+A stop or a reload waits at most five seconds for open requests, then cancels
+them. Only an agent `wait` holds a request that long, up to nine minutes, and
+without the limit it held the stop or the reload for as long; uvicorn answers
+the cancelled `wait` with HTTP 500.
+
 ## Server composition
 
 `create_app` has no frontend route or mode input. The release factory

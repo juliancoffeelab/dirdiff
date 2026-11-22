@@ -766,7 +766,16 @@ def report_activity(session_path: Path, wait_seconds: int | None) -> None:
                 },
             )
             timeout = hold + 30.0
-        result = fetch(ActivityResponse, url, timeout=timeout)
+        try:
+            result = fetch(ActivityResponse, url, timeout=timeout)
+        except ConnectionError:
+            # A server killed mid-wait drops the held connection.
+            if wait_seconds is None:
+                raise
+            fail(
+                "The server went away during the wait (it stopped or "
+                "restarted); call `wait` again."
+            )
         state.cursor = result.next_after
         for event in result.events:
             if event.author.profile_id == state.profile_id:

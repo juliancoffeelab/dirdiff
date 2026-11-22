@@ -261,6 +261,13 @@ def run_uvicorn(
             else None
         ),
         reload_includes=["*.py"] if development else None,
+        # An agent `wait` holds its request for up to nine minutes, and
+        # uvicorn otherwise finishes every open request before a stop or a
+        # reload completes; a second Ctrl+C does not help, because uvicorn
+        # still awaits `Server.wait_closed()`, which waits for every open
+        # connection. Only held waits outlast five seconds, and uvicorn
+        # answers a cancelled one with HTTP 500.
+        timeout_graceful_shutdown=5,
     )
 
 
