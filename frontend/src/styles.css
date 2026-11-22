@@ -2049,13 +2049,16 @@ h1 {
   padding: 11px 9px 8px;
 }
 
-.review-comments li {
+.review-comments > li {
   position: relative;
+  /* Lets a scrolling code block or table shrink the Comment to the panel
+     instead of widening the Comment list past it. */
+  min-width: 0;
   border-bottom: 1px solid #e6ded1;
   padding: 8px 58px 8px 2px;
 }
 
-.review-thread-expanded .review-comments li {
+.review-thread-expanded .review-comments > li {
   display: flex;
   align-items: flex-start;
   gap: 7px;
@@ -2063,7 +2066,7 @@ h1 {
   padding: 0;
 }
 
-.review-thread-expanded .review-comments li.review-comment-response {
+.review-thread-expanded .review-comments > li.review-comment-response {
   flex-direction: row-reverse;
 }
 
@@ -2109,7 +2112,7 @@ h1 {
   background: #edf2f7;
 }
 
-.review-comments li:last-child {
+.review-comments > li:last-child {
   border-bottom: 0;
 }
 
@@ -2136,12 +2139,135 @@ h1 {
 .review-comments p {
   margin: 3px 0;
   font-size: 12px;
-  white-space: pre-wrap;
 }
 
 .review-thread-expanded .review-comments p {
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+/* A rendered body reads as one message: its outer margin is the old plain
+   paragraph's, and blocks inside it sit close together. */
+.review-comment-body {
+  margin: 3px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.review-comments .review-comment-body :is(p, ul, ol, pre, blockquote, hr),
+.review-comment-body .review-comment-body-table {
+  margin: 5px 0;
+}
+
+.review-comments .review-comment-body > :first-child,
+.review-comments .review-comment-body :is(li, blockquote) > :first-child {
+  margin-top: 0;
+}
+
+.review-comments .review-comment-body > :last-child,
+.review-comments .review-comment-body :is(li, blockquote) > :last-child {
+  margin-bottom: 0;
+}
+
+.review-comments .review-comment-body strong {
+  font-size: inherit;
+}
+
+.review-comment-body :is(ul, ol) {
+  padding-left: 18px;
+}
+
+/* The body sits inside the Comment list, which would make a top-level
+   bullet list look nested. */
+.review-comment-body > ul {
+  list-style-type: disc;
+}
+
+.review-comment-body ul ul {
+  list-style-type: circle;
+}
+
+.review-comment-body li + li {
+  margin-top: 2px;
+}
+
+.review-comment-body li.review-comment-body-task {
+  list-style: none;
+}
+
+.review-comment-body-task > input {
+  margin: 0 5px 0 0;
+  vertical-align: -2px;
+}
+
+.review-comments .review-comment-body .review-comment-body-task > input + p {
+  display: inline;
+}
+
+.review-comment-body blockquote {
+  border-left: 3px solid #d8d3ca;
+  padding-left: 8px;
+  color: #6a665d;
+}
+
+.review-comment-body hr {
+  border: 0;
+  border-top: 1px solid #e0dcd4;
+}
+
+.review-comments .review-comment-body-heading {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.review-comment-body a {
+  color: #2563eb;
+}
+
+.review-comment-body code {
+  font-size: 11px;
+}
+
+.review-comment-body :not(pre) > code {
+  border: 1px solid #e0dcd4;
+  border-radius: 3px;
+  background: #fcfbf8;
+  padding: 0 3px;
+  white-space: pre-wrap;
+}
+
+/* Code and tables scroll inside the bubble; the bubble's max width holds. */
+.review-comment-body-code,
+.review-comment-body-table {
+  overflow-x: auto;
+  overflow-wrap: normal;
+}
+
+.review-comment-body-code {
+  border: 1px solid #e0dcd4;
+  background: #fcfbf8;
+  padding: 5px 7px;
+}
+
+.review-comment-body-table table {
+  border-collapse: collapse;
+}
+
+.review-comment-body-table :is(th, td) {
+  border: 1px solid #e0dcd4;
+  padding: 2px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.review-comment-body-table th {
+  background: #f7f4ed;
+  font-weight: 600;
+}
+
+.review-comments .review-comment-body-source {
+  white-space: pre-wrap;
 }
 
 .review-comment-deleted {

@@ -8,6 +8,9 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { LocateFixed, Pencil, Trash2, TriangleAlert } from "lucide-solid";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
 import {
   threadOutdated,
   type ReviewAuthor,
@@ -767,6 +770,136 @@ function AuthorName(props: { author: ReviewAuthor }): JSX.Element {
   );
 }
 
+type MarkdownNode = ReturnType<typeof fromMarkdown>["children"][number];
+
+// Bodies are built node by node from the parsed tree and never pass through
+// HTML, so raw HTML stays literal text and no element is created that the
+// allow-list below does not name.
+function CommentBody(props: { body: string }): JSX.Element {
+  const tree = createMemo(() =>
+    fromMarkdown(props.body, {
+      extensions: [gfm()],
+      mdastExtensions: [gfmFromMarkdown()],
+    }),
+  );
+  // Markdown from agents is open-ended: a node outside the allow-list shows
+  // its source text, because dropping it would hide what someone wrote.
+  function source(node: MarkdownNode): string {
+    const position = expect(node.position, "Parsed Markdown has positions.");
+    return props.body.slice(
+      expect(position.start.offset, "Parsed Markdown has offsets."),
+      expect(position.end.offset, "Parsed Markdown has offsets."),
+    );
+  }
+  function block(node: MarkdownNode): JSX.Element {
+    switch (node.type) {
+      case "paragraph":
+        return <p>{node.children.map(inline)}</p>;
+      // A real heading element would enter the page's heading outline.
+      case "heading":
+        return (
+          <p class="review-comment-body-heading">{node.children.map(inline)}</p>
+        );
+      case "thematicBreak":
+        return <hr />;
+      case "blockquote":
+        return <blockquote>{node.children.map(block)}</blockquote>;
+      case "code":
+        return (
+          <pre class="review-comment-body-code">
+            <code>{node.value}</code>
+          </pre>
+        );
+      case "list": {
+        const items = node.children.map((item) =>
+          typeof item.checked === "boolean" ? (
+            <li class="review-comment-body-task">
+              <input type="checkbox" checked={item.checked} disabled />
+              {item.children.map(block)}
+            </li>
+          ) : (
+            <li>{item.children.map(block)}</li>
+          ),
+        );
+        return node.ordered === true ? (
+          <ol start={node.start ?? undefined}>{items}</ol>
+        ) : (
+          <ul>{items}</ul>
+        );
+      }
+      case "table": {
+        const head = expect(node.children[0], "A table has a header row.");
+        const body = node.children.slice(1);
+        const columns = head.children.length;
+        // The tree keeps each row's own cell count; GFM makes the header's
+        // count authoritative, padding short rows and dropping surplus cells.
+        const row = (
+          tableRow: (typeof node.children)[number],
+          header: boolean,
+        ) => (
+          <tr>
+            {Array.from({ length: columns }, (_, column) => {
+              const align = node.align?.[column] ?? undefined;
+              const content = tableRow.children[column]?.children.map(inline);
+              return header ? (
+                <th style={{ "text-align": align }}>{content}</th>
+              ) : (
+                <td style={{ "text-align": align }}>{content}</td>
+              );
+            })}
+          </tr>
+        );
+        return (
+          <div class="review-comment-body-table">
+            <table>
+              <thead>{row(head, true)}</thead>
+              <tbody>{body.map((tableRow) => row(tableRow, false))}</tbody>
+            </table>
+          </div>
+        );
+      }
+      default:
+        return <p class="review-comment-body-source">{source(node)}</p>;
+    }
+  }
+  function inline(node: MarkdownNode): JSX.Element {
+    switch (node.type) {
+      // A line ending inside a paragraph breaks the line, as in GitHub
+      // comments, so plain Comments keep the layout they had before Markdown.
+      // The parser leaves CR, CRLF and LF endings in text values as written.
+      case "text":
+        return node.value
+          .split(/\r\n|\r|\n/)
+          .flatMap((line, index) => (index === 0 ? [line] : [<br />, line]));
+      case "emphasis":
+        return <em>{node.children.map(inline)}</em>;
+      case "strong":
+        return <strong>{node.children.map(inline)}</strong>;
+      case "delete":
+        return <del>{node.children.map(inline)}</del>;
+      case "inlineCode":
+        return <code>{node.value}</code>;
+      case "break":
+        return <br />;
+      case "link":
+        return /^(?:https?|mailto):/i.test(node.url) ? (
+          <a href={node.url} target="_blank" rel="noopener noreferrer">
+            {node.children.map(inline)}
+          </a>
+        ) : (
+          node.children.map(inline)
+        );
+      // Images are never fetched: a URL an agent wrote must not cause a
+      // request from the reviewer's browser.
+      case "image":
+        return node.alt ?? "";
+      default:
+        return source(node);
+    }
+  }
+  return <div class="review-comment-body">{tree().children.map(block)}</div>;
+}
+
 function ReviewCommentView(props: {
   comment: ReviewComment;
   editDraft: ReviewDraft | null;
@@ -822,7 +955,11 @@ function ReviewCommentView(props: {
             </div>
           </Show>
         </div>
-        <p>{props.comment.body ?? "Comment deleted"}</p>
+        {props.comment.body === null ? (
+          <p>Comment deleted</p>
+        ) : (
+          <CommentBody body={props.comment.body} />
+        )}
         <Show when={props.editDraft}>
           {(draft) => {
             assert(
