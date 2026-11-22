@@ -15,6 +15,7 @@ from dirdiff.formats.base import (
 )
 from dirdiff.formats.composer import (
     Composer,
+    attachment_media_type,
     read_captured_link,
     write_captured_link,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "ImageBay",
     "MediaSide",
     "TextBay",
+    "attachment_media_type",
     "media_ref",
     "read_captured_link",
     "try_decode_text",

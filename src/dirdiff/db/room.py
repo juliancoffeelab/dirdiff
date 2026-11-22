@@ -28,6 +28,7 @@ from sqlalchemy import (
     select,
     tuple_,
 )
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Row
 from sqlalchemy.orm import Mapped, Session, aliased, mapped_column
 from sqlalchemy.sql.elements import ColumnElement
@@ -42,6 +43,7 @@ from dirdiff.db.base import (
 from dirdiff.util import Err, Nothing, Ok, Option, Result, Some, maybe
 
 __all__ = [
+    "AttachmentRecord",
     "AuthoredComment",
     "BayStartPlacement",
     "CommentCreatedAction",
@@ -550,6 +552,56 @@ Index(
     ReviewAction.snapshot_id,
     ReviewAction.activity_id,
 )
+
+
+class Attachment(TableBase):
+    """Facts of one stored byte sequence, named by its SHA-256 digest."""
+
+    __tablename__ = "attachment"
+    __table_args__ = (
+        CheckConstraint(
+            func.length(column("content_hash")) == 32,
+            name="ck_attachment_content_hash",
+        ),
+        CheckConstraint(
+            func.length(column("media_type")) > 0,
+            name="ck_attachment_media_type",
+        ),
+        CheckConstraint(column("size") > 0, name="ck_attachment_size"),
+    )
+    content_hash: Mapped[bytes] = mapped_column(
+        LargeBinary(32), primary_key=True
+    )
+    media_type: Mapped[str] = mapped_column(String, nullable=False)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class RoomAttachment(TableBase):
+    """An attachment readable in one Room, with its first upload there."""
+
+    __tablename__ = "room_attachment"
+    __table_args__ = (
+        CheckConstraint(
+            func.length(column("created_at")) > 0,
+            name="ck_room_attachment_created_at",
+        ),
+    )
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("room.id"), primary_key=True
+    )
+    content_hash: Mapped[bytes] = mapped_column(
+        ForeignKey("attachment.content_hash"), primary_key=True
+    )
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("user_profile.id"), nullable=False
+    )
+    created_at: Mapped[str] = mapped_column(String, nullable=False)
+
+
+@dataclass(frozen=True)
+class AttachmentRecord:
+    media_type: str
+    size: int
 
 
 @dataclass(frozen=True)
@@ -3099,3 +3151,74 @@ class RoomStore:
                     activity_id=self._next_review_activity_id(session),
                 )
             )
+
+    def insert_attachment(
+        self,
+        identity: RoomIdentity,
+        content_hash: bytes,
+        record: AttachmentRecord,
+        *,
+        profile_id: int,
+        created_at: str,
+    ) -> None:
+        """Repeating an upload changes nothing: both rows keep their first
+        values, so the Room keeps its first uploader.
+        """
+        assert len(content_hash) == 32
+        with Session(self.engine) as session, session.begin():
+            room_id = session.execute(
+                select(Room.id).where(
+                    Room.tab == identity.tab,
+                    Room.backend_key == identity.correspondence_key,
+                    (
+                        Room.mark_id.is_(None)
+                        if identity.mark_id is None
+                        else Room.mark_id == identity.mark_id
+                    ),
+                )
+            ).scalar_one()
+            session.execute(
+                sqlite_insert(Attachment)
+                .values(
+                    content_hash=content_hash,
+                    media_type=record.media_type,
+                    size=record.size,
+                )
+                .on_conflict_do_nothing()
+            )
+            session.execute(
+                sqlite_insert(RoomAttachment)
+                .values(
+                    room_id=room_id,
+                    content_hash=content_hash,
+                    profile_id=profile_id,
+                    created_at=created_at,
+                )
+                .on_conflict_do_nothing()
+            )
+
+    def room_attachment(
+        self, identity: RoomIdentity, content_hash: bytes
+    ) -> Optional[AttachmentRecord]:
+        with Session(self.engine) as session:
+            row = session.execute(
+                select(Attachment.media_type, Attachment.size)
+                .join(
+                    RoomAttachment,
+                    RoomAttachment.content_hash == Attachment.content_hash,
+                )
+                .join(Room, Room.id == RoomAttachment.room_id)
+                .where(
+                    Attachment.content_hash == content_hash,
+                    Room.tab == identity.tab,
+                    Room.backend_key == identity.correspondence_key,
+                    (
+                        Room.mark_id.is_(None)
+                        if identity.mark_id is None
+                        else Room.mark_id == identity.mark_id
+                    ),
+                )
+            ).one_or_none()
+        if row is None:
+            return None
+        return AttachmentRecord(row.media_type, row.size)

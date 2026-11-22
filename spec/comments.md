@@ -53,6 +53,24 @@ discussion that later reads cannot render.
 - Immediate writes target a bounded response within 50 ms. Slower measurements
   are inspected for avoidable work, not hidden by the frontend.
 
+## Attachments
+
+- An image is uploaded before the Comment that shows it, and a body refers to
+  it only as Markdown, `![caption](attachment:DIGEST)`, DIGEST being the
+  SHA-256 of its bytes. No relation joins a Comment to an attachment, so the
+  action log, edits, deletion and browser drafts carry the reference as text.
+- The same bytes always get the same name, so a repeated upload stores
+  nothing new; the Room keeps its first uploader. An attachment no body
+  references stays stored.
+- The type is decided from the bytes (PNG, JPEG, WebP or GIF), never from the
+  declared type; SVG is refused because it is markup that can run script. The
+  read serves the stored type with `nosniff`, so a browser never reinterprets
+  the bytes.
+- An attachment is readable only through a Snapshot of a Room it was uploaded
+  to. Its bytes are stored once under `attachments/DIGEST` beside the
+  Snapshots, written completely before a row names them, and checked against
+  the digest on every read.
+
 ## Browser HUD
 
 - `ReviewProvider` lives for one Snapshot, outside engine-keyed File rendering.

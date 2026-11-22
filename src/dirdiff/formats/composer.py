@@ -6,7 +6,11 @@ from typing import Literal
 
 from dirdiff.formats._composer.blob import blob_bays, blob_media_type
 from dirdiff.formats._composer.flatfile import flatfile_bays
-from dirdiff.formats._composer.image import image_bays, image_media_type
+from dirdiff.formats._composer.image import (
+    attachment_media_type,
+    image_bays,
+    image_media_type,
+)
 from dirdiff.formats._composer.notebook import (
     NotebookDocument,
     notebook_bays,
@@ -36,7 +40,12 @@ from dirdiff.formats.base import (
 )
 from dirdiff.util import Nothing, Ok, Option, Some
 
-__all__ = ["Composer", "read_captured_link", "write_captured_link"]
+__all__ = [
+    "Composer",
+    "attachment_media_type",
+    "read_captured_link",
+    "write_captured_link",
+]
 
 
 FileFormat = Literal["notebook", "image", "blob", "text"]

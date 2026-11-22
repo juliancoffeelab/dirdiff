@@ -3,10 +3,12 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 from typing import Literal, Optional, TypedDict
@@ -25,6 +27,7 @@ from dirdiff.change_source import (
     WorkspaceChanges,
 )
 from dirdiff.db import (
+    AttachmentRecord,
     ReviewMarkActionRecord,
     ReviewProfileRecord,
     ReviewThreadHistory,
@@ -41,6 +44,7 @@ from dirdiff.db import (
 )
 from dirdiff.engines import DirdiffError
 from dirdiff.formats import (
+    attachment_media_type,
     read_captured_link,
     write_captured_link,
 )
@@ -59,6 +63,7 @@ from dirdiff.review import (
 from dirdiff.util import JsonValue, Nothing, Ok, Option, Some
 
 __all__ = [
+    "ATTACHMENT_SIZE_MAX",
     "BranchReviewCaptureSelection",
     "CaptureSelection",
     "CapturedFileSide",
@@ -121,6 +126,9 @@ CaptureSelection = (
     | PullRequestCaptureSelection
     | PresetCaptureSelection
 )
+
+# The cap the user accepted; a full-resolution screenshot fits well within it.
+ATTACHMENT_SIZE_MAX = 10 * 1024 * 1024
 
 # Bump when the facts hashed into Snapshot identity change, so old digests
 # cannot be mistaken for the new definition.
@@ -189,6 +197,7 @@ class Room:
         identity: RoomIdentity,
         staging_path: Path,
         snapshots_path: Path,
+        attachments_path: Path,
         lock_path: Path,
         thread_lock: Lock,
     ) -> None:
@@ -196,6 +205,7 @@ class Room:
         self._identity = identity
         self._staging_path = staging_path
         self._snapshots_path = snapshots_path
+        self._attachments_path = attachments_path
         self._lock_path = lock_path
         self._thread_lock = thread_lock
 
@@ -551,6 +561,61 @@ class Room:
                 selection = BranchReviewCaptureSelection(base, review)
         return {"mark_id": identity.mark_id, "selection": selection}
 
+    def store_attachment(self, profile_id: int, data: bytes) -> str:
+        """Returns the attachment's SHA-256 hex digest, its name in a Comment
+        body. The same bytes always yield the same name, so repeating an
+        upload stores nothing new.
+        """
+        if len(data) > ATTACHMENT_SIZE_MAX:
+            raise DirdiffError(
+                f"An attachment holds at most {ATTACHMENT_SIZE_MAX} bytes."
+            )
+        media_type = attachment_media_type(data)
+        if not Some.present(media_type):
+            raise DirdiffError(
+                "An attachment must be a PNG, JPEG, WebP or GIF image."
+            )
+        if self._database.review_profile(profile_id) is None:
+            raise ReviewError(
+                "profile_not_found", f"Unknown Profile: {profile_id}"
+            )
+        digest = hashlib.sha256(data)
+        path = self._attachments_path / digest.hexdigest()
+        # The file is complete before any row names it; a file no row names
+        # is unreadable, and stays on disk.
+        if not path.exists():
+            self._attachments_path.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                dir=self._attachments_path, prefix=".upload-", delete=False
+            ) as staged:
+                staged.write(data)
+            Path(staged.name).replace(path)
+        self._database.insert_attachment(
+            self._identity,
+            digest.digest(),
+            AttachmentRecord(media_type.value, len(data)),
+            profile_id=profile_id,
+            created_at=datetime.now(UTC).isoformat(),
+        )
+        return digest.hexdigest()
+
+    def attachment(self, digest: str) -> Option[tuple[bytes, str]]:
+        """The bytes and media type of an attachment uploaded to this Room;
+        nothing for one uploaded only elsewhere.
+        """
+        assert re.fullmatch("[0-9a-f]{64}", digest) is not None, digest
+        record = self._database.room_attachment(
+            self._identity, bytes.fromhex(digest)
+        )
+        if record is None:
+            return Nothing()
+        data = (self._attachments_path / digest).read_bytes()
+        assert (
+            len(data) == record.size
+            and hashlib.sha256(data).hexdigest() == digest
+        ), f"Stored attachment {digest} does not match its digest."
+        return Some((data, record.media_type))
+
     def path_for_snapshot(self, snapshot_id: UUID) -> Path:
         self.meta(snapshot_id)
         path = self._snapshots_path / snapshot_id.hex
@@ -564,6 +629,7 @@ class RoomLord:
         self._store_path = store_path.expanduser().resolve()
         self._staging_path = self._store_path / "staging"
         self._snapshots_path = self._store_path / "snapshots"
+        self._attachments_path = self._store_path / "attachments"
         database_path = self._database.engine.url.database
         if database_path is None or database_path == ":memory:":
             self._lock_path = self._store_path / "store.lock"
@@ -644,6 +710,7 @@ class RoomLord:
             identity=identity,
             staging_path=self._staging_path,
             snapshots_path=self._snapshots_path,
+            attachments_path=self._attachments_path,
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
         )
@@ -685,6 +752,7 @@ class RoomLord:
             identity=identity,
             staging_path=self._staging_path,
             snapshots_path=self._snapshots_path,
+            attachments_path=self._attachments_path,
             lock_path=self._lock_path,
             thread_lock=self._thread_lock,
         )

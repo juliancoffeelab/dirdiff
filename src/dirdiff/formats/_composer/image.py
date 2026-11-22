@@ -24,6 +24,7 @@ from dirdiff.formats.base import (
 from dirdiff.util import Nothing, Option, Some
 
 __all__ = [
+    "attachment_media_type",
     "image_bays",
     "image_media_type",
 ]
@@ -56,6 +57,29 @@ def image_media_type(path: str) -> Option[str]:
         if lowered.endswith(suffix):
             return Some(media_type)
     return Nothing()
+
+
+# Pillow's format name for each image type a Comment attachment may carry.
+_ATTACHMENT_MEDIA_TYPES = {
+    "GIF": "image/gif",
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+    "WEBP": "image/webp",
+}
+
+
+def attachment_media_type(data: bytes) -> Option[str]:
+    # Opening reads only the container header, so this decides the type from
+    # the bytes without decoding the raster. SVG never opens: Pillow has no
+    # SVG reader.
+    try:
+        with Image.open(
+            BytesIO(data), formats=tuple(_ATTACHMENT_MEDIA_TYPES)
+        ) as image:
+            assert image.format is not None
+            return Some(_ATTACHMENT_MEDIA_TYPES[image.format])
+    except OSError, SyntaxError, ValueError, Image.DecompressionBombError:
+        return Nothing()
 
 
 def image_bays(

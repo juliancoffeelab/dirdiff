@@ -11,6 +11,7 @@ from dirdiff.db.repo_registry import (
     RepoMarkStore,
 )
 from dirdiff.db.room import (
+    AttachmentRecord,
     AuthoredComment,
     BayStartPlacement,
     CommentCreatedAction,
@@ -45,6 +46,7 @@ from dirdiff.db.room import (
 from dirdiff.db.user_profile import UserProfileStore
 
 __all__ = [
+    "AttachmentRecord",
     "AuthoredComment",
     "BayStartPlacement",
     "CommentCreatedAction",

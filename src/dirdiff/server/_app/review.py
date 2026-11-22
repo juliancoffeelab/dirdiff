@@ -7,14 +7,16 @@ from typing import (
 )
 from uuid import UUID, uuid4
 
-from fastapi import Query, Request
+from fastapi import HTTPException, Query, Request
 from fastapi.responses import (
     JSONResponse,
+    Response,
 )
 from pydantic import (
     Field,
     model_validator,
 )
+from starlette.concurrency import run_in_threadpool
 
 from dirdiff.engines import (
     DirdiffError,
@@ -35,15 +37,17 @@ from dirdiff.review import (
     TextTarget,
 )
 from dirdiff.room_lord import (
+    ATTACHMENT_SIZE_MAX,
     RoomLord,
 )
 from dirdiff.server.base import (
     ApiModel,
     ClassRoutes,
+    ErrorResponse,
     Responses,
     ReviewExcerptResponse,
 )
-from dirdiff.util import maybe
+from dirdiff.util import Some, maybe
 
 __all__ = ["ReviewRoutes"]
 
@@ -297,6 +301,10 @@ class ReviewThreadPage(ApiModel):
     has_more: bool
 
 
+class ReviewAttachmentResponse(ApiModel):
+    url: str = Field(pattern=r"^attachment:[0-9a-f]{64}$")
+
+
 class ReviewErrorResponse(ApiModel):
     code: ReviewErrorCode
     message: str = Field(min_length=1)
@@ -317,6 +325,12 @@ _REVIEW_ERROR_RESPONSES: Responses = {
     HTTPStatus.NOT_FOUND: {"model": ReviewErrorResponse},
     HTTPStatus.FORBIDDEN: {"model": ReviewErrorResponse},
     HTTPStatus.CONFLICT: {"model": ReviewErrorResponse},
+}
+
+_ATTACHMENT_UPLOAD_RESPONSES: Responses = {
+    HTTPStatus.BAD_REQUEST: {"model": ReviewErrorResponse},
+    HTTPStatus.NOT_FOUND: {"model": ReviewErrorResponse},
+    HTTPStatus.REQUEST_ENTITY_TOO_LARGE: {"model": ReviewErrorResponse},
 }
 
 
@@ -639,4 +653,97 @@ class ReviewRoutes:
         return self.change_review_thread_state(
             request=request,
             action="delete",
+        )
+
+    @routes.post(
+        "/api/review/upload_attachment",
+        response_model=ReviewAttachmentResponse,
+        responses=_ATTACHMENT_UPLOAD_RESPONSES,
+        summary="Upload one image for review Comments",
+    )
+    async def upload_review_attachment(
+        self,
+        request: Request,
+        snapshot_id: UUID = Query(
+            description="A Snapshot of the Room the image is uploaded to."
+        ),
+        profile_id: int = Query(gt=0, description="The uploading Profile."),
+    ) -> ReviewAttachmentResponse:
+        """The request body is the image's bytes. PNG, JPEG, WebP and GIF are
+        accepted, decided from the bytes rather than the declared type, up to
+        10 MiB. The response's `url` goes into a Comment body as
+        `![caption](url)`; the image is readable from every Snapshot of the
+        uploading Snapshot's Room. Uploading the same bytes again returns the
+        same `url`.
+        """
+        data = bytearray()
+        # Stops reading one byte past the cap, so an oversized body is never
+        # held in full.
+        async for chunk in request.stream():
+            data += chunk
+            if len(data) > ATTACHMENT_SIZE_MAX:
+                raise _ReviewHttpException(
+                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    ReviewError(
+                        "invalid_target",
+                        "An attachment holds at most "
+                        f"{ATTACHMENT_SIZE_MAX} bytes.",
+                    ),
+                )
+
+        def store() -> str:
+            return self.room_lord.find_room(snapshot_id).store_attachment(
+                profile_id, bytes(data)
+            )
+
+        try:
+            digest = await run_in_threadpool(store)
+        except ReviewError as exc:
+            raise self.review_http_exception(exc) from exc
+        except DirdiffError as exc:
+            raise self.review_http_exception(
+                ReviewError("invalid_target", str(exc))
+            ) from exc
+        return ReviewAttachmentResponse(url=f"attachment:{digest}")
+
+    @routes.get(
+        "/api/review/attachment",
+        response_class=Response,
+        responses={HTTPStatus.NOT_FOUND: {"model": ErrorResponse}},
+        summary="Read one image uploaded for review Comments",
+    )
+    def serve_review_attachment(
+        self,
+        snapshot_id: UUID = Query(
+            description="A Snapshot of the Room the image was uploaded to."
+        ),
+        digest: str = Query(
+            pattern=r"^[0-9a-f]{64}$",
+            description="The image's SHA-256 digest, from its `attachment:` URL.",
+        ),
+    ) -> Response:
+        """Serves an image uploaded to the Room of the given Snapshot; an image
+        uploaded only to another Room is not found.
+        """
+        try:
+            found = self.room_lord.find_room(snapshot_id).attachment(digest)
+        except DirdiffError as exc:
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND, detail=str(exc)
+            ) from exc
+        if not Some.present(found):
+            raise HTTPException(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=f"No attachment {digest} in this Snapshot's Room.",
+            )
+        data, media_type = found.value
+        return Response(
+            content=data,
+            media_type=media_type,
+            headers={
+                "X-Content-Type-Options": "nosniff",
+                # Content-addressed and never removed, so this address can
+                # never change content once it serves.
+                "Cache-Control": "private, max-age=31536000, immutable",
+            },
         )
