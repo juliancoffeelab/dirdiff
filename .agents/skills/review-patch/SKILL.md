@@ -88,9 +88,19 @@ backticks and `$`, silently stripping code spans from the body.
    Snapshot and the live code; the author's prose is not evidence.
 3. `comment THREAD_ID` if an objection remains, or `resolve THREAD_ID
    --body-file F` recording what you verified.
-4. To wait for the author, run `wait --session S.json --timeout 540` (1-540
-   seconds) instead of polling `news`. It returns when someone else acts; your
-   own actions never wake it. On a timeout, call it again or report.
+4. Wait for the author with `wait --session S.json --timeout 540` (1-540
+   seconds), not by polling `news`. It returns when someone else acts; your
+   own actions never wake it. When it returns with activity, repeat from 1.
+5. When it times out, run `reviews`. A `head` review is tied to the HEAD
+   commit, so an author who committed continues in a new review of the same
+   Tab: it shows Threads waiting `on reviewer`. Join it with a new session
+   file (`init` with the same onboarding URL and `--identity-from S.json`) and
+   repeat from 1 there.
+
+The review is over when the human says so, or when no Thread is open in your
+review and three `wait` calls in a row time out with `reviews` showing nothing
+waiting on the reviewer. Until then your turn does not end: answering every
+Thread is one round, not the end of the review.
 
 ## Rules
 
