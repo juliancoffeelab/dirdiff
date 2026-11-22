@@ -26,7 +26,7 @@ File path and the captured bytes only, never the repository entry behind them.
 A notebook or a blob is named by its path. An image is named by its bytes,
 whatever the path says: a side is an image when `image_media_type()` names a
 type browsers display natively. Only the header is read, so an image with a
-damaged body is still an image and its metadata bay reports the damage. Bytes
+damaged body is still an image. Bytes
 Pillow will not open are not an image: unrecognised bytes, a header cut short,
 or a picture past its decompression-bomb limit. So a side whose bytes stand for
 a non-file (a reference materialized as its commit id) is never an image. A
