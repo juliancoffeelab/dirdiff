@@ -90,6 +90,8 @@ later rewritten.
 
 To show an image in a Comment, `dirdiff agent attach --session S.json FILE`
 prints a `![caption](attachment:...)` line to put in the body.
+`show` saves the images in a Thread's Comments to files and prints their paths;
+open them to see what a Comment shows.
 
 ## When the reviewer is a session you cannot address
 

@@ -66,6 +66,22 @@ _PAGE_LIMIT = 100
 # Longest single `wait` hold the server accepts.
 _WAIT_MAX_SECONDS = 540
 
+# The HUD shows the Markdown images whose URL is `attachment:` and a digest.
+# A caption may hold escaped brackets, as `attach` writes them. Unlike the HUD,
+# this also matches such an image written inside a code span.
+_ATTACHMENT_IMAGE = re.compile(
+    r"!\[(?:[^\]\\]|\\.)*\]\(attachment:([0-9a-f]{64})\)"
+)
+
+# Every type the Room stores an attachment as.
+_ATTACHMENT_EXTENSIONS = {
+    "image/png": "png",
+    "image/apng": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+}
+
 
 class Wire(BaseModel):
     """Strict response model: a renamed, missing or extra server field fails
@@ -677,6 +693,10 @@ def threads(
 def show(session: SessionOption, thread_id: str) -> None:
     """Print one Thread completely: location, excerpt, state, all Comments.
 
+    Images a Comment shows are saved under `attachments/`, beside the session
+    file, and their paths are printed after that Comment's body, so they can
+    be opened as files.
+
     \f
     # Parameters
 
@@ -729,8 +749,37 @@ def show(session: SessionOption, thread_id: str) -> None:
         )
         if comment.deleted or comment.body is None:
             typer.echo("    (deleted)")
-        else:
-            typer.echo(indent(comment.body, "    "))
+            continue
+        typer.echo(indent(comment.body, "    "))
+        digests = dict.fromkeys(_ATTACHMENT_IMAGE.findall(comment.body))
+        for digest in digests:
+            url = endpoint(
+                state.server_url,
+                "/api/review/attachment",
+                {"snapshot_id": result.snapshot_id, "digest": digest},
+            )
+            try:
+                with urlopen(url, timeout=60) as response:
+                    media_type = response.headers.get_content_type()
+                    data = response.read()
+            except HTTPError as exc:
+                # The HUD shows a broken image for a reference no upload
+                # matches; the Thread itself still reads.
+                detail = exc.read().decode().strip()
+                typer.echo(
+                    f"    image attachment:{digest}: HTTP {exc.code} {detail}"
+                )
+                continue
+            except URLError as exc:
+                fail(f"Cannot reach {url}: {exc.reason}")
+            extension = _ATTACHMENT_EXTENSIONS.get(media_type)
+            if extension is None:
+                fail(f"Unexpected image type {media_type} from {url}.")
+            directory = session.parent / "attachments"
+            directory.mkdir(exist_ok=True)
+            saved = (directory / f"{digest}.{extension}").resolve()
+            saved.write_bytes(data)
+            typer.echo(f"    image: {saved}")
 
 
 def report_activity(session_path: Path, wait_seconds: int | None) -> None:
