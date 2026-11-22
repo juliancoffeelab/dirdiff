@@ -201,9 +201,9 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
             historyOpen={false}
             onToggleTree={() => props.onFileTreeOpenChange(!props.fileTreeOpen)}
             onToggleView={props.onToggleView}
-            onToggleHistory={() =>
-              props.onHistoryOpenChange(!props.historyOpen)
-            }
+            // History has no change set to cover here, and a toggle nobody
+            // sees would open or close it once a Snapshot mounts.
+            onToggleHistory={() => {}}
             onReload={() => {
               void reloadSnapshot();
             }}

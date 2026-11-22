@@ -290,13 +290,13 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
         }
         function measure(): void {
           const workspaces = document.querySelectorAll(".diff-workspace");
+          // History is mounted only beside a Snapshot's change set, and it
+          // can only be opened there.
           assert(
-            workspaces.length <= 1,
-            "The review view requires at most one change set.",
+            workspaces.length === 1,
+            "The review view requires exactly one change set.",
           );
-          // No change set is laid out yet; the body observer measures again
-          // once one is.
-          setChangeSetTop(workspaces[0]?.getBoundingClientRect().top ?? null);
+          setChangeSetTop(workspaces[0].getBoundingClientRect().top);
         }
         measure();
         const observer = new ResizeObserver(measure);

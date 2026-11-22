@@ -69,8 +69,9 @@ discussion that later reads cannot render.
   of layout clamps the document scroll position, turns bays virtual and fails
   the text grid's finite-height assert. The covered section is `inert`,
   because focusing a control scrolls the document even while its scroller is
-  locked. A shell with no Snapshot has no History and is never inert; a
-  failure inside the review boundary closes History before its panel shows.
+  locked. A shell with no Snapshot has no History, cannot toggle it and is
+  never inert; a failure inside the review boundary closes History before its
+  panel shows.
 - A History action that lands in code closes History first, then navigates.
 - A Comment body is built from its parsed Markdown tree, never from HTML, so
   raw HTML stays text and rendering fetches no URL in a body; a node outside
