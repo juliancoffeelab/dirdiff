@@ -713,6 +713,12 @@ export function fileMediaUrl(
   return `/api/file-media?${search.toString()}`;
 }
 
+export function attachmentUrl(snapshotId: string, digest: string): string {
+  const search = snapshotSearchParams(snapshotId);
+  search.set("digest", digest);
+  return `/api/review/attachment?${search.toString()}`;
+}
+
 export const ReviewTextBaySchema = z.strictObject({
   bay_key: z.string().min(1),
 });

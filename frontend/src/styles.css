@@ -2257,6 +2257,14 @@ h1 {
   font-size: 11px;
 }
 
+/* An image is never wider than the Comment; a click opens it at full size. */
+.review-comment-body-image img {
+  max-width: 100%;
+  max-height: 360px;
+  vertical-align: top;
+  border: 1px solid #e0dcd4;
+}
+
 .review-comment-body :not(pre) > code {
   border: 1px solid #e0dcd4;
   border-radius: 3px;

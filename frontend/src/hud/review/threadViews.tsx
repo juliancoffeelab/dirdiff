@@ -12,6 +12,7 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
 import {
+  attachmentUrl,
   threadOutdated,
   type ReviewAuthor,
   type ReviewComment,
@@ -596,6 +597,7 @@ export function ThreadCard(props: {
               return (
                 <ReviewCommentView
                   comment={comment}
+                  snapshotId={props.thread.snapshot_id}
                   editDraft={editDraft()}
                   editSubmitting={
                     editDraft() !== null &&
@@ -775,7 +777,10 @@ type MarkdownNode = ReturnType<typeof fromMarkdown>["children"][number];
 // Bodies are built node by node from the parsed tree and never pass through
 // HTML, so raw HTML stays literal text and no element is created that the
 // allow-list below does not name.
-function CommentBody(props: { body: string }): JSX.Element {
+function CommentBody(props: {
+  body: string;
+  snapshotId: ReviewId;
+}): JSX.Element {
   const tree = createMemo(() =>
     fromMarkdown(props.body, {
       extensions: [gfm()],
@@ -889,9 +894,31 @@ function CommentBody(props: { body: string }): JSX.Element {
         ) : (
           node.children.map(inline)
         );
-      // An image falls here too and shows as its source: it is never
-      // fetched, because a URL an agent wrote must not cause a request from
-      // the reviewer's browser.
+      // Only an image uploaded to this Room is fetched: any other URL an agent
+      // wrote shows as its source, because it must not cause a request from
+      // the reviewer's browser. A Thread's Snapshot belongs to the Room its
+      // Comments were written in, so it can read their attachments.
+      case "image": {
+        const digest = /^attachment:([0-9a-f]{64})$/.exec(node.url)?.[1];
+        if (digest === undefined) {
+          return source(node);
+        }
+        const url = attachmentUrl(props.snapshotId, digest);
+        return (
+          <a
+            class="review-comment-body-image"
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img
+              src={url}
+              alt={node.alt ?? ""}
+              title={node.title ?? undefined}
+            />
+          </a>
+        );
+      }
       default:
         return source(node);
     }
@@ -901,6 +928,7 @@ function CommentBody(props: { body: string }): JSX.Element {
 
 function ReviewCommentView(props: {
   comment: ReviewComment;
+  snapshotId: ReviewId;
   editDraft: ReviewDraft | null;
   editSubmitting: boolean;
   response: boolean;
@@ -957,7 +985,10 @@ function ReviewCommentView(props: {
         {props.comment.body === null ? (
           <p>Comment deleted</p>
         ) : (
-          <CommentBody body={props.comment.body} />
+          <CommentBody
+            body={props.comment.body}
+            snapshotId={props.snapshotId}
+          />
         )}
         <Show when={props.editDraft}>
           {(draft) => {
