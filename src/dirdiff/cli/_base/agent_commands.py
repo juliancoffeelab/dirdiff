@@ -14,6 +14,7 @@ from uuid import uuid4
 import typer
 from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 
+from dirdiff.room_lord import ATTACHMENT_SIZE_MAX
 from dirdiff.util import JsonValue
 
 __all__ = ["agent_app"]
@@ -961,7 +962,7 @@ def attach(
 
     - `session`: Existing session file; supplies the Profile and Snapshot.
     - `file`: Image to upload.
-    - `caption`: Alternative text; one line.
+    - `caption`: Alternative text, kept literally; one line.
     """
 
     state = load_session(session)
@@ -969,6 +970,13 @@ def attach(
         fail(f"Image file {file} does not exist.")
     if "\n" in caption or "\r" in caption:
         fail("--caption must be one line.")
+    # Reading one byte past the cap bounds memory and refuses before sending:
+    # the server stops reading at the cap, which surfaces here as a broken
+    # pipe instead of its explanation.
+    with file.open("rb") as image:
+        data = image.read(ATTACHMENT_SIZE_MAX + 1)
+    if len(data) > ATTACHMENT_SIZE_MAX:
+        fail(f"{file} is larger than {ATTACHMENT_SIZE_MAX} bytes.")
     result = fetch(
         AttachmentResponse,
         endpoint(
@@ -976,9 +984,11 @@ def attach(
             "/api/review/upload_attachment",
             {"snapshot_id": state.snapshot_id, "profile_id": state.profile_id},
         ),
-        body=file.read_bytes(),
+        body=data,
     )
-    escaped = re.sub(r"([\\\[\]])", r"\\\1", caption)
+    # Every ASCII punctuation character is escaped, because Markdown resolves
+    # entities, emphasis and brackets inside alternative text too.
+    escaped = re.sub(r"([!-/:-@\[-`{-~])", r"\\\1", caption)
     typer.echo(f"![{escaped}]({result.url})")
 
 
