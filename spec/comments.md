@@ -63,7 +63,8 @@ discussion that later reads cannot render.
   nothing new; the Room keeps its first uploader. An attachment no body
   references stays stored.
 - The type is decided from the bytes (PNG, JPEG, WebP or GIF), never from the
-  declared type; SVG is refused because it is markup that can run script. The
+  declared type, and every frame must decode, so a cut-off file gets no
+  reference; SVG is refused because it is markup that can run script. The
   read serves the stored type with `nosniff`, so a browser never reinterprets
   the bytes.
 - An attachment is readable only through a Snapshot of a Room it was uploaded

@@ -61,6 +61,23 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Drop the attachment relations."""
+    """Drop the attachment relations, refusing while any attachment exists.
+
+    Comment bodies keep their `attachment:` references through a downgrade,
+    and `room_attachment` is the only record of which Room may read the bytes,
+    so dropping rows would leave those references unreadable after the next
+    upgrade.
+    """
+    attachments = (
+        op.get_bind()
+        .execute(sa.select(sa.func.count()).select_from(sa.table("attachment")))
+        .scalar_one()
+    )
+    if attachments:
+        raise RuntimeError(
+            f"{attachments} Comment attachment(s) exist, and Comment bodies "
+            "may reference them; dropping their rows would make those "
+            "references unreadable after upgrading again. Keep this revision."
+        )
     op.drop_table("room_attachment")
     op.drop_table("attachment")

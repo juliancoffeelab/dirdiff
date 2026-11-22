@@ -15,7 +15,7 @@ from threading import Lock
 from typing import Literal, Optional, TypedDict
 from uuid import UUID, uuid4
 
-from PIL import Image
+from PIL import Image, ImageSequence
 
 from dirdiff.change_source import (
     CapturedLink,
@@ -576,17 +576,25 @@ class Room:
             "PNG": "image/png",
             "WEBP": "image/webp",
         }
-        # Opening reads only the container header, so this decides the type
-        # from the bytes without decoding the raster. SVG never opens: Pillow
-        # has no SVG reader.
+        # The type comes from the bytes, never from the declared type. The
+        # header alone would accept a cut-off file no browser can show, so
+        # `verify()` checks the container (PNG chunk checksums) and every
+        # frame is then decoded; `verify()` leaves the image unusable, hence
+        # the second open. SVG never opens: Pillow has no SVG reader. Seeking
+        # into a cut GIF frame raises IndexError in Pillow.
         try:
+            with Image.open(BytesIO(data), formats=tuple(media_types)) as image:
+                image.verify()
             with Image.open(BytesIO(data), formats=tuple(media_types)) as image:
                 assert image.format is not None
                 media_type = media_types[image.format]
+                for frame in ImageSequence.Iterator(image):
+                    frame.load()
         except (
             OSError,
             SyntaxError,
             ValueError,
+            IndexError,
             Image.DecompressionBombError,
         ):
             raise DirdiffError(
