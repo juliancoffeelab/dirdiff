@@ -94,6 +94,9 @@ prints a `![caption](attachment:...)` line to put in the body.
 4. Wait for the author with `wait --session S.json --timeout 540` (1-540
    seconds), not by polling `news`. It returns when someone else acts; your
    own actions never wake it. When it returns with activity, repeat from 1.
+   A `wait` that fails with a server error or a refused connection means the
+   board restarted: run `wait` again, and do not count it as a `wait` that
+   timed out. Report it if it fails twice in a row.
 5. When it times out, run `reviews`. A `head` review is tied to the HEAD
    commit, so an author who committed continues in a new review of the same
    Tab: it shows Threads waiting `on reviewer`. Join it with a new session

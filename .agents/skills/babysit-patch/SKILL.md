@@ -105,6 +105,9 @@ only channel and you wait:
    rather than polling `news`. It returns when someone else acts; your own
    actions never wake it. Handle each event as in steps 3-4 of the loop, and
    `capture` if you changed code.
+   A `wait` that fails with a server error or a refused connection means the
+   board restarted: run `wait` again, and do not count it as a `wait` that
+   returned nothing. Report it if it fails twice in a row.
 4. Stop and report to the human when the reviewer says no objections remain, the
    human says stop, or three `wait` calls in a row return nothing (then say
    nobody picked it up and ask whether to keep waiting).

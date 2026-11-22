@@ -266,9 +266,9 @@ def run_uvicorn(
         # reload completes; a second Ctrl+C does not help, because uvicorn
         # still awaits `Server.wait_closed()`, which waits for every open
         # connection. The limit is server-wide: any request still open
-        # after five seconds is cancelled and answered with HTTP 500, which
-        # also cuts slow work such as preparing a pull request (a forge call
-        # and a `git fetch`).
+        # after five seconds is cancelled and answered with HTTP 500, slow
+        # ones such as preparing a pull request included. Only the response
+        # ends; a synchronous handler's worker thread runs on.
         timeout_graceful_shutdown=5,
     )
 

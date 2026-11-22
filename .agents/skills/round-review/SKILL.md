@@ -96,7 +96,10 @@ prints a `![caption](attachment:...)` line to put in the body.
 
 To wait for the human, run `dirdiff agent wait --session S.json --timeout 540`
 (1-540 seconds) rather than polling `news`. It returns when someone else acts;
-your own actions never wake it.
+your own actions never wake it. A `wait` that fails with a server error or a
+refused connection means the board restarted: run `wait` again, and do not
+count it as a `wait` that returned nothing. Report it if it fails twice in a
+row.
 
 ## Rules
 

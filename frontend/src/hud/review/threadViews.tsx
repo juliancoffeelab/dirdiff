@@ -894,14 +894,44 @@ function CommentBody(props: {
         return <code>{node.value}</code>;
       case "break":
         return <br />;
-      case "link":
-        return /^(?:https?|mailto):/i.test(node.url) ? (
-          <a href={node.url} target="_blank" rel="noopener noreferrer">
+      case "link": {
+        if (!/^(?:https?|mailto):/i.test(node.url)) {
+          return node.children.map((child) => inline(child, linked));
+        }
+        // Whether the rendered content gives the link an accessible name: a
+        // link holding only images without a caption has none, so it is named
+        // by its destination instead.
+        const named = (child: MarkdownNode): boolean => {
+          switch (child.type) {
+            case "text":
+            case "inlineCode":
+              return child.value.trim() !== "";
+            case "break":
+              return false;
+            case "image":
+              return (
+                !/^attachment:[0-9a-f]{64}$/.test(child.url) ||
+                (child.alt ?? "").trim() !== ""
+              );
+            case "emphasis":
+            case "strong":
+            case "delete":
+              return child.children.some(named);
+            default:
+              return true;
+          }
+        };
+        return (
+          <a
+            href={node.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={node.children.some(named) ? undefined : node.url}
+          >
             {node.children.map((child) => inline(child, true))}
           </a>
-        ) : (
-          node.children.map((child) => inline(child, linked))
         );
+      }
       // Only an image uploaded to this Room is fetched: any other URL an agent
       // wrote shows as its source, because it must not cause a request from
       // the reviewer's browser. A Thread's Snapshot belongs to the Room its
@@ -918,7 +948,8 @@ function CommentBody(props: {
         if (linked) {
           return image;
         }
-        // An image without a caption gives its link no accessible name.
+        // An image without a caption, or with only spaces in it, gives its
+        // link no accessible name.
         return (
           <a
             class="review-comment-body-image"
@@ -926,7 +957,7 @@ function CommentBody(props: {
             target="_blank"
             rel="noopener noreferrer"
             aria-label={
-              (node.alt ?? "") === ""
+              (node.alt ?? "").trim() === ""
                 ? "Open the image at full size"
                 : undefined
             }
