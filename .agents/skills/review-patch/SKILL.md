@@ -81,6 +81,9 @@ Bodies come from `--body-file` or stdin, never from an argument. In a heredoc,
 quote the delimiter (`<<'EOF'`): an unquoted one lets the shell expand
 backticks and `$`, silently stripping code spans from the body.
 
+To show an image in a Comment, `dirdiff agent attach --session S.json FILE`
+prints a `![caption](attachment:...)` line to put in the body.
+
 ## Later rounds
 
 1. `news`, then `capture`. A changed Snapshot id is normal; the author moved on.

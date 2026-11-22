@@ -257,6 +257,10 @@ class ActionsResponse(Wire):
     results: list[ActionResult]
 
 
+class AttachmentResponse(Wire):
+    url: str
+
+
 def fail(message: str) -> NoReturn:
     typer.echo(message, err=True)
     raise typer.Exit(1)
@@ -274,15 +278,24 @@ def fetch[Result: Wire](
     model: type[Result],
     url: str,
     *,
-    body: dict[str, JsonValue] | None = None,
+    body: dict[str, JsonValue] | bytes | None = None,
     timeout: float = 60,
 ) -> Result:
-    request = Request(
-        url,
-        data=None if body is None else json.dumps(body).encode(),
-        method="GET" if body is None else "POST",
-        headers={} if body is None else {"Content-Type": "application/json"},
-    )
+    match body:
+        case None:
+            request = Request(url)
+        case bytes():
+            request = Request(
+                url,
+                data=body,
+                headers={"Content-Type": "application/octet-stream"},
+            )
+        case dict():
+            request = Request(
+                url,
+                data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json"},
+            )
     try:
         with urlopen(request, timeout=timeout) as response:
             text = response.read().decode()
@@ -926,6 +939,47 @@ def find(
         }
     action["body"] = read_body(body_file)
     apply_action(state, action)
+
+
+@agent_app.command()
+def attach(
+    session: SessionOption,
+    file: Annotated[Path, typer.Argument(help="PNG, JPEG, WebP or GIF image.")],
+    caption: Annotated[
+        str, typer.Option(help="Alternative text of the image.")
+    ] = "",
+) -> None:
+    """Upload an image and print the Markdown that shows it in a Comment.
+
+    Paste the printed `![caption](attachment:...)` line into a Comment body;
+    the image is shown wherever this review's Threads are read. The server
+    decides the type from the bytes: PNG, JPEG, WebP or GIF, at most 10 MiB.
+    Uploading the same image again prints the same line.
+
+    \f
+    # Parameters
+
+    - `session`: Existing session file; supplies the Profile and Snapshot.
+    - `file`: Image to upload.
+    - `caption`: Alternative text; one line.
+    """
+
+    state = load_session(session)
+    if not file.is_file():
+        fail(f"Image file {file} does not exist.")
+    if "\n" in caption or "\r" in caption:
+        fail("--caption must be one line.")
+    result = fetch(
+        AttachmentResponse,
+        endpoint(
+            state.server_url,
+            "/api/review/upload_attachment",
+            {"snapshot_id": state.snapshot_id, "profile_id": state.profile_id},
+        ),
+        body=file.read_bytes(),
+    )
+    escaped = re.sub(r"([\\\[\]])", r"\\\1", caption)
+    typer.echo(f"![{escaped}]({result.url})")
 
 
 @agent_app.command()

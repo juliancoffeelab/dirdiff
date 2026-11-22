@@ -88,6 +88,9 @@ and `$`, silently stripping code spans from the body. Cite the file and
 behaviour in comments, not commit hashes: a hash stops resolving if history is
 later rewritten.
 
+To show an image in a Comment, `dirdiff agent attach --session S.json FILE`
+prints a `![caption](attachment:...)` line to put in the body.
+
 ## When the reviewer is a session you cannot address
 
 When the reviewer is another harness or a human-started agent, the board is the

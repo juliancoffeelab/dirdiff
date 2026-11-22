@@ -89,6 +89,9 @@ and `$`, silently stripping code spans from the body. Cite the file and
 behaviour in comments, not commit hashes: a hash stops resolving if history is
 later rewritten.
 
+To show an image in a Comment, `dirdiff agent attach --session S.json FILE`
+prints a `![caption](attachment:...)` line to put in the body.
+
 ## Waiting
 
 To wait for the human, run `dirdiff agent wait --session S.json --timeout 540`
