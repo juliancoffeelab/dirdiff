@@ -9,10 +9,13 @@ import tempfile
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 from threading import Lock
 from typing import Literal, Optional, TypedDict
 from uuid import UUID, uuid4
+
+from PIL import Image
 
 from dirdiff.change_source import (
     CapturedLink,
@@ -43,11 +46,7 @@ from dirdiff.db import (
     SnapshotSymlinkFileSideRecord,
 )
 from dirdiff.engines import DirdiffError
-from dirdiff.formats import (
-    attachment_media_type,
-    read_captured_link,
-    write_captured_link,
-)
+from dirdiff.formats import read_captured_link, write_captured_link
 from dirdiff.review import (
     CreateThread,
     ReviewBatchAction,
@@ -570,11 +569,29 @@ class Room:
             raise DirdiffError(
                 f"An attachment holds at most {ATTACHMENT_SIZE_MAX} bytes."
             )
-        media_type = attachment_media_type(data)
-        if not Some.present(media_type):
+        # Pillow's format name for each type an attachment may have.
+        media_types = {
+            "GIF": "image/gif",
+            "JPEG": "image/jpeg",
+            "PNG": "image/png",
+            "WEBP": "image/webp",
+        }
+        # Opening reads only the container header, so this decides the type
+        # from the bytes without decoding the raster. SVG never opens: Pillow
+        # has no SVG reader.
+        try:
+            with Image.open(BytesIO(data), formats=tuple(media_types)) as image:
+                assert image.format is not None
+                media_type = media_types[image.format]
+        except (
+            OSError,
+            SyntaxError,
+            ValueError,
+            Image.DecompressionBombError,
+        ):
             raise DirdiffError(
                 "An attachment must be a PNG, JPEG, WebP or GIF image."
-            )
+            ) from None
         if self._database.review_profile(profile_id) is None:
             raise ReviewError(
                 "profile_not_found", f"Unknown Profile: {profile_id}"
@@ -593,7 +610,7 @@ class Room:
         self._database.insert_attachment(
             self._identity,
             digest.digest(),
-            AttachmentRecord(media_type.value, len(data)),
+            AttachmentRecord(media_type, len(data)),
             profile_id=profile_id,
             created_at=datetime.now(UTC).isoformat(),
         )
