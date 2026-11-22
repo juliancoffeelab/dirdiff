@@ -21,41 +21,37 @@ from dirdiff.formats.base import (
     media_facts,
     whole_file_change,
 )
-from dirdiff.util import Nothing, Option, Some
+from dirdiff.util import Nothing, Option, Some, image_media_type, maybe
 
 __all__ = [
+    "displayable_image_type",
     "image_bays",
-    "image_media_type",
 ]
 
 
 # Only formats browsers display natively. SVG is excluded on purpose: it is
 # author-controlled markup (a script-execution risk) and reads fine as text.
-_IMAGE_MEDIA_TYPES = {
-    ".apng": "image/apng",
-    ".avif": "image/avif",
-    ".bmp": "image/bmp",
-    ".gif": "image/gif",
-    ".ico": "image/x-icon",
-    ".jpeg": "image/jpeg",
-    ".jpg": "image/jpeg",
-    ".png": "image/png",
-    ".webp": "image/webp",
-}
+# Pillow has no SVG reader, so `image_media_type` never names it.
+_IMAGE_MEDIA_TYPES = frozenset(
+    {
+        "image/apng",
+        "image/avif",
+        "image/bmp",
+        "image/gif",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/x-icon",
+    }
+)
 
 
-def image_media_type(path: str) -> Option[str]:
-    # TODO: extension matching is the simple answer and it is wrong for a file
-    # with no extension, a file whose extension lies, and every format not on
-    # the list above. Reading the leading magic bytes would settle the first
-    # two, and a third-party library such as `filetype` or `puremagic` would
-    # settle all three. Neither is worth a dependency until a real review runs
-    # into it; when one does, this function is the only thing that changes.
-    lowered = path.lower()
-    for suffix, media_type in _IMAGE_MEDIA_TYPES.items():
-        if lowered.endswith(suffix):
-            return Some(media_type)
-    return Nothing()
+def displayable_image_type(data: bytes) -> Option[str]:
+    return maybe(image_media_type(data)).and_then(
+        lambda media_type: Some.when(
+            media_type in _IMAGE_MEDIA_TYPES, media_type
+        )
+    )
 
 
 def image_bays(

@@ -6,7 +6,7 @@ from typing import Literal
 
 from dirdiff.formats._composer.blob import blob_bays, blob_media_type
 from dirdiff.formats._composer.flatfile import flatfile_bays
-from dirdiff.formats._composer.image import image_bays, image_media_type
+from dirdiff.formats._composer.image import displayable_image_type, image_bays
 from dirdiff.formats._composer.notebook import (
     NotebookDocument,
     notebook_bays,
@@ -53,10 +53,13 @@ class Composer:
             yield from symlink_bays(left, right, context)
             return
 
-        def path_claim(path: str) -> tuple[FileFormat, Option[str]]:
+        # A notebook or a blob is named by its path, an image by its bytes.
+        def claim(
+            path: str, data: Option[bytes]
+        ) -> tuple[FileFormat, Option[str]]:
             if path.lower().endswith(".ipynb"):
                 return "notebook", Nothing()
-            image_type = image_media_type(path)
+            image_type = data.and_then(displayable_image_type)
             if Some.present(image_type):
                 return "image", image_type
             blob_type = blob_media_type(path)
@@ -64,8 +67,8 @@ class Composer:
                 return "blob", blob_type
             return "text", Nothing()
 
-        left_claim = context.left_path.map(path_claim)
-        right_claim = context.right_path.map(path_claim)
+        left_claim = context.left_path.map(lambda path: claim(path, left))
+        right_claim = context.right_path.map(lambda path: claim(path, right))
         present_claims = [
             claim.value
             for claim in (left_claim, right_claim)
@@ -86,9 +89,6 @@ class Composer:
                 yield from notebook_bays(left, right, context)
                 return
             case "image":
-                if not Some.present(left) and not Some.present(right):
-                    yield from flatfile_bays(Nothing(), Nothing(), context)
-                    return
                 yield from image_bays(
                     left,
                     right,
@@ -216,10 +216,10 @@ def symlink_bays(
     left_target_path = target_context.left_path
     right_target_path = target_context.right_path
 
-    def path_claim(path: str) -> tuple[FileFormat, Option[str]]:
+    def claim(path: str, data: Option[bytes]) -> tuple[FileFormat, Option[str]]:
         if path.lower().endswith(".ipynb"):
             return "notebook", Nothing()
-        image_type = image_media_type(path)
+        image_type = data.and_then(displayable_image_type)
         if Some.present(image_type):
             return "image", image_type
         blob_type = blob_media_type(path)
@@ -227,8 +227,8 @@ def symlink_bays(
             return "blob", blob_type
         return "text", Nothing()
 
-    left_claim = left_target_path.map(path_claim)
-    right_claim = right_target_path.map(path_claim)
+    left_claim = left_target_path.map(lambda path: claim(path, left_target))
+    right_claim = right_target_path.map(lambda path: claim(path, right_target))
     present_claims = [
         claim.value
         for claim in (left_claim, right_claim)

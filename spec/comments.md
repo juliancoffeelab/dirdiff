@@ -62,11 +62,12 @@ discussion that later reads cannot render.
 - The same bytes always get the same name, so a repeated upload stores
   nothing new; the Room keeps its first uploader. An attachment no body
   references stays stored.
-- The type is decided from the bytes (PNG, JPEG, WebP or GIF), never from the
-  declared type, and every frame must decode, so a cut-off file gets no
-  reference; SVG is refused because it is markup that can run script. The
-  read serves the stored type with `nosniff`, so a browser never reinterprets
-  the bytes.
+- The Room decides whether an upload is acceptable. The type is decided from
+  the bytes by the same `image_media_type()` that names image bays, never from
+  the declared type; the Room keeps PNG (APNG included), JPEG, WebP and GIF,
+  and every frame must decode, so a cut-off file gets no reference. SVG is
+  refused because it is markup that can run script. The read serves the
+  stored type with `nosniff`, so a browser never reinterprets the bytes.
 - An attachment is readable only through a Snapshot of a Room it was uploaded
   to. Its bytes are stored once under `attachments/DIGEST` beside the
   Snapshots, written completely before a row names them, and checked against

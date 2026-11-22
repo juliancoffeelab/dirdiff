@@ -59,7 +59,7 @@ from dirdiff.review import (
     get_thread,
     thread_objects,
 )
-from dirdiff.util import JsonValue, Nothing, Ok, Option, Some
+from dirdiff.util import JsonValue, Nothing, Ok, Option, Some, image_media_type
 
 __all__ = [
     "ATTACHMENT_SIZE_MAX",
@@ -569,25 +569,29 @@ class Room:
             raise DirdiffError(
                 f"An attachment holds at most {ATTACHMENT_SIZE_MAX} bytes."
             )
-        # Pillow's format name for each type an attachment may have.
-        media_types = {
-            "GIF": "image/gif",
-            "JPEG": "image/jpeg",
-            "PNG": "image/png",
-            "WEBP": "image/webp",
-        }
-        # The type comes from the bytes, never from the declared type. The
-        # header alone would accept a cut-off file no browser can show, so
+        # The Room decides which uploads it keeps. The type comes from the
+        # bytes, never from the declared type.
+        refusal = DirdiffError(
+            "An attachment must be a PNG, JPEG, WebP or GIF image."
+        )
+        media_type = image_media_type(data)
+        if media_type not in {
+            "image/apng",
+            "image/gif",
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+        }:
+            raise refusal
+        # The header alone would accept a cut-off file no browser can show, so
         # `verify()` checks the container (PNG chunk checksums) and every
         # frame is then decoded; `verify()` leaves the image unusable, hence
-        # the second open. SVG never opens: Pillow has no SVG reader. Seeking
-        # into a cut GIF frame raises IndexError in Pillow.
+        # the second open. Seeking into a cut GIF frame raises IndexError in
+        # Pillow.
         try:
-            with Image.open(BytesIO(data), formats=tuple(media_types)) as image:
+            with Image.open(BytesIO(data)) as image:
                 image.verify()
-            with Image.open(BytesIO(data), formats=tuple(media_types)) as image:
-                assert image.format is not None
-                media_type = media_types[image.format]
+            with Image.open(BytesIO(data)) as image:
                 for frame in ImageSequence.Iterator(image):
                     frame.load()
         except (
@@ -597,9 +601,7 @@ class Room:
             IndexError,
             Image.DecompressionBombError,
         ):
-            raise DirdiffError(
-                "An attachment must be a PNG, JPEG, WebP or GIF image."
-            ) from None
+            raise refusal from None
         if self._database.review_profile(profile_id) is None:
             raise ReviewError(
                 "profile_not_found", f"Unknown Profile: {profile_id}"

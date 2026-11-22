@@ -22,10 +22,16 @@ through this model; there is no separate flat-file wire shape.
 
 Composition starts from the complete captured sides. It must not reread the
 repository or derive structure from frontend state. Classification reads the
-File path and the captured bytes only, never the repository entry behind them,
-so a side whose bytes stand for a non-file (a reference materialized as its
-commit id) composes by its path's format. A two-sided File keeps a specialized
-classification only when both paths agree; a mixed rename is presumed text.
+File path and the captured bytes only, never the repository entry behind them.
+A notebook or a blob is named by its path. An image is named by its bytes,
+whatever the path says: a side is an image when `image_media_type()` names a
+type browsers display natively. Only the header is read, so an image with a
+damaged body is still an image and its metadata bay reports the damage. Bytes
+Pillow will not open are not an image: unrecognised bytes, a header cut short,
+or a picture past its decompression-bomb limit. So a side whose bytes stand for
+a non-file (a reference materialized as its commit id) is never an image. A
+two-sided File keeps a specialized classification only when both sides agree; a
+mixed rename, or an image on one side only, is presumed text.
 `try_decode_text()` is the single definition of text: no NUL byte, valid UTF-8
 with an optional BOM.
 
