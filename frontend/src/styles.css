@@ -2257,8 +2257,9 @@ h1 {
   font-size: 11px;
 }
 
-/* An image is never wider than the Comment; a click opens it at full size. */
-.review-comment-body-image img {
+/* An image is never wider than the Comment; a click opens it at full size,
+   or follows the Markdown link it sits in. */
+.review-comment-body img {
   max-width: 100%;
   max-height: 360px;
   vertical-align: top;

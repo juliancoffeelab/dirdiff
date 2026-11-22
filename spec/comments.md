@@ -102,8 +102,11 @@ discussion that later reads cannot render.
   control the panel slides over would otherwise stay focused unseen.
 - A History action that lands in code closes History first, then navigates.
 - A Comment body is built from its parsed Markdown tree, never from HTML, so
-  raw HTML stays text and rendering fetches no URL in a body; a node outside
-  the allow-list shows its source text rather than vanishing.
+  raw HTML stays text and rendering fetches no URL an author wrote; a node
+  outside the allow-list shows its source text rather than vanishing. The one
+  fetch is an image whose URL is `attachment:` and a content hash: it is read
+  from dirdiff's own server, from the Room of the Thread's Snapshot, and any
+  other image URL shows as its source text.
 - The History panel has one host for both code views and stays mounted while
   closed, so neither a view switch nor closing can destroy per-Thread UI
   state, warmed Thread heights, or the reading position.

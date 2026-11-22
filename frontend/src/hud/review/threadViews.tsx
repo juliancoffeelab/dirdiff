@@ -799,11 +799,13 @@ function CommentBody(props: {
   function block(node: MarkdownNode): JSX.Element {
     switch (node.type) {
       case "paragraph":
-        return <p>{node.children.map(inline)}</p>;
+        return <p>{node.children.map((child) => inline(child, false))}</p>;
       // A real heading element would enter the page's heading outline.
       case "heading":
         return (
-          <p class="review-comment-body-heading">{node.children.map(inline)}</p>
+          <p class="review-comment-body-heading">
+            {node.children.map((child) => inline(child, false))}
+          </p>
         );
       case "thematicBreak":
         return <hr />;
@@ -845,7 +847,9 @@ function CommentBody(props: {
           <tr>
             {Array.from({ length: columns }, (_, column) => {
               const align = node.align?.[column] ?? undefined;
-              const content = tableRow.children[column]?.children.map(inline);
+              const content = tableRow.children[column]?.children.map((child) =>
+                inline(child, false),
+              );
               return header ? (
                 <th style={{ "text-align": align }}>{content}</th>
               ) : (
@@ -867,7 +871,9 @@ function CommentBody(props: {
         return <p class="review-comment-body-source">{source(node)}</p>;
     }
   }
-  function inline(node: MarkdownNode): JSX.Element {
+  // `linked` is true inside a rendered link: an image there is that link's
+  // content, because a second link around it would nest one anchor in another.
+  function inline(node: MarkdownNode, linked: boolean): JSX.Element {
     switch (node.type) {
       // A line ending inside a paragraph breaks the line, as in GitHub
       // comments, so plain Comments keep the layout they had before Markdown.
@@ -877,11 +883,13 @@ function CommentBody(props: {
           .split(/\r\n|\r|\n/)
           .flatMap((line, index) => (index === 0 ? [line] : [<br />, line]));
       case "emphasis":
-        return <em>{node.children.map(inline)}</em>;
+        return <em>{node.children.map((child) => inline(child, linked))}</em>;
       case "strong":
-        return <strong>{node.children.map(inline)}</strong>;
+        return (
+          <strong>{node.children.map((child) => inline(child, linked))}</strong>
+        );
       case "delete":
-        return <del>{node.children.map(inline)}</del>;
+        return <del>{node.children.map((child) => inline(child, linked))}</del>;
       case "inlineCode":
         return <code>{node.value}</code>;
       case "break":
@@ -889,10 +897,10 @@ function CommentBody(props: {
       case "link":
         return /^(?:https?|mailto):/i.test(node.url) ? (
           <a href={node.url} target="_blank" rel="noopener noreferrer">
-            {node.children.map(inline)}
+            {node.children.map((child) => inline(child, true))}
           </a>
         ) : (
-          node.children.map(inline)
+          node.children.map((child) => inline(child, linked))
         );
       // Only an image uploaded to this Room is fetched: any other URL an agent
       // wrote shows as its source, because it must not cause a request from
@@ -904,18 +912,26 @@ function CommentBody(props: {
           return source(node);
         }
         const url = attachmentUrl(props.snapshotId, digest);
+        const image = (
+          <img src={url} alt={node.alt ?? ""} title={node.title ?? undefined} />
+        );
+        if (linked) {
+          return image;
+        }
+        // An image without a caption gives its link no accessible name.
         return (
           <a
             class="review-comment-body-image"
             href={url}
             target="_blank"
             rel="noopener noreferrer"
+            aria-label={
+              (node.alt ?? "") === ""
+                ? "Open the image at full size"
+                : undefined
+            }
           >
-            <img
-              src={url}
-              alt={node.alt ?? ""}
-              title={node.title ?? undefined}
-            />
+            {image}
           </a>
         );
       }

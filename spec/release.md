@@ -54,9 +54,11 @@ server. Editing a revision the database already records does not rerun it. The
 watch list is fixed when `dirdiff` launches.
 
 A stop or a reload waits at most five seconds for open requests, then cancels
-them. Only an agent `wait` holds a request that long, up to nine minutes, and
-without the limit it held the stop or the reload for as long; uvicorn answers
-the cancelled `wait` with HTTP 500.
+them, and uvicorn answers each cancelled request with HTTP 500. An agent `wait`
+holds its request up to nine minutes, and without the limit it held the stop or
+the reload for as long. The limit applies to every request, so it also cuts
+slow work done inside one, such as preparing a pull request, which calls the
+forge with a 20-second timeout and runs `git fetch`.
 
 ## Server composition
 
