@@ -65,8 +65,16 @@ discussion that later reads cannot render.
 - Marker facts are one memoized derivation from the canonical query and the
   new-Thread draft target, never a writable review store. Markers use only
   coordinates the backend stored; the frontend mints no bay key.
-- The closed History panel stays mounted, so closing cannot destroy per-Thread
-  UI state, warmed Thread heights, or the reading position.
+- Open History covers the code without removing its layout: a change set out
+  of layout clamps the document scroll position, turns bays virtual and fails
+  the text grid's finite-height assert. The covered section is `inert`,
+  because focusing a control scrolls the document even while its scroller is
+  locked. A shell with no Snapshot has no History and is never inert; a
+  failure inside the review boundary closes History before its panel shows.
+- A History action that lands in code closes History first, then navigates.
+- The History panel has one host for both code views and stays mounted while
+  closed, so neither a view switch nor closing can destroy per-Thread UI
+  state, warmed Thread heights, or the reading position.
 - Unexpected failures are contained around the Comment input, inline Thread
   panel, and History; the File lane is a sibling of that boundary and stays
   mounted. A line-marker failure disables only the affected grid's review

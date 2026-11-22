@@ -45,6 +45,8 @@ type ReviewHistoryProps = {
   onHistoryOpenChange(open: boolean): void;
   inlineHistoryTarget: Accessor<HTMLElement | null>;
   splitHistoryTop: Accessor<number | null>;
+  // The draft the open whole-review Comment input holds, which Drafts omits.
+  reviewInputDraftId: Accessor<ReviewId | null>;
   canViewThread(point: ThreadCodePoint): boolean;
   viewThreadInCode(thread: ReviewThread): void;
   canViewFile(file: ReviewFilePair): boolean;
@@ -100,8 +102,6 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
   // The closed panel is display: none and reads scrollTop 0, so the last real
   // position is recorded from scroll events for restoration on open.
   let historyScrollTop = 0;
-  // Slot in the current keyed Portal for the whole-review Comment input;
-  // reassigned whenever an inline/split switch remounts the Portal.
   let reviewInputSlot: HTMLElement | null = null;
   const [expandedThreads, setExpandedThreads] = createSignal<
     ReadonlyMap<ReviewId, boolean>
@@ -116,6 +116,15 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
         left.thread_id.localeCompare(right.thread_id),
     );
   });
+  const listedDrafts = createMemo(() =>
+    draftContext
+      .drafts()
+      .filter(
+        (draft) =>
+          draft.kind === "new-thread" &&
+          draft.draft_id !== props.reviewInputDraftId(),
+      ),
+  );
   const groupedThreads = createMemo(() => ({
     open: orderedThreads().filter((thread) => thread.state === "open"),
     resolved: orderedThreads().filter((thread) => thread.state === "resolved"),
@@ -186,6 +195,7 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
             const next = new Map(expandedThreads());
             next.set(thread().thread_id, true);
             setExpandedThreads(next);
+            props.onHistoryOpenChange(false);
             if (locationSource.kind === "origin-snapshot") {
               props.viewOriginThreadInCode(
                 expect(
@@ -249,416 +259,448 @@ export function ReviewHistory(props: ReviewHistoryProps): JSX.Element {
     );
   }
 
-  return (
-    <Show
-      when={
-        props.view === "inline" ? props.inlineHistoryTarget() : document.body
-      }
-      keyed
+  // The toggle is created in whichever place the current view shows it; the
+  // panel stays in the body host, so a view switch does not remount it.
+  const toggle = (): JSX.Element => (
+    <button
+      class="review-history-toggle"
+      type="button"
+      onClick={() => props.onHistoryOpenChange(true)}
+      aria-expanded={props.historyOpen ? "true" : "false"}
+      aria-label="Open History"
     >
-      {(historyTarget) => (
-        <Portal mount={historyTarget}>
-          <aside
-            class="review-history-host"
-            classList={{
-              "review-history-inline": props.view === "inline",
-              "review-history-open": props.historyOpen,
-            }}
-            hidden={props.view === "split" && props.splitHistoryTop() === null}
-            style={
-              props.view === "split" && props.splitHistoryTop() !== null
-                ? { "--review-history-top": `${props.splitHistoryTop()}px` }
-                : undefined
-            }
-          >
-            {/* Toggle and panel both stay mounted; CSS on the host's
-                review-history-open class swaps which one displays, so
-                closing History cannot destroy per-Thread state, warmed
-                heights, or the scroller. */}
-            <button
-              class="review-history-toggle"
-              type="button"
-              onClick={() => props.onHistoryOpenChange(true)}
-              aria-expanded={props.historyOpen ? "true" : "false"}
-              aria-label="Open History"
-            >
+      <kbd>m</kbd>
+      <span class="review-history-label">History ({totalThreads()})</span>
+      <Eye class="review-history-icon" aria-hidden="true" />
+    </button>
+  );
+
+  // The open view covers the change set from its viewport top (CSS clamps it
+  // under the app header) to the viewport bottom. The document cannot scroll
+  // while the view is open, so that top moves only with layout: it is measured
+  // on open, on window resize and whenever the body changes size.
+  const [changeSetTop, setChangeSetTop] = createSignal<number | null>(null);
+  createEffect(
+    on(
+      () => props.historyOpen,
+      (open) => {
+        if (!open) {
+          setChangeSetTop(null);
+          return;
+        }
+        function measure(): void {
+          const workspaces = document.querySelectorAll(".diff-workspace");
+          assert(
+            workspaces.length <= 1,
+            "The review view requires at most one change set.",
+          );
+          // No change set is laid out yet; the body observer measures again
+          // once one is.
+          setChangeSetTop(workspaces[0]?.getBoundingClientRect().top ?? null);
+        }
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(document.body);
+        window.addEventListener("resize", measure);
+        onCleanup(() => {
+          observer.disconnect();
+          window.removeEventListener("resize", measure);
+        });
+      },
+    ),
+  );
+
+  return (
+    <>
+      <Show
+        when={props.view === "inline" ? props.inlineHistoryTarget() : null}
+        keyed
+      >
+        {(slot) => (
+          <Portal mount={slot}>
+            <div class="review-history-rail">{toggle()}</div>
+          </Portal>
+        )}
+      </Show>
+      <Portal>
+        <aside
+          class="review-history-host"
+          classList={{ "review-history-open": props.historyOpen }}
+          hidden={
+            props.historyOpen
+              ? changeSetTop() === null
+              : props.view === "split" && props.splitHistoryTop() === null
+          }
+          style={{
+            "--review-history-top":
+              props.splitHistoryTop() === null
+                ? undefined
+                : `${props.splitHistoryTop()}px`,
+            "--review-change-set-top":
+              changeSetTop() === null ? undefined : `${changeSetTop()}px`,
+          }}
+        >
+          {/* The split toggle and the panel both stay mounted; CSS on the
+            host's review-history-open class swaps which one displays, so
+            closing History cannot destroy per-Thread state, warmed heights,
+            or the scroller. */}
+          <Show when={props.view === "split"}>{toggle()}</Show>
+          <section class="review-history-panel" aria-label="Review History">
+            <header onClick={() => props.onHistoryOpenChange(false)}>
               <kbd>m</kbd>
-              <span class="review-history-label">
-                History ({totalThreads()})
+              <strong>History</strong>
+              <span>
+                {threadEntries().length} / {totalThreads()} Threads
               </span>
-              <Eye class="review-history-icon" aria-hidden="true" />
-            </button>
-            <section class="review-history-panel" aria-label="Review History">
-              <header onClick={() => props.onHistoryOpenChange(false)}>
-                <kbd>m</kbd>
-                <strong>History</strong>
-                <span>
-                  {threadEntries().length} / {totalThreads()} Threads
-                </span>
-                <button
-                  type="button"
-                  class="field-icon-button review-history-new-thread"
-                  aria-label="Comment on the whole review"
-                  title="Comment on the whole review"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    props.toggleReviewThreadInput(
-                      expect(
-                        reviewInputSlot,
-                        "History requires its whole-review input slot.",
-                      ),
-                    );
-                  }}
-                >
-                  <MessageSquarePlus class="field-icon" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  class="field-icon-button metadata-refresh-button review-history-refresh"
-                  aria-label="Reload Threads"
-                  title="Reload Threads"
-                  disabled={review.isFetching}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void reloadThreads();
-                  }}
-                >
-                  <RefreshCw
-                    class="field-icon"
-                    classList={{ spinning: review.isFetching }}
-                    aria-hidden="true"
-                  />
-                </button>
-                <button
-                  type="button"
-                  class="review-history-collapse"
-                  aria-label="Close History"
-                  title="Close History"
-                >
-                  <Eye class="review-history-icon" aria-hidden="true" />
-                </button>
-              </header>
-              <Show when={review.isPending}>
-                <p class="review-status">Loading Threads…</p>
-              </Show>
-              <Show when={review.error} keyed>
-                {(error) => (
-                  <ErrorPanel
-                    title="Failed to load review Threads"
-                    error={error}
-                  >
-                    <RetryButton onRetry={reloadThreads} />
-                  </ErrorPanel>
-                )}
-              </Show>
-              <Show when={draftContext.error()} keyed>
-                {(error) => (
-                  <ErrorPanel title="Review drafts unavailable" error={error}>
-                    <button
-                      type="button"
-                      disabled={discussion.submittingDraftIds().size > 0}
-                      onClick={() => props.clearDrafts()}
-                    >
-                      Clear stored drafts
-                    </button>
-                  </ErrorPanel>
-                )}
-              </Show>
-              <div
-                class="review-history-scroll"
-                ref={(scroller) => {
-                  // Runs only when the keyed Portal remounts (view switch). The
-                  // listener is never removed; it dies with the detached
-                  // scroller.
-                  scroller.addEventListener(
-                    "scroll",
-                    () => {
-                      historyScrollTop = scroller.scrollTop;
-                    },
-                    { passive: true },
-                  );
-                  // Tracks accepted `historyOpen`, not the click; runs on
-                  // creation
-                  // too, so an initially open panel restores. The frame is not
-                  // cancelled: after a Portal replacement it writes a detached
-                  // scroller.
-                  createEffect(
-                    on(
-                      () => props.historyOpen,
-                      (open) => {
-                        if (!open) {
-                          return;
-                        }
-                        // Writing before layout is silently clamped.
-                        requestAnimationFrame(() => {
-                          scroller.scrollTop = historyScrollTop;
-                        });
-                      },
+              <button
+                type="button"
+                class="field-icon-button review-history-new-thread"
+                aria-label="Comment on the whole review"
+                title="Comment on the whole review"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.toggleReviewThreadInput(
+                    expect(
+                      reviewInputSlot,
+                      "History requires its whole-review input slot.",
                     ),
                   );
-                  // Warm Threads over frames after opening so estimated heights
-                  // are replaced by real ones (avoids jumpy scrolling) without
-                  // delaying open; a manual scroll anchor pins the top Thread.
-                  let warmFrame: number | null = null;
-                  const warmBatch = () => {
-                    warmFrame = null;
-                    // Hidden panels must not warm: warmed Threads leave
-                    // content-visibility, so the next open would lay out all.
-                    if (!scroller.isConnected || !props.historyOpen) {
-                      return;
-                    }
-                    const pending = scroller.querySelectorAll(
-                      ".review-thread[data-review-history-thread-id]:not(.review-thread-warmed)",
-                    );
-                    if (pending.length === 0) {
-                      return;
-                    }
-                    const threads = scroller.querySelectorAll<HTMLElement>(
-                      ".review-thread[data-review-history-thread-id]",
-                    );
-                    let anchor: HTMLElement | null = null;
-                    for (const thread of threads) {
-                      if (
-                        thread.offsetTop + thread.offsetHeight >
-                        scroller.scrollTop
-                      ) {
-                        anchor = thread;
-                        break;
-                      }
-                    }
-                    const anchorOffset =
-                      anchor === null
-                        ? 0
-                        : anchor.offsetTop - scroller.scrollTop;
-                    for (
-                      let index = 0;
-                      index < 8 && index < pending.length;
-                      index += 1
-                    ) {
-                      pending[index]?.classList.add("review-thread-warmed");
-                    }
-                    if (anchor !== null) {
-                      scroller.scrollTop = anchor.offsetTop - anchorOffset;
-                    }
-                    if (pending.length > 8) {
-                      warmFrame = requestAnimationFrame(warmBatch);
-                    }
-                  };
-                  // Re-arms warming on open and when Threads arrive; the
-                  // cleanup
-                  // below cancels the pending frame.
-                  createEffect(() => {
-                    if (!props.historyOpen) {
-                      return;
-                    }
-                    orderedThreads();
-                    if (warmFrame === null) {
-                      warmFrame = requestAnimationFrame(warmBatch);
-                    }
-                  });
-                  onCleanup(() => {
-                    if (warmFrame !== null) {
-                      cancelAnimationFrame(warmFrame);
-                    }
-                  });
                 }}
               >
-                <div
-                  class="review-history-input-slot"
-                  ref={(slot) => {
-                    reviewInputSlot = slot;
-                    // A view switch replaces this keyed Portal and its slot;
-                    // close the input the provider mounted here before the
-                    // new slot exists, as renderers do for replaced rows.
-                    onCleanup(() => props.closeReviewThreadInput(slot));
-                  }}
+                <MessageSquarePlus class="field-icon" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                class="field-icon-button metadata-refresh-button review-history-refresh"
+                aria-label="Reload Threads"
+                title="Reload Threads"
+                disabled={review.isFetching}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void reloadThreads();
+                }}
+              >
+                <RefreshCw
+                  class="field-icon"
+                  classList={{ spinning: review.isFetching }}
+                  aria-hidden="true"
                 />
-                <Show
-                  when={draftContext
-                    .drafts()
-                    .some((draft) => draft.kind === "new-thread")}
-                >
-                  <section class="review-drafts" aria-label="Review drafts">
-                    <h3>Drafts</h3>
-                    <For
-                      each={draftContext
-                        .drafts()
-                        .filter((draft) => draft.kind === "new-thread")}
-                    >
-                      {(draft) => {
-                        assert(
-                          draft.kind === "new-thread",
-                          "History Drafts contains only new Threads.",
-                        );
-                        // A whole-review draft has no code; it continues in
-                        // History's own input slot.
-                        const target =
-                          draft.target.kind === "text" ? draft.target : null;
-                        const continuable = () =>
-                          draft.profile_id === discussion.profileId() &&
-                          draft.snapshot_id === props.snapshotId;
-                        const path =
-                          target === null
-                            ? "Whole review"
-                            : expect(
-                                target.side === "left"
-                                  ? target.file.left_path
-                                  : target.file.right_path,
-                                "A new Thread draft requires its selected-side File path.",
-                              );
-                        return (
-                          <article class="review-draft">
-                            <div class="review-draft-heading">
-                              <strong>New Thread</strong>
-                              <span>Saved</span>
-                            </div>
-                            <p class="review-draft-location">
-                              <strong>{path}</strong>
-                              <Show when={target} keyed>
-                                {(text) => (
-                                  <span>
-                                    {text.side === "left" ? "old" : "new"} · L
-                                    {text.range.start_line}
-                                    {text.range.start_line ===
-                                    text.range.end_line
-                                      ? ""
-                                      : `–${text.range.end_line}`}
-                                  </span>
-                                )}
-                              </Show>
-                            </p>
-                            <Show when={!continuable()}>
-                              <p class="review-draft-unavailable">
-                                {draft.profile_id !== discussion.profileId()
-                                  ? "Log in as the draft's Profile to continue editing."
-                                  : "A new Thread draft remains bound to the review where it was written."}
-                              </p>
+              </button>
+              <button
+                type="button"
+                class="review-history-collapse"
+                aria-label="Close History"
+                title="Close History"
+              >
+                <Eye class="review-history-icon" aria-hidden="true" />
+              </button>
+            </header>
+            <Show when={review.isPending}>
+              <p class="review-status">Loading Threads…</p>
+            </Show>
+            <Show when={review.error} keyed>
+              {(error) => (
+                <ErrorPanel title="Failed to load review Threads" error={error}>
+                  <RetryButton onRetry={reloadThreads} />
+                </ErrorPanel>
+              )}
+            </Show>
+            <Show when={draftContext.error()} keyed>
+              {(error) => (
+                <ErrorPanel title="Review drafts unavailable" error={error}>
+                  <button
+                    type="button"
+                    disabled={discussion.submittingDraftIds().size > 0}
+                    onClick={() => props.clearDrafts()}
+                  >
+                    Clear stored drafts
+                  </button>
+                </ErrorPanel>
+              )}
+            </Show>
+            <div
+              class="review-history-scroll"
+              // Focus target on open, so keyboard scrolling reaches this
+              // scroller while the document is locked.
+              tabIndex={-1}
+              ref={(scroller) => {
+                // The listener is never removed; it dies with the scroller.
+                scroller.addEventListener(
+                  "scroll",
+                  () => {
+                    historyScrollTop = scroller.scrollTop;
+                  },
+                  { passive: true },
+                );
+                // Tracks accepted `historyOpen`, not the click; runs on
+                // creation too, so an initially open panel restores. The
+                // frame is not cancelled: after disposal it writes a
+                // detached scroller.
+                createEffect(
+                  on(
+                    () => props.historyOpen,
+                    (open) => {
+                      if (!open) {
+                        return;
+                      }
+                      // Writing before layout is silently clamped.
+                      requestAnimationFrame(() => {
+                        scroller.scrollTop = historyScrollTop;
+                        scroller.focus({ preventScroll: true });
+                      });
+                    },
+                  ),
+                );
+                // Warm Threads over frames after opening so estimated heights
+                // are replaced by real ones (avoids jumpy scrolling) without
+                // delaying open; a manual scroll anchor pins the top Thread.
+                let warmFrame: number | null = null;
+                const warmBatch = () => {
+                  warmFrame = null;
+                  // Hidden panels must not warm: warmed Threads leave
+                  // content-visibility, so the next open would lay out all.
+                  if (!scroller.isConnected || !props.historyOpen) {
+                    return;
+                  }
+                  const pending = scroller.querySelectorAll(
+                    ".review-thread[data-review-history-thread-id]:not(.review-thread-warmed)",
+                  );
+                  if (pending.length === 0) {
+                    return;
+                  }
+                  const threads = scroller.querySelectorAll<HTMLElement>(
+                    ".review-thread[data-review-history-thread-id]",
+                  );
+                  let anchor: HTMLElement | null = null;
+                  for (const thread of threads) {
+                    if (
+                      thread.offsetTop + thread.offsetHeight >
+                      scroller.scrollTop
+                    ) {
+                      anchor = thread;
+                      break;
+                    }
+                  }
+                  const anchorOffset =
+                    anchor === null ? 0 : anchor.offsetTop - scroller.scrollTop;
+                  for (
+                    let index = 0;
+                    index < 8 && index < pending.length;
+                    index += 1
+                  ) {
+                    pending[index]?.classList.add("review-thread-warmed");
+                  }
+                  if (anchor !== null) {
+                    scroller.scrollTop = anchor.offsetTop - anchorOffset;
+                  }
+                  if (pending.length > 8) {
+                    warmFrame = requestAnimationFrame(warmBatch);
+                  }
+                };
+                // Re-arms warming on open and when Threads arrive; the
+                // cleanup below cancels the pending frame.
+                createEffect(() => {
+                  if (!props.historyOpen) {
+                    return;
+                  }
+                  orderedThreads();
+                  if (warmFrame === null) {
+                    warmFrame = requestAnimationFrame(warmBatch);
+                  }
+                });
+                onCleanup(() => {
+                  if (warmFrame !== null) {
+                    cancelAnimationFrame(warmFrame);
+                  }
+                });
+              }}
+            >
+              <div
+                class="review-history-input-slot"
+                ref={(slot) => {
+                  reviewInputSlot = slot;
+                  // An error-boundary retry replaces History and this slot;
+                  // close the input the provider mounted here before the
+                  // new slot exists, as renderers do for replaced rows.
+                  onCleanup(() => props.closeReviewThreadInput(slot));
+                }}
+              />
+              <Show when={listedDrafts().length > 0}>
+                <section class="review-drafts" aria-label="Review drafts">
+                  <h3>Drafts</h3>
+                  <For each={listedDrafts()}>
+                    {(draft) => {
+                      assert(
+                        draft.kind === "new-thread",
+                        "History Drafts contains only new Threads.",
+                      );
+                      // A whole-review draft has no code; it continues in
+                      // History's own input slot.
+                      const target =
+                        draft.target.kind === "text" ? draft.target : null;
+                      const continuable = () =>
+                        draft.profile_id === discussion.profileId() &&
+                        draft.snapshot_id === props.snapshotId;
+                      const path =
+                        target === null
+                          ? "Whole review"
+                          : expect(
+                              target.side === "left"
+                                ? target.file.left_path
+                                : target.file.right_path,
+                              "A new Thread draft requires its selected-side File path.",
+                            );
+                      return (
+                        <article class="review-draft">
+                          <div class="review-draft-heading">
+                            <strong>New Thread</strong>
+                            <span>Saved</span>
+                          </div>
+                          <p class="review-draft-location">
+                            <strong>{path}</strong>
+                            <Show when={target} keyed>
+                              {(text) => (
+                                <span>
+                                  {text.side === "left" ? "old" : "new"} · L
+                                  {text.range.start_line}
+                                  {text.range.start_line === text.range.end_line
+                                    ? ""
+                                    : `–${text.range.end_line}`}
+                                </span>
+                              )}
                             </Show>
-                            <p class="review-draft-body">{draft.body}</p>
-                            <div class="review-actions">
+                          </p>
+                          <Show when={!continuable()}>
+                            <p class="review-draft-unavailable">
+                              {draft.profile_id !== discussion.profileId()
+                                ? "Log in as the draft's Profile to continue editing."
+                                : "A new Thread draft remains bound to the review where it was written."}
+                            </p>
+                          </Show>
+                          <p class="review-draft-body">{draft.body}</p>
+                          <div class="review-actions">
+                            <button
+                              type="button"
+                              class="review-action-primary"
+                              disabled={
+                                !continuable() ||
+                                draftContext.error() !== null ||
+                                discussion
+                                  .submittingDraftIds()
+                                  .has(draft.draft_id)
+                              }
+                              onClick={() => {
+                                if (target === null) {
+                                  props.continueReviewDraft(
+                                    draft,
+                                    expect(
+                                      reviewInputSlot,
+                                      "History requires its whole-review input slot.",
+                                    ),
+                                  );
+                                  return;
+                                }
+                                props.onHistoryOpenChange(false);
+                                // An unposted draft has no placement, so the
+                                // code it continues at is its own target.
+                                props.continueDraftInCode(draft, {
+                                  file: target.file,
+                                  bay: target.bay,
+                                  side: target.side,
+                                  line: target.range.start_line,
+                                });
+                              }}
+                            >
+                              Continue editing
+                            </button>
+                            <Show when={!continuable()}>
                               <button
                                 type="button"
-                                class="review-action-primary"
-                                disabled={
-                                  !continuable() ||
-                                  draftContext.error() !== null ||
-                                  discussion
-                                    .submittingDraftIds()
-                                    .has(draft.draft_id)
-                                }
                                 onClick={() => {
-                                  if (target === null) {
-                                    props.continueReviewDraft(
-                                      draft,
-                                      expect(
-                                        reviewInputSlot,
-                                        "History requires its whole-review input slot.",
+                                  void navigator.clipboard
+                                    .writeText(draft.body)
+                                    .catch((error: unknown) =>
+                                      toast.showError(
+                                        "Could not copy draft",
+                                        error,
                                       ),
                                     );
-                                    return;
-                                  }
-                                  // An unposted draft has no placement, so the
-                                  // code it continues at is its own target.
-                                  props.continueDraftInCode(draft, {
-                                    file: target.file,
-                                    bay: target.bay,
-                                    side: target.side,
-                                    line: target.range.start_line,
-                                  });
                                 }}
                               >
-                                Continue editing
+                                Copy Text
                               </button>
-                              <Show when={!continuable()}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    void navigator.clipboard
-                                      .writeText(draft.body)
-                                      .catch((error: unknown) =>
-                                        toast.showError(
-                                          "Could not copy draft",
-                                          error,
-                                        ),
-                                      );
-                                  }}
-                                >
-                                  Copy Text
-                                </button>
-                              </Show>
-                              <button
-                                type="button"
-                                class="review-action-danger"
-                                disabled={
-                                  draftContext.error() !== null ||
-                                  discussion
-                                    .submittingDraftIds()
-                                    .has(draft.draft_id)
-                                }
-                                onClick={() =>
-                                  props.discardNewThreadDraft(draft.draft_id)
-                                }
-                              >
-                                Discard
-                              </button>
-                            </div>
-                          </article>
-                        );
-                      }}
-                    </For>
-                  </section>
-                </Show>
-                <Show when={rejectedThreads().length > 0}>
-                  <section class="review-thread-group">
-                    <header class="review-thread-group-heading">
-                      <strong>Could not be shown</strong>
-                      <span>{rejectedThreads().length}</span>
-                    </header>
-                    <For each={rejectedThreads()}>
-                      {(rejected: RejectedThread) => (
-                        <ErrorPanel
-                          title="Thread could not be shown"
-                          error={rejected.error}
-                        >
-                          <p>
-                            {rejected.thread_id ??
-                              "The Thread has no valid id."}
-                          </p>
-                        </ErrorPanel>
-                      )}
-                    </For>
-                  </section>
-                </Show>
-                <For each={groupedThreads().open}>
-                  {(thread) => <HistoryThread thread={thread} />}
-                </For>
-                <Show when={groupedThreads().resolved.length > 0}>
-                  <section class="review-thread-group review-thread-group-resolved">
-                    <header class="review-thread-group-heading">
-                      <strong>Resolved</strong>
-                      <span>{groupedThreads().resolved.length}</span>
-                    </header>
-                    <For each={groupedThreads().resolved}>
-                      {(thread) => <HistoryThread thread={thread} />}
-                    </For>
-                  </section>
-                </Show>
-                <Show when={groupedThreads().deleted.length > 0}>
-                  <details class="review-thread-group review-thread-group-deleted">
-                    <summary class="review-thread-group-heading">
-                      <strong>Deleted</strong>
-                      <span>{groupedThreads().deleted.length}</span>
-                    </summary>
-                    <For each={groupedThreads().deleted}>
-                      {(thread) => <HistoryThread thread={thread} />}
-                    </For>
-                  </details>
-                </Show>
-              </div>
-            </section>
-          </aside>
-        </Portal>
-      )}
-    </Show>
+                            </Show>
+                            <button
+                              type="button"
+                              class="review-action-danger"
+                              disabled={
+                                draftContext.error() !== null ||
+                                discussion
+                                  .submittingDraftIds()
+                                  .has(draft.draft_id)
+                              }
+                              onClick={() =>
+                                props.discardNewThreadDraft(draft.draft_id)
+                              }
+                            >
+                              Discard
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    }}
+                  </For>
+                </section>
+              </Show>
+              <Show when={rejectedThreads().length > 0}>
+                <section class="review-thread-group">
+                  <header class="review-thread-group-heading">
+                    <strong>Could not be shown</strong>
+                    <span>{rejectedThreads().length}</span>
+                  </header>
+                  <For each={rejectedThreads()}>
+                    {(rejected: RejectedThread) => (
+                      <ErrorPanel
+                        title="Thread could not be shown"
+                        error={rejected.error}
+                      >
+                        <p>
+                          {rejected.thread_id ?? "The Thread has no valid id."}
+                        </p>
+                      </ErrorPanel>
+                    )}
+                  </For>
+                </section>
+              </Show>
+              <For each={groupedThreads().open}>
+                {(thread) => <HistoryThread thread={thread} />}
+              </For>
+              <Show when={groupedThreads().resolved.length > 0}>
+                <section class="review-thread-group review-thread-group-resolved">
+                  <header class="review-thread-group-heading">
+                    <strong>Resolved</strong>
+                    <span>{groupedThreads().resolved.length}</span>
+                  </header>
+                  <For each={groupedThreads().resolved}>
+                    {(thread) => <HistoryThread thread={thread} />}
+                  </For>
+                </section>
+              </Show>
+              <Show when={groupedThreads().deleted.length > 0}>
+                <details class="review-thread-group review-thread-group-deleted">
+                  <summary class="review-thread-group-heading">
+                    <strong>Deleted</strong>
+                    <span>{groupedThreads().deleted.length}</span>
+                  </summary>
+                  <For each={groupedThreads().deleted}>
+                    {(thread) => <HistoryThread thread={thread} />}
+                  </For>
+                </details>
+              </Show>
+            </div>
+          </section>
+        </aside>
+      </Portal>
+    </>
   );
 }

@@ -4,6 +4,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  ErrorBoundary,
   on,
   onCleanup,
   untrack,
@@ -415,10 +416,8 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
   } = discussion;
   const currentProfileId = discussion.profileId;
   const submitReviewDraft = discussion.submitDraft;
-  // The History panel stays mounted while closed (CSS hides it), but a
-  // hidden scroller's box reads scrollTop 0, so the reading position is
-  // tracked from scroll events and written back when the panel opens or
-  // its keyed Portal remounts on an inline/split view switch.
+  // Viewport top for the closed Split History toggle, just under the sticky
+  // File header.
   const [splitHistoryTop, setSplitHistoryTop] = createSignal<number | null>(
     null,
   );
@@ -1317,84 +1316,98 @@ export function ReviewProvider(props: ReviewProviderProps): JSX.Element {
         title="Could not render review Threads"
         retryOnR={false}
       >
-        <CommentInput
-          drafts={drafts}
-          active={activeCommentInput}
-          draftError={draftError}
-          reviewAvailable={reviewAvailable}
-          submittingDraftIds={submittingDraftIds}
-          onDraftChange={updateCommentInputDraft}
-          onDiscard={discardCommentInputDraft}
-          onClose={closeActiveCommentInput}
-          onSubmit={submitReviewDraft}
-        />
-        <InlineThreadPanel
-          active={activeThreadPanel}
-          threads={reviewThreads}
-          profileId={currentProfileId}
-          submittingDraftIds={submittingDraftIds}
-          commentDeletePending={commentDeletePending}
-          threadStatePending={threadStatePending}
-          onClose={() => {
-            const commentInput = activeCommentInput();
-            if (commentInput !== null && commentInput.sourceAnchor !== null) {
-              if (submittingDraftIds().has(commentInput.draftId)) {
-                return;
+        {/* A failure here unmounts History, so the review view closes before
+            the outer boundary shows its panel: an open view with no cover
+            would leave the code inert around that panel. */}
+        <ErrorBoundary
+          fallback={(error: unknown) => {
+            props.onHistoryOpenChange(false);
+            throw error;
+          }}
+        >
+          <CommentInput
+            drafts={drafts}
+            active={activeCommentInput}
+            draftError={draftError}
+            reviewAvailable={reviewAvailable}
+            submittingDraftIds={submittingDraftIds}
+            onDraftChange={updateCommentInputDraft}
+            onDiscard={discardCommentInputDraft}
+            onClose={closeActiveCommentInput}
+            onSubmit={submitReviewDraft}
+          />
+          <InlineThreadPanel
+            active={activeThreadPanel}
+            threads={reviewThreads}
+            profileId={currentProfileId}
+            submittingDraftIds={submittingDraftIds}
+            commentDeletePending={commentDeletePending}
+            threadStatePending={threadStatePending}
+            onClose={() => {
+              const commentInput = activeCommentInput();
+              if (commentInput !== null && commentInput.sourceAnchor !== null) {
+                if (submittingDraftIds().has(commentInput.draftId)) {
+                  return;
+                }
+                closeActiveCommentInput();
               }
-              closeActiveCommentInput();
+              setActiveThreadPanel(null);
+            }}
+            replyDraft={replyDraftForThread}
+            editDraft={editDraftForComment}
+            onReplyChange={updateReplyDraft}
+            onReplySubmit={async (thread) => {
+              const draft = replyDraftForThread(thread.thread_id);
+              return draft !== null && submitReviewDraft(draft.draft_id);
+            }}
+            onReplyDiscard={(thread) => {
+              const draft = replyDraftForThread(thread.thread_id);
+              return draft === null || removeDraft(draft.draft_id);
+            }}
+            onEdit={openEditDraft}
+            onEditChange={replaceDraft}
+            onEditSubmit={(draft) => submitReviewDraft(draft.draft_id)}
+            onEditDiscard={(draft) => removeDraft(draft.draft_id)}
+            onDeleteComment={tombstoneComment}
+            onState={(thread, action) => {
+              void changeThreadState(thread, action);
+            }}
+          />
+          <ReviewHistory
+            snapshotId={props.snapshotId}
+            profile={props.profile}
+            acceptedActivities={acceptedActivities}
+            onAcceptedActivity={recordAcceptedActivity}
+            view={props.view}
+            historyOpen={props.historyOpen}
+            onHistoryOpenChange={props.onHistoryOpenChange}
+            inlineHistoryTarget={props.inlineHistoryTarget}
+            splitHistoryTop={splitHistoryTop}
+            reviewInputDraftId={() => {
+              const active = activeCommentInput();
+              return active?.sourceAnchor === null ? active.draftId : null;
+            }}
+            canViewThread={props.canViewThread}
+            viewThreadInCode={viewThreadInCode}
+            canViewFile={props.canViewFile}
+            viewOriginThreadInCode={viewOriginThreadInCode}
+            continueDraftInCode={continueDraftInCode}
+            toggleReviewThreadInput={toggleReviewThreadInput}
+            closeReviewThreadInput={(mount) => {
+              // Ordinary close keeps meaningful text as a draft and drops an
+              // empty input; an in-flight submission keeps it until it settles.
+              if (activeCommentInput()?.mount === mount) {
+                closeActiveCommentInput();
+              }
+            }}
+            continueReviewDraft={(draft, mount) =>
+              openCommentInput(draft, true, mount, null)
             }
-            setActiveThreadPanel(null);
-          }}
-          replyDraft={replyDraftForThread}
-          editDraft={editDraftForComment}
-          onReplyChange={updateReplyDraft}
-          onReplySubmit={async (thread) => {
-            const draft = replyDraftForThread(thread.thread_id);
-            return draft !== null && submitReviewDraft(draft.draft_id);
-          }}
-          onReplyDiscard={(thread) => {
-            const draft = replyDraftForThread(thread.thread_id);
-            return draft === null || removeDraft(draft.draft_id);
-          }}
-          onEdit={openEditDraft}
-          onEditChange={replaceDraft}
-          onEditSubmit={(draft) => submitReviewDraft(draft.draft_id)}
-          onEditDiscard={(draft) => removeDraft(draft.draft_id)}
-          onDeleteComment={tombstoneComment}
-          onState={(thread, action) => {
-            void changeThreadState(thread, action);
-          }}
-        />
-        <ReviewHistory
-          snapshotId={props.snapshotId}
-          profile={props.profile}
-          acceptedActivities={acceptedActivities}
-          onAcceptedActivity={recordAcceptedActivity}
-          view={props.view}
-          historyOpen={props.historyOpen}
-          onHistoryOpenChange={props.onHistoryOpenChange}
-          inlineHistoryTarget={props.inlineHistoryTarget}
-          splitHistoryTop={splitHistoryTop}
-          canViewThread={props.canViewThread}
-          viewThreadInCode={viewThreadInCode}
-          canViewFile={props.canViewFile}
-          viewOriginThreadInCode={viewOriginThreadInCode}
-          continueDraftInCode={continueDraftInCode}
-          toggleReviewThreadInput={toggleReviewThreadInput}
-          closeReviewThreadInput={(mount) => {
-            // Ordinary close keeps meaningful text as a draft and drops an
-            // empty input; an in-flight submission keeps it until it settles.
-            if (activeCommentInput()?.mount === mount) {
-              closeActiveCommentInput();
-            }
-          }}
-          continueReviewDraft={(draft, mount) =>
-            openCommentInput(draft, true, mount, null)
-          }
-          closeCommentInputInThread={closeCommentInputInThread}
-          discardNewThreadDraft={removeDraft}
-          clearDrafts={clearStoredDrafts}
-        />
+            closeCommentInputInThread={closeCommentInputInThread}
+            discardNewThreadDraft={removeDraft}
+            clearDrafts={clearStoredDrafts}
+          />
+        </ErrorBoundary>
       </UnexpectedErrorBoundary>
     </ReviewContext.Provider>
   );

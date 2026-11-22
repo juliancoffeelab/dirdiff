@@ -35,9 +35,9 @@ button {
   cursor: pointer;
 }
 
-/* Layout variables live on :root: the split-view History host portals to
-   document.body, outside .app-shell, and an unresolvable width variable
-   stretched it across the whole viewport. */
+/* Layout variables live on :root: the History host portals to
+   document.body, outside .app-shell, where .app-shell variables do not
+   resolve. */
 :root {
   --header-control-height: 34px;
   --app-header-height: 47px;
@@ -45,7 +45,6 @@ button {
   --app-gutter: 24px;
   --file-tree-closed-width: 42px;
   --file-tree-open-width: 320px;
-  --review-history-open-width: var(--file-tree-open-width);
 }
 
 .app-shell {
@@ -1471,20 +1470,6 @@ h1 {
     );
 }
 
-.change-set-root:has(.review-history-inline.review-history-open)
-  .diff-workspace-inline {
-  grid-template-columns: var(--file-tree-closed-width) minmax(0, 1fr) var(
-      --review-history-open-width
-    );
-}
-
-.change-set-root:has(.review-history-inline.review-history-open)
-  .diff-workspace-inline.diff-workspace-tree-open {
-  grid-template-columns: var(--file-tree-open-width) minmax(0, 1fr) var(
-      --review-history-open-width
-    );
-}
-
 .diff-workspace-inline.diff-workspace-tree-open::before {
   width: var(--file-tree-open-width);
 }
@@ -1498,13 +1483,41 @@ h1 {
   gap: 14px;
 }
 
+/* The open review view covers the change set, from its top or the app
+   header's sticky offset, whichever is lower, to the viewport bottom, while the
+   code keeps its layout underneath. Locking the root
+   scroller (with a stable gutter, so the code's width does not change) keeps
+   the document scroll position and stops scroll-follow, which only reacts to
+   document scrolling. A host hidden for lack of a placement locks nothing. */
+:root:has(.review-history-host.review-history-open:not([hidden])) {
+  overflow: hidden;
+  scrollbar-gutter: stable;
+}
+
 .review-history-host {
+  --review-view-column: 880px;
+  --review-view-inset: max(24px, calc((100% - var(--review-view-column)) / 2));
+}
+
+/* Closed, the host shows only the Split toggle, just under the File header. */
+.review-history-host:not(.review-history-open) {
   position: fixed;
   top: var(--review-history-top);
   right: 18px;
   z-index: 38;
-  width: var(--review-history-open-width);
   pointer-events: none;
+}
+
+.review-history-host.review-history-open {
+  position: fixed;
+  top: max(var(--app-header-sticky-offset), var(--review-change-set-top));
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 45;
+  border-top: 1px solid #d8d0c2;
+  background: #fffdf8;
+  color: #24231f;
 }
 
 .review-history-slot {
@@ -1516,50 +1529,37 @@ h1 {
   height: calc(100vh - var(--app-header-sticky-offset, 0px));
 }
 
-.review-history-inline {
-  position: relative;
-  top: auto;
-  right: auto;
-  z-index: 2;
-  width: 100%;
-  height: 100%;
-  max-height: none;
-}
-
-.review-history-inline.review-history-open {
-  width: 100%;
-}
-
-.review-history-inline:not(.review-history-open) {
+.review-history-rail {
   height: calc(100vh - var(--app-header-sticky-offset, 0px));
   border-left: 1px solid #d8d0c2;
   background: #fffdf8;
 }
 
-.review-history-toggle,
-.review-history-panel {
-  pointer-events: auto;
-  width: 100%;
-  border: 1px solid #d8d0c2;
-  background: #fffdf8;
-  color: #24231f;
-  box-shadow: 0 8px 24px rgb(36 35 31 / 14%);
-}
-
 .review-history-toggle {
+  pointer-events: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 42px;
   min-height: 38px;
-  padding: 8px 12px;
+  border: 1px solid #d8d0c2;
+  background: #fffdf8;
+  color: #24231f;
+  padding: 6px 9px;
+  box-shadow: 0 8px 24px rgb(36 35 31 / 14%);
   font-weight: 700;
 }
 
-.review-history-inline:not(.review-history-open) .review-history-toggle {
+.review-history-host .review-history-label {
+  display: none;
+}
+
+.review-history-rail .review-history-toggle {
   flex-direction: column;
   justify-content: start;
   gap: 5px;
+  width: 100%;
   min-height: 0;
   border: 0;
   border-bottom: 1px solid #d8d0c2;
@@ -1568,28 +1568,12 @@ h1 {
   box-shadow: none;
 }
 
-.review-history-inline:not(.review-history-open) .review-history-icon {
+.review-history-rail .review-history-icon {
   order: 0;
 }
 
-.review-history-inline:not(.review-history-open) .review-history-toggle kbd {
+.review-history-rail .review-history-toggle kbd {
   order: 2;
-}
-
-.review-history-host:not(.review-history-inline):not(.review-history-open) {
-  width: auto;
-}
-
-.review-history-host:not(.review-history-inline):not(.review-history-open)
-  .review-history-toggle {
-  width: auto;
-  min-width: 42px;
-  padding: 6px 9px;
-}
-
-.review-history-host:not(.review-history-inline):not(.review-history-open)
-  .review-history-label {
-  display: none;
 }
 
 .review-history-icon {
@@ -1601,7 +1585,7 @@ h1 {
 .review-history-panel {
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - var(--review-history-top) - 14px);
+  height: 100%;
 }
 
 /* Toggle and panel are both always mounted; the host's open class decides
@@ -1615,14 +1599,6 @@ h1 {
   display: none;
 }
 
-.review-history-inline .review-history-panel {
-  height: calc(100vh - var(--app-header-sticky-offset, 0px));
-  max-height: none;
-  border: 0;
-  border-top: 1px solid #d8d0c2;
-  box-shadow: none;
-}
-
 .review-history-panel > header {
   display: grid;
   grid-template-columns: 18px auto minmax(0, 1fr) 26px 26px 26px;
@@ -1630,7 +1606,7 @@ h1 {
   gap: 6px;
   min-height: 40px;
   border-bottom: 1px solid #d8d0c2;
-  padding: 7px 8px;
+  padding: 7px var(--review-view-inset);
   cursor: pointer;
 }
 
@@ -1670,11 +1646,18 @@ h1 {
   margin: 0;
 }
 
+/* The scroller spans the cover, so wheel input anywhere over it scrolls
+   History; the inset centres the reading column. */
 .review-history-scroll {
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 8px 7px 12px;
+  padding: 12px var(--review-view-inset) 24px;
   overscroll-behavior: contain;
+}
+
+.review-history-scroll:focus {
+  outline: none;
 }
 
 /* The whole-review Comment input spans the panel width above the Drafts. */
@@ -2495,7 +2478,7 @@ h1 {
 }
 
 .file-tree-shell-inline:not(.open) .file-tree-label,
-.review-history-inline:not(.review-history-open) .review-history-label {
+.review-history-rail .review-history-label {
   order: 1;
   color: #6a665d;
   font-size: 12px;
@@ -4234,12 +4217,8 @@ h1 {
   width: 360px;
 }
 
-.change-set-root:has(.review-history-inline) .hud-stack {
+.change-set-root:has(.review-history-rail) .hud-stack {
   right: calc(var(--file-tree-closed-width) + 24px);
-}
-
-.change-set-root:has(.review-history-inline.review-history-open) .hud-stack {
-  right: calc(var(--review-history-open-width) + 24px);
 }
 
 .debug-hud,

@@ -73,6 +73,9 @@ scrolling. A private guard gates it; programmatic navigation stops the guard.
 Eligible scroll events coalesce into at most one `scrollFollow()` per animation
 frame, and a guard stop before the frame cancels it.
 
+Open History locks the document's scroller (see `comments.md`), so
+scroll-follow cannot fire under it and has no pause of its own.
+
 Only visible, rich, participating real hunk targets count; virtual anchors,
 pseudo-hunks and skipped targets are excluded. `scrollFollow()` calls
 `selectHunk()` and does nothing else: it does not scroll, enrich, expand or

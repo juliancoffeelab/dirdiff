@@ -196,6 +196,9 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
           <ChangeSetShell
             helpOpen={props.helpOpen}
             debugOpen={props.debugHudOpen}
+            // No Snapshot is mounted here, so no History covers this shell;
+            // its loading and error panels stay interactive.
+            historyOpen={false}
             onToggleTree={() => props.onFileTreeOpenChange(!props.fileTreeOpen)}
             onToggleView={props.onToggleView}
             onToggleHistory={() =>
@@ -237,6 +240,7 @@ function ChangeSetContent(props: ChangeSetContentProps): JSX.Element {
           <ChangeSetShell
             helpOpen={props.helpOpen}
             debugOpen={props.debugHudOpen}
+            historyOpen={props.historyOpen}
             onToggleTree={() => props.onFileTreeOpenChange(!props.fileTreeOpen)}
             onToggleView={props.onToggleView}
             onToggleHistory={() =>
@@ -378,8 +382,8 @@ function ReviewSnapshotBoundary(
   const [navigableFileIndexes, setNavigableFileIndexes] = createSignal<
     ReadonlySet<number>
   >(new Set());
-  // Inline History portals into the third ChangeSet grid child; Split History
-  // has its own fixed host.
+  // The inline History toggle portals into the third ChangeSet grid child; the
+  // Split toggle and the panel live in History's own fixed host.
   const [inlineHistoryTarget, setInlineHistoryTarget] =
     createSignal<HTMLElement | null>(null);
 

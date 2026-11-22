@@ -39,6 +39,7 @@ export type HunkDisplay = {
 type ChangeSetShellProps = {
   helpOpen: boolean;
   debugOpen: boolean;
+  historyOpen: boolean;
   onToggleTree: () => void;
   onToggleView: () => void;
   onToggleHistory: () => void;
@@ -70,9 +71,18 @@ export function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
   });
 
   return (
-    <section ref={root} class="change-set-root" data-change-set-root>
+    <section
+      ref={root}
+      class="change-set-root"
+      data-change-set-root
+      // The review view covers this section without removing its layout, so
+      // its controls would still take focus, and focus scrolls the locked
+      // document.
+      inert={props.historyOpen}
+    >
       <NavigationProvider root={() => root}>
         <Hotkeys
+          historyOpen={props.historyOpen}
           onToggleTree={props.onToggleTree}
           onToggleView={props.onToggleView}
           onToggleHistory={props.onToggleHistory}
@@ -109,6 +119,7 @@ export function ChangeSetShell(props: ChangeSetShellProps): JSX.Element {
 }
 
 type HotkeysProps = {
+  historyOpen: boolean;
   onToggleTree: () => void;
   onToggleView: () => void;
   onToggleHistory: () => void;
@@ -150,6 +161,17 @@ function Hotkeys(props: HotkeysProps): null {
         }
       }
 
+      // The review view covers the code, the file tree and the developer
+      // metrics, so these keys would change things the reader cannot see.
+      if (
+        props.historyOpen &&
+        (event.code === "KeyN" ||
+          event.code === "KeyP" ||
+          event.code === "KeyT" ||
+          event.code === "KeyD")
+      ) {
+        return;
+      }
       if (event.code === "KeyN" && event.shiftKey) {
         event.preventDefault();
         void navigation
