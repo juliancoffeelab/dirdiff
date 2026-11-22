@@ -72,6 +72,15 @@ discussion that later reads cannot render.
   locked. A shell with no Snapshot has no History, cannot toggle it and is
   never inert; a failure inside the review boundary closes History before its
   panel shows.
+- Open History never scrolls the document. What shows above the change set
+  is a see-through gap at the start of History's own scroller, so scrolling
+  History slides the panel over the Tab banner; the reading position is kept
+  relative to the panel, because that gap differs between openings.
+  Open History keeps keyboard focus between two sentinels, because a banner
+  control under the panel or above the viewport could otherwise take it, and
+  focusing one above the viewport scrolls the locked document. Scrolling
+  History moves focus from outside it to its scroller, since a focused banner
+  control the panel slides over would otherwise stay focused unseen.
 - A History action that lands in code closes History first, then navigates.
 - A Comment body is built from its parsed Markdown tree, never from HTML, so
   raw HTML stays text and rendering fetches no URL in a body; a node outside

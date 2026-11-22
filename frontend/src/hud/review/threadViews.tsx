@@ -889,10 +889,9 @@ function CommentBody(props: { body: string }): JSX.Element {
         ) : (
           node.children.map(inline)
         );
-      // Images are never fetched: a URL an agent wrote must not cause a
-      // request from the reviewer's browser.
-      case "image":
-        return node.alt ?? "";
+      // An image falls here too and shows as its source: it is never
+      // fetched, because a URL an agent wrote must not cause a request from
+      // the reviewer's browser.
       default:
         return source(node);
     }

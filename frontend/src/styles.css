@@ -1483,9 +1483,13 @@ h1 {
   gap: 14px;
 }
 
-/* The open review view covers the change set, from its top or the app
-   header's sticky offset, whichever is lower, to the viewport bottom, while the
-   code keeps its layout underneath. Locking the root
+/* The open review view covers the change set while the code keeps its layout
+   underneath. Its scroller spans from the app header to the viewport bottom
+   and starts with a see-through gap as tall as whatever shows above the change
+   set, so the panel first sits on the change set's top and scrolling History
+   slides it up over the Tab banner; the document itself never moves. The gap
+   takes no pointer input, so the banner's controls work while they show.
+   Locking the root
    scroller (with a stable gutter, so the code's width does not change) keeps
    the document scroll position and stops scroll-follow, which only reacts to
    document scrolling. A host hidden for lack of a placement locks nothing. */
@@ -1510,14 +1514,13 @@ h1 {
 
 .review-history-host.review-history-open {
   position: fixed;
-  top: max(var(--app-header-sticky-offset), var(--review-change-set-top));
+  top: var(--app-header-sticky-offset);
   right: 0;
   bottom: 0;
   left: 0;
   z-index: 45;
-  border-top: 1px solid #d8d0c2;
-  background: #fffdf8;
   color: #24231f;
+  pointer-events: none;
 }
 
 .review-history-slot {
@@ -1583,15 +1586,16 @@ h1 {
 }
 
 .review-history-panel {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+  min-height: 100%;
+  border-top: 1px solid #d8d0c2;
+  background: #fffdf8;
+  pointer-events: auto;
 }
 
 /* Toggle and panel are both always mounted; the host's open class decides
    which one displays. Keeping the closed panel mounted preserves warmed
    Thread heights and per-Thread UI state across close and reopen. */
-.review-history-host:not(.review-history-open) .review-history-panel {
+.review-history-host:not(.review-history-open) .review-history-scroll {
   display: none;
 }
 
@@ -1600,6 +1604,10 @@ h1 {
 }
 
 .review-history-panel > header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fffdf8;
   display: grid;
   grid-template-columns: 18px auto minmax(0, 1fr) 26px 26px 26px;
   align-items: center;
@@ -1646,17 +1654,37 @@ h1 {
   margin: 0;
 }
 
-/* The scroller spans the cover, so wheel input anywhere over it scrolls
+/* The panel spans the cover, so wheel input anywhere over it scrolls
    History; the inset centres the reading column. */
 .review-history-scroll {
-  flex: 1 1 auto;
-  min-height: 0;
+  height: 100%;
   overflow: auto;
-  padding: 12px var(--review-view-inset) 24px;
   overscroll-behavior: contain;
 }
 
+/* The gap is content, not padding: a sticky header is held below its
+   scroller's padding, and this one has to reach the scroller's top. */
+.review-history-scroll::before {
+  display: block;
+  height: max(
+    0px,
+    var(--review-change-set-top) - var(--app-header-sticky-offset)
+  );
+  content: "";
+}
+
+.review-history-body {
+  padding: 12px var(--review-view-inset) 24px;
+}
+
 .review-history-scroll:focus {
+  outline: none;
+}
+
+/* Out of flow, so neither the scroller's height nor focusing a sentinel
+   moves anything. */
+.review-history-focus-sentinel {
+  position: absolute;
   outline: none;
 }
 
