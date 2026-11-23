@@ -66,7 +66,7 @@ live in skills under `.agents/skills/`.
   - [`rooms.md`](spec/rooms.md): Room correspondence, change sources, Snapshot
     capture, equality and publication.
   - [`formats.md`](spec/formats.md): composition of Files into frames and bays,
-    engines and enrichment, review targets and media.
+    engines and enrichment.
   - [`comments.md`](spec/comments.md): comment Thread placement, excerpts,
     paging and the review HUD.
   - [`tabs.md`](spec/tabs.md): Tab selections and preferences.
