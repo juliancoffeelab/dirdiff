@@ -32,8 +32,10 @@ type TextareaEvent<E extends Event> = E & {
 // their image references. The upload finishes after the user may have typed,
 // so the references go in at the selection as it stands then, and reach the
 // draft through the textarea's own input handler, the one path that changes a
-// body. They go in only while the draft the paste went into is still there: a
-// discarded reply keeps its textarea, and inserting would recreate the draft.
+// body. They go in only while the draft the paste went into is still there,
+// and, for a textarea that outlives its draft (a reply's), only until the user
+// ends that draft, which `forget()` records: a draft begun after the paste
+// would otherwise be recreated by it.
 function createImageInsertion(
   uploadImages: (files: readonly File[]) => Promise<string | null>,
   draftId: () => ReviewId | null,
@@ -41,7 +43,9 @@ function createImageInsertion(
   onPaste(event: TextareaEvent<ClipboardEvent>): void;
   onDragOver(event: TextareaEvent<DragEvent>): void;
   onDrop(event: TextareaEvent<DragEvent>): void;
+  forget(): void;
 } {
+  let generation = 0;
   function insert(
     event: TextareaEvent<ClipboardEvent | DragEvent>,
     files: FileList | undefined,
@@ -54,6 +58,7 @@ function createImageInsertion(
     // Pasting into an input with no draft yet starts one when the references
     // go in, so only a draft that existed at the paste is required to remain.
     const pastedInto = draftId();
+    const pastedGeneration = generation;
     // A throw here reaches the unhandled-rejection Toast.
     void uploadImages([...files]).then((markdown) => {
       if (markdown === null) {
@@ -62,6 +67,7 @@ function createImageInsertion(
       if (
         !textarea.isConnected ||
         textarea.disabled ||
+        generation !== pastedGeneration ||
         (pastedInto !== null && draftId() !== pastedInto)
       ) {
         throw new Error(
@@ -90,6 +96,9 @@ function createImageInsertion(
     },
     onDrop(event) {
       insert(event, event.dataTransfer?.files);
+    },
+    forget() {
+      generation += 1;
     },
   };
 }
@@ -728,7 +737,11 @@ export function ThreadCard(props: {
               ) {
                 return;
               }
-              void props.onReplySubmit();
+              void props.onReplySubmit().then((submitted) => {
+                if (submitted) {
+                  imageInsertion.forget();
+                }
+              });
             }}
           >
             <textarea
@@ -767,7 +780,11 @@ export function ThreadCard(props: {
                   type="button"
                   class="comment-floater-secondary"
                   disabled={props.replySubmitting}
-                  onClick={props.onReplyDiscard}
+                  onClick={() => {
+                    if (props.onReplyDiscard()) {
+                      imageInsertion.forget();
+                    }
+                  }}
                 >
                   Discard
                 </button>
