@@ -66,11 +66,15 @@ _PAGE_LIMIT = 100
 # Longest single `wait` hold the server accepts.
 _WAIT_MAX_SECONDS = 540
 
-# The HUD shows the Markdown images whose URL is `attachment:` and a digest.
-# A caption may hold escaped brackets, as `attach` writes them. Unlike the HUD,
-# this also matches such an image written inside a code span.
+# The HUD shows the Markdown images whose destination is `attachment:` and a
+# digest. A caption may hold escaped brackets, as `attach` writes them; the
+# destination may sit in angle brackets and be followed by a title. Unlike the
+# HUD, this also matches such an image written inside a code span.
 _ATTACHMENT_IMAGE = re.compile(
-    r"!\[(?:[^\]\\]|\\.)*\]\(attachment:([0-9a-f]{64})\)"
+    r"!\[(?:[^\]\\]|\\.)*\]\(\s*"
+    r"(?:<attachment:([0-9a-f]{64})>|attachment:([0-9a-f]{64}))"
+    r"""(?:\s+(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\)))?"""
+    r"\s*\)"
 )
 
 # Every type the Room stores an attachment as.
@@ -751,7 +755,10 @@ def show(session: SessionOption, thread_id: str) -> None:
             typer.echo("    (deleted)")
             continue
         typer.echo(indent(comment.body, "    "))
-        digests = dict.fromkeys(_ATTACHMENT_IMAGE.findall(comment.body))
+        digests = dict.fromkeys(
+            angled or bare
+            for angled, bare in _ATTACHMENT_IMAGE.findall(comment.body)
+        )
         for digest in digests:
             url = endpoint(
                 state.server_url,
