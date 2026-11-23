@@ -1655,11 +1655,13 @@ h1 {
 }
 
 /* The panel spans the cover, so wheel input anywhere over it scrolls
-   History; the inset centres the reading column. */
+   History; the inset centres the reading column. No elastic overscroll: the
+   scroller is see-through behind the panel, so a bounce past the panel's end
+   would show the code underneath. */
 .review-history-scroll {
   height: 100%;
   overflow: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: none;
 }
 
 /* The gap is content, not padding: a sticky header is held below its
