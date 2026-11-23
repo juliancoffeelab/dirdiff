@@ -112,8 +112,9 @@ discussion that later reads cannot render.
   the open Snapshot, whatever their declared type, and their references, one per
   line with an empty caption, go in at the selection as it stands when the
   upload finishes, through the textarea's own input handler. A failed upload
-  inserts nothing; an input closed meanwhile gets an error carrying the
-  references, since the stored bytes are kept but no draft names them.
+  inserts nothing. An input closed meanwhile, or whose draft was discarded
+  (a reply keeps its textarea), gets an error carrying the references instead,
+  since the stored bytes are kept but no draft names them.
 - The History panel has one host for both code views and stays mounted while
   closed, so neither a view switch nor closing can destroy per-Thread UI
   state, warmed Thread heights, or the reading position.

@@ -32,9 +32,11 @@ type TextareaEvent<E extends Event> = E & {
 // their image references. The upload finishes after the user may have typed,
 // so the references go in at the selection as it stands then, and reach the
 // draft through the textarea's own input handler, the one path that changes a
-// body.
+// body. They go in only while the draft the paste went into is still there: a
+// discarded reply keeps its textarea, and inserting would recreate the draft.
 function createImageInsertion(
   uploadImages: (files: readonly File[]) => Promise<string | null>,
+  draftId: () => ReviewId | null,
 ): {
   onPaste(event: TextareaEvent<ClipboardEvent>): void;
   onDragOver(event: TextareaEvent<DragEvent>): void;
@@ -49,14 +51,21 @@ function createImageInsertion(
     }
     event.preventDefault();
     const textarea = event.currentTarget;
+    // Pasting into an input with no draft yet starts one when the references
+    // go in, so only a draft that existed at the paste is required to remain.
+    const pastedInto = draftId();
     // A throw here reaches the unhandled-rejection Toast.
     void uploadImages([...files]).then((markdown) => {
       if (markdown === null) {
         return;
       }
-      if (!textarea.isConnected || textarea.disabled) {
+      if (
+        !textarea.isConnected ||
+        textarea.disabled ||
+        (pastedInto !== null && draftId() !== pastedInto)
+      ) {
         throw new Error(
-          `The Comment input closed during the image upload. Paste this where the image belongs: ${markdown}`,
+          `The Comment input was closed or discarded during the image upload. Paste this where the image belongs: ${markdown}`,
         );
       }
       textarea.setRangeText(
@@ -120,7 +129,10 @@ export function CommentInput(props: {
     const current = draft();
     return current !== null && props.submittingDraftIds().has(current.draft_id);
   });
-  const imageInsertion = createImageInsertion(props.uploadImages);
+  const imageInsertion = createImageInsertion(
+    props.uploadImages,
+    () => draft()?.draft_id ?? null,
+  );
   const mount = createMemo(() => {
     const active = props.active();
     return active?.mount ?? document.body;
@@ -443,7 +455,10 @@ export function ThreadCard(props: {
   onDeleteComment(comment: ReviewComment): void;
   uploadImages(files: readonly File[]): Promise<string | null>;
 }): JSX.Element {
-  const imageInsertion = createImageInsertion(props.uploadImages);
+  const imageInsertion = createImageInsertion(
+    props.uploadImages,
+    () => props.replyDraft?.draft_id ?? null,
+  );
   const origin = props.thread.origin_target;
   // A review-scoped origin has no File; its heading shows a fixed label.
   const excerptPath =
@@ -1063,7 +1078,10 @@ function ReviewCommentView(props: {
   onDelete(): void;
   uploadImages(files: readonly File[]): Promise<string | null>;
 }): JSX.Element {
-  const imageInsertion = createImageInsertion(props.uploadImages);
+  const imageInsertion = createImageInsertion(
+    props.uploadImages,
+    () => props.editDraft?.draft_id ?? null,
+  );
   return (
     <li
       data-review-comment-id={props.comment.comment_id}
