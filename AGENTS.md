@@ -52,9 +52,11 @@ live in skills under `.agents/skills/`.
   stay in the query cache.
 - An optional input, provider, signal, cache, queue, callback or helper layer
   exists only where a concrete contract requires it.
-- Before adding a helper, inspect every use. One use: inline it with a local
-  comment. All uses in one function: nest it there. If a separate helper still
-  looks better, explain why to the user and add it only if they agree.
+- Before adding a helper, inspect every use, across modules: a function with
+  one use is a helper even when another package exports it. One use: inline it
+  with a local comment. All uses in one function: nest it there. If a separate
+  helper still looks better, explain why to the user and add it only if they
+  agree.
 - Composition over inheritance.
 
 ## Invariants and documentation
@@ -94,16 +96,21 @@ live in skills under `.agents/skills/`.
 
 ## Module architecture
 
+- Module boundaries stay as they are unless the user approves an architectural
+  change. Suggest a module to the user when you think one is due.
+- Code lives with its purpose, not with its mechanism. A package or directory
+  holds the concern its spec names; sharing a library, a data shape or a
+  similar-looking function is not a reason to put another concern there. When
+  new code has no evident home, say so and ask before placing it.
+
 ### Frontend
 
 - Domain-independent controls live in `frontend/src/comp/`; dirdiff UI lives in
   `frontend/src/hud/`; backend communication and TanStack definitions live in
   `frontend/src/api/`. `utils.ts` holds small, genuinely shared
   domain-independent operations.
-- Module boundaries stay as they are unless the user approves an architectural
-  change. A new module needs a coherent implementation expected to exceed 500
-  lines; a component boundary is not a file boundary. Suggest a module to the
-  user when you think one is due.
+- A new module needs a coherent implementation expected to exceed 500 lines; a
+  component boundary is not a file boundary.
 
 ### Python packages
 
