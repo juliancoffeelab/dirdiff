@@ -1655,23 +1655,30 @@ h1 {
 }
 
 /* The panel spans the cover, so wheel input anywhere over it scrolls
-   History; the inset centres the reading column. No elastic overscroll: the
-   scroller is see-through behind the panel, so a bounce past the panel's end
-   would show the code underneath. */
+   History; the inset centres the reading column. The scroller is see-through
+   only over the gap; below it, it is painted like the panel, so an elastic
+   bounce past the panel's end shows paper and not the code underneath. */
 .review-history-scroll {
+  --review-history-gap: max(
+    0px,
+    var(--review-change-set-top) - var(--app-header-sticky-offset)
+  );
+
   height: 100%;
   overflow: auto;
-  overscroll-behavior: none;
+  background: linear-gradient(
+    to bottom,
+    transparent var(--review-history-gap),
+    #fffdf8 var(--review-history-gap)
+  );
+  overscroll-behavior: contain;
 }
 
 /* The gap is content, not padding: a sticky header is held below its
    scroller's padding, and this one has to reach the scroller's top. */
 .review-history-scroll::before {
   display: block;
-  height: max(
-    0px,
-    var(--review-change-set-top) - var(--app-header-sticky-offset)
-  );
+  height: var(--review-history-gap);
   content: "";
 }
 
