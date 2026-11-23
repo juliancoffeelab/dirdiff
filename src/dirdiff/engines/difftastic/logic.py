@@ -28,7 +28,6 @@ type _DifftasticPartitionStatus = Literal["synthesised", "insert", "delete"]
 __all__ = [
     "DifftasticDiffEngine",
     "DifftasticJson",
-    "difftastic_engine_warning",
     "difftastic_rows_from_json",
     "is_difftastic_json",
 ]

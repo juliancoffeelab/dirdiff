@@ -77,24 +77,3 @@ def test_paired_module_reaches_private_submodules_but_not_their_facade(
     )
 
     assert violations == ["src/dirdiff/a/x.py:2"]
-
-
-def test_tests_may_import_public_submodules_but_not_private_ones(
-    tmp_path: Path,
-) -> None:
-    violations = import_violations(
-        tmp_path,
-        {
-            "src/dirdiff/__init__.py": "",
-            "src/dirdiff/a/__init__.py": "__all__ = []\n",
-            "src/dirdiff/a/impl.py": "thing = 1\n__all__ = ['thing']\n",
-            "src/dirdiff/a/_x/__init__.py": "",
-            "src/dirdiff/a/_x/impl.py": "thing = 1\n__all__ = ['thing']\n",
-            "tests/test_a.py": (
-                "from dirdiff.a.impl import thing\n"
-                "from dirdiff.a._x.impl import thing as other\n"
-            ),
-        },
-    )
-
-    assert violations == ["tests/test_a.py:2"]

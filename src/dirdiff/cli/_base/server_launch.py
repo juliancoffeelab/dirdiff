@@ -34,8 +34,6 @@ __all__ = [
     "DEFAULT_FRONTEND_PORT",
     "DEFAULT_PORT",
     "AppOptions",
-    "choose_port_pair",
-    "require_bindable_port",
     "run_app",
 ]
 
@@ -120,15 +118,6 @@ def can_bind_port(port: int) -> bool:
         return True
     except OSError:
         return False
-
-
-def require_bindable_port(port: int, *, label: str) -> None:
-    if can_bind_port(port):
-        return
-    raise SystemExit(
-        f"{label} port {port} is already in use. "
-        "Stop the existing dirdiff process or pass an explicit port."
-    )
 
 
 def choose_port_pair(backend_port: int, frontend_port: int) -> tuple[int, int]:

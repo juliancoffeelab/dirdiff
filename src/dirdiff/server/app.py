@@ -32,7 +32,7 @@ from dirdiff.engines import (
 from dirdiff.room_lord import (
     RoomLord,
 )
-from dirdiff.server._app.diff import ComposedDiffResponse, DiffRoutes
+from dirdiff.server._app.diff import DiffRoutes
 from dirdiff.server._app.external_agent import ExternalAgentRoutes
 from dirdiff.server._app.repos import RepoRoutes
 from dirdiff.server._app.review import ReviewRoutes
@@ -45,7 +45,6 @@ from dirdiff.server.base import (
 )
 
 __all__ = [
-    "ComposedDiffResponse",
     "create_app",
     "development_uvicorn_entrypoint",
     "release_uvicorn_entrypoint",

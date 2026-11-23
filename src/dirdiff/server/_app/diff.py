@@ -68,7 +68,7 @@ from dirdiff.server.base import (
 )
 from dirdiff.util import Nothing, Option, Some, maybe
 
-__all__ = ["ComposedDiffResponse", "DiffRoutes"]
+__all__ = ["DiffRoutes"]
 
 LOGGER = logging.getLogger(__name__)
 

@@ -20,7 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine.interfaces import DBAPIConnection
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.pool import ConnectionPoolEntry, StaticPool
+from sqlalchemy.pool import ConnectionPoolEntry
 
 from alembic import command
 
@@ -30,7 +30,6 @@ __all__ = [
     "TableBase",
     "UserProfile",
     "UserProfileRecord",
-    "open_ephemeral_engine",
     "open_sqlite_engine",
     "profile_record",
 ]
@@ -143,17 +142,4 @@ def open_sqlite_engine(db_path: Path, migration_config_path: Path) -> Engine:
         engine,
         migrate=(expanded_path, migration_config_path),
     )
-    return engine
-
-
-def open_ephemeral_engine() -> Engine:
-    # StaticPool shares one connection across sessions and threads; each new
-    # connection would otherwise be a separate empty in-memory database.
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    event.listen(engine, "connect", enable_sqlite_foreign_keys)
-    bootstrap_tables(engine)
     return engine

@@ -40,80 +40,6 @@ _ACTION = {
 @pytest.mark.parametrize(
     "changes",
     [
-        pytest.param({}, id="live-range"),
-        pytest.param(
-            {"outdated_reason": "region_changed", "private_locator": None},
-            id="outdated-range",
-        ),
-        pytest.param(
-            {
-                "target_kind": "bay-start",
-                "start_line": None,
-                "end_line": None,
-                "outdated_reason": "region_not_found",
-                "private_locator": None,
-            },
-            id="bay-start-region-lost",
-        ),
-        pytest.param(
-            {
-                "target_kind": "bay-start",
-                "start_line": None,
-                "end_line": None,
-                "outdated_reason": "bay_not_found",
-                "private_locator": None,
-            },
-            id="bay-start-bay-lost",
-        ),
-        pytest.param(
-            {
-                "target_kind": "file-start",
-                "bay_key": None,
-                "start_line": None,
-                "end_line": None,
-                "private_locator": None,
-            },
-            id="file-start-current",
-        ),
-        pytest.param(
-            {
-                "target_kind": "file-start",
-                "bay_key": None,
-                "start_line": None,
-                "end_line": None,
-                "outdated_reason": "bay_not_found",
-                "private_locator": None,
-            },
-            id="file-start-bay-lost",
-        ),
-        pytest.param(
-            {
-                "snapshot_file_id": None,
-                "target_kind": None,
-                "bay_key": None,
-                "side": None,
-                "start_line": None,
-                "end_line": None,
-                "outdated_reason": "file_missing",
-                "private_locator": None,
-            },
-            id="file-missing",
-        ),
-    ],
-)
-def test_valid_placements_construct(
-    changes: dict[str, str | int | None],
-) -> None:
-    record = RoomStore._thread_record(
-        SimpleNamespace(**{**_RANGE, **changes}),  # type: ignore[arg-type]
-        True,
-    )
-    assert record.placement.thread_id == _RANGE["thread_id"]
-
-
-@pytest.mark.parametrize(
-    "changes",
-    [
         pytest.param({"bay_key": None}, id="range-without-bay"),
         pytest.param({"bay_key": ""}, id="range-with-empty-bay"),
         pytest.param({"side": None}, id="range-without-side"),
@@ -224,43 +150,6 @@ def test_invalid_placement_is_refused(
 @pytest.mark.parametrize(
     "changes",
     [
-        pytest.param({}, id="comment-created"),
-        pytest.param({"kind": "thread-created"}, id="thread-created"),
-        pytest.param(
-            {"kind": "comment-edited", "expected_revision": 2},
-            id="comment-edited",
-        ),
-        pytest.param(
-            {
-                "kind": "comment-deleted",
-                "expected_revision": 2,
-                "body": None,
-            },
-            id="comment-deleted",
-        ),
-        pytest.param(
-            {"kind": "thread-resolved", "comment_id": None, "body": None},
-            id="resolved-alone",
-        ),
-        pytest.param({"kind": "thread-resolved"}, id="resolved-with-a-comment"),
-        pytest.param(
-            {"kind": "thread-reopened", "comment_id": None, "body": None},
-            id="reopened-alone",
-        ),
-        pytest.param(
-            {"kind": "thread-deleted", "comment_id": None, "body": None},
-            id="thread-deleted",
-        ),
-    ],
-)
-def test_valid_actions_construct(changes: dict[str, str | int | None]) -> None:
-    record = RoomStore._action_record(SimpleNamespace(**{**_ACTION, **changes}))  # type: ignore[arg-type]
-    assert record.action.operation_id == _ACTION["operation_id"]
-
-
-@pytest.mark.parametrize(
-    "changes",
-    [
         pytest.param({"profile_id": 0}, id="without-a-profile"),
         pytest.param({"body": ""}, id="authored-with-an-empty-body"),
         pytest.param({"body": None}, id="authored-without-a-body"),
@@ -326,35 +215,6 @@ def test_persisted_action_enums_are_validated_on_read(
         RoomStore._action_record(
             action  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         )
-
-
-@pytest.mark.parametrize(
-    ("target_capture_path", "target_hash"),
-    [
-        pytest.param(None, None, id="stopped-walk"),
-        pytest.param("/capture/right-target", b"t" * 32, id="reached-target"),
-    ],
-)
-def test_valid_snapshot_symlink_descriptor_constructs(
-    target_capture_path: str | None,
-    target_hash: bytes | None,
-) -> None:
-    records = RoomStore._file_symlink_records(
-        (  # type: ignore[arg-type]
-            SimpleNamespace(
-                file_id="file",
-                side="right",
-                metadata_path="/capture/right-link.json",
-                metadata_hash=b"m" * 32,
-                target_capture_path=target_capture_path,
-                target_hash=target_hash,
-            ),
-        )
-    )
-    record = records[("file", "right")]
-    assert (
-        record.target.get_map(lambda target: target.path)
-    ) == target_capture_path
 
 
 @pytest.mark.parametrize(

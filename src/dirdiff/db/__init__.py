@@ -1,6 +1,5 @@
 from dirdiff.db.base import (
     TableBase,
-    open_ephemeral_engine,
     open_sqlite_engine,
 )
 from dirdiff.db.preferences import (
@@ -82,6 +81,5 @@ __all__ = [
     "ThreadDeletedAction",
     "ThreadStateAction",
     "UserProfileStore",
-    "open_ephemeral_engine",
     "open_sqlite_engine",
 ]

@@ -19,7 +19,6 @@ LOGGER = logging.getLogger(__name__)
 
 __all__ = [
     "PreparedPullRequest",
-    "parse_github_pull_request_url",
     "parse_gitlab_merge_request_url",
     "prepare_pull_request",
     "repo_key",

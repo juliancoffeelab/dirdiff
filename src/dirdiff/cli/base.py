@@ -27,18 +27,14 @@ from dirdiff.cli._base.server_launch import (
     DEFAULT_FRONTEND_PORT,
     DEFAULT_PORT,
     AppOptions,
-    choose_port_pair,
-    require_bindable_port,
     run_app,
 )
 from dirdiff.server import RuntimeConfig
 from dirdiff.util import JsonValue
 
 __all__ = [
-    "choose_port_pair",
     "db_path_or_default",
     "main",
-    "require_bindable_port",
 ]
 
 cli_app = typer.Typer(
